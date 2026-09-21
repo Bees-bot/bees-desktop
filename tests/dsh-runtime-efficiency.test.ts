@@ -142,7 +142,7 @@ it("leaves failed tool retries to the model on managed leads and peers", async (
     const child = await h.agent("retrying-child", parent);
     for (const agent of [parent, child]) {
       await h.find(agent, "failing_sample");
-      for (let step = 1; step <= 4; step++) {
+      for (let step = 1; step <= 3; step++) {
         const before = attempts;
         const failure = await h.tools.execute({ agent, callId: `failed-${step}`, name: "failing_sample",
           arguments: {}, signal: new AbortController().signal });

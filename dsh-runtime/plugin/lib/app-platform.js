@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { appConfig, appRecordData, validateApp } from "./app-contract.js";
 import { currentIdentity, iso, transaction, workspaceContext } from "./product-database.js";
-import { readPublicSource } from "./app-source.js";
+import { publicSourceUrl, readPublicSource } from "./app-source.js";
 import { AppSharedState } from './app-shared-state.js';
 import { ACTION_RESERVED_STATUSES, AppActionDispatcher, claimAction, decideAction, reconcileAction, reviewAction, settleAction } from './app-actions.js';
 
@@ -318,6 +318,9 @@ export class AppPlatform {
     }
     if (action === "remove") {
       if (this.db.prepare("SELECT 1 FROM app_actions WHERE installation_id=? AND status='executing'").get(app.id)) throw new Error("Resolve in-flight actions before removing this app; uncertain history will be retained");
+      // removing the app is the ask to stop it, so its own schedules pause instead of blocking the removal
+      for (const { id } of app.process_id ? this.db.prepare("SELECT id FROM recurring_work WHERE process_id=? AND status='active'").all(app.process_id) : [])
+        await this.product.command({ action: "pause_recurring_work", recurringWorkId: id });
       if (app.process_id) await this.product.command({ action: "archive_process", processId: app.process_id });
       this.db.prepare("UPDATE app_installations SET status='removed' WHERE id=?").run(app.id);
       this.db.prepare("UPDATE app_actions SET status='cancelled' WHERE installation_id=? AND status IN ('draft','approved')").run(app.id);
@@ -423,7 +426,7 @@ export class AppPlatform {
   async source(app, itemId, key, query, signal) {
     const source = app.manifest.sources.find((s) => s.key === key);
     if (!source) throw new Error("Source is not declared by this app");
-    bounded(query, "query", source.type === "page" ? 2000 : 300);
+    publicSourceUrl(source, query); // a malformed or out-of-scope query fails here, before it spends one of the 20 requests
     const id = randomUUID();
     await this.useApp(app, itemId, true, () => transaction(this.db, () => {
       if (this.db.prepare("SELECT COUNT(*) AS n FROM app_sources WHERE item_id=?").get(itemId).n >= 20) throw new Error("This work item reached its 20-request limit");
@@ -444,7 +447,9 @@ export class AppPlatform {
     const evidence = input.evidenceIds ?? [];
     if (!Array.isArray(evidence) || evidence.length > 20) throw new Error("Invalid evidence IDs");
     for (const id of evidence) if (!this.db.prepare("SELECT 1 FROM app_sources WHERE id=? AND installation_id=?").get(id, app.id)) throw new Error("Evidence belongs to another app or does not exist");
-    const prior = this.db.prepare("SELECT id FROM app_records WHERE installation_id=? AND record_key=?").get(app.id, key);
+    const prior = this.db.prepare("SELECT id, kind FROM app_records WHERE installation_id=? AND record_key=?").get(app.id, key);
+    // one key per record: an upsert under another kind would silently erase the earlier record
+    if (prior && prior.kind !== kind) throw new Error(`Record key "${key}" already holds a ${prior.kind} record; use a different key`);
     const id = prior?.id ?? randomUUID();
     this.db.prepare(`INSERT INTO app_records (id,installation_id,record_key,kind,title,body,evidence,item_id,updated_at,data,provenance) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(installation_id,record_key) DO UPDATE SET kind=excluded.kind,title=excluded.title,body=excluded.body,evidence=excluded.evidence,item_id=excluded.item_id,updated_at=excluded.updated_at,data=excluded.data,provenance=excluded.provenance`)
       .run(id, app.id, key, kind, title, body, JSON.stringify(evidence), itemId, iso(), JSON.stringify(data), provenance);
@@ -466,14 +471,14 @@ export class AppPlatform {
     if (this.db.prepare("SELECT 1 FROM app_suppressions WHERE workspace_id=? AND destination=?").get(app.workspace_id, payload.destination.toLowerCase()))
       throw new Error("Destination is suppressed");
     const existing = this.db.prepare("SELECT id FROM app_actions WHERE installation_id=? AND digest=? AND status IN ('draft','approved')").get(app.id, hash(payload));
-    if (existing) return { id: existing.id, reused: true };
+    if (existing) return { id: existing.id, digest: hash(payload), reused: true };
     if (this.db.prepare(`SELECT 1 FROM app_actions x JOIN app_installations a ON a.id=x.installation_id WHERE a.workspace_id=? AND lower(json_extract(x.payload,'$.destination'))=? AND x.status IN ('draft','approved','executing','unknown')`).get(app.workspace_id, payload.destination.toLowerCase()))
       throw new Error("This destination already has an active action in the portfolio");
     const count = this.db.prepare(`SELECT COUNT(*) AS n FROM app_actions x JOIN app_installations a ON a.id=x.installation_id WHERE a.workspace_id=? AND x.status='draft'`).get(app.workspace_id).n;
     if (count >= 5) throw new Error("Five drafts already await review; finish the approval backlog first");
     this.db.prepare("INSERT INTO app_actions (id,installation_id,item_id,payload,digest,status,cost_cents,created_at) VALUES (?,?,?,?,?,'draft',?,?)")
       .run(id, app.id, itemId, JSON.stringify(payload), hash(payload), payload.costCents, iso());
-    return { id, status: "draft", sent: false };
+    return { id, digest: hash(payload), status: "draft", sent: false };
   }
 
   expire() { this.db.prepare("UPDATE app_actions SET status='expired' WHERE status='approved' AND expires_at <= ?").run(iso()); }
