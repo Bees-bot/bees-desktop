@@ -1,3 +1,4 @@
+import { dataDirectory, sharedFolder } from "./data-folder.js";
 import { WorkContext } from "./work-context.js";
 import { WorkMemory } from "./work-memory.js";
 import { randomUUID } from "node:crypto";
@@ -220,7 +221,7 @@ export class BeesProduct {
     const reviewPath = `.bees-reviews/${encodeURIComponent(executionId)}`;
     if (stage.candidateExecutionId) {
       const candidate = this.database.prepare(`
-        SELECT e.run_directory AS runDirectory, r.summary
+        SELECT mounted(e.run_directory) AS runDirectory, r.summary
         FROM execution_links e
         LEFT JOIN bees_stage_results r ON r.execution_id = e.execution_id
         WHERE e.execution_id = ? AND e.work_item_id = ?
@@ -499,7 +500,7 @@ export class BeesProduct {
              e.current_session_id AS sessionId, e.previous_session_id AS previousSessionId,
              CASE WHEN e.status IN ('queued', 'running', 'waiting_for_input', 'waiting_for_approval') AND i.runtime_phase IN ('completed', 'failed', 'cancelled') THEN i.runtime_phase ELSE e.status END AS status, json_extract(e.config_json, '$.mode') AS mode,
              json_extract(e.config_json, '$.purpose') AS purpose,
-             e.run_directory AS runDirectory, e.updated_at AS updatedAt,
+             mounted(e.run_directory) AS runDirectory, e.updated_at AS updatedAt,
              starts.startedAt,
              d.stage_id AS dispatchStageId, d.agent_assignment_id AS resolvedAgentId,
              d.agent_ids_json AS resolvedAgentIds,
@@ -570,7 +571,8 @@ export class BeesProduct {
       presets, runs: [...runs, ...elsewhere.filter(({ id }) => !runs.some((run) => run.id === id))]
         .sort((left, right) =>
         String(right.updatedAt).localeCompare(String(left.updatedAt))),
-      proposals, browserEnabled: this.capabilities?.browserEnabled() ?? false
+      proposals, browserEnabled: this.capabilities?.browserEnabled() ?? false,
+      dataFolder: { path: dataDirectory(), shared: sharedFolder() }
     };
   }
 
@@ -683,7 +685,7 @@ export class BeesProduct {
   runFile(executionId, filePath, native = false) {
     const id = required(executionId, "Run");
     const row = this.database.prepare(`
-      SELECT workspace_id AS workspaceId, run_directory AS runDirectory, current_session_id AS sessionId, status
+      SELECT workspace_id AS workspaceId, mounted(run_directory) AS runDirectory, current_session_id AS sessionId, status
       FROM execution_links WHERE execution_id = ?
     `).get(id);
     if (!row) throw new Error("Run not found");

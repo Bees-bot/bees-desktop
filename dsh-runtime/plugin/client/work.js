@@ -10,6 +10,7 @@ import { applyWorkItemLayout, workItemLayoutFrom } from "./dashboard-model.js";
 import { FlexibleGrid, GridStackPage } from "./flexible-grid.js";
 import { addLocationFromDevice, FilePreview, inheritedInputs, ResourceFields, WorkFiles, WorkLocations } from "./location-fields.js";
 
+import { useMcpPreflight } from "./agents.js";
 import { generatedFileKeys, watchFilesViewed } from "./file-notifications.js";
 import { conversationMessages, OUTCOME_LABELS, pollConversation } from "./conversation-model.js";
 import { DshRunPanels } from "./native-conversation.js";
@@ -460,7 +461,7 @@ function RunTraces({ run }) {
     : h(Empty, null, "No audit events for this execution yet.");
 }
 
-function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onScheduleCreated, preference, preferences, setPageActions, setPageHeader }) {
+function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onScheduleCreated, preference, preferences, setPageActions, setPageHeader, capabilities }) {
   const opened = data.items.find(({ id }) => id === rootId);
   const processRunId = opened?.processRunId ?? rootId;
   const root = data.items.find(({ id }) => id === processRunId);
@@ -546,7 +547,7 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onScheduleCre
   }, [root.title, root.processId, root.archivedAt, root.recurringWorkId, root.kind, schedulable, process?.name, completed, total, editing, addingWork, onBack, setPageHeader, setPageActions]);
 
   if (addingWork) return h(WorkItemForm, {
-    ctx, data, parent: root, workspaceId: process.workspaceId, act, setPageHeader,
+    ctx, data, parent: root, workspaceId: process.workspaceId, act, setPageHeader, capabilities,
     onCancel: () => setAddingWork(false),
     onCreated: (id) => { setSelectedId(id); setAddingWork(false); }
   });
@@ -563,7 +564,7 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onScheduleCre
   );
 }
 
-function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, parent, act, onCancel, onCreated, setPageHeader }) {
+function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, parent, act, onCancel, onCreated, setPageHeader, capabilities }) {
   const processes = data.processes.filter((process) => process.workspaceId === workspaceId);
   const assignments = data.assignments.filter((assignment) => assignment.workspaceId === workspaceId);
   const mentionableAgents = assignments.filter(({ enabled }) => enabled);
@@ -591,6 +592,7 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, parent, 
   const defaultOutputId = parent?.outputLocationId || process?.outputLocationId;
   const teamId = data.workspaces.find(({ id }) => id === workspaceId)?.teamId;
 
+  const [guardRun, preflight] = useMcpPreflight({ ctx, data, workspaceId, capabilities, act });
   const [busy, onSubmit] = useSubmit(async (event) => {
     const form = new FormData(event.currentTarget);
     const command = goal ? {
@@ -604,12 +606,13 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, parent, 
       priority: String(form.get("priority") ?? "normal"),
       inputLocationIds, outputLocationId
     };
+    if (!await guardRun(goal ? initialProcess?.id : processId)) return;
     const created = await act(command); if (created?.id) onCreated(created.id);
   });
   if (!goal && !processes.length) return h("div", { className: "bees-stack" },
     h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, backLabel), h("h2", null, heading)),
     h(Empty, null, "Create a process template first. Work always follows a process template so Bees knows its stages."));
-  return h("form", { className: "bees-box bees-form", onSubmit },
+  return h(React.Fragment, null, preflight, h("form", { className: "bees-box bees-form", onSubmit },
     h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, backLabel),
       h("div", null, h("h2", null, heading),
         h("div", { className: "bees-muted" }, parent
@@ -636,7 +639,7 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, parent, 
       defaultOutputId, defaultOutputName: data.locations.find(({ id }) => id === defaultOutputId)?.name ?? "" }),
     h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Creating…" : parent ? "Add work item" : goal ? "Create goal" : "Start process run"),
       h(Button, { onClick: onCancel }, "Cancel"))
-  );
+  ));
 }
 
 function displayOption(label) {
@@ -1047,7 +1050,7 @@ const planView = (data, run) => ({ ...data,
   items: [...data.items, { id: run.id, kind: "plan", processId: run.id, stageId: run.id, title: runTitle(data, run), description: run.purpose, runtimePhase: run.status }],
   runs: data.runs.map((row) => row.id === run.id ? { ...row, workItemId: run.id } : row) });
 
-export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId, setWorkProcessId, act, preference, preferences, setPageActions, setPageHeader }) {
+export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId, setWorkProcessId, act, preference, preferences, setPageActions, setPageHeader, capabilities }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState(route === "completed" ? "completed" : "all");
   const [processFilter, setProcessFilter] = useState("all");
@@ -1057,12 +1060,12 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
   useEffect(() => { setProcessFilter("all"); setItemScope("primary"); setOwner("all"); }, [route, workspaceIds.join(",")]);
   const plan = data.runs.find((run) => run.id === workItemId && !run.workItemId);
   if (workItemId) return h(WorkItemCockpit, {
-    ctx, data: plan ? planView(data, plan) : data, rootId: workItemId, teamId, act, preference, preferences, onBack: () => setWorkItemId(""),
+    ctx, data: plan ? planView(data, plan) : data, rootId: workItemId, teamId, act, preference, preferences, capabilities, onBack: () => setWorkItemId(""),
     onScheduleCreated: (id) => setWorkItemId(id),
     setPageActions, setPageHeader
   });
   if (["work", "run", "goal"].includes(creating)) return h(WorkItemForm, {
-    ctx, data, kind: creating, workspaceId, defaultProcessId, act, onCancel: () => setCreating(""),
+    ctx, data, kind: creating, workspaceId, defaultProcessId, act, capabilities, onCancel: () => setCreating(""),
     onCreated: (id) => { setCreating(""); setWorkItemId(id); }, setPageHeader
   });
   const items = data.items.filter((item) => {

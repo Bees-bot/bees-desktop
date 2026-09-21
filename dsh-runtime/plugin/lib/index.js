@@ -1,4 +1,4 @@
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { LOCAL_MEMORY_URL, LocalMemory } from "./local-memory.js";
 import { timingSafeEqual } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
@@ -7,6 +7,7 @@ import { testOnboardingModel, testPlanningModels } from "./onboarding.js";
 import { AgentRuntime } from "./agent-runtime.js";
 import { Capabilities } from "./capabilities.js";
 import { ConnectedAccount } from "./connected-account.js";
+import { appDirectory, sharedFolder } from "./data-folder.js";
 import { mountEvidenceCapture } from "./evidence-capture.js";
 import { GoogleDriveConnection } from "./google-drive.js";
 import { ProcessRuntime } from "./process-runtime.js";
@@ -156,7 +157,8 @@ export async function apply(ctx, _config = {}, internals = {}) {
   if (!databasePath || !token || !workspace) throw new Error("bees: missing desktop launch configuration");
 
   const database = step("bees.database.open", () => new DatabaseSync(databasePath));
-  database.exec("PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL");
+  // a sync service carries WAL sidecars apart from the database and splices two computers' work
+  database.exec(`PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; PRAGMA journal_mode = ${sharedFolder() ? "DELETE" : "WAL"}`);
   const changeSubscribers = new Set();
   let changeRevision = 0;
   const notify = (change = {}) => {
@@ -208,7 +210,8 @@ export async function apply(ctx, _config = {}, internals = {}) {
     googleDrive, notify, capabilities
   });
   memory = product.memory;
-  memory.local = new LocalMemory(ctx.settings, beesSettings, join(dirname(databasePath), "memory"));
+  // gigabytes built for this machine, so it stays here when the work moves to a shared folder
+  memory.local = new LocalMemory(ctx.settings, beesSettings, join(appDirectory(), "memory"));
   memory.local.onStart = () => capabilities.remountUrl(LOCAL_MEMORY_URL).catch((error) =>
     ctx.logger.warn(`bees: memory server remount failed: ${userMessage(error)}`));
   memory.start();

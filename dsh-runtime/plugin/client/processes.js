@@ -1,7 +1,7 @@
 import { h, useEffect, useState, React } from "./runtime.js";
 import { accountLabel, ask, Button, confirmAction, Empty, useSubmit, PageHead} from "./shared.js";
 import { GridStackPage } from "./flexible-grid.js";
-import { AgentCreateForm, AgentEditForm } from "./agents.js";
+import { AgentCreateForm, AgentEditForm, needsNote } from "./agents.js";
 import { AttachedResourceFields, ResourceFields } from "./location-fields.js";
 
 const PROCESSES_LAYOUT = [{ kind: "processes", x: 0, y: 0, w: 12, h: 12 }];
@@ -14,24 +14,6 @@ const PROCESS_DETAIL_LAYOUT = [
   { kind: "agent", x: 0, y: 7, w: 12, h: 10 },
   { kind: "archive", x: 0, y: 17, w: 12, h: 3 }
 ];
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/** Servers an agent lists that this computer never installed, so its runs are refused here. */
-function missingServers(agent, servers) {
-  if (agent?.mcpAccess !== "listed") return [];
-  return (agent.mcpServers ?? []).filter((name) => !servers.some((server) => server.serverName === name));
-}
-
-function needsNote(agent, servers) {
-  const missing = missingServers(agent, servers);
-  if (!missing.length) return null;
-  const named = missing.filter((name) => !UUID.test(name));
-  return h("div", { className: "bees-error", style: { fontSize: "12px", marginTop: "2px" } },
-    named.length
-      ? `Needs ${named.join(", ")}, not set up on this computer. Runs stop here until you add ${named.length === 1 ? "it" : "them"} under Configure.`
-      : "Lists MCP servers that were removed. Runs stop here until you pick its MCP servers again under Configure.");
-}
 
 function StageAgentRoute({ stage, agents, servers = [], act, onOpenAgent, onCreateAgent }) {
   const ids = stage.agentIds ?? [];

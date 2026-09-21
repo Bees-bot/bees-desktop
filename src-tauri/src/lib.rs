@@ -241,6 +241,73 @@ fn stable_loopback_port(app: &tauri::AppHandle) -> Result<u16, String> {
     Ok(port)
 }
 
+/// Where the work lives: this computer's folder, or one the person shares between computers.
+fn data_dir(app_data: &Path) -> Result<PathBuf, String> {
+    let pointer = app_data.join("data-folder");
+    let chosen = fs::read_to_string(&pointer).unwrap_or_default();
+    if chosen.trim().is_empty() {
+        return Ok(app_data.to_path_buf());
+    }
+    let path = PathBuf::from(chosen.trim());
+    // falling back to the old folder would split the work across two copies
+    if !path.is_dir() {
+        return Err(format!(
+            "Bees keeps your work in {}, and that folder is not on this computer right now. Reconnect it and open Bees again, or delete {} to go back to this computer's own copy.",
+            path.display(),
+            pointer.display()
+        ));
+    }
+    Ok(path)
+}
+
+/// This computer's id, kept outside the database since several computers share one.
+fn device_id(app_data: &Path) -> Result<String, String> {
+    let path = app_data.join("device-id");
+    let existing = fs::read_to_string(&path).unwrap_or_default();
+    if !existing.trim().is_empty() {
+        return Ok(existing.trim().to_string());
+    }
+    let id = token()?;
+    fs::write(&path, &id).map_err(|error| error.to_string())?;
+    Ok(id)
+}
+
+/// The lock this launch holds, so quit releases ours and never a folder we were refused.
+static CLAIMED: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+/// One computer at a time, and no expiry since Google Drive can carry a lock slower than any wait.
+fn claim_data_folder(data: &Path, app_data: &Path) -> Result<(), String> {
+    // written either way, the plugin reads it on every launch
+    let me = device_id(app_data)?;
+    if data == app_data {
+        return Ok(());
+    }
+    let lock = data.join("in-use");
+    // a lock that will not read counts as held
+    if lock.exists() {
+        let held = fs::read_to_string(&lock).unwrap_or_default();
+        let mut lines = held.lines();
+        if lines.next().unwrap_or_default().trim() != me {
+            let computer = lines.next().map(str::trim).filter(|name| !name.is_empty());
+            // named, since a crashed computer leaves it behind and deleting it is the way back in
+            return Err(format!(
+                "{} has this Bees folder open. Quit Bees there, let Google Drive finish, then open it here. If that computer is gone, delete {}.",
+                computer.unwrap_or("Another computer"),
+                lock.display()
+            ));
+        }
+    }
+    let computer = sysinfo::System::host_name().unwrap_or_default();
+    fs::write(&lock, format!("{me}\n{computer}")).map_err(|error| error.to_string())?;
+    // release a lock from an earlier claim, or a switch that never restarted would strand it
+    if let Ok(mut claimed) = CLAIMED.lock() {
+        if let Some(stale) = claimed.replace(lock.clone()).filter(|held| *held != lock) {
+            let _ = fs::remove_file(stale);
+        }
+    }
+    Ok(())
+}
+
 fn state_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let directory = app
         .path()
@@ -389,7 +456,9 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
         .app_data_dir()
         .map_err(|error| error.to_string())?;
     let home = app_data.join("dsh");
-    let workspace = app_data.join("workspaces");
+    let data = data_dir(&app_data)?;
+    startup::step("bees.data.claim", || claim_data_folder(&data, &app_data))?;
+    let workspace = data.join("workspaces");
     fs::create_dir_all(&workspace).map_err(|error| error.to_string())?;
     startup::step("runtime.profile.prepare", || prepare_profile(&runtime, &home))?;
 
@@ -463,7 +532,9 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
         .env("DSH_TELEMETRY_DISABLED", "1")
         .env("BEES_DSH_TOKEN", &secret)
         .env("BEES_DSH_QUERY_PATH", home.join("session-query.sqlite"))
-        .env("BEES_DATABASE_PATH", app_data.join("bees-stage1.db"))
+        .env("BEES_DATABASE_PATH", data.join("bees-stage1.db"))
+        .env("BEES_DATA_DIR", &data)
+        .env("BEES_APP_DATA", &app_data)
         .env("BEES_DEFAULT_WORKSPACE", &workspace)
         .env("BEES_STATE_DIR", state_dir(app)?)
         .env("BEES_STARTUP_LOG", state_dir(app)?.join("startup.log"))
@@ -643,6 +714,12 @@ fn open_external_url(url: String) -> Result<(), String> {
     Err("Opening website links is not supported on this device.".to_string())
 }
 
+/// A new data folder is only picked up at launch.
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) {
+    app.request_restart();
+}
+
 /// Closing the window only hides it, so this is how the window comes back: the tray, the dock,
 /// and a second launch all route here.
 fn show_main_window(app: &tauri::AppHandle) {
@@ -724,6 +801,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             ensure_dsh_runtime,
+            restart_app,
             local_model_status,
             local_model_hardware,
             ensure_local_model,
@@ -767,6 +845,10 @@ pub fn run() {
                 }
                 if let Ok(state) = state_dir(handle) {
                     reap_agent_browser(&state.join("browser-profile"));
+                }
+                // the only place the folder lock comes off, since quitting kills the harness outright
+                if let Some(lock) = CLAIMED.lock().ok().and_then(|mut held| held.take()) {
+                    let _ = fs::remove_file(lock);
                 }
             }
         });

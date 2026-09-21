@@ -1,4 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
+import { cpSync, existsSync, rmSync } from "node:fs";
+import { hostname } from "node:os";
+import { join } from "node:path";
+import { dataDirectory, deviceId, mounted } from "./data-folder.js";
 import { EXECUTIVE_AGENTS } from "./executive-agents.js";
 
 export const DEFAULT_WORKSPACE_NAME = "Default workspace";
@@ -45,12 +49,9 @@ export function transaction(database, work) {
 }
 
 export function currentIdentity(database) {
-  const identity = database.prepare(`
-    SELECT u.id AS userId, d.id AS deviceId FROM users u CROSS JOIN devices d
-    ORDER BY u.created_at, d.created_at LIMIT 1
-  `).get();
-  if (!identity) throw new Error("The local Bees identity is unavailable");
-  return identity;
+  const user = database.prepare("SELECT id FROM users ORDER BY created_at LIMIT 1").get();
+  if (!user) throw new Error("The local Bees identity is unavailable");
+  return { userId: user.id, deviceId: deviceId() };
 }
 
 function membership(database, teamId) {
@@ -369,6 +370,8 @@ export function assertMcpAccess(access) {
 }
 
 export function initializeProductDatabase(database) {
+  // run folders are stored as absolute paths, so queries rebase them onto this computer's mount
+  database.function("mounted", (path) => path && mounted(path));
   const version = Number(database.prepare("PRAGMA user_version").get().user_version);
   if (version < 17) database.exec(`
     PRAGMA foreign_keys = OFF;
@@ -907,7 +910,30 @@ export function initializeProductDatabase(database) {
     }
     database.exec("PRAGMA user_version = 30");
   });
+  // the device id moved beside the app so a shared folder gets a row per computer, and api specs
+  // moved beside the database under a {data} placeholder so every computer finds them
+  if (version < 31) transaction(database, () => {
+    const device = deviceId();
+    const devices = database.prepare("SELECT id, created_at AS at FROM devices").all();
+    // insert before moving mappings so a mapping's device is never missing and the delete cascades onto nothing
+    if (devices.length === 1 && devices[0].id !== device) {
+      database.prepare("INSERT INTO devices VALUES (?, ?, ?, ?)").run(device, hostname(), devices[0].at, iso());
+      database.prepare("UPDATE device_location_mappings SET device_id = ? WHERE device_id = ?")
+        .run(device, devices[0].id);
+      database.prepare("DELETE FROM devices WHERE id = ?").run(devices[0].id);
+    }
+    const was = join(stateDirectory(), "api-specs");
+    // copied, since rename cannot cross volumes, and a half copy is redone so no path points at a missing spec
+    if (existsSync(was)) {
+      cpSync(was, join(dataDirectory(), "api-specs"), { recursive: true });
+      rmSync(was, { recursive: true, force: true });
+    }
+    database.prepare("UPDATE mcp_servers SET args_json = replace(args_json, ?1, '{data}/api-specs') WHERE instr(args_json, ?1)")
+      .run(was);
+    database.exec("PRAGMA user_version = 31");
+  });
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
+    database.prepare("INSERT OR IGNORE INTO devices VALUES (?1, ?2, ?3, ?3)").run(deviceId(), hostname(), iso());
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';
       UPDATE teams SET name = 'Team1' WHERE personal = 1 AND name = 'Personal';
@@ -931,12 +957,12 @@ export function initializeProductDatabase(database) {
   transaction(database, () => {
     const at = iso();
     const userId = randomUUID();
-    const deviceId = randomUUID();
+    const device = deviceId();
     const organizationId = randomUUID();
     const teamId = randomUUID();
     const workspaceId = randomUUID();
     database.prepare("INSERT INTO users VALUES (?, 'You', ?, ?)").run(userId, at, at);
-    database.prepare("INSERT INTO devices VALUES (?, 'This device', ?, ?)").run(deviceId, at, at);
+    database.prepare("INSERT INTO devices VALUES (?, ?, ?, ?)").run(device, hostname(), at, at);
     database.prepare(`INSERT INTO organizations VALUES (?, 'Personal Org', 1, ?, 'active', ?, ?)`)
       .run(organizationId, userId, at, at);
     database.prepare("INSERT INTO organization_memberships VALUES (?, ?, 'owner', 'active', ?)")
@@ -985,13 +1011,13 @@ export function mcpGrantFor(database, agentAssignmentId, runSettings = {}) {
   // a server the person turned off here is skipped, as before
   const here = new Set(rows.map(({ name }) => name));
   const missing = allowed.filter((name) => !here.has(name));
-  // a leftover row id names a server that was removed, so there is no name left to show for it
+  // a row id left from another computer, or from a server that was removed, has no name to show
   const gone = missing.filter((name) => UUID.test(name));
   const named = missing.filter((name) => !UUID.test(name));
   if (missing.length) throw new Error([
     `${row.name} cannot run on this computer.`,
     named.length ? `It needs ${named.join(", ")}, which ${named.length === 1 ? "is" : "are"} not set up here.` : "",
-    gone.length ? `It lists ${gone.length} MCP server${gone.length === 1 ? "" : "s"} that no longer exist.` : "",
+    gone.length ? `It lists ${gone.length} MCP server${gone.length === 1 ? "" : "s"} that ${gone.length === 1 ? "was" : "were"} set up on another computer, so there is no name to show here.` : "",
     "Add what is missing on the MCP servers page, or open the agent and choose its MCP servers again."
   ].filter(Boolean).join(" "));
   return { mcpAccess: "listed", mcpServers: rows.filter(({ enabled }) => enabled).map(({ name }) => name) };

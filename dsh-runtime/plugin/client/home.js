@@ -1,26 +1,28 @@
-import { h, useEffect, useState } from "./runtime.js";
+import { h, React, useEffect, useState } from "./runtime.js";
 import { ask, Button, confirmAction, Empty, HelpTooltip, openExternal, ProposalCard, useSubmit } from "./shared.js";
 import { addDashboardWidget, applyDashboardLayout, dashboardsFrom, DEFAULT_WIDGETS } from "./dashboard-model.js";
 import { FlexibleGrid } from "./flexible-grid.js";
 import { needsYouRows, NeedsYouWidget, useNeedsYouQueue } from "./work.js";
 import { ProcessListActions } from "./processes.js";
-import { AgentListActions } from "./agents.js";
+import { AgentListActions, useMcpPreflight } from "./agents.js";
 import { AskBeesSetup, workFromOutcome } from "./ask-bees.js";
 
-export function OutcomeWidget({ data, workspaceId, outcome, setOutcome, configureGoal, act, openWorkItem }) {
+export function OutcomeWidget({ ctx, data, workspaceId, outcome, setOutcome, configureGoal, act, openWorkItem, capabilities }) {
   const [error, setError] = useState("");
   const role = data.teams.find(({ id }) => id === data.workspaces.find((row) => row.id === workspaceId)?.teamId)?.role;
   const allowed = ["admin", "member"].includes(role);
+  const [guardRun, preflight] = useMcpPreflight({ ctx, data, workspaceId, capabilities, act });
   const [busy, submit] = useSubmit(async () => {
     if (!allowed || !workspaceId || !outcome.trim()) return;
     setError("");
+    if (!await guardRun(data.processes.find((row) => row.workspaceId === workspaceId && row.kind === "goals")?.id)) return;
     try {
       const result = await act(workFromOutcome(outcome, { workspaceId }));
       if (result?.id) { setOutcome(""); openWorkItem(result.id); }
       else setError("Could not start this work. Please try again.");
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   });
-  return h("form", {
+  return h(React.Fragment, null, preflight, h("form", {
     className: "bees-composer bees-dashboard-composer",
     onSubmit: submit
   },
@@ -44,7 +46,7 @@ export function OutcomeWidget({ data, workspaceId, outcome, setOutcome, configur
         h("button", { type: "submit", className: "bees-btn primary", disabled: busy || !allowed || !workspaceId || !outcome.trim() },
           busy ? "Starting…" : "Run using defaults"),
         h(Button, { disabled: busy || !allowed || !workspaceId || !outcome.trim(), onClick: configureGoal }, "Configure advanced")))
-  );
+  ));
 }
 
 function TemplatesWidget({ data, workspaceId, act, openWorkItem }) {
@@ -208,7 +210,7 @@ export function Home({ ctx, data, workspaceId, act, openWorkItem, navigate, rows
   };
   const availableWidgets = WIDGETS.filter(({ kind }) => !dashboard.widgets.some((widget) => widget.kind === kind));
   const queue = useNeedsYouQueue(ctx, data, (data.workspaces ?? []).map(({ id }) => id), "", false);
-  const widgetProps = { ctx, data, workspaceId, act, openWorkItem, navigate, rowsForRoute, queue,
+  const widgetProps = { ctx, data, workspaceId, act, openWorkItem, navigate, rowsForRoute, queue, capabilities,
     records: needsYouRows(queue, data, rowsForRoute), createWork, createProcess, createRun, createAgent,
     outcome, setOutcome, configureGoal: () => setSetup(true) };
 
