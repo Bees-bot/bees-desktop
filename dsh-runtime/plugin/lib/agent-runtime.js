@@ -393,11 +393,11 @@ export function safeRecoverySeed(events) {
   });
 }
 
-// a restart mid-call is no reason to stop the run: these only look, and delegating again reuses peers by title
+// a restart mid-call is no reason to stop the run: these only look, delegating again reuses peers by title, and app records upsert by key
 const REPEATABLE_TOOLS = ["read", "read_image", "glob", "grep", "web_search", "web_fetch", "bees_fetch_page",
   "bees_search_web", "bees_search_news", "bees_search_knowledge", "bees_read_knowledge", "bees_read_context",
   "bees_read_tool_result", "bees_read_work_evidence", "bees_find_tools", "bees_search_mcp_registry", "bees_list_skill_pack", "bees_wait_for_peers",
-  "bees_delegate_work"];
+  "bees_delegate_work", "bees_app_read", "bees_app_query", "bees_app_receipt", "bees_app_source", "bees_app_record"];
 
 /** DSH seeds only complete turns. Preserve completed tools in the interrupted turn as evidence. */
 export function recoveryToolContext(events, pending, ownerChecked = false) {
