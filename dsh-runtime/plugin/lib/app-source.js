@@ -12,11 +12,9 @@ export function publicIPv4(address) {
 
 // Resolve once and pin the checked addresses at TLS connection time. No redirects, cookies or auth.
 // IPv4-only deliberately: unavailable IPv4 fails closed instead of weakening SSRF checks.
-// autoSelectFamily walks the pinned list, so one dead CDN address no longer fails every read of that host.
 export function publicSourceUrl(source, query) {
   const base = new URL(source.url);
   if (typeof query !== "string" || !query.trim() || query.length > (source.type === "page" ? 2000 : 300)) throw new Error("Invalid source query");
-  // a page query may be a full URL or a path; the scope checks below still pin it to the declared origin
   const url = source.type === "page" ? new URL(query.trim(), base) : base;
   if (source.type === "page") {
     const inPath = source.pathPrefix.endsWith("/") ? url.pathname.startsWith(source.pathPrefix) : url.pathname === source.pathPrefix;

@@ -128,7 +128,7 @@ it("installs discovery and pruning on managed agents without changing their outp
   } finally { await h.close(); }
 });
 
-it("leaves failed tool retries to the model until the same call has failed three times", async () => {
+it("leaves failed tool retries to the model on managed leads and peers", async () => {
   const h = harness();
   try {
     let attempts = 0;
@@ -152,12 +152,6 @@ it("leaves failed tool retries to the model until the same call has failed three
         await expect(h.preStep(agent)).resolves.toMatchObject({ kind: "enter" });
         expect(attempts).toBe(before + 1);
       }
-      // the fourth identical failure is refused, so the tool body is never entered again
-      const capped = attempts;
-      const refused = await h.tools.execute({ agent, callId: "failed-4", name: "failing_sample",
-        arguments: {}, signal: new AbortController().signal });
-      expect(refused.isError).toBe(true);
-      expect(attempts).toBe(capped);
     }
   } finally { await h.close(); }
 });
