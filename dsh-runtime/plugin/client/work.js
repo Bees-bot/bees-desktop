@@ -11,16 +11,20 @@ import { FlexibleGrid, GridStackPage } from "./flexible-grid.js";
 import { addLocationFromDevice, FilePreview, inheritedInputs, ResourceFields, WorkFiles, WorkLocations } from "./location-fields.js";
 
 import { useMcpPreflight } from "./agents.js";
+import { ProcessMcpForm } from "./processes.js";
 import { generatedFileKeys, watchFilesViewed } from "./file-notifications.js";
-import { conversationMessages, OUTCOME_LABELS, pollConversation } from "./conversation-model.js";
+import { agentMentionOptions, conversationMessages, mentionedRecipient, OUTCOME_LABELS, pollConversation } from "./conversation-model.js";
 import { DshRunPanels } from "./native-conversation.js";
 
 const UserMessage = ({ children, label }) => {
   const [expanded, setExpanded] = useState(false);
   const truncated = children.length > 280;
+  const text = truncated && !expanded ? `${clip(children, 280).trimEnd()}…` : children;
+  const mention = /^(\$[^\s]+)([\s\S]*)$/.exec(text);
   return h("div", { className: "bees-convo-msg user" },
     label ? h("strong", null, label) : null,
-    h("div", null, truncated && !expanded ? `${clip(children, 280).trimEnd()}…` : children),
+    h("div", null, mention ? h(React.Fragment, null,
+      h("span", { className: "bees-agent-mention" }, mention[1]), mention[2]) : text),
     truncated ? h("button", {
       type: "button", "aria-expanded": expanded, onClick: () => setExpanded((value) => !value),
       style: { display: "block", marginTop: 6, padding: 0, border: 0, color: "inherit", background: "none", font: "inherit", fontSize: 12, fontWeight: 700, textDecoration: "underline", cursor: "pointer" }
@@ -154,7 +158,7 @@ function RecurringWorkPanel({ data, item, recurringWork, act, onEdit }) {
   }));
 }
 
-function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived, onScheduleCreated, board, layout, editing, onLayout, onEditSchedule, setPageHeader, preference, preferences }) {
+function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWork, onArchived, onScheduleCreated, board, layout, editing, onLayout, onEditSchedule, setPageHeader, preference, preferences }) {
   const plan = item.kind === "plan";
   const process = data.processes.find(({ id }) => id === item.processId);
   const stage = data.stages.find(({ id }) => id === item.stageId);
@@ -199,8 +203,10 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
   const [historyError, setHistoryError] = useState("");
   const convoRef = React.useRef(null);
   const [composerText, setComposerText] = useState("");
+  const [discussion, setDiscussion] = useState(null);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState("");
+  const [sendNotice, setSendNotice] = useState("");
   const [refreshCount, setRefreshCount] = useState(0);
   const run = itemRuns.find(({ id }) => id === selectedRun) ?? itemRuns[0];
   const pendingRun = itemRuns.find(({ status, sessionId }) => sessionId && ["waiting_for_input", "waiting_for_approval"].includes(status));
@@ -215,8 +221,17 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
   const liveRevision = useBeesChangeRevision();
   useEffect(() => {
     setSelectedRun(""); setHandled(new Set()); setActiveTab("files");
-    setHistory(null); setComposerText(""); setSending(false);
+    setHistory(null); setComposerText(""); setDiscussion(null);
+    setSending(false); setSendNotice("");
   }, [item.id]);
+  useEffect(() => {
+    if (plan) return;
+    let active = true;
+    request("/bees-api/command", { method: "POST", body: JSON.stringify({ action: "read_work_discussion", itemId: item.id }) })
+      .then((value) => { if (active) setDiscussion(value); })
+      .catch((error) => { if (active) setSendError(error instanceof Error ? error.message : String(error)); });
+    return () => { active = false; };
+  }, [item.id, plan, liveRevision]);
   useEffect(() => {
     setHistoryError("");
     // The transcript lives with the session that produced it, and that is on the other device.
@@ -270,10 +285,28 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
     .sort((left, right) => new Date(right.resultCreatedAt ?? right.updatedAt) - new Date(left.resultCreatedAt ?? left.updatedAt))[0];
   const activeChildren = subitems.filter((child) => ["queued", "running", "waiting"].includes(child.runtimePhase)).length;
   const isWorking = ["queued", "running"].includes(run?.status) || item.runtimePhase === "running";
-  const isAgentBusy = isWorking || sending;
   const conversationRuns = data.runs.filter((row) => row.workItemId === item.id || subitems.some(({ id }) => id === row.workItemId));
   const visibleHistory = history?.executionId === run?.id ? history : null;
-  const messages = conversationMessages(visibleHistory, conversationRuns, assignments, subitems);
+  const discussionPeers = discussion?.participants.filter((peer) => peer.id !== item.id).map((peer) => {
+      const peerItem = data.items.find((candidate) => candidate.id === peer.id);
+      const peerRun = data.runs.find((candidate) => candidate.workItemId === peer.id);
+      return { ...peer, agentId: peerRun?.resolvedAgentId ?? peerItem?.agentAssignmentId ?? peerItem?.agentIds?.[0] };
+    }) ?? [];
+  const assignedAgentIds = [...new Set([
+    ...(item.agentIds ?? []), ...(run?.resolvedAgentIds ?? []),
+    ...(item.agentAssignmentId ? [item.agentAssignmentId] : []), ...(run?.resolvedAgentId ? [run.resolvedAgentId] : [])
+  ])];
+  const mentionOptions = discussion ? agentMentionOptions(assignedAgentIds, assignments, discussionPeers) : [];
+  const typedMention = /^\$([^\s]*)$/.exec(composerText);
+  const mentionSuggestions = typedMention ? mentionOptions.filter(({ tag }) => tag.startsWith(typedMention[1].toLocaleLowerCase())).slice(0, 5) : [];
+  const composerMention = mentionedRecipient(composerText, mentionOptions);
+  const messages = [
+    ...conversationMessages(visibleHistory, conversationRuns, assignments, subitems),
+    ...(discussion?.updates ?? []).filter((entry) => entry.author === "User" && entry.workItemId === item.id)
+      .map((entry) => ({ id: `update:${entry.id}`, role: "user", text: entry.content,
+        label: entry.targetId ? `To: ${discussion.participants.find((peer) => peer.id === entry.targetId)?.title ?? "teammate"}` : "To: everyone",
+        timestamp: new Date(entry.createdAt).getTime() || 0 }))
+  ].sort((left, right) => left.timestamp - right.timestamp);
   const [showSteps, setShowSteps] = useState(false);
   useEffect(() => {
     if (isScrolledUpRef.current) return;
@@ -284,7 +317,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
   }, [history, pendingRun, interaction, item.runtimePhase]);
   const convoItems = [h(GoalMessage, { item, key: "start" })];
   for (const message of messages) {
-    if (message.role === "user") convoItems.push(h(UserMessage, { key: message.id }, message.text));
+    if (message.role === "user") convoItems.push(h(UserMessage, { key: message.id, label: message.label }, message.text));
     else if (message.role === "tool") convoItems.push(h("div", { className: "bees-convo-msg system", key: message.id,
       style: { fontFamily: "ui-monospace, monospace", fontSize: "12px", opacity: 0.75 } }, message.text));
     else convoItems.push(h("div", { className: "bees-agent-turn", key: message.id },
@@ -320,12 +353,34 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
         h("span", { className: "bees-dot-typing-container" }, h("span", { className: "bees-dot-typing-dot" })),
         run?.status === "queued" ? "Agent is starting..." : [...messages].reverse().find((message) => message.pending)?.text ?? "Agent is working...") : null),
     sendError ? h("div", { className: "bees-error", role: "alert" }, sendError) : null,
+    sendNotice ? h("p", { className: "bees-muted", role: "status" }, sendNotice) : null,
     h("form", { className: "bees-composer bees-compact-composer", onSubmit: async (event) => {
       event.preventDefault();
       const text = composerText.trim();
-      if (!text || isAgentBusy || run?.ranElsewhere) return;
+      const mention = composerMention;
+      if (!text || sending || (!mention && run?.ranElsewhere)) return;
       isScrolledUpRef.current = false;
-      setSendError("");
+      setSendError(""); setSendNotice("");
+      if (mention) {
+        if (!mention.body) { setSendError("Add a message after the teammate tag."); return; }
+        setSending(true);
+        try {
+          await request("/bees-api/command", { method: "POST", body: JSON.stringify({
+            action: "post_work_update", itemId: item.id, kind: "note", content: text,
+            targetId: mention.recipient.targetId
+          }) });
+          const updated = await request("/bees-api/command", { method: "POST", body: JSON.stringify({ action: "read_work_discussion", itemId: item.id }) });
+          setDiscussion(updated); setComposerText("");
+          const recipients = mention.recipient.id === "everyone" ? updated.participants
+            : mention.recipient.targetId ? updated.participants.filter((peer) => peer.id === mention.recipient.targetId)
+              : [{ status: item.runtimePhase }];
+          setSendNotice(recipients.some((peer) => ["ready", "queued", "running", "waiting"].includes(peer.status))
+            ? "Shared with the team. Active agents can read it on their next step."
+            : "Saved to Discussion. This teammate has finished; the message will not restart them. Arrange a follow-up to get a reply.");
+        } catch (reason) { setSendError(reason instanceof Error ? reason.message : String(reason)); }
+        finally { setSending(false); }
+        return;
+      }
       if (!activeBinding) {
         if (run && (item.runtimePhase === "completed" || item.runtimePhase === "failed")) {
           setSending(true);
@@ -352,14 +407,20 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
         setTimeout(() => setRefreshCount((count) => count + 1), 500);
       }
     } },
+      composerMention ? h("div", { className: "bees-muted", style: { padding: "10px 12px 0" } },
+        "Sending to ", h("span", { className: "bees-agent-mention" }, `$${composerMention.recipient.tag}`)) : null,
+      mentionSuggestions.length ? h("div", { className: "bees-mention-suggestions", role: "listbox", "aria-label": "Teammate suggestions" },
+        ...mentionSuggestions.map((option) => h("button", { type: "button", role: "option", key: option.id,
+          onClick: () => { setComposerText(`$${option.tag} `); setSendNotice(""); } },
+          h("span", { className: "bees-agent-mention" }, `$${option.tag}`), option.status ? ` · ${option.status}` : ""))) : null,
       h("textarea", {
         className: "bees-composer-input",
-        placeholder: pendingRun ? "Answer above or add a note..." : isWorking ? "Agent is working..." : "Add a note or instruction to continue...",
-        disabled: isAgentBusy, value: composerText, rows: 2,
+        placeholder: pendingRun ? "Answer above, or type $ to message a teammate..." : "Message the current agent, or type $ for teammates...",
+        disabled: sending, value: composerText, rows: 2,
         onChange: (event) => setComposerText(event.target.value),
         onKeyDown: (event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); event.target.form.requestSubmit(); } }
       }),
-      h("button", { type: "submit", className: "bees-composer-send", disabled: isAgentBusy || run?.ranElsewhere || !composerText.trim(), "aria-label": "Send message" }, sending ? "…" : "↑")));
+      h("button", { type: "submit", className: "bees-composer-send", disabled: sending || (run?.ranElsewhere && !composerMention) || !composerText.trim(), "aria-label": "Send message" }, sending ? "…" : "↑")));
 
   const controls = h("section", { className: "bees-run-status-widget", "aria-label": "Selected work status" },
       h("div", { className: "bees-run-status-summary" },
@@ -389,6 +450,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
     h("div", { className: "bees-clean-tabs", role: "tablist", "aria-label": "Work item details" },
       h("button", { type: "button", role: "tab", id: "bees-tab-files", className: `bees-clean-tab ${activeTab === "files" ? "active" : ""}`, "aria-selected": activeTab === "files", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("files") }, "Files", unreadFiles ? h("span", { className: "bees-count", "aria-label": `${unreadFiles} new files`, title: `${unreadFiles} new files` }, unreadFiles) : null),
       h("button", { type: "button", role: "tab", id: "bees-tab-details", className: `bees-clean-tab ${activeTab === "details" ? "active" : ""}`, "aria-selected": activeTab === "details", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("details") }, "Details"),
+      !plan && process ? h("button", { type: "button", role: "tab", id: "bees-tab-tools", className: `bees-clean-tab ${activeTab === "tools" ? "active" : ""}`, "aria-selected": activeTab === "tools", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("tools") }, "Tools") : null,
       h("button", { type: "button", role: "tab", id: "bees-tab-chat", className: `bees-clean-tab ${activeTab === "chat" ? "active" : ""}`, "aria-selected": activeTab === "chat", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("chat") }, "Chat"),
       h("button", { type: "button", role: "tab", id: "bees-tab-runs", className: `bees-clean-tab ${activeTab === "runs" ? "active" : ""}`, "aria-selected": activeTab === "runs", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("runs") }, "Executions"),
       schedulable && !item.parentId ? h("button", { type: "button", role: "tab", id: "bees-tab-recurring", className: `bees-clean-tab ${activeTab === "recurring" ? "active" : ""}`, "aria-selected": activeTab === "recurring", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("recurring") }, `Schedules${recurringWork.length ? ` (${recurringWork.length})` : ""}`) : null,
@@ -419,7 +481,11 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
 
         plan ? null : h(WorkLocations, { key: item.id, data, references: inputReferences, inherited,
           outputId: item.outputLocationId ?? "", defaultOutputId: process?.outputLocationId, act })
-      ) : activeTab === "files" ? h(React.Fragment, null,
+      ) : activeTab === "tools" && process ? h(ProcessMcpForm, {
+        key: `${process.id}:${process.mcpAccess}:${JSON.stringify(process.mcpServers)}`, ctx, process,
+        servers: capabilities.data?.servers ?? [], tools: capabilities.data?.tools ?? [],
+        catalog: capabilities.data?.catalog ?? [], onServerAction: capabilities.act, act, showAll: true
+      }) : activeTab === "files" ? h(React.Fragment, null,
         h(WorkFiles, { key: processRunId, runs: fileRuns, filesRef, act })
       ) : activeTab === "runs" ? h(React.Fragment, null,
         h("h3", { className: "bees-section-title" }, "Executions"),
@@ -558,7 +624,7 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onScheduleCre
 
   return h("div", { style: { display: "flex", flexDirection: "column" } },
     h(WorkItemDetails, {
-      ctx, data, item: selected, teamId, act, onOpenWork: setSelectedId, onArchived: onBack, onScheduleCreated, board, layout, editing,
+      ctx, data, item: selected, teamId, act, capabilities, onOpenWork: setSelectedId, onArchived: onBack, onScheduleCreated, board, layout, editing,
       onLayout: (value) => void preferences.set("workItemLayout", applyWorkItemLayout(value)),
       onEditSchedule: setScheduleEditor,
       setPageHeader, preference, preferences

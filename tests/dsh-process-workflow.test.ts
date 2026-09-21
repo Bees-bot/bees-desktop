@@ -41,7 +41,7 @@ function harness(outcomes: (string | Error)[], answerBeforeSuspension = false) {
   const run = runInNewContext(`${source}\nprocessWorkflow`, { temporal }) as (input: any) => Promise<any>;
   return {
     run, calls, projections, activityOptions,
-    retry: () => { handlers.get("retry")!(); wake?.(); },
+    retry: (message?: string) => { handlers.get("retry")!(message); wake?.(); },
     changed: (executionId: string) => { handlers.get("stageChanged")!(executionId); wake?.(); },
   };
 }
@@ -93,6 +93,15 @@ describe("Process review budget", () => {
     expect(state.calls[1].retryRequest).toBe(1);
     expect(state.calls[2].retryRequest).toBe(1);
     expect(state.calls[3].retryRequest).toBe(0);
+  });
+
+  it("carries a conversation message into a failed process retry", async () => {
+    const state = harness([new Error("Provider unavailable"), "candidate", "pass"]);
+    const completed = state.run(input);
+    await vi.waitFor(() => expect(state.projections.at(-1)).toMatchObject({ phase: "failed" }));
+    state.retry("Use the backup provider");
+    await expect(completed).resolves.toMatchObject({ phase: "completed" });
+    expect(state.calls[1]).toMatchObject({ retryMessage: "Use the backup provider" });
   });
 
   it("retries repeated heartbeat loss without changing the worker execution or retry request", async () => {

@@ -69,7 +69,7 @@ describe("Bees DSH product plugin", () => {
       { name: "agent_locations" }, { name: "device_location_mappings" }, { name: "organization_memberships" },
       { name: "team_locations" }, { name: "team_memberships" }
     ]);
-    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 28 });
+    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 32 });
 
     database.exec(`
       UPDATE organizations SET name = 'Personal';
@@ -94,7 +94,7 @@ describe("Bees DSH product plugin", () => {
     initializeProductDatabase(database);
     expect(database.prepare("PRAGMA table_info(bees_accounts)").all().map(({ name }: any) => name))
       .toContain("enabled");
-    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 28 });
+    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 32 });
   });
 
   it("migrates untouched Goals instructions and preserves owner edits and cleared defaults", () => {
@@ -121,6 +121,24 @@ describe("Bees DSH product plugin", () => {
         expect(database.prepare("SELECT description FROM processes WHERE id = ?").get(String(defaults.id))!.description).toBe("");
       } finally { database.close(); }
     }
+  });
+
+  it("migrates legacy 64-character device ids without losing location mappings", () => {
+    const database = new NodeDatabase().connection;
+    const legacy = "a".repeat(64);
+    const migrated = "ffe054fe-7ae0-5b6d-865c-3af9b61d5209";
+    const teamId = String(database.prepare("SELECT id FROM teams LIMIT 1").get()!.id);
+    database.prepare("INSERT INTO devices VALUES (?, 'Legacy device', '2026-01-01', '2026-01-01')").run(legacy);
+    database.prepare("INSERT INTO team_locations VALUES ('location', ?, 'files', 'Files', 'folder', '', NULL, '2026-01-01', '2026-01-01')").run(teamId);
+    database.prepare("INSERT INTO device_location_mappings VALUES ('location', ?, '/files', '2026-01-01')").run(legacy);
+    database.exec("PRAGMA user_version = 31");
+
+    initializeProductDatabase(database);
+
+    expect(database.prepare("SELECT id FROM devices WHERE id = ?").get(migrated)).toEqual({ id: migrated });
+    expect(database.prepare("SELECT device_id AS deviceId FROM device_location_mappings WHERE location_id = 'location'").get())
+      .toEqual({ deviceId: migrated });
+    database.close();
   });
 
   it.each(["goals", "standard"])("shares editable %s process instructions across workers, peers, children and review", async (kind) => {
@@ -550,6 +568,51 @@ describe("Bees DSH product plugin", () => {
     expect(mcpGrantFor(database.connection, agent, { mcpAccess: "all" })).toEqual({ mcpAccess: "none", mcpServers: [] });
   });
 
+  it("adds process MCPs to every agent's own grant and keeps run restrictions", async () => {
+    const database = new NodeDatabase();
+    database.connection.exec(`INSERT INTO mcp_servers (id, server_name, label, transport, enabled, created_at)
+      VALUES ('a', 'alpha', 'Alpha', 'stdio', 1, ''), ('b', 'beta', 'Beta', 'stdio', 1, '');`);
+    const agentsRuntime = new AgentRuntime({ on: () => () => undefined }, database.connection);
+    const product = new BeesProduct(database.connection, agentsRuntime, { isAutomatic: () => false }, "/tmp");
+    const workspaceId = String(database.connection.prepare("SELECT id FROM workspaces LIMIT 1").get()!.id);
+    const process = await product.command({ action: "create_process", workspaceId, name: "Shared tools",
+      stages: ["Work", "Done"], mcpAccess: "listed", mcpServers: ["a"] });
+    const agents = database.connection.prepare("SELECT id FROM agent_assignments ORDER BY name").all().map(({ id }) => String(id));
+    database.connection.prepare("UPDATE agent_assignments SET mcp_access = 'listed', mcp_servers_json = '[\"b\"]' WHERE id = ?")
+      .run(agents[0]!);
+    database.connection.prepare("UPDATE agent_assignments SET mcp_access = 'none' WHERE id = ?").run(agents[1]!);
+    const { mcpGrantFor } = createRequire(import.meta.url)("../dsh-runtime/plugin/lib/product-database.js");
+    expect(mcpGrantFor(database.connection, agents[0], {}, process.id)).toEqual({ mcpAccess: "listed", mcpServers: ["alpha", "beta"] });
+    expect(mcpGrantFor(database.connection, agents[1], {}, process.id)).toEqual({ mcpAccess: "listed", mcpServers: ["alpha"] });
+    expect(mcpGrantFor(database.connection, agents[0], { mcpAccess: "listed", mcpServers: ["b"] }, process.id))
+      .toEqual({ mcpAccess: "listed", mcpServers: ["beta"] });
+    expect(mcpGrantFor(database.connection, agents[1], { mcpAccess: "none" }, process.id))
+      .toEqual({ mcpAccess: "none", mcpServers: [] });
+    const stage = database.connection.prepare("SELECT id FROM stages WHERE process_id = ? ORDER BY position LIMIT 1").get(process.id)!;
+    database.connection.prepare(`INSERT INTO work_items (id, process_id, stage_id, title, created_at, updated_at)
+      VALUES ('active-work', ?, ?, 'In progress', '', '')`).run(process.id, String(stage.id));
+    const dispose = vi.fn();
+    const restrict = vi.fn(() => vi.fn());
+    const data = { workItemId: "active-work", agentId: agents[1], mode: "work", mcpAccess: "listed", mcpServers: ["alpha"] };
+    const activeRuntime = agentsRuntime as any;
+    activeRuntime.ctx.tools = { schemas: () => [{ name: "mcp__alpha__read" }, { name: "mcp__beta__read" }] };
+    activeRuntime.live.set("active", { data, handle: { agent: { ctx: { tools: { restrict } } } } });
+    activeRuntime.mcpRestrictions.set(data, dispose);
+    await product.command({ action: "set_process_mcp", processId: process.id, mcpAccess: "listed", mcpServers: ["b"] });
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(restrict).toHaveBeenCalledWith({ deny: ["mcp__alpha__read"] });
+    expect(data.mcpServers).toEqual(["beta"]);
+    expect((await product.snapshot()).processes.find(({ id }: any) => id === process.id))
+      .toMatchObject({ mcpAccess: "listed", mcpServers: ["beta"] });
+    const copy = await product.command({ action: "copy_process", processId: process.id, name: "Shared tools copy" });
+    expect((await product.snapshot()).processes.find(({ id }: any) => id === copy.id))
+      .toMatchObject({ mcpAccess: "listed", mcpServers: ["beta"] });
+    await product.command({ action: "set_process_mcp", processId: process.id, mcpAccess: "none" });
+    expect(mcpGrantFor(database.connection, agents[1], {}, process.id)).toEqual({ mcpAccess: "none", mcpServers: [] });
+    await product.command({ action: "set_process_mcp", processId: process.id, mcpAccess: "all" });
+    expect(mcpGrantFor(database.connection, agents[1], {}, process.id)).toEqual({ mcpAccess: "all", mcpServers: [] });
+  });
+
   it("restarts a standalone planning question without changing its waiting state", async () => {
     const database = new NodeDatabase();
     const first = new AgentRuntime({ on: () => () => undefined, sessionPersistence: { open: async () => ({ read: async () => ({ events: [] }), close: async () => {} }) } }, database.connection);
@@ -907,7 +970,8 @@ describe("Bees DSH product plugin", () => {
         { name: "Draft", driver: "agent", requiresHumanApproval: false },
         { name: "Polish", driver: "agent", requiresHumanApproval: false },
         { name: "Review", driver: "review", requiresHumanApproval: false },
-        { name: "Published", driver: "terminal", requiresHumanApproval: false }
+        { name: "Published", driver: "agent", requiresHumanApproval: false },
+        { name: "Done", driver: "terminal", requiresHumanApproval: false }
       ]
     }));
     await product.command({ action: "archive_process_template", templateId: savedTemplate.id });

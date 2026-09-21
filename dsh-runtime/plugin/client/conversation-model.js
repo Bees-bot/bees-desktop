@@ -5,6 +5,29 @@ export const OUTCOME_LABELS = {
 const timestamp = (value) => new Date(value ?? 0).getTime() || 0;
 const normalize = (text) => text.replace(/\s+/g, " ").trim();
 
+export const agentTag = (name) => String(name).toLocaleLowerCase()
+  .replace(/[^\p{Letter}\p{Number}]+/gu, "-").replace(/^-|-$/g, "");
+
+export function mentionedRecipient(text, options) {
+  const match = /^(\$[^\s]+)(?:\s+([\s\S]+))?$/.exec(text.trim());
+  const recipient = match && options.find(({ tag }) => `$${tag}` === match[1].toLocaleLowerCase());
+  return recipient ? { recipient, body: match[2]?.trim() ?? "" } : null;
+}
+
+export function agentMentionOptions(agentIds, assignments, peers) {
+  const assigned = agentIds.map((id) => {
+    const agent = assignments.find((candidate) => candidate.id === id);
+    const peer = peers.find((candidate) => candidate.agentId === id);
+    return agent && { id, targetId: peer?.id ?? null, name: agent.name, tag: agentTag(agent.name), status: peer?.status ?? "assigned" };
+  }).filter(Boolean);
+  const delegated = peers.map((peer) => {
+    const name = assignments.find((agent) => agent.id === peer.agentId)?.name ?? peer.title;
+    return { id: peer.agentId ?? peer.id, targetId: peer.id, name, tag: agentTag(name), status: peer.status };
+  });
+  return [{ id: "everyone", targetId: null, name: "Everyone", tag: "everyone", status: "" }, ...assigned, ...delegated]
+    .filter((option, index, options) => option.tag && options.findIndex(({ tag }) => tag === option.tag) === index);
+}
+
 const TOOL_TARGET = ["url", "query", "file_path", "path", "command", "pattern", "title", "items_json"];
 // A run screen full of send_message and mcp__freelancer__invoke-api-endpoint reads like a log file.
 const TOOL_NAMES = {

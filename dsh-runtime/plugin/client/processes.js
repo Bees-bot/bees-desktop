@@ -1,7 +1,7 @@
 import { h, useEffect, useState, React } from "./runtime.js";
 import { accountLabel, ask, Button, confirmAction, Empty, useSubmit, PageHead} from "./shared.js";
 import { GridStackPage } from "./flexible-grid.js";
-import { AgentCreateForm, AgentEditForm, needsNote } from "./agents.js";
+import { AgentCreateForm, AgentEditForm, McpAccess, needsNote } from "./agents.js";
 import { AttachedResourceFields, ResourceFields } from "./location-fields.js";
 
 const PROCESSES_LAYOUT = [{ kind: "processes", x: 0, y: 0, w: 12, h: 12 }];
@@ -73,7 +73,7 @@ export function ProcessRoutingBoard({ stages, agents, servers = [], act, onOpenA
             onCreateAgent: () => onCreateAgent(stage.id) })))));
 }
 
-function ProcessForm({ ctx, data, kind, draft, workspaceId, teamId, act, onCancel, onCreated, setPageHeader }) {
+function ProcessForm({ ctx, data, servers, tools, catalog, onServerAction, kind, draft, workspaceId, teamId, act, onCancel, onCreated, setPageHeader }) {
   const template = kind === "template";
   const initialStages = (draft?.stages ?? [{ name: "Plan" }, { name: "Doing" }, { name: "Done" }])
     .map(({ name }) => name);
@@ -89,7 +89,8 @@ function ProcessForm({ ctx, data, kind, draft, workspaceId, teamId, act, onCance
     const created = await act({
       action: template ? "create_process_template" : "create_process", workspaceId,
       name: String(form.get("name") ?? ""), description: String(form.get("description") ?? ""), stages,
-      inputLocationIds, outputLocationId
+      inputLocationIds, outputLocationId,
+      mcpAccess: String(form.get("mcpAccess") ?? "none"), mcpServers: form.getAll("mcpServers").map(String)
     });
     if (created?.id) onCreated(created.id);
   });
@@ -112,9 +113,24 @@ function ProcessForm({ ctx, data, kind, draft, workspaceId, teamId, act, onCance
     h("div", { className: "bees-muted", id: "process-stage-help" }, "Use 2–12 unique stages. Leave assignment automatic or choose a lead and participants; Review uses one independent reviewer; Approval or Sign-off requires human approval; the last stage completes the work."),
     template ? null : h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds,
       onInputIds: setInputLocationIds, outputId: outputLocationId, onOutputId: setOutputLocationId }),
+    template ? null : h(React.Fragment, null,
+      h("p", { className: "bees-muted" }, "Process MCPs are available to every agent in this process, alongside each agent's own MCPs."),
+      h(McpAccess, { ctx, servers, tools, catalog, onServerAction, access: "none", scope: "process" })),
     h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Creating…" : template ? "Create template" : "Create process template"),
       h(Button, { onClick: onCancel }, "Cancel"))
   );
+}
+
+export function ProcessMcpForm({ ctx, process, servers, tools, catalog, onServerAction, act, showAll = false }) {
+  const [busy, onSubmit] = useSubmit(async (event) => {
+    const form = new FormData(event.currentTarget);
+    await act({ action: "set_process_mcp", processId: process.id,
+      mcpAccess: String(form.get("mcpAccess") ?? "none"), mcpServers: form.getAll("mcpServers").map(String) });
+  });
+  return h("form", { className: "bees-box bees-form", onSubmit },
+    h("p", { className: "bees-muted" }, "Every agent in this process inherits these MCPs in addition to its own."),
+    h(McpAccess, { ctx, servers, tools, catalog, onServerAction, access: process.mcpAccess, chosen: process.mcpServers, scope: "process", showAll }),
+    h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Saving…" : "Save process MCPs"));
 }
 
 
@@ -177,7 +193,7 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
   const [templateStatus, setTemplateStatus] = useState("active");
   const processes = data.processes.filter((process) => workspaceIds.includes(process.workspaceId));
   if (["process", "template"].includes(creating)) return h(ProcessForm, {
-    ctx, data, kind: creating, draft: processDraft, workspaceId, teamId, act,
+    ctx, data, servers, tools, catalog, onServerAction, kind: creating, draft: processDraft, workspaceId, teamId, act,
     onCancel: () => { setCreating(""); setProcessDraft(null); },
     setPageHeader, onCreated: (id) => {
       const wasTemplate = creating === "template";
@@ -259,6 +275,10 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
           h("summary", null, "Description & instructions"),
           h("p", { className: "bees-muted" }, "Shared with workers, discussion participants and reviewers."),
           h("div", { style: { whiteSpace: "pre-wrap" } }, process.description || "No process instructions configured.")),
+        h("details", { style: { marginBottom: "16px" } },
+          h("summary", null, "Process MCPs"),
+          h(ProcessMcpForm, { key: `${process.id}:${process.mcpAccess}:${JSON.stringify(process.mcpServers)}`,
+            ctx, process, servers, tools, catalog, onServerAction, act })),
         routingBoard
       );
 
