@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { appConfig, appRecordData, validateApp } from "./app-contract.js";
 import { currentIdentity, iso, transaction, workspaceContext } from "./product-database.js";
-import { readPublicSource } from "./app-source.js";
+import { publicSourceUrl, readPublicSource } from "./app-source.js";
 import { AppSharedState } from './app-shared-state.js';
 import { ACTION_RESERVED_STATUSES, AppActionDispatcher, claimAction, decideAction, reconcileAction, reviewAction, settleAction } from './app-actions.js';
 
@@ -423,7 +423,7 @@ export class AppPlatform {
   async source(app, itemId, key, query, signal) {
     const source = app.manifest.sources.find((s) => s.key === key);
     if (!source) throw new Error("Source is not declared by this app");
-    bounded(query, "query", source.type === "page" ? 2000 : 300);
+    publicSourceUrl(source, query); // a malformed or out-of-scope query fails here, before it spends one of the 20 requests
     const id = randomUUID();
     await this.useApp(app, itemId, true, () => transaction(this.db, () => {
       if (this.db.prepare("SELECT COUNT(*) AS n FROM app_sources WHERE item_id=?").get(itemId).n >= 20) throw new Error("This work item reached its 20-request limit");
