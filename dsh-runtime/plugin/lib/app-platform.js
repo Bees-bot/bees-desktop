@@ -444,7 +444,9 @@ export class AppPlatform {
     const evidence = input.evidenceIds ?? [];
     if (!Array.isArray(evidence) || evidence.length > 20) throw new Error("Invalid evidence IDs");
     for (const id of evidence) if (!this.db.prepare("SELECT 1 FROM app_sources WHERE id=? AND installation_id=?").get(id, app.id)) throw new Error("Evidence belongs to another app or does not exist");
-    const prior = this.db.prepare("SELECT id FROM app_records WHERE installation_id=? AND record_key=?").get(app.id, key);
+    const prior = this.db.prepare("SELECT id, kind FROM app_records WHERE installation_id=? AND record_key=?").get(app.id, key);
+    // one key per record: an upsert under another kind would silently erase the earlier record
+    if (prior && prior.kind !== kind) throw new Error(`Record key "${key}" already holds a ${prior.kind} record; use a different key`);
     const id = prior?.id ?? randomUUID();
     this.db.prepare(`INSERT INTO app_records (id,installation_id,record_key,kind,title,body,evidence,item_id,updated_at,data,provenance) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(installation_id,record_key) DO UPDATE SET kind=excluded.kind,title=excluded.title,body=excluded.body,evidence=excluded.evidence,item_id=excluded.item_id,updated_at=excluded.updated_at,data=excluded.data,provenance=excluded.provenance`)
       .run(id, app.id, key, kind, title, body, JSON.stringify(evidence), itemId, iso(), JSON.stringify(data), provenance);

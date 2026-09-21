@@ -10,8 +10,9 @@ export function publicIPv4(address) {
     a === 100 && b >= 64 && b <= 127 || a === 198 && (b === 18 || b === 19 || b === 51 && c === 100) || a === 203 && b === 0 && c === 113);
 }
 
-// Resolve once and pin that address at TLS connection time. No redirects, cookies or auth.
+// Resolve once and pin the checked addresses at TLS connection time. No redirects, cookies or auth.
 // IPv4-only deliberately: unavailable IPv4 fails closed instead of weakening SSRF checks.
+// autoSelectFamily walks the pinned list, so one dead CDN address no longer fails every read of that host.
 export function publicSourceUrl(source, query) {
   const base = new URL(source.url);
   if (typeof query !== "string" || !query.trim() || query.length > (source.type === "page" ? 2000 : 300)) throw new Error("Invalid source query");
@@ -33,8 +34,8 @@ export async function readPublicSource(source, query, signal) {
   signal.throwIfAborted();
   if (!addresses.length || addresses.some(({ address }) => !publicIPv4(address))) throw new Error("Source did not resolve to public IPv4 addresses");
   return new Promise((resolve, reject) => {
-    const req = get(url, { signal, headers: { accept: "application/json, text/plain", "user-agent": "Bees-Apps/0.1" },
-      lookup: (_host, options, done) => options.all ? done(null, [addresses[0]]) : done(null, addresses[0].address, 4)
+    const req = get(url, { signal, autoSelectFamily: true, headers: { accept: "application/json, text/plain", "user-agent": "Bees-Apps/0.1" },
+      lookup: (_host, options, done) => options.all ? done(null, addresses) : done(null, addresses[0].address, 4)
     }, (res) => {
       if (res.statusCode !== 200) { res.resume(); reject(new Error(`Source returned HTTP ${res.statusCode}; redirects are not followed`)); return; }
       let bytes = 0;
