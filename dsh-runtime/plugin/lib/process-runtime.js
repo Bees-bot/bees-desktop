@@ -592,7 +592,7 @@ export class ProcessRuntime {
     });
   }
 
-  async signal(workItemId, type) {
+  async signal(workItemId, type, message) {
     const item = this.item(workItemId);
     if (!this.isAutomatic(item.processId)) throw new Error("This process is manually driven");
     const allowed = {
@@ -613,7 +613,7 @@ export class ProcessRuntime {
       await handle.cancel();
       return item;
     }
-    await handle.signal(type);
+    await handle.signal(type, ...(message ? [message] : []));
     const phase = type === "pause" ? "paused" : "running";
     this.database.prepare(`
       UPDATE work_items SET runtime_phase = ?, runtime_error = NULL, updated_at = ? WHERE id = ?

@@ -58,6 +58,7 @@ export async function processWorkflow(input) {
   const startedAt = index;
   let paused = false;
   let retryRequested = false;
+  let retryMessage = "";
   let retryRequests = 0;
   let stageChanges = 0;
   let candidateExecutionId = input.correction?.candidateExecutionId ?? null;
@@ -79,7 +80,7 @@ export async function processWorkflow(input) {
 
   setHandler(pauseSignal, () => { paused = true; });
   setHandler(resumeSignal, () => { paused = false; });
-  setHandler(retrySignal, () => { retryRequested = true; paused = false; });
+  setHandler(retrySignal, (message = "") => { retryRequested = true; retryMessage = message; paused = false; });
   setHandler(stageChangedSignal, (executionId) => {
     if (executionId === state.executionId) stageChanges += 1;
   });
@@ -139,9 +140,12 @@ export async function processWorkflow(input) {
       try {
         while (true) {
           const observedChanges = stageChanges;
+          const message = retryMessage;
+          retryMessage = "";
           try {
             result = await durableActivities.runDshStage({
               ...state, purpose, driver: stage.driver,
+              ...(message ? { retryMessage: message } : {}),
               requiresHumanApproval: Boolean(stage.requiresHumanApproval),
               stageName: stage.name, candidateExecutionId, feedback,
               durableWaits: true

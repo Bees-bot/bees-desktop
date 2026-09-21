@@ -199,8 +199,10 @@ function executionAccount(database, teamId, input) {
 /** A run is only reachable through the work item or workspace that owns it. */
 function runContext(database, executionId, roles = ["admin", "member"]) {
   const run = database.prepare(`
-    SELECT work_item_id AS workItemId, instance_uid AS uid, config_json AS configJson, status
-    FROM execution_links WHERE execution_id = ?
+    SELECT e.work_item_id AS workItemId, e.instance_uid AS uid, e.config_json AS configJson,
+           e.status, w.runtime_phase AS runtimePhase
+    FROM execution_links e LEFT JOIN work_items w ON w.id = e.work_item_id
+    WHERE e.execution_id = ?
   `).get(executionId);
   if (!run) throw new Error("Execution not found");
   const item = run.workItemId ? itemContext(database, run.workItemId, roles) : null;
@@ -1366,7 +1368,9 @@ export async function executeProductCommand(action, input) {
     if (action === "continue_run") {
       const executionId = required(input.executionId, "Execution");
       const text = required(input.text, "Text");
-      const { uid } = runContext(this.database, executionId);
+      const { uid, item, runtimePhase } = runContext(this.database, executionId);
+      if (item && runtimePhase === "failed")
+        return this.processes.signal(item.id, "retry", text);
       return this.agents.admit("bees-run", executionId, {
         idempotencyKey: `continue:${executionId}:${Date.now()}`,
         uid, ownerChecked: true,

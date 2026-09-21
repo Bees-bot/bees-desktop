@@ -197,7 +197,7 @@ export class BeesProduct {
       return this.agents.executeStage(stage.executionId, {
         idempotencyKey: `process:${stage.executionId}:start`, durableWaits: true,
         ...retry,
-        body: `Continue the ${stage.stageName} stage from its existing work.\n\n${item.title}\n\n${item.description}`
+        body: `${stage.retryMessage ? `${stage.retryMessage}\n\n` : ""}Continue the ${stage.stageName} stage from its existing work.\n\n${item.title}\n\n${item.description}`
       }, signal);
     }
     const referenceBrief = referenceContext(this.database, item.workspaceId, typedReferences(`${root.title}\n${root.description}\n${root.processDescription}`));
