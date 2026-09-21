@@ -329,8 +329,6 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
   if (run?.ranElsewhere) convoItems.push(h("div", { className: "bees-convo-msg system", key: "elsewhere" },
     "This ran on another device. Its result is above; the full transcript and any files it wrote stayed there."));
   else if (run && !visibleHistory && !historyError) convoItems.push(h("div", { className: "bees-convo-msg system", key: "loading" }, "Loading conversation…"));
-  // a waiting question goes first and the agent's steps fold away, so nobody scrolls to find it
-  const hideSteps = pendingRun && !showSteps;
   const conversation = h("div", { className: "bees-convo-panel" },
     h("div", { className: "bees-convo-header" },
       h("div", { className: "bees-convo-title" }, "Conversation"),
@@ -339,7 +337,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
         showSteps ? "Hide agent steps" : `Show agent steps (${messages.length})`) : null),
     pendingRun ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" },
       h(AgentInteractionPanel, { run: pendingRun, item, session, interaction, handled, onAnswered: answered, act, data })) : null,
-    hideSteps ? null : h("div", {
+    // a waiting question goes first and the agent's steps fold away, so nobody scrolls to find it
+    pendingRun && !showSteps ? null : h("div", {
       className: "bees-convo-history", ref: convoRef,
       onScroll: (event) => {
         const { scrollTop, scrollHeight, clientHeight } = event.currentTarget;
@@ -831,7 +830,7 @@ function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, execu
   const signInUrl = links.find((link) => /sign.?in|log.?in|auth|account/i.test(link)) ?? links[0];
   const signInOption = /sign(ed|ing)?.?in|log.?in/i;
   // a sign-in question has to be answered, skipping it just asks again
-  const signInQuestion = Boolean(signInUrl) && (question.options ?? []).some((option) => signInOption.test(option.label));
+  const signInQuestion = signInUrl && (question.options ?? []).some((option) => signInOption.test(option.label));
   const openBrowser = () => act({ action: "open_agent_browser", executionId, ...(signInUrl ? { url: signInUrl } : {}) });
   const setDraft = (change) => setDrafts((current) => current.map((value, itemIndex) => itemIndex === index ? change(value) : value));
   const choose = (label) => setDraft((current) => ({
