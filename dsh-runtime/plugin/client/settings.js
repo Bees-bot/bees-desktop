@@ -582,23 +582,16 @@ function DataFolderSettings({ ctx, data, act }) {
     setNotice("");
     try {
       const moved = await act({ action: "set_data_folder", directory: picked });
-      // Only read at launch, so Bees restarts itself instead of carrying on in the old folder.
+      // the folder is only read at launch
       if (moved?.restart) await window.__TAURI__.core.invoke("restart_app")
         .catch(() => setNotice("Quit Bees and open it again to use that folder."));
     } catch (error) { setNotice(error.message || String(error)); }
   });
   return h("section", { className: "bees-box bees-stack" },
     h("h2", null, "Data folder"),
-    h("p", { className: "bees-muted" }, shared
-      ? "Bees keeps your work in a shared folder. Every computer that opens this folder sees the same processes, agents, runs and conversations."
-      : "Bees keeps your work on this computer only."),
     h("p", null, path),
-    h("p", { className: "bees-muted" },
-      "Pick a folder inside Google Drive, Dropbox or iCloud. An empty folder gets a copy of your work. ",
-      "A folder the other computer has already filled is used as it is, and nothing in it is written over. ",
-      "Open it on one computer at a time: quit Bees on the other one and let Google Drive finish syncing first."),
-    h("p", { className: "bees-muted" },
-      "Your models, logs and saved keys stay on this computer, so on the other computer you enter each connection's key once."),
+    h("p", { className: "bees-muted" }, "Pick a folder in Google Drive, Dropbox or iCloud to share your work between computers. ",
+      "An empty folder gets a copy, a filled one is joined as it is. Open it on one computer at a time. Saved keys stay on each computer."),
     notice ? h("p", { className: "bees-callout", role: "status" }, notice) : null,
     h("div", { className: "bees-detail-actions" },
       h(Button, { onClick: choose, disabled: busy }, busy ? "Switching…" : "Choose a shared folder"),

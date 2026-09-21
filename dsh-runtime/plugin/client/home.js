@@ -15,15 +15,13 @@ export function OutcomeWidget({ ctx, data, workspaceId, outcome, setOutcome, con
   const [busy, submit] = useSubmit(async () => {
     if (!allowed || !workspaceId || !outcome.trim()) return;
     setError("");
-    await guardRun(data.processes.find((row) => row.workspaceId === workspaceId && row.kind === "goals")?.id, async () => {
-      try {
-        const result = await act(workFromOutcome(outcome, { workspaceId }));
-        if (result?.id) { setOutcome(""); openWorkItem(result.id); }
-        else setError("Could not start this work. Please try again.");
-      } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
-    });
+    if (!await guardRun(data.processes.find((row) => row.workspaceId === workspaceId && row.kind === "goals")?.id)) return;
+    try {
+      const result = await act(workFromOutcome(outcome, { workspaceId }));
+      if (result?.id) { setOutcome(""); openWorkItem(result.id); }
+      else setError("Could not start this work. Please try again.");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   });
-  // the dialog stays outside the form so a click inside it can never submit this one
   return h(React.Fragment, null, preflight, h("form", {
     className: "bees-composer bees-dashboard-composer",
     onSubmit: submit

@@ -244,12 +244,7 @@ fn stable_loopback_port(app: &tauri::AppHandle) -> Result<u16, String> {
 /// Where the work lives: this computer's folder, or one the person shares between computers.
 fn data_dir(app_data: &Path) -> Result<PathBuf, String> {
     let pointer = app_data.join("data-folder");
-    let chosen = if pointer.exists() {
-        fs::read_to_string(&pointer)
-            .map_err(|error| format!("Bees could not read {}: {error}", pointer.display()))?
-    } else {
-        String::new()
-    };
+    let chosen = fs::read_to_string(&pointer).unwrap_or_default();
     if chosen.trim().is_empty() {
         return Ok(app_data.to_path_buf());
     }

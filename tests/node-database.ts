@@ -4,14 +4,10 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { initializeProductDatabase } from "../dsh-runtime/plugin/lib/product.js";
 
-// Tauri hands the running app these four paths; a throwaway folder stands in for it here.
+// the app hands over these folders and writes its device id; a throwaway folder stands in here
 const root = mkdtempSync(join(tmpdir(), "bees-test-"));
-process.env.BEES_APP_DATA ??= root;
-process.env.BEES_DATA_DIR ??= root;
-process.env.BEES_STATE_DIR ??= root;
-process.env.BEES_DATABASE_PATH ??= join(root, "bees-stage1.db");
-// The app writes this beside itself before starting the harness.
-writeFileSync(join(process.env.BEES_APP_DATA, "device-id"), "test-device");
+for (const name of ["BEES_APP_DATA", "BEES_DATA_DIR", "BEES_STATE_DIR"]) process.env[name] ??= root;
+writeFileSync(join(process.env.BEES_APP_DATA!, "device-id"), "test-device");
 
 export class NodeDatabase {
   readonly connection = new DatabaseSync(":memory:");
