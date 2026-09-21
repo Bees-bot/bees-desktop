@@ -113,8 +113,9 @@ describe("completion recording and visible discussion", () => {
     const visit = (node: any) => { if (node && typeof node === "object") { nodes.push(node); node.children?.flat().forEach(visit); } };
     visit(tree);
     const rendered = JSON.stringify(tree);
-    for (const text of ["CEO / decision", "To: CMO launch", "Target agencies first", "outputs/strategy.md", "Load earlier messages", "Join the discussion"])
+    for (const text of ["CEO / decision", "To: CMO launch", "Target agencies first", "outputs/strategy.md", "Load earlier messages", "Send from Chat"])
       expect(rendered).toContain(text);
+    expect(nodes.some((node) => node.tag === "form")).toBe(false);
     nodes.find((node) => node.children?.includes("Work and files: CEO strategy")).props.onClick();
     expect(open).toHaveBeenCalledWith("ceo");
     expect(nodes.some((node) => node.props?.role === "log")).toBe(true);

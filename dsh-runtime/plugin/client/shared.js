@@ -814,6 +814,26 @@ export const css = `
   opacity: 0.35 !important;
   cursor: not-allowed !important;
 }
+.bees-agent-mention {
+  color: #f2b84b !important;
+  font-weight: 750 !important;
+}
+.bees-mention-suggestions {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 6px !important;
+  padding: 10px 12px 0 !important;
+}
+.bees-mention-suggestions button {
+  padding: 5px 8px !important;
+  border: 1px solid var(--dsw-alias-border-l2) !important;
+  border-radius: 7px !important;
+  color: var(--dsw-alias-label-secondary) !important;
+  background: var(--dsw-alias-interactive-bg-hover) !important;
+  font: inherit !important;
+  font-size: 12px !important;
+  cursor: pointer !important;
+}
 
 /* Kanban Card Description */
 .bees-card-desc {

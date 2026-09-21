@@ -12,15 +12,18 @@ import { addLocationFromDevice, FilePreview, inheritedInputs, ResourceFields, Wo
 
 import { useMcpPreflight } from "./agents.js";
 import { generatedFileKeys, watchFilesViewed } from "./file-notifications.js";
-import { conversationMessages, OUTCOME_LABELS, pollConversation } from "./conversation-model.js";
+import { agentMentionOptions, conversationMessages, mentionedRecipient, OUTCOME_LABELS, pollConversation } from "./conversation-model.js";
 import { DshRunPanels } from "./native-conversation.js";
 
 const UserMessage = ({ children, label }) => {
   const [expanded, setExpanded] = useState(false);
   const truncated = children.length > 280;
+  const text = truncated && !expanded ? `${clip(children, 280).trimEnd()}…` : children;
+  const mention = /^(\$[^\s]+)([\s\S]*)$/.exec(text);
   return h("div", { className: "bees-convo-msg user" },
     label ? h("strong", null, label) : null,
-    h("div", null, truncated && !expanded ? `${clip(children, 280).trimEnd()}…` : children),
+    h("div", null, mention ? h(React.Fragment, null,
+      h("span", { className: "bees-agent-mention" }, mention[1]), mention[2]) : text),
     truncated ? h("button", {
       type: "button", "aria-expanded": expanded, onClick: () => setExpanded((value) => !value),
       style: { display: "block", marginTop: 6, padding: 0, border: 0, color: "inherit", background: "none", font: "inherit", fontSize: 12, fontWeight: 700, textDecoration: "underline", cursor: "pointer" }
@@ -199,8 +202,10 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
   const [historyError, setHistoryError] = useState("");
   const convoRef = React.useRef(null);
   const [composerText, setComposerText] = useState("");
+  const [discussion, setDiscussion] = useState(null);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState("");
+  const [sendNotice, setSendNotice] = useState("");
   const [refreshCount, setRefreshCount] = useState(0);
   const run = itemRuns.find(({ id }) => id === selectedRun) ?? itemRuns[0];
   const pendingRun = itemRuns.find(({ status, sessionId }) => sessionId && ["waiting_for_input", "waiting_for_approval"].includes(status));
@@ -215,8 +220,17 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
   const liveRevision = useBeesChangeRevision();
   useEffect(() => {
     setSelectedRun(""); setHandled(new Set()); setActiveTab("files");
-    setHistory(null); setComposerText(""); setSending(false);
+    setHistory(null); setComposerText(""); setDiscussion(null);
+    setSending(false); setSendNotice("");
   }, [item.id]);
+  useEffect(() => {
+    if (plan) return;
+    let active = true;
+    request("/bees-api/command", { method: "POST", body: JSON.stringify({ action: "read_work_discussion", itemId: item.id }) })
+      .then((value) => { if (active) setDiscussion(value); })
+      .catch((error) => { if (active) setSendError(error instanceof Error ? error.message : String(error)); });
+    return () => { active = false; };
+  }, [item.id, plan, liveRevision]);
   useEffect(() => {
     setHistoryError("");
     // The transcript lives with the session that produced it, and that is on the other device.
@@ -270,10 +284,28 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
     .sort((left, right) => new Date(right.resultCreatedAt ?? right.updatedAt) - new Date(left.resultCreatedAt ?? left.updatedAt))[0];
   const activeChildren = subitems.filter((child) => ["queued", "running", "waiting"].includes(child.runtimePhase)).length;
   const isWorking = ["queued", "running"].includes(run?.status) || item.runtimePhase === "running";
-  const isAgentBusy = isWorking || sending;
   const conversationRuns = data.runs.filter((row) => row.workItemId === item.id || subitems.some(({ id }) => id === row.workItemId));
   const visibleHistory = history?.executionId === run?.id ? history : null;
-  const messages = conversationMessages(visibleHistory, conversationRuns, assignments, subitems);
+  const discussionPeers = discussion?.participants.filter((peer) => peer.id !== item.id).map((peer) => {
+      const peerItem = data.items.find((candidate) => candidate.id === peer.id);
+      const peerRun = data.runs.find((candidate) => candidate.workItemId === peer.id);
+      return { ...peer, agentId: peerRun?.resolvedAgentId ?? peerItem?.agentAssignmentId ?? peerItem?.agentIds?.[0] };
+    }) ?? [];
+  const assignedAgentIds = [...new Set([
+    ...(item.agentIds ?? []), ...(run?.resolvedAgentIds ?? []),
+    ...(item.agentAssignmentId ? [item.agentAssignmentId] : []), ...(run?.resolvedAgentId ? [run.resolvedAgentId] : [])
+  ])];
+  const mentionOptions = discussion ? agentMentionOptions(assignedAgentIds, assignments, discussionPeers) : [];
+  const typedMention = /^\$([^\s]*)$/.exec(composerText);
+  const mentionSuggestions = typedMention ? mentionOptions.filter(({ tag }) => tag.startsWith(typedMention[1].toLocaleLowerCase())).slice(0, 5) : [];
+  const composerMention = mentionedRecipient(composerText, mentionOptions);
+  const messages = [
+    ...conversationMessages(visibleHistory, conversationRuns, assignments, subitems),
+    ...(discussion?.updates ?? []).filter((entry) => entry.author === "User" && entry.workItemId === item.id)
+      .map((entry) => ({ id: `update:${entry.id}`, role: "user", text: entry.content,
+        label: entry.targetId ? `To: ${discussion.participants.find((peer) => peer.id === entry.targetId)?.title ?? "teammate"}` : "To: everyone",
+        timestamp: new Date(entry.createdAt).getTime() || 0 }))
+  ].sort((left, right) => left.timestamp - right.timestamp);
   useEffect(() => {
     if (isScrolledUpRef.current) return;
     const scrollToBottom = () => { if (!isScrolledUpRef.current && convoRef.current) convoRef.current.scrollTop = convoRef.current.scrollHeight; };
@@ -283,7 +315,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
   }, [history, pendingRun, interaction, item.runtimePhase]);
   const convoItems = [h(GoalMessage, { item, key: "start" })];
   for (const message of messages) {
-    if (message.role === "user") convoItems.push(h(UserMessage, { key: message.id }, message.text));
+    if (message.role === "user") convoItems.push(h(UserMessage, { key: message.id, label: message.label }, message.text));
     else if (message.role === "tool") convoItems.push(h("div", { className: "bees-convo-msg system", key: message.id,
       style: { fontFamily: "ui-monospace, monospace", fontSize: "12px", opacity: 0.75 } }, message.text));
     else convoItems.push(h("div", { className: "bees-agent-turn", key: message.id },
@@ -316,12 +348,34 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
         h("span", { className: "bees-dot-typing-container" }, h("span", { className: "bees-dot-typing-dot" })),
         run?.status === "queued" ? "Agent is starting..." : [...messages].reverse().find((message) => message.pending)?.text ?? "Agent is working...") : null),
     sendError ? h("div", { className: "bees-error", role: "alert" }, sendError) : null,
+    sendNotice ? h("p", { className: "bees-muted", role: "status" }, sendNotice) : null,
     h("form", { className: "bees-composer bees-compact-composer", onSubmit: async (event) => {
       event.preventDefault();
       const text = composerText.trim();
-      if (!text || isAgentBusy || run?.ranElsewhere) return;
+      const mention = composerMention;
+      if (!text || sending || (!mention && run?.ranElsewhere)) return;
       isScrolledUpRef.current = false;
-      setSendError("");
+      setSendError(""); setSendNotice("");
+      if (mention) {
+        if (!mention.body) { setSendError("Add a message after the teammate tag."); return; }
+        setSending(true);
+        try {
+          await request("/bees-api/command", { method: "POST", body: JSON.stringify({
+            action: "post_work_update", itemId: item.id, kind: "note", content: text,
+            targetId: mention.recipient.targetId
+          }) });
+          const updated = await request("/bees-api/command", { method: "POST", body: JSON.stringify({ action: "read_work_discussion", itemId: item.id }) });
+          setDiscussion(updated); setComposerText("");
+          const recipients = mention.recipient.id === "everyone" ? updated.participants
+            : mention.recipient.targetId ? updated.participants.filter((peer) => peer.id === mention.recipient.targetId)
+              : [{ status: item.runtimePhase }];
+          setSendNotice(recipients.some((peer) => ["ready", "queued", "running", "waiting"].includes(peer.status))
+            ? "Shared with the team. Active agents can read it on their next step."
+            : "Saved to Discussion. This teammate has finished; the message will not restart them. Arrange a follow-up to get a reply.");
+        } catch (reason) { setSendError(reason instanceof Error ? reason.message : String(reason)); }
+        finally { setSending(false); }
+        return;
+      }
       if (!activeBinding) {
         if (run && (item.runtimePhase === "completed" || item.runtimePhase === "failed")) {
           setSending(true);
@@ -348,14 +402,20 @@ function WorkItemDetails({ ctx, data, item, teamId, act, onOpenWork, onArchived,
         setTimeout(() => setRefreshCount((count) => count + 1), 500);
       }
     } },
+      composerMention ? h("div", { className: "bees-muted", style: { padding: "10px 12px 0" } },
+        "Sending to ", h("span", { className: "bees-agent-mention" }, `$${composerMention.recipient.tag}`)) : null,
+      mentionSuggestions.length ? h("div", { className: "bees-mention-suggestions", role: "listbox", "aria-label": "Teammate suggestions" },
+        ...mentionSuggestions.map((option) => h("button", { type: "button", role: "option", key: option.id,
+          onClick: () => { setComposerText(`$${option.tag} `); setSendNotice(""); } },
+          h("span", { className: "bees-agent-mention" }, `$${option.tag}`), option.status ? ` · ${option.status}` : ""))) : null,
       h("textarea", {
         className: "bees-composer-input",
-        placeholder: pendingRun ? "Answer above or add a note..." : isWorking ? "Agent is working..." : "Add a note or instruction to continue...",
-        disabled: isAgentBusy, value: composerText, rows: 2,
+        placeholder: pendingRun ? "Answer above, or type $ to message a teammate..." : "Message the current agent, or type $ for teammates...",
+        disabled: sending, value: composerText, rows: 2,
         onChange: (event) => setComposerText(event.target.value),
         onKeyDown: (event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); event.target.form.requestSubmit(); } }
       }),
-      h("button", { type: "submit", className: "bees-composer-send", disabled: isAgentBusy || run?.ranElsewhere || !composerText.trim(), "aria-label": "Send message" }, sending ? "…" : "↑")));
+      h("button", { type: "submit", className: "bees-composer-send", disabled: sending || (run?.ranElsewhere && !composerMention) || !composerText.trim(), "aria-label": "Send message" }, sending ? "…" : "↑")));
 
   const controls = h("section", { className: "bees-run-status-widget", "aria-label": "Selected work status" },
       h("div", { className: "bees-run-status-summary" },

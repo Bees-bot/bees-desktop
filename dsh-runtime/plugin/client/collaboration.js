@@ -39,9 +39,7 @@ export function SharedWorkContext({ item, executionId }) {
 export function WorkDiscussion({ item, onOpenWork }) {
   const [view, setView] = useState(null);
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
   const [loadingEarlier, setLoadingEarlier] = useState(false);
-  const [notice, setNotice] = useState("");
   const revision = useBeesChangeRevision();
   useEffect(() => {
     let active = true;
@@ -54,24 +52,6 @@ export function WorkDiscussion({ item, onOpenWork }) {
   const open = (id, label) => onOpenWork
     ? h(Button, { type: "button", onClick: () => onOpenWork(id) }, label)
     : h("span", null, label);
-  const post = async (event) => {
-    event.preventDefault();
-    const form = event.currentTarget, values = new FormData(form);
-    setBusy(true); setNotice("");
-    try {
-      await command("post_work_update", { itemId: item.id, kind: values.get("kind"), content: values.get("content"),
-        evidence: values.get("evidence"), targetId: values.get("targetId") || null });
-      const updated = await command("read_work_discussion", { itemId: item.id });
-      setView(updated);
-      const recipients = values.get("targetId") ? updated.participants.filter((peer) => peer.id === values.get("targetId")) : updated.participants;
-      const active = recipients.some((peer) => ["ready", "queued", "running", "waiting"].includes(peer.status));
-      setNotice(active
-        ? "Saved to the shared journal. Active agents can read it on their next model step; agents waiting on peer work are notified. This is not a read receipt or an approval."
-        : "Saved to the shared journal. No selected recipient is active. Open their work item to resume, retry, or arrange a follow-up; this message alone does not restart work.");
-      form.reset(); setError("");
-    } catch (reason) { setError(reason.message); }
-    finally { setBusy(false); }
-  };
   const earlier = async () => {
     const before = view.before;
     setLoadingEarlier(true);
@@ -86,7 +66,7 @@ export function WorkDiscussion({ item, onOpenWork }) {
   };
   return h("section", { className: "bees-stack", "aria-label": "Work item discussion" },
     h("h3", null, "Discussion"),
-    h("p", { className: "bees-muted" }, "Shared messages, decisions and results from this primary work item and its peers. These are explicit contributions, not private agent reasoning. Completed agents need a follow-up assignment to respond."),
+    h("p", { className: "bees-muted" }, "Shared messages, decisions and results from this primary work item and its peers. Send from Chat and type $ to mention a teammate or Everyone. Completed agents need a follow-up assignment to respond."),
     error ? h("p", { role: "alert", className: "bees-error" }, error) : null,
     view ? h("div", { className: "bees-row", style: { flexWrap: "wrap" } },
       ...view.participants.map((peer) => h("span", { key: peer.id }, open(peer.id, `${peer.title} (${peer.status})`)))) : h("p", { role: "status" }, "Loading discussion..."),
@@ -101,17 +81,7 @@ export function WorkDiscussion({ item, onOpenWork }) {
         h("time", { dateTime: entry.createdAt }, new Date(entry.createdAt).toLocaleString()),
         h("div", null, open(entry.workItemId, `Work and files: ${title(entry.workItemId)}`)),
         entry.executionId ? h("small", null, `Execution: ${entry.executionId}`) : null))),
-    notice ? h("p", { role: "status", className: "bees-callout" }, notice) : null,
-    h("p", { className: "bees-muted" }, "Messages and suggestions do not change pinned requirements or grant approval. To change requirements, use Details > Edit item and start a new execution with those requirements."),
-    h("form", { className: "bees-form", onSubmit: post },
-      h("label", null, "Send to", h("select", { name: "targetId", className: "bees-select" },
-        h("option", { value: "" }, "Everyone"),
-        ...(view?.participants ?? []).map((peer) => h("option", { key: peer.id, value: peer.id }, peer.title)))),
-      h("label", null, "Update type", h("select", { name: "kind", className: "bees-select" },
-        ...["note", "decision", "finding", "lesson"].map((kind) => h("option", { key: kind, value: kind }, kind)))),
-      h("label", null, "Join the discussion", h("textarea", { name: "content", required: true, maxLength: 6000, className: "bees-textarea" })),
-      h("label", null, "Evidence (required for findings and lessons)", h("textarea", { name: "evidence", maxLength: 6000, className: "bees-textarea" })),
-      h(Button, { type: "submit", disabled: busy || !view }, busy ? "Sharing..." : "Send message")));
+    h("p", { className: "bees-muted" }, "Messages and suggestions do not change pinned requirements or grant approval. To change requirements, use Details > Edit item and start a new execution with those requirements."));
 }
 
 export function MemorySettings({ workspace, canManage = false }) {
