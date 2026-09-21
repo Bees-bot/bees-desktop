@@ -129,7 +129,7 @@ export function SystemDefaultSettings({ ctx, modelSettings, systemDefault, reloa
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Which MCP servers this agent may use. Shared by the create and edit forms. */
-export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access, chosen, onServerAction }) {
+export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access, chosen, onServerAction, scope = "agent" }) {
   const [mode, setMode] = useState(access ?? "all");
   const [picked, setPicked] = useState(chosen ?? []);
   const [query, setQuery] = useState("");
@@ -153,7 +153,7 @@ export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access,
       h("select", { className: "bees-select", name: "mcpAccess", value: mode,
         onChange: (event) => setMode(event.target.value) },
         h("option", { value: "all" }, "All connected MCPs"),
-        h("option", { value: "none" }, "No MCP access"),
+        h("option", { value: "none" }, scope === "process" ? "No process MCPs" : "No MCP access"),
         h("option", { value: "listed" }, "Only selected MCPs"))),
     mode === "all" ? h("div", { className: "bees-mcp-count" }, `${connected.length} MCP${connected.length === 1 ? "" : "s"} connected`) : null,
     mode === "listed" && entry ? h(CatalogReview, { ctx, entry, onCancel: () => setReviewing(""),
@@ -173,8 +173,8 @@ export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access,
           h("div", { className: "bees-muted" }, item
             ? `${item.summary} · runs here fail until it is added`
             : UUID.test(name)
-              ? "This MCP server was set up on another computer. Take it off and pick the one this agent should use."
-              : `${name} is set up on another computer. Add it under MCP servers, or remove it from this agent.`));
+              ? `This MCP server was set up on another computer. Take it off and pick the one this ${scope} should use.`
+              : `${name} is set up on another computer. Add it under MCP servers, or remove it from this ${scope}.`));
       })) : null,
       h("div", { className: "bees-mcp-grid" },
         ...matching.map((server) => {

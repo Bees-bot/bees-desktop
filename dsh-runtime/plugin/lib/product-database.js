@@ -110,12 +110,12 @@ export function itemContext(database, itemId, roles = ["admin", "member", "viewe
 export function processContext(database, processId, roles = ["admin", "member", "viewer"]) {
   const row = database.prepare(`
     SELECT id, workspace_id AS workspaceId, name, description, kind,
-           output_location_id AS outputLocationId
+           output_location_id AS outputLocationId, mcp_access AS mcpAccess, mcp_servers_json AS mcpServers
     FROM processes WHERE id = ? AND archived_at IS NULL
   `).get(required(processId, "Process"));
   if (!row) throw new Error("Process not found");
   workspaceContext(database, row.workspaceId, roles);
-  return row;
+  return { ...row, mcpServers: JSON.parse(row.mcpServers) };
 }
 
 export function workItemLineage(database, itemId) {
@@ -519,6 +519,7 @@ export function initializeProductDatabase(database) {
       kind TEXT NOT NULL DEFAULT 'standard' CHECK (kind IN ('standard', 'goals')),
       output_location_id TEXT REFERENCES team_locations(id),
       account_user_id TEXT,
+      mcp_access TEXT NOT NULL DEFAULT 'none', mcp_servers_json TEXT NOT NULL DEFAULT '[]',
       archived_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     ) STRICT;
     CREATE TABLE IF NOT EXISTS process_templates (
@@ -690,6 +691,8 @@ export function initializeProductDatabase(database) {
   if (!processColumns.has("account_user_id")) database.exec(
     "ALTER TABLE processes ADD COLUMN account_user_id TEXT"
   );
+  if (!processColumns.has("mcp_access")) database.exec("ALTER TABLE processes ADD COLUMN mcp_access TEXT NOT NULL DEFAULT 'none'");
+  if (!processColumns.has("mcp_servers_json")) database.exec("ALTER TABLE processes ADD COLUMN mcp_servers_json TEXT NOT NULL DEFAULT '[]'");
   const itemColumns = new Set(database.prepare("PRAGMA table_info(work_items)").all().map(({ name }) => name));
   if (!itemColumns.has("agent_ids_json")) database.exec(
     "ALTER TABLE work_items ADD COLUMN agent_ids_json TEXT NOT NULL DEFAULT '[]'"
@@ -1001,23 +1004,31 @@ export function serverNames(database, values = []) {
 }
 
 /**
- * The MCP servers one agent may use, as the names its tools are prefixed with.
+ * The MCP servers one agent may use, including process grants, as the names its tools are prefixed with.
  *
  * Read at dispatch, not carried through routing: a rerun reuses its recorded agent config,
  * which would pin a policy the owner has since changed.
  */
-export function mcpGrantFor(database, agentAssignmentId, runSettings = {}) {
+export function mcpGrantFor(database, agentAssignmentId, runSettings = {}, processId = null) {
   const row = database.prepare(`
     SELECT name, mcp_access AS access, mcp_servers_json AS servers FROM agent_assignments WHERE id = ?
   `).get(required(agentAssignmentId, "Agent"));
   if (!row) throw new Error("Agent not found");
-  if (row.access === "none" || runSettings.mcpAccess === "none") return { mcpAccess: "none", mcpServers: [] };
-  if (row.access !== "listed" && runSettings.mcpAccess !== "listed") return { mcpAccess: row.access, mcpServers: [] };
-  // A goal can narrow an agent's tool access, never widen its configured policy.
+  const process = processId ? database.prepare(`
+    SELECT mcp_access AS access, mcp_servers_json AS servers FROM processes WHERE id = ?
+  `).get(processId) : null;
+  if (runSettings.mcpAccess === "none") return { mcpAccess: "none", mcpServers: [] };
+  const access = row.access === "all" || process?.access === "all" ? "all"
+    : row.access === "listed" || process?.access === "listed" ? "listed" : "none";
+  if (access === "none") return { mcpAccess: "none", mcpServers: [] };
+  if (access === "all" && runSettings.mcpAccess !== "listed") return { mcpAccess: "all", mcpServers: [] };
+  // Process grants add to each agent's own grants; a run may still narrow the combined set.
   const narrow = runSettings.mcpAccess === "listed" ? serverNames(database, runSettings.mcpServers) : null;
-  const servers = row.access === "listed" ? serverNames(database, JSON.parse(row.servers)) : narrow;
-  const allowed = [...new Set(narrow && row.access === "listed"
-    ? servers.filter((name) => narrow.includes(name)) : servers)];
+  const servers = access === "all" ? narrow : [
+    ...(row.access === "listed" ? serverNames(database, JSON.parse(row.servers)) : []),
+    ...(process?.access === "listed" ? serverNames(database, JSON.parse(process.servers)) : [])
+  ];
+  const allowed = [...new Set(narrow ? servers.filter((name) => narrow.includes(name)) : servers)];
   const rows = database.prepare(`
     SELECT server_name AS name, enabled FROM mcp_servers WHERE server_name IN (SELECT value FROM json_each(?))
   `).all(JSON.stringify(allowed));
@@ -1031,7 +1042,7 @@ export function mcpGrantFor(database, agentAssignmentId, runSettings = {}) {
     `${row.name} cannot run on this computer.`,
     named.length ? `It needs ${named.join(", ")}, which ${named.length === 1 ? "is" : "are"} not set up here.` : "",
     gone.length ? `It lists ${gone.length} MCP server${gone.length === 1 ? "" : "s"} that ${gone.length === 1 ? "was" : "were"} set up on another computer, so there is no name to show here.` : "",
-    "Add what is missing on the MCP servers page, or open the agent and choose its MCP servers again."
+    "Add what is missing on the MCP servers page, or update the process or agent MCP selection."
   ].filter(Boolean).join(" "));
   return { mcpAccess: "listed", mcpServers: rows.filter(({ enabled }) => enabled).map(({ name }) => name) };
 }

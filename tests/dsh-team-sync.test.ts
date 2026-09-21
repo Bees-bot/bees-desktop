@@ -20,7 +20,7 @@ const acceptedPayloadKeys: Record<string, string[]> = {
   agent: ["appInstallationId", "teamId", "name", "description", "instructions", "presetId", "model", "reasoningEffort",
     "systemRole", "capabilities", "enabled", "maxConcurrency", "mcpAccess", "mcpServers",
     "inputLocations", "createdAt", "updatedAt", "archivedAt"],
-  team_process: ["appInstallationId", "teamId", "name", "description", "kind", "outputLocationId", "inputLocations",
+  team_process: ["appInstallationId", "teamId", "name", "description", "kind", "outputLocationId", "mcpAccess", "mcpServers", "inputLocations",
     "stages", "archivedAt", "createdAt", "updatedAt"],
   process_template: ["teamId", "name", "description", "stages", "archivedAt", "createdAt", "updatedAt"],
   recurring_work: ["teamId", "processId", "sourceWorkItemId", "name", "scheduleKind", "schedule",
@@ -110,7 +110,7 @@ describe("team coordination projection", () => {
       VALUES (?, ?, 'standard', 'Bees work agent', '', 'Local default', NULL, NULL, 'worker',
         '[]', 1, 1, 'none', '[]', ?, ?)
     `).run(targetAgentId, targetWorkspaceId, at, at);
-    target.connection.prepare("INSERT INTO processes VALUES (?, ?, 'Local', '', 'standard', NULL, NULL, NULL, ?, ?)")
+    target.connection.prepare("INSERT INTO processes (id, workspace_id, name, description, kind, created_at, updated_at) VALUES (?, ?, 'Local', '', 'standard', ?, ?)")
       .run(targetProcessId, targetWorkspaceId, at, at);
     target.connection.prepare("INSERT INTO stages VALUES (?, ?, 'Work', 0, 'agent', 0, 0, NULL)")
       .run(targetStageId, targetProcessId);
@@ -130,7 +130,8 @@ describe("team coordination projection", () => {
         '["research"]', 1, 1, 'none', '[]', ?, ?)
     `).run(peerAgentId, workspaceId, at, at);
     source.connection.prepare(`
-      INSERT INTO processes VALUES (?, ?, 'Daily brief', '', 'standard', ?, NULL, NULL, ?, ?)
+      INSERT INTO processes (id, workspace_id, name, description, kind, output_location_id, created_at, updated_at)
+      VALUES (?, ?, 'Daily brief', '', 'standard', ?, ?, ?)
     `).run(processId, workspaceId, locationId, at, at);
     source.connection.prepare("INSERT INTO stages VALUES (?, ?, 'Research', 0, 'agent', 0, 0, NULL)")
       .run(workStageId, processId);
@@ -143,6 +144,8 @@ describe("team coordination projection", () => {
       VALUES (?, ?, '[]', ?, ?, ?)
     `).run(workStageId, agentId, at, at, JSON.stringify([agentId, peerAgentId]));
     source.connection.prepare("INSERT INTO process_locations VALUES (?, ?, '')").run(processId, locationId);
+    source.connection.prepare("UPDATE processes SET mcp_access = 'listed', mcp_servers_json = '[\"mail\"]' WHERE id = ?")
+      .run(processId);
     source.connection.prepare("INSERT INTO process_templates VALUES (?, ?, 'Brief template', '', ?, NULL, ?, ?)")
       .run(templateId, workspaceId, JSON.stringify([
         { name: "Research", driver: "agent", requiresHumanApproval: false },
@@ -192,8 +195,8 @@ describe("team coordination projection", () => {
     expect(JSON.parse(String(target.connection.prepare(
       "SELECT agent_ids_json AS agentIds FROM stage_routes WHERE stage_id = ?"
     ).get(workStageId)!.agentIds))).toEqual([agentId, peerAgentId]);
-    expect(target.connection.prepare("SELECT output_location_id AS outputLocationId FROM processes WHERE id = ?")
-      .get(processId)).toEqual({ outputLocationId: locationId });
+    expect(target.connection.prepare("SELECT output_location_id AS outputLocationId, mcp_access AS mcpAccess, mcp_servers_json AS mcpServers FROM processes WHERE id = ?")
+      .get(processId)).toEqual({ outputLocationId: locationId, mcpAccess: "listed", mcpServers: '["mail"]' });
     expect(target.connection.prepare(`
       SELECT name, stages_json AS stages FROM process_templates WHERE id = ?
     `).get(templateId)).toEqual({

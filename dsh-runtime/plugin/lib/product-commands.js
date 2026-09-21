@@ -664,7 +664,9 @@ export async function executeProductCommand(action, input) {
       const id = insertProcess(this.database, workspace.id, input.name,
         input.description ?? template?.description, stages,
         "standard", undefined, undefined, input.accountUserId || null);
-      this.database.prepare("UPDATE processes SET output_location_id = ? WHERE id = ?").run(outputLocationId, id);
+      const policy = checkMcpServers(this.database, mcpPolicy(input, { access: "none", servers: [] }));
+      this.database.prepare("UPDATE processes SET output_location_id = ?, mcp_access = ?, mcp_servers_json = ? WHERE id = ?")
+        .run(outputLocationId, policy.access, JSON.stringify(policy.servers), id);
       replaceLocations(this.database, "process_locations", "process_id", id, inputLocationIds);
       return { id };
     });
@@ -724,7 +726,7 @@ export async function executeProductCommand(action, input) {
 
       // Duplicate the process
       const newProcessId = randomUUID();
-      this.database.prepare(`INSERT INTO processes (id, workspace_id, kind, name, description, output_location_id, archived_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)`).run(newProcessId, workspaceId, "standard", name, process.description, process.outputLocationId, at, at);
+      this.database.prepare(`INSERT INTO processes (id, workspace_id, kind, name, description, output_location_id, mcp_access, mcp_servers_json, archived_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`).run(newProcessId, workspaceId, "standard", name, process.description, process.outputLocationId, process.mcpAccess, JSON.stringify(process.mcpServers), at, at);
       this.database.prepare(`INSERT INTO process_locations (process_id, location_id, relative_path) SELECT ?, location_id, relative_path FROM process_locations WHERE process_id = ?`).run(newProcessId, processId);
 
       // Duplicate the stages and routes
@@ -839,6 +841,13 @@ export async function executeProductCommand(action, input) {
       this.database.prepare(`UPDATE processes SET name = ?, description = ?, updated_at = ? WHERE id = ?`)
         .run(required(input.name, "Name"), String(input.description ?? ""), at, processId);
       return { id: processId };
+    });
+    if (action === "set_process_mcp") return transaction(this.database, () => {
+      const process = processContext(this.database, input.processId, ["admin", "member"]);
+      const policy = checkMcpServers(this.database, mcpPolicy(input), process.mcpServers);
+      this.database.prepare("UPDATE processes SET mcp_access = ?, mcp_servers_json = ?, updated_at = ? WHERE id = ?")
+        .run(policy.access, JSON.stringify(policy.servers), at, process.id);
+      return { id: process.id };
     });
     if (action === "set_stage_route") return transaction(this.database, () => {
       const stageId = required(input.stageId, "Stage");
@@ -1298,7 +1307,7 @@ export async function executeProductCommand(action, input) {
           instructions: assignment?.instructions || "",
           capabilities: agentCapabilities(assignment),
           workspaceId: item.workspaceId, agentPresetId: assignment?.presetId || this.agents.ctx.agentPresets.defaultId,
-          ...mcpGrantFor(this.database, assignment?.id, item.runSettings),
+          ...mcpGrantFor(this.database, assignment?.id, item.runSettings, item.processId),
           grants
         }
       });

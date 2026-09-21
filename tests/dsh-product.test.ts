@@ -568,6 +568,38 @@ describe("Bees DSH product plugin", () => {
     expect(mcpGrantFor(database.connection, agent, { mcpAccess: "all" })).toEqual({ mcpAccess: "none", mcpServers: [] });
   });
 
+  it("adds process MCPs to every agent's own grant and keeps run restrictions", async () => {
+    const database = new NodeDatabase();
+    database.connection.exec(`INSERT INTO mcp_servers (id, server_name, label, transport, enabled, created_at)
+      VALUES ('a', 'alpha', 'Alpha', 'stdio', 1, ''), ('b', 'beta', 'Beta', 'stdio', 1, '');`);
+    const agentsRuntime = new AgentRuntime({ on: () => () => undefined }, database.connection);
+    const product = new BeesProduct(database.connection, agentsRuntime, { isAutomatic: () => false }, "/tmp");
+    const workspaceId = String(database.connection.prepare("SELECT id FROM workspaces LIMIT 1").get()!.id);
+    const process = await product.command({ action: "create_process", workspaceId, name: "Shared tools",
+      stages: ["Work", "Done"], mcpAccess: "listed", mcpServers: ["a"] });
+    const agents = database.connection.prepare("SELECT id FROM agent_assignments ORDER BY name").all().map(({ id }) => String(id));
+    database.connection.prepare("UPDATE agent_assignments SET mcp_access = 'listed', mcp_servers_json = '[\"b\"]' WHERE id = ?")
+      .run(agents[0]!);
+    database.connection.prepare("UPDATE agent_assignments SET mcp_access = 'none' WHERE id = ?").run(agents[1]!);
+    const { mcpGrantFor } = createRequire(import.meta.url)("../dsh-runtime/plugin/lib/product-database.js");
+    expect(mcpGrantFor(database.connection, agents[0], {}, process.id)).toEqual({ mcpAccess: "listed", mcpServers: ["alpha", "beta"] });
+    expect(mcpGrantFor(database.connection, agents[1], {}, process.id)).toEqual({ mcpAccess: "listed", mcpServers: ["alpha"] });
+    expect(mcpGrantFor(database.connection, agents[0], { mcpAccess: "listed", mcpServers: ["b"] }, process.id))
+      .toEqual({ mcpAccess: "listed", mcpServers: ["beta"] });
+    expect(mcpGrantFor(database.connection, agents[1], { mcpAccess: "none" }, process.id))
+      .toEqual({ mcpAccess: "none", mcpServers: [] });
+    await product.command({ action: "set_process_mcp", processId: process.id, mcpAccess: "listed", mcpServers: ["b"] });
+    expect((await product.snapshot()).processes.find(({ id }: any) => id === process.id))
+      .toMatchObject({ mcpAccess: "listed", mcpServers: ["beta"] });
+    const copy = await product.command({ action: "copy_process", processId: process.id, name: "Shared tools copy" });
+    expect((await product.snapshot()).processes.find(({ id }: any) => id === copy.id))
+      .toMatchObject({ mcpAccess: "listed", mcpServers: ["beta"] });
+    await product.command({ action: "set_process_mcp", processId: process.id, mcpAccess: "none" });
+    expect(mcpGrantFor(database.connection, agents[1], {}, process.id)).toEqual({ mcpAccess: "none", mcpServers: [] });
+    await product.command({ action: "set_process_mcp", processId: process.id, mcpAccess: "all" });
+    expect(mcpGrantFor(database.connection, agents[1], {}, process.id)).toEqual({ mcpAccess: "all", mcpServers: [] });
+  });
+
   it("restarts a standalone planning question without changing its waiting state", async () => {
     const database = new NodeDatabase();
     const first = new AgentRuntime({ on: () => () => undefined, sessionPersistence: { open: async () => ({ read: async () => ({ events: [] }), close: async () => {} }) } }, database.connection);

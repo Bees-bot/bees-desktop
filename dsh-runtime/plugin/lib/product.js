@@ -280,7 +280,7 @@ export class BeesProduct {
         capabilities: agentCapabilities(assignment),
         contextId: pinned.id, participantIds, candidateExecutionId: stage.candidateExecutionId ?? null, requiresHumanApproval: Boolean(stage.requiresHumanApproval),
         workspaceId: item.workspaceId, agentPresetId: assignment?.presetId || this.agents.ctx.agentPresets.defaultId,
-        ...mcpGrantFor(this.database, assignment?.id, item.runSettings),
+        ...mcpGrantFor(this.database, assignment?.id, item.runSettings, item.processId),
         grants: reviewer ? [] : [outputLocation(this.database, item.id)].filter(Boolean)
       }
     }, signal);
@@ -353,9 +353,9 @@ export class BeesProduct {
     const processes = workspaceIds.length ? this.database.prepare(`
       SELECT id, workspace_id AS workspaceId, name, description, kind,
              output_location_id AS outputLocationId,
-             account_user_id AS accountUserId FROM processes
+             account_user_id AS accountUserId, mcp_access AS mcpAccess, mcp_servers_json AS mcpServers FROM processes
       WHERE workspace_id IN (SELECT value FROM json_each(?)) AND archived_at IS NULL ORDER BY created_at
-    `).all(JSON.stringify(workspaceIds)) : [];
+    `).all(JSON.stringify(workspaceIds)).map(({ mcpServers, ...row }) => ({ ...row, mcpServers: JSON.parse(mcpServers) })) : [];
     const archivedProcessTemplates = workspaceIds.length ? this.database.prepare(`
       SELECT id, workspace_id AS workspaceId, name, description, archived_at AS archivedAt, 'process' AS sourceKind
       FROM processes WHERE workspace_id IN (SELECT value FROM json_each(?)) AND archived_at IS NOT NULL
