@@ -41,7 +41,6 @@ export function AskBeesSetup({ ctx, data, workspaceId, outcome, onOutcome, act, 
     if (!allowed || !process || selectedAgent || creatingStage || !outcome.trim()) return;
     setError("");
     const target = process.kind === "goals" ? { workspaceId } : { processId: process.id };
-    // the preflight may hold this back and run it once the person has added what is missing
     await guardRun(process.id, async () => {
       try {
         const result = await act(workFromOutcome(outcome, target, { inputLocationIds, outputLocationId }));

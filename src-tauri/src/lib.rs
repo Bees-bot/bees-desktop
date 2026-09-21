@@ -241,8 +241,7 @@ fn stable_loopback_port(app: &tauri::AppHandle) -> Result<u16, String> {
     Ok(port)
 }
 
-/// The work travels; the machine does not. A person can point this at a folder they share
-/// between computers, and only the database and the workspaces move there.
+/// Where the work lives: this computer's folder, or one the person shares between computers.
 fn data_dir(app_data: &Path) -> Result<PathBuf, String> {
     let pointer = app_data.join("data-folder");
     let chosen = if pointer.exists() {
@@ -255,8 +254,7 @@ fn data_dir(app_data: &Path) -> Result<PathBuf, String> {
         return Ok(app_data.to_path_buf());
     }
     let path = PathBuf::from(chosen.trim());
-    // Starting on the old folder instead would open an empty database and split the person's work
-    // across two copies, so an unreachable folder stops the launch and says which one it is.
+    // falling back to the old folder would split the work across two copies
     if !path.is_dir() {
         return Err(format!(
             "Bees keeps your work in {}, and that folder is not on this computer right now. Reconnect it and open Bees again, or delete {} to go back to this computer's own copy.",
@@ -267,8 +265,7 @@ fn data_dir(app_data: &Path) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-/// Identity of this computer, not of the work: a shared folder is opened by several computers, so
-/// this cannot come out of the database the way it used to.
+/// This computer's id, kept outside the database since several computers share one.
 fn device_id(app_data: &Path) -> Result<String, String> {
     let path = app_data.join("device-id");
     let existing = fs::read_to_string(&path).unwrap_or_default();
@@ -280,27 +277,24 @@ fn device_id(app_data: &Path) -> Result<String, String> {
     Ok(id)
 }
 
-/// The lock this launch holds, so quitting releases that one and never the folder we were refused.
-/// Claiming a second folder releases the first, or a switch that never restarted would strand it.
+/// The lock this launch holds, so quit releases ours and never a folder we were refused.
 static CLAIMED: Mutex<Option<PathBuf>> = Mutex::new(None);
 
-/// One computer at a time: two of them writing into the same synced folder corrupts the database.
-/// Nothing expires, because Google Drive can be slower to carry a lock than any wait worth having.
+/// One computer at a time, and no expiry since Google Drive can carry a lock slower than any wait.
 fn claim_data_folder(data: &Path, app_data: &Path) -> Result<(), String> {
-    // Written either way: the plugin reads this id on every launch, shared folder or not.
+    // written either way, the plugin reads it on every launch
     let me = device_id(app_data)?;
     if data == app_data {
         return Ok(());
     }
     let lock = data.join("in-use");
-    // A lock that will not read counts as held: half a download is not permission.
+    // a lock that will not read counts as held
     if lock.exists() {
         let held = fs::read_to_string(&lock).unwrap_or_default();
         let mut lines = held.lines();
         if lines.next().unwrap_or_default().trim() != me {
             let computer = lines.next().map(str::trim).filter(|name| !name.is_empty());
-            // The file is named because a computer that never quit cleanly leaves one behind, and
-            // deleting it by hand is then the only way back in.
+            // named, since a crashed computer leaves it behind and deleting it is the way back in
             return Err(format!(
                 "{} has this Bees folder open. Quit Bees there, let Google Drive finish, then open it here. If that computer is gone, delete {}.",
                 computer.unwrap_or("Another computer"),
@@ -310,6 +304,7 @@ fn claim_data_folder(data: &Path, app_data: &Path) -> Result<(), String> {
     }
     let computer = sysinfo::System::host_name().unwrap_or_default();
     fs::write(&lock, format!("{me}\n{computer}")).map_err(|error| error.to_string())?;
+    // release a lock from an earlier claim, or a switch that never restarted would strand it
     if let Ok(mut claimed) = CLAIMED.lock() {
         if let Some(stale) = claimed.replace(lock.clone()).filter(|held| *held != lock) {
             let _ = fs::remove_file(stale);
@@ -724,8 +719,7 @@ fn open_external_url(url: String) -> Result<(), String> {
     Err("Opening website links is not supported on this device.".to_string())
 }
 
-/// A new data folder is only picked up at launch, so the app restarts itself rather than leaving
-/// the person to quit by hand and lose whatever they do in between.
+/// A new data folder is only picked up at launch.
 #[tauri::command]
 fn restart_app(app: tauri::AppHandle) {
     app.request_restart();
@@ -857,8 +851,7 @@ pub fn run() {
                 if let Ok(state) = state_dir(handle) {
                     reap_agent_browser(&state.join("browser-profile"));
                 }
-                // The only place the folder lock comes off. The harness cannot do it: quitting
-                // kills it outright, so a lock it held would outlive every ordinary quit.
+                // the only place the folder lock comes off, since quitting kills the harness outright
                 if let Some(lock) = CLAIMED.lock().ok().and_then(|mut held| held.take()) {
                     let _ = fs::remove_file(lock);
                 }

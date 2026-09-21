@@ -157,8 +157,7 @@ export async function apply(ctx, _config = {}, internals = {}) {
   if (!databasePath || !token || !workspace) throw new Error("bees: missing desktop launch configuration");
 
   const database = step("bees.database.open", () => new DatabaseSync(databasePath));
-  // WAL keeps two sidecar files a sync service carries separately from the database, which is how
-  // a shared folder ends up with half of one computer's work spliced into another's.
+  // a sync service carries WAL sidecars apart from the database and splices two computers' work
   database.exec(`PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; PRAGMA journal_mode = ${sharedFolder() ? "DELETE" : "WAL"}`);
   const changeSubscribers = new Set();
   let changeRevision = 0;
@@ -211,8 +210,7 @@ export async function apply(ctx, _config = {}, internals = {}) {
     googleDrive, notify, capabilities
   });
   memory = product.memory;
-  // A Python runtime and its database, gigabytes of it, built for this machine: it stays here
-  // even when the work moves to a folder shared with another computer.
+  // gigabytes built for this machine, so it stays here when the work moves to a shared folder
   memory.local = new LocalMemory(ctx.settings, beesSettings, join(appDirectory(), "memory"));
   memory.local.onStart = () => capabilities.remountUrl(LOCAL_MEMORY_URL).catch((error) =>
     ctx.logger.warn(`bees: memory server remount failed: ${userMessage(error)}`));

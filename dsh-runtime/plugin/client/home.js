@@ -11,13 +11,11 @@ export function OutcomeWidget({ ctx, data, workspaceId, outcome, setOutcome, con
   const [error, setError] = useState("");
   const role = data.teams.find(({ id }) => id === data.workspaces.find((row) => row.id === workspaceId)?.teamId)?.role;
   const allowed = ["admin", "member"].includes(role);
-  const goals = data.processes.find((row) => row.workspaceId === workspaceId && row.kind === "goals");
   const [guardRun, preflight] = useMcpPreflight({ ctx, data, workspaceId, capabilities, act });
   const [busy, submit] = useSubmit(async () => {
     if (!allowed || !workspaceId || !outcome.trim()) return;
     setError("");
-    // the preflight may hold this back and run it once the person has added what is missing
-    await guardRun(goals?.id, async () => {
+    await guardRun(data.processes.find((row) => row.workspaceId === workspaceId && row.kind === "goals")?.id, async () => {
       try {
         const result = await act(workFromOutcome(outcome, { workspaceId }));
         if (result?.id) { setOutcome(""); openWorkItem(result.id); }
@@ -25,7 +23,8 @@ export function OutcomeWidget({ ctx, data, workspaceId, outcome, setOutcome, con
       } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     });
   });
-  const form = h("form", {
+  // the dialog stays outside the form so a click inside it can never submit this one
+  return h(React.Fragment, null, preflight, h("form", {
     className: "bees-composer bees-dashboard-composer",
     onSubmit: submit
   },
@@ -48,9 +47,8 @@ export function OutcomeWidget({ ctx, data, workspaceId, outcome, setOutcome, con
       h("div", { className: "bees-detail-actions" },
         h("button", { type: "submit", className: "bees-btn primary", disabled: busy || !allowed || !workspaceId || !outcome.trim() },
           busy ? "Starting…" : "Run using defaults"),
-        h(Button, { disabled: busy || !allowed || !workspaceId || !outcome.trim(), onClick: configureGoal }, "Configure advanced"))));
-  // the dialog stays outside the form so a click inside it can never submit this one
-  return preflight ? h(React.Fragment, null, preflight, form) : form;
+        h(Button, { disabled: busy || !allowed || !workspaceId || !outcome.trim(), onClick: configureGoal }, "Configure advanced")))
+  ));
 }
 
 function TemplatesWidget({ data, workspaceId, act, openWorkItem }) {

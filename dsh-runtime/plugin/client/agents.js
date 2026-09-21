@@ -209,7 +209,7 @@ function AgentDialog({ onClose, children }) {
 }
 
 /** Servers an agent lists that this computer does not have, so its stage is refused here. */
-export function missingServers(agent, servers) {
+function missingServers(agent, servers) {
   if (agent?.mcpAccess !== "listed") return [];
   return (agent.mcpServers ?? []).filter((name) => !servers.some((server) => server.serverName === name));
 }
@@ -274,16 +274,11 @@ function McpPreflight({ ctx, data, blockers, servers, tools, catalog, act, onSer
         })
       ]),
       h("div", { className: "bees-detail-actions" },
-        h("button", { type: "button", className: "bees-btn primary", onClick: onStart },
-          blockers.length ? "Start anyway" : "Start run"),
+        h(Button, { className: "primary", onClick: onStart }, blockers.length ? "Start anyway" : "Start run"),
         h(Button, { onClick: onCancel }, "Cancel"))));
 }
 
-/**
- * Checks a run's agents before it starts. `guard(processId, start)` runs `start` when nothing is
- * missing, and otherwise opens the dialog the caller renders. The list is read again on every
- * render, so adding a server from inside the dialog clears it without starting over.
- */
+/** `guard(processId, start)` runs `start` now, or holds it behind the returned dialog until servers are added. */
 export function useMcpPreflight({ ctx, data, workspaceId, capabilities, act }) {
   const [pending, setPending] = useState(null);
   const servers = capabilities?.data?.servers ?? [];
