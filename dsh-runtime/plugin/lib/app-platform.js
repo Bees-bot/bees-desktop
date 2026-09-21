@@ -471,14 +471,14 @@ export class AppPlatform {
     if (this.db.prepare("SELECT 1 FROM app_suppressions WHERE workspace_id=? AND destination=?").get(app.workspace_id, payload.destination.toLowerCase()))
       throw new Error("Destination is suppressed");
     const existing = this.db.prepare("SELECT id FROM app_actions WHERE installation_id=? AND digest=? AND status IN ('draft','approved')").get(app.id, hash(payload));
-    if (existing) return { id: existing.id, reused: true };
+    if (existing) return { id: existing.id, digest: hash(payload), reused: true };
     if (this.db.prepare(`SELECT 1 FROM app_actions x JOIN app_installations a ON a.id=x.installation_id WHERE a.workspace_id=? AND lower(json_extract(x.payload,'$.destination'))=? AND x.status IN ('draft','approved','executing','unknown')`).get(app.workspace_id, payload.destination.toLowerCase()))
       throw new Error("This destination already has an active action in the portfolio");
     const count = this.db.prepare(`SELECT COUNT(*) AS n FROM app_actions x JOIN app_installations a ON a.id=x.installation_id WHERE a.workspace_id=? AND x.status='draft'`).get(app.workspace_id).n;
     if (count >= 5) throw new Error("Five drafts already await review; finish the approval backlog first");
     this.db.prepare("INSERT INTO app_actions (id,installation_id,item_id,payload,digest,status,cost_cents,created_at) VALUES (?,?,?,?,?,'draft',?,?)")
       .run(id, app.id, itemId, JSON.stringify(payload), hash(payload), payload.costCents, iso());
-    return { id, status: "draft", sent: false };
+    return { id, digest: hash(payload), status: "draft", sent: false };
   }
 
   expire() { this.db.prepare("UPDATE app_actions SET status='expired' WHERE status='approved' AND expires_at <= ?").run(iso()); }
