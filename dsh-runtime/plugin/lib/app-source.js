@@ -16,7 +16,8 @@ export function publicIPv4(address) {
 export function publicSourceUrl(source, query) {
   const base = new URL(source.url);
   if (typeof query !== "string" || !query.trim() || query.length > (source.type === "page" ? 2000 : 300)) throw new Error("Invalid source query");
-  const url = source.type === "page" ? new URL(query) : base;
+  // a page query may be a full URL or a path; the scope checks below still pin it to the declared origin
+  const url = source.type === "page" ? new URL(query.trim(), base) : base;
   if (source.type === "page") {
     const inPath = source.pathPrefix.endsWith("/") ? url.pathname.startsWith(source.pathPrefix) : url.pathname === source.pathPrefix;
     if (url.origin !== base.origin || url.protocol !== "https:" || url.username || url.password || url.hash || url.port || /%2f|%5c|%2e/i.test(url.pathname) || !inPath)
