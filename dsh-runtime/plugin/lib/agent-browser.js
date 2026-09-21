@@ -52,6 +52,13 @@ async function setWindow(windowState) {
   if (windowState === "normal") await cdp("Target.activateTarget", { targetId });
 }
 
+// by process, not by name: "Google Chrome" is the person's own browser, and that is what came forward
+const bringForward = () => new Promise((resolve) => execFile("/usr/sbin/lsof", ["-ti", `tcp:${PORT}`, "-sTCP:LISTEN"], (_, pid) => {
+  if (!/^\d+/.test(pid ?? "")) return resolve();
+  execFile("osascript", ["-l", "JavaScript", "-e",
+    `ObjC.import("AppKit"); $.NSRunningApplication.runningApplicationWithProcessIdentifier(${parseInt(pid)}).activateWithOptions($.NSApplicationActivateAllWindows)`], () => resolve());
+}));
+
 async function launch() {
   if (process.platform !== "darwin") throw new Error("The agent's browser needs macOS");
   if (!existsSync(CHROME)) throw new Error("Google Chrome is not installed");
@@ -60,6 +67,8 @@ async function launch() {
     `--remote-debugging-port=${PORT}`,
     "--no-first-run",
     "--no-default-browser-check",
+    // quitting Bees kills this Chrome, so every launch would ask to restore pages
+    "--hide-crash-restore-bubble",
     "about:blank"
   ], { stdio: "ignore" });
   child.unref();
@@ -121,7 +130,7 @@ export async function showAgentBrowser(url) {
   if (url) return navigateAgentBrowser(url);
   await startAgentBrowser();
   await setWindow("normal");
-  await new Promise((resolve) => execFile("osascript", ["-e", `tell application "Google Chrome" to activate`], () => resolve()));
+  await bringForward();
 }
 
 /**
@@ -130,26 +139,15 @@ export async function showAgentBrowser(url) {
  */
 export async function navigateAgentBrowser(url) {
   await startAgentBrowser();
-  // Navigate the active (or first) tab to the requested URL via the target's own CDP session.
-  const targets = await fetch(`${base}/json/list`).then((r) => r.json());
-  const pages = targets.filter(({ type }) => type === "page");
-  const target = pages.find(({ url: u }) => u && u !== "about:blank") ?? pages[0];
-  if (target?.webSocketDebuggerUrl) {
-    const socket = new WebSocket(target.webSocketDebuggerUrl);
-    try {
-      await new Promise((resolve, reject) => {
-        socket.onerror = () => reject(new Error("CDP session refused"));
-        socket.onopen = () => socket.send(JSON.stringify({ id: 1, method: "Page.navigate", params: { url } }));
-        socket.onmessage = ({ data }) => {
-          const { error } = JSON.parse(data);
-          error ? reject(new Error(error.message)) : resolve();
-        };
-      });
-    } catch { /* Navigation failures are non-fatal; the user can type the URL themselves. */ }
-    finally { socket.close(); }
-  }
+  // own tab brought to the front, so the person sees the sign-in page and the agent's tab is left alone
+  try {
+    const pages = await fetch(`${base}/json/list`).then((r) => r.json());
+    const open = pages.find((page) => page.type === "page" && page.url === url)
+      ?? await fetch(`${base}/json/new?${encodeURI(url)}`, { method: "PUT" }).then((r) => r.json());
+    await fetch(`${base}/json/activate/${open.id}`);
+  } catch { /* the window still comes up, and the person can type the address themselves */ }
   await setWindow("normal");
-  await new Promise((resolve) => execFile("osascript", ["-e", `tell application "Google Chrome" to activate`], () => resolve()));
+  await bringForward();
 }
 
 /** Back out of the way once the person has answered. Listening, not running: a Chrome an earlier
