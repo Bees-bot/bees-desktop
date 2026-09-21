@@ -12,6 +12,7 @@ use process::{
     reap_orphaned_sidecars, Sidecar,
 };
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use std::{
     fmt::Write as _,
     fs,
@@ -59,6 +60,22 @@ fn token() -> Result<String, String> {
         write!(value, "{byte:02x}").map_err(|error| error.to_string())?;
     }
     Ok(value)
+}
+
+fn stable_uuid(value: &str) -> String {
+    let mut bytes: [u8; 16] = Sha256::digest(value.as_bytes())[..16].try_into().unwrap();
+    bytes[6] = (bytes[6] & 0x0f) | 0x50;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+        bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
+    )
+}
+
+fn legacy_device_uuid(value: &str) -> Option<String> {
+    (value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .then(|| stable_uuid(value))
 }
 
 fn runtime_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf, PathBuf), String> {
@@ -272,10 +289,15 @@ fn data_dir(app_data: &Path) -> Result<PathBuf, String> {
 fn device_id(app_data: &Path) -> Result<String, String> {
     let path = app_data.join("device-id");
     let existing = fs::read_to_string(&path).unwrap_or_default();
-    if !existing.trim().is_empty() {
-        return Ok(existing.trim().to_string());
+    let existing = existing.trim();
+    if !existing.is_empty() {
+        if let Some(id) = legacy_device_uuid(existing) {
+            fs::write(&path, &id).map_err(|error| error.to_string())?;
+            return Ok(id);
+        }
+        return Ok(existing.to_string());
     }
-    let id = token()?;
+    let id = stable_uuid(&token()?);
     fs::write(&path, &id).map_err(|error| error.to_string())?;
     Ok(id)
 }
@@ -297,7 +319,8 @@ fn claim_data_folder(data: &Path, app_data: &Path) -> Result<(), String> {
     if lock.exists() {
         let held = fs::read_to_string(&lock).unwrap_or_default();
         let mut lines = held.lines();
-        if lines.next().unwrap_or_default().trim() != me {
+        let holder = lines.next().unwrap_or_default().trim();
+        if holder != me && legacy_device_uuid(holder).as_deref() != Some(me.as_str()) {
             let computer = lines.next().map(str::trim).filter(|name| !name.is_empty());
             // The file is named because a computer that never quit cleanly leaves one behind, and
             // deleting it by hand is then the only way back in.
@@ -868,7 +891,16 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_dsh_auth_cookie, validated_external_url};
+    use super::{is_dsh_auth_cookie, legacy_device_uuid, stable_uuid, validated_external_url};
+
+    #[test]
+    fn device_ids_use_the_shared_uuid_format() {
+        assert_eq!(stable_uuid("abc"), "ba7816bf-8f01-5fea-8141-40de5dae2223");
+        assert_eq!(
+            legacy_device_uuid(&"a".repeat(64)).as_deref(),
+            Some("ffe054fe-7ae0-5b6d-865c-3af9b61d5209")
+        );
+    }
 
     #[test]
     fn identifies_loopback_auth_cookies() {

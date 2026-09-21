@@ -944,6 +944,19 @@ export function initializeProductDatabase(database) {
     }
     database.exec("PRAGMA user_version = 31");
   });
+  if (version < 32) transaction(database, () => {
+    for (const device of database.prepare("SELECT * FROM devices").all()) {
+      if (!/^[0-9a-f]{64}$/i.test(device.id)) continue;
+      const id = stableUuid(device.id);
+      database.prepare("INSERT OR IGNORE INTO devices VALUES (?, ?, ?, ?)")
+        .run(id, device.name, device.created_at, device.updated_at);
+      database.prepare(`INSERT OR IGNORE INTO device_location_mappings
+        SELECT location_id, ?, absolute_path, updated_at FROM device_location_mappings WHERE device_id = ?`)
+        .run(id, device.id);
+      database.prepare("DELETE FROM devices WHERE id = ?").run(device.id);
+    }
+    database.exec("PRAGMA user_version = 32");
+  });
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     const at = iso();
     database.prepare("INSERT OR IGNORE INTO devices VALUES (?, ?, ?, ?)").run(deviceId(), hostname(), at, at);

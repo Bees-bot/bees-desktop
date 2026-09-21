@@ -69,7 +69,7 @@ describe("Bees DSH product plugin", () => {
       { name: "agent_locations" }, { name: "device_location_mappings" }, { name: "organization_memberships" },
       { name: "team_locations" }, { name: "team_memberships" }
     ]);
-    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 28 });
+    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 32 });
 
     database.exec(`
       UPDATE organizations SET name = 'Personal';
@@ -94,7 +94,7 @@ describe("Bees DSH product plugin", () => {
     initializeProductDatabase(database);
     expect(database.prepare("PRAGMA table_info(bees_accounts)").all().map(({ name }: any) => name))
       .toContain("enabled");
-    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 28 });
+    expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 32 });
   });
 
   it("migrates untouched Goals instructions and preserves owner edits and cleared defaults", () => {
@@ -121,6 +121,24 @@ describe("Bees DSH product plugin", () => {
         expect(database.prepare("SELECT description FROM processes WHERE id = ?").get(String(defaults.id))!.description).toBe("");
       } finally { database.close(); }
     }
+  });
+
+  it("migrates legacy 64-character device ids without losing location mappings", () => {
+    const database = new NodeDatabase().connection;
+    const legacy = "a".repeat(64);
+    const migrated = "ffe054fe-7ae0-5b6d-865c-3af9b61d5209";
+    const teamId = String(database.prepare("SELECT id FROM teams LIMIT 1").get()!.id);
+    database.prepare("INSERT INTO devices VALUES (?, 'Legacy device', '2026-01-01', '2026-01-01')").run(legacy);
+    database.prepare("INSERT INTO team_locations VALUES ('location', ?, 'files', 'Files', 'folder', '', NULL, '2026-01-01', '2026-01-01')").run(teamId);
+    database.prepare("INSERT INTO device_location_mappings VALUES ('location', ?, '/files', '2026-01-01')").run(legacy);
+    database.exec("PRAGMA user_version = 31");
+
+    initializeProductDatabase(database);
+
+    expect(database.prepare("SELECT id FROM devices WHERE id = ?").get(migrated)).toEqual({ id: migrated });
+    expect(database.prepare("SELECT device_id AS deviceId FROM device_location_mappings WHERE location_id = 'location'").get())
+      .toEqual({ deviceId: migrated });
+    database.close();
   });
 
   it.each(["goals", "standard"])("shares editable %s process instructions across workers, peers, children and review", async (kind) => {
