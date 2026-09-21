@@ -370,8 +370,7 @@ export function assertMcpAccess(access) {
 }
 
 export function initializeProductDatabase(database) {
-  // Run folders are written as absolute paths, and a shared folder sits somewhere different on
-  // every computer, so every query that reads one puts it back on this computer's mount.
+  // run folders are stored as absolute paths, so queries rebase them onto this computer's mount
   database.function("mounted", (path) => path && mounted(path));
   const version = Number(database.prepare("PRAGMA user_version").get().user_version);
   if (version < 17) database.exec(`
@@ -911,37 +910,26 @@ export function initializeProductDatabase(database) {
     }
     database.exec("PRAGMA user_version = 30");
   });
-  // Which computer this is used to be whichever device row came first, which held while one
-  // computer owned the database. A folder shared between computers needs a row for each, so the
-  // id moved beside the app and the row that is already here becomes this computer's.
-  // API specs moved with it: they sit beside the database now, named by a placeholder, so the
-  // bridge finds them on every computer that opens the folder.
+  // the device id moved beside the app so a shared folder gets a row per computer, and api specs
+  // moved beside the database under a {data} placeholder so every computer finds them
   if (version < 31) transaction(database, () => {
     const device = deviceId();
     const devices = database.prepare("SELECT id, created_at AS at FROM devices").all();
-    // The new row lands before the mappings move: a mapping's device cannot be missing for an
-    // instant, and dropping the old row afterwards cascades onto nothing.
+    // insert before moving mappings so a mapping's device is never missing and the delete cascades onto nothing
     if (devices.length === 1 && devices[0].id !== device) {
-      const at = iso();
-      database.prepare("INSERT INTO devices VALUES (?, ?, ?, ?)").run(device, hostname(), devices[0].at, at);
+      database.prepare("INSERT INTO devices VALUES (?, ?, ?, ?)").run(device, hostname(), devices[0].at, iso());
       database.prepare("UPDATE device_location_mappings SET device_id = ? WHERE device_id = ?")
         .run(device, devices[0].id);
       database.prepare("DELETE FROM devices WHERE id = ?").run(devices[0].id);
     }
     const was = join(stateDirectory(), "api-specs");
-    const now = join(dataDirectory(), "api-specs");
-    // Copied rather than renamed: a shared folder is its own volume, and rename cannot cross one.
-    // A half-finished copy is copied over rather than skipped, or the paths below would be rewritten
-    // to point at specs that never arrived.
+    // copied, since rename cannot cross volumes, and a half copy is redone so no path points at a missing spec
     if (existsSync(was)) {
-      cpSync(was, now, { recursive: true });
+      cpSync(was, join(dataDirectory(), "api-specs"), { recursive: true });
       rmSync(was, { recursive: true, force: true });
     }
-    for (const row of database.prepare("SELECT id, args_json AS args FROM mcp_servers").all()) {
-      if (!row.args.includes(was)) continue;
-      database.prepare("UPDATE mcp_servers SET args_json = ? WHERE id = ?")
-        .run(row.args.replaceAll(was, "{data}/api-specs"), row.id);
-    }
+    database.prepare("UPDATE mcp_servers SET args_json = replace(args_json, ?1, '{data}/api-specs') WHERE instr(args_json, ?1)")
+      .run(was);
     database.exec("PRAGMA user_version = 31");
   });
   if (version < 32) transaction(database, () => {
@@ -958,8 +946,7 @@ export function initializeProductDatabase(database) {
     database.exec("PRAGMA user_version = 32");
   });
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
-    const at = iso();
-    database.prepare("INSERT OR IGNORE INTO devices VALUES (?, ?, ?, ?)").run(deviceId(), hostname(), at, at);
+    database.prepare("INSERT OR IGNORE INTO devices VALUES (?1, ?2, ?3, ?3)").run(deviceId(), hostname(), iso());
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';
       UPDATE teams SET name = 'Team1' WHERE personal = 1 AND name = 'Personal';

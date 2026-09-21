@@ -2,8 +2,7 @@ import { existsSync, readFileSync, renameSync, rmSync, statSync, writeFileSync }
 import { cp } from "node:fs/promises";
 import { basename, join, resolve, sep } from "node:path";
 
-// Tauri sets both. BEES_DATA_DIR holds the work: the database and the workspaces. BEES_APP_DATA is
-// this computer's own folder and keeps what cannot travel: models, logs, sessions and credentials.
+// BEES_DATA_DIR holds the work and can be shared, BEES_APP_DATA is this computer's own folder
 function env(name) {
   const value = process.env[name];
   if (!value) throw new Error(`Bees did not provide ${name}`);
@@ -11,23 +10,17 @@ function env(name) {
 }
 export const dataDirectory = () => env("BEES_DATA_DIR");
 export const appDirectory = () => env("BEES_APP_DATA");
-/** True once the person points Bees at a folder they share between computers. */
 export const sharedFolder = () => dataDirectory() !== appDirectory();
-
-/** Identity of this computer, not of the work: a shared folder is opened by several computers, so
- *  this cannot come out of the database. The app writes it before it starts us. */
+// several computers open a shared folder, so the app writes this computer's id beside itself
 export const deviceId = () => readFileSync(join(appDirectory(), "device-id"), "utf8").trim();
 
-/** A run folder is stored as the absolute path of the computer that made it, and a shared folder
- *  sits somewhere different on each one, so a path from the other computer is rebased onto ours. */
+/** Rebase a run folder made on the other computer onto this computer's mount. */
 export function mounted(path) {
   const at = path.lastIndexOf(`${sep}workspaces${sep}`);
   return at === -1 ? path : join(dataDirectory(), path.slice(at + 1));
 }
 
-/** Which computer has that folder open, empty when it is free or the lock left behind is our own.
- *  The app claims and releases it; this only reads, to refuse a folder before switching to it.
- *  A lock that will not read counts as held: half a download is not permission. */
+/** Which other computer holds the app's lock on that folder; a lock that will not read counts as held. */
 function folderHeldBy(directory) {
   const path = join(directory, "in-use");
   if (!existsSync(path)) return "";
@@ -37,8 +30,7 @@ function folderHeldBy(directory) {
   } catch { return "Another computer"; }
 }
 
-/** Point Bees at a folder shared between computers, or back at this one. The work is copied,
- *  never moved, so a failed switch still leaves everything where it was. */
+/** Point Bees at a shared folder, or back at this computer. The work is copied, never moved. */
 export async function useDataFolder(database, directory) {
   const target = resolve(String(directory ?? "").trim() || appDirectory());
   if (!existsSync(target) || !statSync(target).isDirectory())
@@ -48,27 +40,20 @@ export async function useDataFolder(database, directory) {
   if (target === dataDirectory()) return { path: target, shared: sharedFolder(), restart: false };
   const busy = folderHeldBy(target);
   if (busy) throw new Error(`${busy} has that Bees folder open. Quit Bees there first.`);
-  // The database is copied before the files are, so anything that writes while the copy runs would
-  // be left behind in the old folder. Nothing else writes on its own while a person sits in settings.
+  // a run writing during the copy would be left behind in the old folder
   const running = database.prepare(`SELECT count(*) AS count FROM execution_links
     WHERE status IN ('queued', 'running', 'waiting_for_input', 'waiting_for_approval')`).get().count;
   if (running) throw new Error("Wait for what is running to finish, then choose the folder");
   const file = join(target, basename(env("BEES_DATABASE_PATH")));
-  // A shared folder that already holds a database is the other computer's work: join it, never write
-  // over it. This computer's own folder is the opposite, since the shared copy is always the newer one.
-  const copied = target === appDirectory() || !existsSync(file);
-  if (copied) {
-    // Written beside the target and moved in once it is whole, so a copy that dies halfway neither
-    // destroys what was there nor gets mistaken for a finished one on the next try. The database
-    // goes first: a run it knows about then always has its files, and later files are only spare.
+  // a shared folder that already has a database is the other computer's work, so join it instead
+  if (target === appDirectory() || !existsSync(file)) {
+    // staged and renamed in last, so a copy that dies halfway never replaces or passes for a whole one
     const staged = `${file}.copying`;
     rmSync(staged, { force: true });
     database.exec(`VACUUM INTO '${staged.replaceAll("'", "''")}'`);
     for (const name of ["workspaces", "api-specs"])
       if (existsSync(join(dataDirectory(), name)))
         await cp(join(dataDirectory(), name), join(target, name), { recursive: true });
-    // Only the sidecars are deleted; renaming over the database replaces it in one step, so there
-    // is no moment where the folder has no database at all.
     for (const suffix of ["-wal", "-shm"]) rmSync(file + suffix, { force: true });
     renameSync(staged, file);
   }

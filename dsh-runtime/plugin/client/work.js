@@ -671,7 +671,6 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, parent, 
       priority: String(form.get("priority") ?? "normal"),
       inputLocationIds, outputLocationId
     };
-    // the preflight may hold this back and run it once the person has added what is missing
     await guardRun(goal ? initialProcess?.id : processId, async () => {
       const created = await act(command); if (created?.id) onCreated(created.id);
     });
@@ -679,7 +678,8 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, parent, 
   if (!goal && !processes.length) return h("div", { className: "bees-stack" },
     h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, backLabel), h("h2", null, heading)),
     h(Empty, null, "Create a process template first. Work always follows a process template so Bees knows its stages."));
-  const form = h("form", { className: "bees-box bees-form", onSubmit },
+  // the dialog stays outside the form so a click inside it can never submit this one
+  return h(React.Fragment, null, preflight, h("form", { className: "bees-box bees-form", onSubmit },
     h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, backLabel),
       h("div", null, h("h2", null, heading),
         h("div", { className: "bees-muted" }, parent
@@ -705,9 +705,8 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, parent, 
       outputId: outputLocationId, onOutputId: setOutputLocationId, inherited,
       defaultOutputId, defaultOutputName: data.locations.find(({ id }) => id === defaultOutputId)?.name ?? "" }),
     h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Creating…" : parent ? "Add work item" : goal ? "Create goal" : "Start process run"),
-      h(Button, { onClick: onCancel }, "Cancel")));
-  // the dialog stays outside the form so a click inside it can never submit this one
-  return preflight ? h(React.Fragment, null, preflight, form) : form;
+      h(Button, { onClick: onCancel }, "Cancel"))
+  ));
 }
 
 function displayOption(label) {
