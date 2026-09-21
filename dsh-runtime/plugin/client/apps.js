@@ -137,8 +137,8 @@ function InstalledApp({ app, busy, act, inputFields, openWorkItem, runsLeft, ope
   const blank = (app.manifest.inputs ?? []).filter((field) => blankInput(field, app.config));
   return h("article", { ref: card, tabIndex: -1, className: "bees-box bees-stack" },
     h("strong", null, app.manifest.name), h("p", { className: "bees-muted" }, app.manifest.description),
-    app.needsSetup ? h("p", { role: "status" }, "Needs setup — add the details below before running.") : null,
-    !app.needsSetup && blank.length ? h("p", { role: "status" }, `Blank settings: ${blank.map((field) => field.label).join(" · ")}. A blank setting changes what a run does; each field below says how.`) : null,
+    app.needsSetup ? h("p", { role: "status" }, "Needs setup. Add the details below before running.") : null,
+    !app.needsSetup && blank.length ? h("p", { role: "status" }, `Blank settings: ${blank.map((field) => field.label).join(" · ").replace(/[^?.]$/, "$&.")} A blank setting changes what a run does; each field below says how.`) : null,
     h("div", { className: "bees-card-actions" },
       h(Button, { primary: true, disabled: busy || app.status !== "active" || app.needsSetup || runsLeft <= 0, onClick: async () => {
         const result = await act({ action: "run", installationId: app.id }); if (result?.id) openWorkItem(result.id);
