@@ -1322,19 +1322,17 @@ export async function executeProductCommand(action, input) {
       const platform = process.platform;
       let command;
       let args;
-      if (platform === "darwin") {
-        command = "open";
-        args = isFile ? ["-R", targetPath] : [targetPath];
-      } else if (platform === "win32") {
-        command = "explorer";
-        args = isFile ? [`/select,${targetPath}`] : [targetPath];
-      } else {
-        command = "xdg-open";
-        const { dirname } = await import("node:path");
-        args = [isFile ? dirname(targetPath) : targetPath];
-      }
+      // a file opens in its own app, not just highlighted in the folder
+      if (platform === "darwin") command = "open";
+      else if (platform === "win32") command = "explorer";
+      else command = "xdg-open";
+      args = [targetPath];
       execFile(command, args, (error) => {
-        if (error) console.error("open_in_explorer:", error.message);
+        // no app claims .md on a fresh mac, so fall back to the text editor
+        if (error && isFile && platform === "darwin") execFile("open", ["-t", targetPath], (retry) => {
+          if (retry) console.error("open_in_explorer:", retry.message);
+        });
+        else if (error) console.error("open_in_explorer:", error.message);
       });
       return { opened: true };
     }
