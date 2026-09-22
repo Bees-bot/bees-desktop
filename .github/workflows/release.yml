@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 24.21.0
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - run: npm run check
@@ -51,10 +51,8 @@ jobs:
             signing_identity: "-"
           - platform: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
-            signing_identity: ""
           - platform: windows-2025
             target: x86_64-pc-windows-msvc
-            signing_identity: ""
 
     runs-on: ${{ matrix.platform }}
     env:
@@ -68,14 +66,6 @@ jobs:
       APPLE_ID: ${{ secrets.APPLE_ID }}
       APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      # Azure Artifact Signing, ~$10/month. Unset until the account exists; the Windows
-      # build then produces unsigned installers and SmartScreen warns on them.
-      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-      AZURE_ENDPOINT: ${{ secrets.AZURE_ENDPOINT }}
-      AZURE_CODE_SIGNING_NAME: ${{ secrets.AZURE_CODE_SIGNING_NAME }}
-      AZURE_CERT_PROFILE_NAME: ${{ secrets.AZURE_CERT_PROFILE_NAME }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -88,14 +78,14 @@ jobs:
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 24.21.0
+          node-version-file: .nvmrc
           cache: npm
 
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           targets: ${{ matrix.target }}
 
-      - uses: swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+      - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: src-tauri
 
@@ -122,36 +112,20 @@ jobs:
           rm "$certificate"
           security find-identity -v -p codesigning "$keychain"
 
-      # Windows code signing through Azure Artifact Signing (renamed from Azure Trusted
-      # Signing, and both names still turn up). Skipped until the account exists, so the build
-      # keeps producing unsigned installers meanwhile.
-      #
-      # Installing the tool is only half of it. The other half is a one-line
-      # `bundle.windows.signCommand` in tauri.conf.json, deliberately NOT added yet: Tauri
-      # runs signCommand unconditionally, so committing it before the Azure account exists
-      # breaks every Windows build. Add it in the same change that adds the secrets:
-      #   "signCommand": "trusted-signing-cli -e %AZURE_ENDPOINT% -a %AZURE_CODE_SIGNING_NAME% -c %AZURE_CERT_PROFILE_NAME% %1"
-      - name: Install Windows signing tool
-        if: startsWith(matrix.platform, 'windows-') && env.AZURE_CLIENT_ID != ''
-        run: cargo install trusted-signing-cli@0.5.0
-
       - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Signs the update manifest. Without both of these the build still produces
-          # installers, but no `latest.json`, and installed apps never see the release.
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: .
           releaseId: ${{ needs.prepare.outputs.release_id }}
           tagName: ${{ github.ref_name }}
           # OFF until an upgrade from 0.1.1 keeps a person's data. 0.1.1 shipped with the
-          # updater plugin polling this repo's latest.json, and its pubkey matches the key
-          # above, so publishing one here auto-installs the rewrite on every 0.1.1 machine.
+          # updater plugin polling this repo's latest.json, and its pubkey matches whatever
+          # key signed that release, so publishing one here auto-installs the rewrite on
+          # every 0.1.1 machine.
           # That release read the legacy runtime database and this one reads bees-stage1.db, so they
           # would silently open an empty app. Nothing in 0.2.0 reads latest.json anyway.
-          includeUpdaterJson: false
+          uploadUpdaterJson: false
           releaseDraft: true
           prerelease: false
           args: --target ${{ matrix.target }}
@@ -188,7 +162,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 24.21.0
+          node-version-file: .nvmrc
       - name: Verify all installers, checksum, and publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -201,7 +175,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 24.21.0
+          node-version-file: .nvmrc
       - name: Announce published release to Discord
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
