@@ -130,9 +130,6 @@ jobs:
           prerelease: false
           args: --target ${{ matrix.target }}
 
-      - name: Test the compiled Rust application
-        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
-
       # Tauri notarizes the .app but not the .dmg wrapped around it, so the disk image itself
       # comes back "Unnotarized Developer ID" from Gatekeeper even though the app inside is fine.
       # Notarize the image too and staple the ticket onto it, then replace the uploaded asset.

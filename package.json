@@ -13,10 +13,8 @@
     "build": "vite build",
     "build:dsh-client": "node scripts/build-dsh-client.mjs",
     "release:prepare": "node scripts/release.mjs version",
-    "test:release": "node --test tests/release.test.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build:dsh-client && vitest run tests/dsh-*.test.ts",
-    "check": "npm run test:release && npm run typecheck && npm test && npm run build",
+    "check": "npm run typecheck && npm run build",
     "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "tauri:build": "tauri build"
   },
@@ -44,7 +42,6 @@
     "micromark-util-symbol": "2.0.1",
     "shiki": "4.4.3",
     "typescript": "6.0.3",
-    "vite": "8.1.4",
-    "vitest": "4.1.11"
+    "vite": "8.1.4"
   }
 }

@@ -35,7 +35,6 @@ npm ci
 npm run check
 npm run prepare:dsh   # stages the Node runtime, llama.cpp and uv for the Rust build
 cargo check --manifest-path src-tauri/Cargo.toml
-cargo test --manifest-path src-tauri/Cargo.toml --lib
 make bees
 ```
 

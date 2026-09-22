@@ -360,7 +360,16 @@ export function McpPage({ ctx, capabilities }) {
               server.transport === "stdio" ? `${server.command} ${server.args.join(" ")}`.trim() : server.url]),
             server.source === "catalog" ? "from the catalog" : "added by hand"
           ].filter(Boolean).join(" · ")),
-          server.error ? h("div", { className: "bees-muted" }, server.error) : null),
+          server.error ? h("div", { className: "bees-muted" }, server.error) : null,
+          // The folder this server may reach, which each computer picks for itself.
+          server.folder === null ? null : h("div", { className: "bees-detail-actions" },
+            h("span", { className: "bees-muted" }, server.folder || "No folder chosen on this computer yet"),
+            h(Button, {
+              onClick: async () => {
+                const picked = await ctx.uiWorkspace.pickDirectory();
+                if (picked) await act({ action: "set_mcp_server_folder", serverId: server.id, directory: picked });
+              }
+            }, server.folder ? "Change folder" : "Choose folder"))),
         h("span", { className: `bees-status ${STATUS_CLASS[server.status] ?? ""}` }, STATUS_LABEL[server.status] ?? server.status),
         h(Button, {
           onClick: () => act({ action: "set_mcp_server_enabled", serverId: server.id, enabled: !server.enabled })

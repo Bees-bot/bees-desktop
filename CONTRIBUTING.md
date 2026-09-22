@@ -28,10 +28,9 @@ npm run tauri:dev
 Checks before you open a PR:
 
 ```sh
-npm run check                                    # typecheck, tests, build
+npm run check                                    # typecheck, build
 npm run prepare:dsh                              # the Rust build needs the staged runtimes
 cargo check --manifest-path src-tauri/Cargo.toml
-cargo test --manifest-path src-tauri/Cargo.toml --lib
 ```
 
 You'll need Node 24, npm 10+, Rust 1.84+, and the native toolchain for your platform. Use

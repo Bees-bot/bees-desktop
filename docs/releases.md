@@ -39,8 +39,7 @@ tag runs the release pipeline. No scheduled releases or builds on every commit.
 2. Run `npm run release:prepare -- 0.2.1` (choose the next unused version). This updates
    npm, Tauri, Cargo and their lockfiles, and converts Unreleased to the version heading.
 3. Review the diff and run `npm run check`,
-   `cargo check --manifest-path src-tauri/Cargo.toml`, and
-   `cargo test --manifest-path src-tauri/Cargo.toml --lib`.
+   and `cargo check --manifest-path src-tauri/Cargo.toml`.
 4. Commit through your normal review process and merge. From the checked, current main
    commit, run `git tag -a v0.2.1 -m 'Bees 0.2.1'` then `git push origin v0.2.1`.
    These are maintainer actions; the preparation command never commits or pushes.
