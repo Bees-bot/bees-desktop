@@ -105,6 +105,12 @@ needed beyond Hindsight's consolidation and DSH's existing context compaction.
 
 Selected company folders remain data-only. Bees stages inputs into app-data workspaces and publishes outputs only after approval in the Bees UI. Databases, sessions, indexes, checkpoints, browser profiles, credentials, and runtime metadata never go into a selected company folder.
 
+## Known limitations
+
+There is no in-app updater and no uninstall, 0.1.1 data does not carry across, and Windows
+installers are unsigned. The full list is in [Known limitations](docs/limitations.md). Read it
+before you install.
+
 ## License
 
 Licensed under either the [Apache License, Version 2.0](LICENSE-APACHE) or the [MIT License](LICENSE-MIT), at your option.
