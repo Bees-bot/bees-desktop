@@ -93,7 +93,8 @@ it.each(["member", "viewer", "admin"])("shows team settings to a %s with the cor
   expect(html).toContain("Add member");
   expect(html).toContain("Delete team");
   expect(html.includes("Read-only team settings")).toBe(role !== "admin");
-  const controls = html.match(/<(?:input|select|button)\b[^>]*>/g)!;
+  // the settings rail sits outside the panel, and its own buttons are not what this measures
+  const controls = html.slice(html.indexOf("bees-settings-content")).match(/<(?:input|select|button)\b[^>]*>/g)!;
   expect(controls).toHaveLength(5);
   expect(controls.every((control) => control.includes('disabled=""') === (role !== "admin"))).toBe(true);
   expect(fetcher).toHaveBeenCalledTimes(1);

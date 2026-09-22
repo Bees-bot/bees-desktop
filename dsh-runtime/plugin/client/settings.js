@@ -598,6 +598,41 @@ function DataFolderSettings({ ctx, data, act }) {
       shared ? h(Button, { onClick: (event) => choose(event, true), disabled: busy }, "Use this computer again") : null));
 }
 
+// Where each level keeps its folders on this computer. The database is shared, so it holds no path:
+// it holds the part below the workspace's folder, and each computer points a level at its own folder.
+const FOLDER_LEVELS = { organization: "Organization", team: "Team", workspace: "Workspace" };
+
+function FoldersSettings({ ctx, data, team, act }) {
+  const workspaceIds = data.workspaces.filter(({ teamId }) => teamId === team?.id).map(({ id }) => id);
+  const rows = (data.folders ?? []).filter((row) => workspaceIds.includes(row.workspaceId))
+    // a team's workspaces share one organization and one team folder, so those rows are listed once
+    .filter((row, index, all) => all.findIndex((other) => other.level === row.level && other.id === row.id) === index);
+  const [notice, setNotice] = useState("");
+  const [busy, choose] = useSubmit(async (event, row, reset) => {
+    try {
+      const picked = reset ? "" : await ctx.uiWorkspace.pickDirectory();
+      if (!reset && !picked) return;
+      setNotice("");
+      await act({ action: "set_folder_root", workspaceId: row.workspaceId, level: row.level, id: row.id, directory: picked });
+    } catch (error) { setNotice(error.message || String(error)); }
+  });
+  if (!team) return h(Empty, null, "Choose a team");
+  return h("section", { className: "bees-box bees-stack" },
+    h("h2", null, "Folders"),
+    h("p", { className: "bees-muted" }, "Bees remembers a run by its place inside this level's folder, so the same run ",
+      "opens on both computers. Set a folder here to keep this level's runs in one you choose."),
+    notice ? h("p", { className: "bees-callout", role: "status" }, notice) : null,
+    ...rows.map((row) => h("div", { className: "bees-row", key: `${row.level}:${row.id}` },
+      h("div", { className: "bees-row-main" },
+        h("div", { className: "bees-row-title" }, `${FOLDER_LEVELS[row.level]} · ${row.name}`),
+        h("div", { className: "bees-muted" }, row.folder),
+        row.missing ? h("div", { className: "bees-error", role: "alert" }, "Not on this computer right now.") : null),
+      h("span", { className: "bees-badge" }, row.picked ? "Set here" : "Uses the folder above"),
+      h("div", { className: "bees-detail-actions" },
+        h(Button, { disabled: busy, onClick: (event) => choose(event, row) }, "Choose folder"),
+        row.picked ? h(Button, { disabled: busy, onClick: (event) => choose(event, row, true) }, "Use the level above") : null))));
+}
+
 // Deleting the app on its own leaves the database, downloaded models and sessions behind, and the
 // next install reads them, so the size is in front of the person before it goes.
 function RemoveBeesSettings() {
@@ -647,21 +682,32 @@ const ORGANIZATION_SETTINGS = [
   ["organization-members", "Members & invitations", ["owner", "admin"]],
   ["organization-authentication", "Authentication", ["owner"]]
 ];
+const TEAM_SETTINGS = [
+  ["team-settings", "Members"],
+  ["team-folders", "Folders", ["admin"]]
+];
 
-function SettingsLayout({ route, navigate, organization, children }) {
+function SettingsGroup({ label, routes, route, navigate, role, connected = true }) {
+  const shown = routes.filter(([, , needs]) => !needs || connected && needs.includes(role));
+  if (!shown.length) return null;
+  return h(React.Fragment, null,
+    h("hr", { className: "bees-settings-divider" }),
+    h("div", { className: "bees-settings-menu-label", title: label }, label),
+    ...shown.map(([id, text]) => h("button", { type: "button", key: id,
+      className: route === id ? "active" : "", "aria-current": route === id ? "page" : null,
+      onClick: () => navigate(id) }, text)));
+}
+
+function SettingsLayout({ route, navigate, organization, team, children }) {
   return h("div", { className: "bees-settings-layout" },
     h("aside", { className: "bees-settings-menu" },
       h("div", { className: "bees-settings-menu-label" }, "Global"),
       ...GLOBAL_SETTINGS.map(([id, label]) => h("button", { type: "button", key: id,
         className: route === id ? "active" : "", "aria-current": route === id ? "page" : null,
         onClick: () => navigate(id) }, label)),
-      organization ? h(React.Fragment, null,
-        h("hr", { className: "bees-settings-divider" }),
-        h("div", { className: "bees-settings-menu-label", title: organization.name }, organization.name),
-        ...ORGANIZATION_SETTINGS.filter(([, , roles]) => !roles || organization.connected && roles.includes(organization.role))
-          .map(([id, label]) => h("button", { type: "button", key: id,
-          className: route === id ? "active" : "", "aria-current": route === id ? "page" : null,
-          onClick: () => navigate(id) }, label))) : null),
+      organization ? h(SettingsGroup, { label: organization.name, routes: ORGANIZATION_SETTINGS, route, navigate,
+        role: organization.role, connected: organization.connected }) : null,
+      team ? h(SettingsGroup, { label: team.name, routes: TEAM_SETTINGS, route, navigate, role: team.role }) : null),
     h("section", { className: "bees-settings-content" }, children));
 }
 
@@ -678,14 +724,18 @@ export function SettingsPage({
   const organization = rawOrganization
     ? { ...rawOrganization, role: connection?.role ?? rawOrganization.role }
     : null;
-  if (route === "team-settings") return h("div", { className: "bees-stack" },
-    team && team.role !== "admin" ? h("p", { className: "bees-callout", role: "status" },
-      "Read-only team settings. Only team administrators can make changes.") : null,
-    h(TeamSettings, { team, organization, connectionId, openOrganization, navigate }),
-    ...data.workspaces.filter((workspace) => workspace.teamId === teamId).map((workspace) =>
-      h(MemorySettings, { key: workspace.id, workspace, canManage: team?.role === "admin" })));
-  const content = route === "personal-ai"
-    ? h(AiSettings, { ctx, modelSettings, preferences, systemDefault: data.systemDefaultModel, reload })
+  const content = route === "team-settings" ? h("div", { className: "bees-stack" },
+      team && team.role !== "admin" ? h("p", { className: "bees-callout", role: "status" },
+        "Read-only team settings. Only team administrators can make changes.") : null,
+      h(TeamSettings, { team, organization, connectionId, openOrganization, navigate }),
+      ...data.workspaces.filter((workspace) => workspace.teamId === teamId).map((workspace) =>
+        h(MemorySettings, { key: workspace.id, workspace, canManage: team?.role === "admin" })))
+    : route === "team-folders"
+      ? team?.role === "admin" ? h(FoldersSettings, { ctx, data, team, act })
+        : h(Empty, null, "Only team administrators can set this team's folders")
+
+    : route === "personal-ai"
+      ? h(AiSettings, { ctx, modelSettings, preferences, systemDefault: data.systemDefaultModel, reload })
     : route === "system-instructions"
       ? h(SystemInstructionsSettings, { preferences, instructions: preference.systemInstructions ?? "" })
     : route === "appearance" ? h(AppearanceSettings, { ctx, preferences })
@@ -699,5 +749,5 @@ export function SettingsPage({
         organizationColors: preference.organizationColors ?? {}
       })
       : h(Empty, null, "Choose a settings section");
-  return h(SettingsLayout, { route, navigate, organization }, content);
+  return h(SettingsLayout, { route, navigate, organization, team }, content);
 }

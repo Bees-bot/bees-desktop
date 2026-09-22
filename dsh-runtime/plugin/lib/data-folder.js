@@ -9,12 +9,6 @@ export const sharedFolder = () => dataDirectory() !== appDirectory();
 // several computers open a shared folder, so the app writes this computer's id beside itself
 export const deviceId = () => readFileSync(join(appDirectory(), "device-id"), "utf8").trim();
 
-/** Rebase a run folder made on the other computer onto this computer's mount. */
-export function mounted(path) {
-  const at = path.lastIndexOf(`${sep}workspaces${sep}`);
-  return at === -1 ? path : join(dataDirectory(), path.slice(at + 1));
-}
-
 /** Which other computer holds the app's lock on that folder; a lock that will not read counts as held. */
 function folderHeldBy(directory) {
   try {

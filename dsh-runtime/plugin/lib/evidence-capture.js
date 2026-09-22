@@ -130,7 +130,7 @@ function shortlist(directory, pool) {
 }
 
 const directoryOf = (exec, database) => database.prepare(
-  "SELECT mounted(run_directory) AS directory FROM execution_links WHERE current_session_id IN (?, ?)")
+  "SELECT resolved(run_directory, workspace_id) AS directory FROM execution_links WHERE current_session_id IN (?, ?)")
   .get(String(exec.agent?.session.id), String(exec.agent?.session.header?.parentSession ?? ""))?.directory;
 
 const stampOf = (path) => { try { return statSync(path).mtimeMs; } catch { return 0; } };
