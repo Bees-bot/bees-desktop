@@ -129,7 +129,12 @@ fn runtime_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf, PathBuf), 
     if !entry.is_file()
         || !runtime.join("start.mjs").is_file()
         || !runtime.join("profile").join("package.json").is_file()
-        || !runtime.join("profile").join("cordis.patch.yml").is_file()
+        || !runtime
+            .join("node_modules")
+            .join("@bees")
+            .join("dsh-plugin")
+            .join("cordis.patch.yml")
+            .is_file()
         || !runtime
             .join("plugin")
             .join("lib")
@@ -160,11 +165,26 @@ fn runtime_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf, PathBuf), 
     Ok((node, temporal, runtime))
 }
 
+/// First line of the overlay Bees used to write into a profile. Only used to recognise it.
+const LEGACY_OVERLAY_MARKER: &str = "# Bees-owned profile overlay";
+/// The profile's own patch document. DSH owns everything in here from 0.1.7 on.
+const USER_OVERLAY_NAME: &str = "cordis.patch.yml";
+/// Empty user overlay, the shape DSH writes back to.
+const EMPTY_OVERLAY: &str = "[]\n";
+
 fn copy_profile(runtime: &Path, profile: &Path) -> Result<(), String> {
     fs::create_dir_all(profile).map_err(|error| error.to_string())?;
-    for name in ["package.json", "cordis.patch.yml"] {
-        fs::copy(runtime.join("profile").join(name), profile.join(name))
-            .map_err(|error| error.to_string())?;
+    fs::copy(runtime.join("profile").join("package.json"), profile.join("package.json"))
+        .map_err(|error| error.to_string())?;
+    let user = profile.join(USER_OVERLAY_NAME);
+    // Before 0.1.7 this was Bees' own overlay, rewritten on every launch and never holding anything
+    // of the user's. It now belongs to DSH's settings layer, so an old copy has to go: it pins
+    // entries the settings screens are expected to write.
+    let legacy = fs::read_to_string(&user)
+        .map(|current| current.starts_with(LEGACY_OVERLAY_MARKER))
+        .unwrap_or(false);
+    if !user.exists() || legacy {
+        fs::write(&user, EMPTY_OVERLAY).map_err(|error| error.to_string())?;
     }
     Ok(())
 }

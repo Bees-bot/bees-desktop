@@ -9,6 +9,16 @@ import brandMark from "../../../src/brand-mark.png";
 
 void globalThis.fetch?.("/bees-api/startup?phase=ui.module-loaded", { method: "POST" }).catch(() => {});
 
+// A form answers with nothing until the host has described its namespace. Components persist what
+// they read on mount, so without this a first render saves those defaults over the stored settings.
+function blockWritesUntilServed(form) {
+  const held = () => Promise.resolve(false);
+  const gate = (write) => (...args) => form.getSnapshot().status === "ready" ? write(...args) : held();
+  return Object.assign(Object.create(form), {
+    set: gate(form.set.bind(form)), unset: gate(form.unset.bind(form)), mutate: gate(form.mutate.bind(form))
+  });
+}
+
 window.__ModuleLoader__.load({
   id: "@bees/dsh-plugin",
   factory: (require) => {
@@ -40,7 +50,7 @@ window.__ModuleLoader__.load({
     }
     const module = { exports: {} };
     const exports = module.exports;
-    exports.inject = ["slots", "uiWorkspace", "settingsScope", "connection", "theme", "sessions", "uiSession", "remote", "remote.credentials", "conversation"];
+    exports.inject = ["slots", "uiWorkspace", "configForms", "connection", "theme", "sessions", "uiSession", "remote", "remote.credentials", "conversation"];
     exports.apply = (ctx) => {
       const style = document.createElement("style");
       style.dataset.plugin = "@bees/dsh-plugin";
@@ -68,8 +78,9 @@ window.__ModuleLoader__.load({
           name: "shell.content", key: kind, inject: () => ({ kind })
         }, NativeContentHost);
       });
-      const preferences = ctx.settingsScope.bind({ namespace: "bees-ui" });
-      const modelSettings = ctx.settingsScope.bind({ namespace: "llm-pi-ai" });
+      // Entry ids of the profile plugins that own these settings: the Bees plugin and DSH's provider transport.
+      const preferences = blockWritesUntilServed(ctx.configForms.get("bees"));
+      const modelSettings = blockWritesUntilServed(ctx.configForms.get("llm-pi-ai"));
       ctx.slots.inject("shell.overlay", () => ctx.slots.register({
         name: "shell.overlay", id: "bees-product", order: -100, label: "Bees",
         inject: () => ({ ctx, preferences, modelSettings })
