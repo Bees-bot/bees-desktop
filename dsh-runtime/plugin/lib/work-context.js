@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 import { itemContext, iso, transaction, workItemLineage, workRunItems } from "./product-database.js";
+import { assertRootOnDisk, shortPath, workspaceRoot } from "./folder-roots.js";
 import { outputFiles, previewFiles, stageLocation } from "./product-files.js";
 
 const hash = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -64,26 +65,30 @@ export class WorkContext {
       VALUES (?, (SELECT r.memories_json FROM bees_context_runs r
         JOIN bees_work_contexts c ON c.id = r.context_id WHERE c.root_id = ?
         ORDER BY r.rowid DESC LIMIT 1))`).run(root.id, root.id);
-    return this.database.prepare("SELECT root_id AS rootId, mounted(directory) AS directory, memories_json AS memories FROM bees_run_resources WHERE root_id = ?").get(root.id);
+    return this.database.prepare("SELECT root_id AS rootId, resolved(directory, ?) AS directory, memories_json AS memories FROM bees_run_resources WHERE root_id = ?").get(root.workspaceId, root.id);
   }
 
-  directory(itemId, workspace) {
+  /** The folder this item's work keeps, made once and reused by every stage after it. */
+  directory(itemId) {
+    const root = this.lineage(itemId)[0];
+    assertRootOnDisk(root.workspaceId);
     const resources = this.resources(itemId);
     if (resources.directory) return resources.directory;
-    const executions = this.database.prepare(`SELECT mounted(e.run_directory) AS directory FROM execution_links e
+    const executions = this.database.prepare(`SELECT resolved(e.run_directory, ?) AS directory FROM execution_links e
       LEFT JOIN bees_stage_results r ON r.execution_id = e.execution_id
       WHERE e.work_item_id IN (SELECT value FROM json_each(?))
         AND coalesce(json_extract(e.config_json, '$.stagePurpose'), r.purpose, json_extract(e.config_json, '$.mode'), 'worker')
           NOT IN ('reviewer', 'review', 'planning')
-      ORDER BY e.created_at DESC, e.rowid DESC`).all(JSON.stringify(workRunItems(this.database, itemId)));
-    const directory = executions[0]?.directory ?? resolve(workspace, "runs", resources.rootId);
+      ORDER BY e.created_at DESC, e.rowid DESC`).all(root.workspaceId, JSON.stringify(workRunItems(this.database, itemId)));
+    const directory = executions[0]?.directory ?? resolve(workspaceRoot(root.workspaceId), "runs", resources.rootId);
     mkdirSync(directory, { recursive: true });
     // Older versions used a folder per stage. Retain their files without overwriting newer work.
     for (const execution of executions) for (const name of ["inputs", "outputs"]) {
       const source = resolve(execution.directory, name), target = resolve(directory, name);
       if (source !== target && existsSync(source)) stageLocation({ name, kind: "folder", localPath: source }, target, false);
     }
-    this.database.prepare("UPDATE bees_run_resources SET directory = ? WHERE root_id = ?").run(directory, resources.rootId);
+    this.database.prepare("UPDATE bees_run_resources SET directory = ? WHERE root_id = ?")
+      .run(shortPath(root.workspaceId, directory), resources.rootId);
     return directory;
   }
 
@@ -324,7 +329,12 @@ export class WorkContext {
   }
 
   candidate(executionId) {
-    return this.database.prepare("SELECT artifact_hash AS artifactHash, directory, findings_json AS findings FROM bees_context_results WHERE execution_id = ?").get(executionId);
+    // the folder is stored short, so it is read back against the workspace of the run that produced it
+    return this.database.prepare(`SELECT r.artifact_hash AS artifactHash, r.findings_json AS findings,
+      resolved(r.directory, (SELECT p.workspace_id FROM bees_context_runs c
+        JOIN work_items w ON w.id = c.work_item_id JOIN processes p ON p.id = w.process_id
+        WHERE c.execution_id = r.execution_id)) AS directory
+      FROM bees_context_results r WHERE r.execution_id = ?`).get(executionId);
   }
 
   resultEvidence(executionId, data, workspace, result, findings) {
@@ -362,7 +372,8 @@ export class WorkContext {
     this.database.prepare("UPDATE bees_context_runs SET scope_json = json_set(scope_json, '$.humanReviewRevision', ?) WHERE execution_id = ?")
       .run(reviews.version, executionId);
     this.database.prepare("INSERT INTO bees_context_results VALUES (?, ?, ?, ?)")
-      .run(executionId, evidence.artifactHash, evidence.directory, JSON.stringify(findings));
+      .run(executionId, evidence.artifactHash,
+        evidence.directory && shortPath(data.workspaceId, evidence.directory), JSON.stringify(findings));
     this.post(data.workItemId, { id: `result:${executionId}`, executionId, author: data.agentName,
       kind: findings.length ? "finding" : "result", content: result.summary,
       evidence: findings.length ? JSON.stringify(findings) : `Execution ${executionId}; outcome ${result.outcome}; artifact digest ${evidence.artifactHash}` });

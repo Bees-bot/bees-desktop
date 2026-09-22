@@ -24,6 +24,7 @@ export const NAVIGATION = [
     ["personal-ai", "AI connections"], ["organizations", "Organizations"], ["connections", "Connections"],
     ["organization-settings", "Organization general"], ["organization-members", "Organization members & invitations"],
     ["organization-authentication", "Organization authentication"], ["team-settings", "Team members"],
+    ["team-folders", "Team folders"],
     ["appearance", "Appearance"], ["system-instructions", "System instructions"]
   ] }
 ];
