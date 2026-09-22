@@ -1,1 +1,0 @@
-{"main-capability":{"identifier":"main-capability","description":"Start the local DSH runtime.","remote":{"urls":["http://127.0.0.1:*"]},"local":true,"windows":["main"],"permissions":["allow-bees-ui","core:default"]}}

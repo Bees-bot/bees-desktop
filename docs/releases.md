@@ -16,10 +16,19 @@ tag runs the release pipeline. No scheduled releases or builds on every commit.
   the desktop repository's Actions secret `DISCORD_RELEASE_WEBHOOK`. Never commit it.
 - Mac signing uses `APPLE_SIGNING_IDENTITY`, `APPLE_CERTIFICATE` (base64 P12),
   `APPLE_CERTIFICATE_PASSWORD`, `APPLE_ID`, `APPLE_PASSWORD`, and `APPLE_TEAM_ID`.
+  The identity is `Developer ID Application: FunCove LLC (T9AGT95JD7)`, and
+  `APPLE_TEAM_ID` is `T9AGT95JD7`. A local build signs with the same certificate
+  from the login keychain and notarizes through the `bees-notary` profile; CI passes
+  the same credentials through the secrets above.
   Without these the Mac build uses ad-hoc signing. Verify these credentials before a public release.
+  The bundle is signed with `src-tauri/entitlements.plist`; `bees-node` needs all
+  three keys in it or the runtime dies on its first JIT allocation. `npm run prepare:dsh`
+  signs the runtime binaries under `Resources` as it stages them, since the bundler only
+  signs the app, the frameworks and the sidecars.
 - Windows installers are currently unsigned, as disclosed in the notes and website.
-  The Azure signing tool alone does not enable signing: configuring its credentials and
-  Tauri `bundle.windows.signCommand` remains a separate setup task.
+  Signing them means an Azure Artifact Signing account, `trusted-signing-cli`, and a
+  `bundle.windows.signCommand` in `tauri.conf.json` added only once that account exists:
+  Tauri runs signCommand unconditionally, so committing it early breaks every Windows build.
 - Protect `main` with required CI and review; restrict creation of `v*` tags to maintainers
   using a repository ruleset. Publishing uses the workflow's built-in `GITHUB_TOKEN`.
 

@@ -21,31 +21,31 @@ Bees is three repositories. This one is the desktop app:
 Stage 1 desktop development is local and needs one terminal:
 
 ```sh
-npm install
+npm ci
 npm run tauri:dev
 ```
-
-The legacy `BEES_API_URL=dev` prefix is ignored by the local Stage 1 desktop and can be removed.
 
 Checks before you open a PR:
 
 ```sh
 npm run check                                    # typecheck, build
+npm run prepare:dsh                              # the Rust build needs the staged runtimes
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
 You'll need Node 24, npm 10+, Rust 1.84+, and the native toolchain for your platform. Use
 Node 24 and not an older one: the app runs Node 24 itself, and native modules built under an
 older Node break the free AI option on a fresh install.
-The desktop bundles neither PostgreSQL nor Python. It does bundle `llama-server`; the first
-macOS build compiles it and therefore also needs CMake (`brew install cmake`).
+The desktop bundles neither PostgreSQL nor Python, and local memory provisions its own Python
+at first run. It does bundle `llama-server`; the first macOS build compiles it and therefore
+also needs CMake (`brew install cmake`).
 
 **One heads up.** This is Tauri, so it needs a native toolchain. Codespaces and dev
 containers are fine for the API and the website, but **not** for the desktop app. You
 need a real machine. We'd rather tell you now than have you find out an hour in.
 
-Tauri starts its own Vite server on port 1420. Don't run `npm run dev` here alongside
-`npm run tauri:dev`; the plain `dev` script only exists for Tauri to call.
+There is no separate frontend dev server to start. `tauri dev` runs a `vite build`
+through `scripts/prepare-desktop.mjs`, and the app serves that bundle.
 
 ## What we're likely to say yes to
 

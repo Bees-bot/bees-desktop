@@ -33,6 +33,7 @@ older Node make the free AI option fail on a fresh install.
 ```sh
 npm ci
 npm run check
+npm run prepare:dsh   # stages the Node runtime, llama.cpp and uv for the Rust build
 cargo check --manifest-path src-tauri/Cargo.toml
 make bees
 ```
@@ -40,7 +41,7 @@ make bees
 Run these commands from this repository:
 
 ```sh
-make bees     # Start the desktop app with https://app.bees.bot (also: make prod or make)
+make bees     # Start the desktop app with https://app.bees.bot (also: make)
 make server   # Start the local API and PostgreSQL from ../bees-server
 make dev      # In another terminal, start the desktop app with http://localhost:3000
 make build    # Build the desktop release installer
@@ -48,9 +49,11 @@ make build    # Build the desktop release installer
 
 `make server` requires Docker and the sibling server's dependencies installed (`npm --prefix ../bees-server ci`). It runs the server's existing development command, which starts PostgreSQL, applies migrations, and starts the API. `Ctrl-C` stops the API; PostgreSQL remains running until `npm --prefix ../bees-server run db:dev:stop`.
 
-`bees`, `prod`, and `dev` launch the app in development mode; `prod` selects the deployed API and does not deploy anything. Fully quit Bees before switching servers because the URL is read at startup. The `127.0.0.1` redirect inside a browser sign-in URL is the expected local callback.
+`bees` and `dev` both launch the app in development mode, against the deployed API and a local
+API respectively. Fully quit Bees before switching servers because the URL is read at startup. The
+`127.0.0.1` redirect inside a browser sign-in URL is the expected local callback.
 
-`npm run tauri:prod` launches the development app against the deployed API without building an installer. `npm run tauri:dev` also uses the deployed API by default; set `BEES_ACCOUNT_API_URL` to override it.
+`npm run tauri:dev` uses the deployed API unless `BEES_ACCOUNT_API_URL` is set. It builds no installer.
 
 Development commands use `src-tauri/tauri.dev.conf.json`: the debug app reads DSH
 and llama.cpp from this checkout, so Cargo does not copy their resource trees on
@@ -81,13 +84,14 @@ Bees is the only visible product surface. New users open Getting started: a resu
 
 ### Workspace memory
 
-Hindsight is the long-term memory service. Start the pinned local service from
-the sibling `bees-server` repository using its **Hindsight memory** setup, then
-open the workspace's Memory settings in Bees. Enable memory at
-`http://127.0.0.1:8888` and select **Save and connect**. Alternatively configure
-an authenticated HTTPS Hindsight endpoint. The desktop does not bundle or start
-Docker. LLM provider credentials belong on the Hindsight service; the API key
-in Bees authenticates to that service and is kept in DSH's credential store.
+Hindsight is the long-term memory service, and the desktop runs its own. The
+bundled uv installer provisions the pinned Hindsight and its Python into the app
+data directory on first use, and the app serves it on `http://127.0.0.1:8898`.
+Memory settings open on that address: enable memory and select **Save and
+connect**. An authenticated HTTPS Hindsight endpoint works instead. No Docker.
+Extraction runs on one of the local models, never a hosted one, so provider
+credentials stay on the machine; the API key in Bees authenticates to the
+service and is kept in DSH's credential store.
 
 Each workspace has its own bank. Newly accepted results are queued atomically
 with their review outcome, retained asynchronously, and marked stored only after
@@ -115,3 +119,6 @@ before you install.
 ## License
 
 Licensed under either the [Apache License, Version 2.0](LICENSE-APACHE) or the [MIT License](LICENSE-MIT), at your option.
+
+It ships third-party software under its own terms, including LGPL-3 libraries
+inside libvips. [NOTICE](NOTICE) lists each component with its licence.
