@@ -42,11 +42,11 @@ export function walkLocation(location, onFile) {
   const root = realpathSync(location.localPath);
   const rootStat = lstatSync(root);
   if (location.kind === "file") {
-    if (!rootStat.isFile()) throw new Error(`${location.name} is not available as a file on this device`);
+    if (!rootStat.isFile()) throw new Error(`${location.name} is not a file on this device any more. Re-map it under Files & Folders.`);
     onFile(root, basename(root));
     return;
   }
-  if (!rootStat.isDirectory()) throw new Error(`${location.name} is not available as a folder on this device`);
+  if (!rootStat.isDirectory()) throw new Error(`${location.name} is not a folder on this device any more. Re-map it under Files & Folders.`);
   const stack = [root];
   while (stack.length) {
     const directory = stack.pop();
@@ -64,13 +64,13 @@ export function stageLocation(location, destination, overwrite = true) {
   let bytes = 0;
   walkLocation(location, (source, logical) => {
     if (files >= 1_000 || bytes >= 250_000_000)
-      throw new Error(`${location.name} exceeds the 1,000 file or 250 MB input limit`);
+      throw new Error(`${location.name} has more than 1,000 files or more than 250 MB. Attach a smaller folder, or fewer files.`);
     const stat = lstatSync(source);
     const target = resolve(destination, logical);
     if (!logical || logical === ".." || logical.startsWith(`..${sep}`) || !target.startsWith(`${destination}${sep}`)) return;
     if (!overwrite && existsSync(target)) return;
     if (stat.size > 20_000_000 || bytes + stat.size > 250_000_000)
-      throw new Error(`${location.name} contains a file larger than 20 MB or exceeds the 250 MB input limit`);
+      throw new Error(`${location.name} contains a file larger than 20 MB, or is over the 250 MB input limit. Attach a smaller folder, or fewer files.`);
     mkdirSync(resolve(target, ".."), { recursive: true });
     copyFileSync(source, target);
     files += 1;
@@ -127,11 +127,12 @@ export function stageInputLocations(locations, runDirectory, preserveExisting = 
     location.stagedPath = relative(runDirectory, directory).replaceAll("\\", "/");
     // An added item uses the run's captured inputs even if the original source has changed.
     if (preserveExisting && existsSync(directory)) continue;
-    if (!location.localPath) throw new Error(`${location.name} is not mapped on this device`);
+    if (!location.localPath)
+      throw new Error(`${location.name} is not mapped on this device. Open Files & Folders and map a folder for it.`);
     // realpathSync below reports a bare "ENOENT ... lstat <path>", which tells a person nothing
     // about which mapped folder went missing or that a mapping is what broke their run.
     if (!existsSync(location.localPath))
-      throw new Error(`${location.name} is mapped to ${location.localPath}, which is not on this device any more`);
+      throw new Error(`${location.name} is mapped to ${location.localPath}, which is not on this device any more. Re-map it under Files & Folders.`);
     const selected = stagedLocation(location, location.relativePath);
     mkdirSync(directory, { recursive: true });
     try { stageLocation(selected, directory); }

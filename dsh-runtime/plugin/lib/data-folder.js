@@ -27,9 +27,9 @@ function folderHeldBy(directory) {
 export async function useDataFolder(database, directory) {
   const target = resolve(String(directory ?? "").trim() || appDirectory());
   if (!existsSync(target) || !statSync(target).isDirectory())
-    throw new Error("That folder is not on this computer");
+    throw new Error("That folder is not on this computer. Pick one that exists here, or open Settings → Data folder and switch back to this computer.");
   if (target.startsWith(appDirectory() + sep))
-    throw new Error("Choose a folder outside Bees, one this computer shares with the other");
+    throw new Error("Choose a folder outside Bees, one this computer shares with your other computer");
   if (target === dataDirectory()) return { path: target, shared: sharedFolder(), restart: false };
   const busy = folderHeldBy(target);
   if (busy) throw new Error(`${busy} has that Bees folder open. Quit Bees there first.`);

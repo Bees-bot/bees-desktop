@@ -36,7 +36,8 @@ async function probeModel(ctx, { resolvedModel, resolvedReasoningEffort }) {
     if (chunk.type === "text-delta" && chunk.text.trim()) text = true;
     if (chunk.type === "block-end" && chunk.block?.type === "text" && chunk.block.text.trim()) text = true;
     if (chunk.type === "finish") {
-      if (["error", "aborted"].includes(chunk.reason.kind)) throw new Error(chunk.reason.failure?.message || "AI connection failed.");
+      if (["error", "aborted"].includes(chunk.reason.kind))
+        throw new Error(chunk.reason.failure?.message || "AI connection failed without saying why. Check the provider under Settings → AI connections, then run the test again.");
       finished = true;
     }
   }
