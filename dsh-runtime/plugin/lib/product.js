@@ -17,7 +17,7 @@ import { fileReferences, leadingAgentInvocation, preserveReferences, referenceCo
 import { TeamKnowledgeSearch } from "./product-knowledge.js";
 import { AgentCapacityError, resolveStageAgent } from "./product-routing.js";
 import { namePreset } from "./preset-names.js";
-import { assertAgentHasTools, assertFolderOutsideBees, assertUsableInstructions, checkMcpServers, enabledServers, executeProductCommand, proposalResource, proposedFolder, recurringSchedule, withoutSecrets } from "./product-commands.js";
+import { assertAgentHasTools, assertUsableInstructions, checkMcpServers, enabledServers, executeProductCommand, proposalResource, proposedFolder, recurringSchedule, withoutSecrets } from "./product-commands.js";
 import { catalogEntry, MCP_CATALOG } from "./mcp-catalog.js";
 
 export { initializeProductDatabase };
@@ -868,10 +868,10 @@ export class BeesProduct {
         const entry = catalogEntry(change.catalogId);
         if (!entry) throw new Error(`No catalog server is called ${change.catalogId}; the catalog has ${MCP_CATALOG.filter(({ scopes }) => !scopes).map(({ id }) => id).join(", ")}`);
         if (entry.scopes) throw new Error(`${entry.label} needs the owner to click Connect with Google on the MCP servers page; ask them in ask_user_question`);
+        // The folder only means something on the computer the server runs on, so a proposal cannot name it.
+        if (entry.requiresDirectory) throw new Error(`${entry.label} is added on the MCP servers page, where the person picks the folder it may reach; ask them in ask_user_question`);
         for (const secret of [...entry.env, ...entry.headers])
           if (!secret.optional && !String(change.secrets?.[secret.name] ?? "").trim()) throw new Error(`${entry.label} needs secrets.${secret.name}: ${secret.label}`);
-        if (entry.requiresDirectory && !String(change.directory ?? "").trim()) throw new Error(`${entry.label} needs directory: an absolute folder path the person gave`);
-        assertFolderOutsideBees(change.directory, this.defaultWorkspace, entry.label);
         const given = change.inputs ?? {};
         for (const field of entry.inputs)
           // A pasted curl command carries the base URL, so the bridge takes one or the other.

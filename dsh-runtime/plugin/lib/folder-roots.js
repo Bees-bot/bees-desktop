@@ -59,6 +59,27 @@ function levelsFor(workspace, picks = chosen) {
 /** False when the folder someone set at this level or above is not on this computer. */
 const onDisk = (row) => !row.mount || existsSync(row.mount);
 
+/** The folder a person picked for one MCP server: its program runs here, so its folder is this computer's. */
+export const serverFolder = (serverId) => chosen[`server:${serverId}`] ?? "";
+
+export function setServerFolder(serverId, directory) {
+  const picked = String(directory ?? "").trim();
+  const target = picked && resolve(picked);
+  if (target && (!existsSync(target) || !statSync(target).isDirectory()))
+    throw new Error("That folder is not on this computer. Pick one that exists here.");
+  const next = readRoots();
+  if (target) next[`server:${serverId}`] = target;
+  else delete next[`server:${serverId}`];
+  writeRoots(next);
+}
+
+/** Renamed in last, so a write that dies halfway never leaves a file the next boot cannot read. */
+function writeRoots(next) {
+  writeFileSync(`${rootsFile()}.writing`, `${JSON.stringify(next, null, 2)}\n`);
+  renameSync(`${rootsFile()}.writing`, rootsFile());
+  chosen = next;
+}
+
 /** Reads the roots file and works out where every workspace keeps its folders on this computer. */
 export function refreshFolderRoots(database) {
   opened = database;
@@ -161,9 +182,7 @@ export function setFolderRoot(database, { level, id, directory }) {
     next[`${level}:${id}`] = target;
   }
   const copied = copyRuns(database, movingRoots(database, next));
-  // renamed in last, so a write that dies halfway never leaves a file the next boot cannot read
-  writeFileSync(`${rootsFile()}.writing`, `${JSON.stringify(next, null, 2)}\n`);
-  renameSync(`${rootsFile()}.writing`, rootsFile());
+  writeRoots(next);
   for (const path of copied) rmSync(path, { recursive: true, force: true });
   refreshFolderRoots(database);
 }
