@@ -2,23 +2,27 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
+  closeSync,
   copyFileSync,
   cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   readdirSync,
+  readSync,
   realpathSync,
   rmSync,
   statSync,
   writeFileSync
 } from "node:fs";
 import { availableParallelism, tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { publishArtifact } from "./publish-artifact.mjs";
+import "./check-node.mjs";
 
 const desktopRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const dshEntry = resolve(
@@ -52,9 +56,6 @@ const temporalDestination = resolve(
   `temporal-${target}${extension}`
 );
 
-// this node becomes the runtime, and one without node:sqlite dies at launch with nothing on screen
-const [major, minor] = process.versions.node.split(".").map(Number);
-if (major < 22 || (major === 22 && minor < 5)) throw new Error(`Node ${process.version} can't run the Bees runtime. Use Node 22.5 or newer.`);
 mkdirSync(dirname(destination), { recursive: true });
 stageExecutable(process.execPath, destination, "Node");
 
@@ -390,29 +391,74 @@ async function buildMacLlamaRuntime(temporaryRoot, runtimeRoot, serverName) {
 // APPLE_SIGNING_IDENTITY is the variable the Tauri build already reads, so the runtime
 // and the app around it are signed by the same identity. `-` is Tauri's spelling of
 // ad-hoc, so it counts as no real identity here too.
+function signMac(paths, label) {
+  const identity = (process.env.APPLE_SIGNING_IDENTITY ?? "").trim();
+  const adhoc = !identity || identity === "-";
+  // Entitlements are in the binary, not in the source: the bundled Claude CLI arrives with
+  // five of them, and a plain re-sign drops every one.
+  const signArgs = adhoc
+    ? ["--force", "--timestamp=none", "--preserve-metadata=entitlements", "--sign", "-"]
+    : ["--force", "--timestamp", "--options", "runtime", "--preserve-metadata=entitlements", "--sign", identity];
+  console.log(
+    adhoc
+      ? `Signing the ${label} ad-hoc. Set APPLE_SIGNING_IDENTITY to notarize.`
+      : `Signing the ${label} with ${identity}.`
+  );
+  // A linker-generated ad-hoc signature passes `codesign --verify`, but macOS can still
+  // assess it on every launch and wedge the process before main, so nothing is left as is.
+  for (const path of paths) execFileSync("codesign", [...signArgs, path]);
+}
+
 function signMacRuntime(runtimeRoot) {
-  if (!(target.includes("apple") || target.includes("darwin") || target.includes("macos"))) return;
+  if (!macTarget) return;
   // Strip com.apple.provenance/quarantine first: those xattrs make macOS run a first-launch
   // Gatekeeper/XProtect assessment that can wedge the process uninterruptibly at dyld start.
   execFileSync("xattr", ["-cr", runtimeRoot]);
-  const identity = (process.env.APPLE_SIGNING_IDENTITY ?? "").trim();
-  const adhoc = !identity || identity === "-";
-  const signArgs = adhoc
-    ? ["--force", "--timestamp=none", "--sign", "-"]
-    : ["--force", "--timestamp", "--options", "runtime", "--sign", identity];
-  console.log(
-    adhoc
-      ? "Signing the local-model runtime ad-hoc. Set APPLE_SIGNING_IDENTITY to notarize."
-      : `Signing the local-model runtime with ${identity}.`
+  signMac(
+    readdirSync(runtimeRoot)
+      .filter((entry) => !entry.startsWith(".") && entry !== "LICENSE")
+      .map((entry) => join(runtimeRoot, entry)),
+    "local-model runtime"
   );
-  for (const entry of readdirSync(runtimeRoot)) {
-    if (entry.startsWith(".") || entry === "LICENSE") continue;
-    const path = join(runtimeRoot, entry);
-    // A linker-generated ad-hoc signature passes `codesign --verify`, but macOS can still
-    // assess it on every launch and wedge the process before main. Replace it with a normal
-    // ad-hoc signature even when verification succeeds.
-    execFileSync("codesign", [...signArgs, path]);
+}
+
+// Thin, fat and both byte orders, read as one big-endian word.
+const MACH_O_MAGIC = new Set([0xcffaedfe, 0xcefaedfe, 0xfeedfacf, 0xfeedface, 0xcafebabe, 0xbebafeca]);
+
+// Only Mach-O files can carry a signature, and the notary wants one on every Mach-O in the
+// bundle, including the ones the bundler never looks at.
+function isMachO(path) {
+  const descriptor = openSync(path, "r");
+  try {
+    const magic = Buffer.alloc(4);
+    if (readSync(descriptor, magic, 0, 4, 0) !== 4) return false;
+    return MACH_O_MAGIC.has(magic.readUInt32BE(0));
+  } finally {
+    closeSync(descriptor);
   }
+}
+
+// The bundled runtime ships under the app's Resources with its own native addons and CLIs.
+// The bundler signs MacOS, Frameworks, Plugins and the sidecar binaries, not Resources, so
+// without this pass the bundle carries ad-hoc signed code and Apple refuses the lot.
+function signMacBundledRuntime(runtimeRoot) {
+  // Reads 46k files, so only when there is a real identity to put on them: an ad-hoc pass
+  // here buys nothing a local build needs, and notarization refuses ad-hoc code anyway.
+  const identity = (process.env.APPLE_SIGNING_IDENTITY ?? "").trim();
+  if (!macTarget || !identity || identity === "-") return;
+  const binaries = [];
+  const collect = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isSymbolicLink()) continue;
+      if (entry.isDirectory()) collect(path);
+      else if (entry.isFile() && isMachO(path)) binaries.push(path);
+    }
+  };
+  collect(runtimeRoot);
+  // Deepest first: a signature covers the files nested inside it.
+  binaries.sort((a, b) => b.split(sep).length - a.split(sep).length);
+  signMac(binaries, "bundled runtime");
 }
 
 async function prepareLlamaRuntime() {
@@ -504,3 +550,6 @@ const memorySource = resolve(desktopRoot, "dsh-runtime", "memory-runtime");
 const memoryStaged = resolve(desktopRoot, "dsh-runtime", "node_modules", "@bees", "memory-runtime");
 rmSync(memoryStaged, { recursive: true, force: true });
 cpSync(memorySource, memoryStaged, { recursive: true, dereference: true });
+
+// Last, so the installer copied just above is covered by the same pass.
+signMacBundledRuntime(resolve(desktopRoot, "dsh-runtime"));
