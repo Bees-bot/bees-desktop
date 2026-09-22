@@ -129,8 +129,7 @@ Two independently verified runtime defects were addressed first:
 - The Work-to-Review transition reset the review-rejection count for each new
   candidate. With `maxAttempts >= 2`, repeated review revisions could never hit
   the configured limit. `process-workflow.js` now preserves that count until a
-  review passes, with a Temporal patch marker for historical replay. Behavioral
-  regression coverage is in `tests/dsh-process-workflow.test.ts`. This is a
+  review passes, with a Temporal patch marker for historical replay. This is a
   separate runaway risk: the database contains **zero review rejections in all
   four sampled workflow families**, so this bug did not cause their measured
   totals.
@@ -139,10 +138,7 @@ Two independently verified runtime defects were addressed first:
   inherited registrations; its own-layer registrations remain visible. The
   runtime now filters these schemas when assembling a request and guards their
   execution as well. The news run actually invoked raw `subagent` three times,
-  bypassing the tracked Bees delegation path. The regression in
-  `tests/dsh-delegation-visibility.test.ts` uses real DSH scopes, prompt assembly,
-  and tool execution, including registration after setup. It also verifies that
-  unrelated agents retain their tools. This correction does not make tracked
+  bypassing the tracked Bees delegation path. This correction does not make tracked
   child workflows lightweight; they still run their configured stages.
 
 The upstream token meter replaces streaming usage for each turn/step rather than
@@ -161,8 +157,6 @@ node scripts/inspect-token-usage.mjs "/path/to/Bees/app-data/dsh/sessions"
 
 The diagnostic prints usage and size/count metadata, not prompt contents,
 credentials, or tool-result text. It needs the `zstd` CLI for compressed logs.
-`tests/dsh-token-usage.test.ts` verifies cumulative streaming usage and recovery
-deduplication.
 
 ## General runtime changes implemented
 

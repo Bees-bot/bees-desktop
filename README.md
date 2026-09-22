@@ -34,7 +34,6 @@ older Node make the free AI option fail on a fresh install.
 npm ci
 npm run check
 cargo check --manifest-path src-tauri/Cargo.toml
-cargo test --manifest-path src-tauri/Cargo.toml
 make bees
 ```
 

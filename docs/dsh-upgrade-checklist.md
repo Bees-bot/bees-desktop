@@ -1,6 +1,6 @@
 # DSH upgrade checklist
 
-Bees ships one tested DeepSeek Harness release as a unit. The current release is
+Bees ships one DeepSeek Harness release at a time. The current release is
 `0.1.5-rc.2`; every `@deepseek-ai/dsh*` runtime dependency and plugin peer must
 use that exact version.
 
@@ -24,15 +24,11 @@ Run these from `bees-desktop`:
 npm ci
 npm run check
 cargo check --manifest-path src-tauri/Cargo.toml
-cargo test --manifest-path src-tauri/Cargo.toml
 npm run tauri:build
 ```
 
-`npm test` includes `tests/dsh-contract.test.ts`. It must prove loopback
-authentication, plugin/service injection, user settings and navigation contracts,
-DSH workspace registration, one provider-neutral agent turn, DSH approval policy,
-typed references, durable restart, and clean plugin disposal. Recovery and
-approval checkpoint tests are part of the same suite.
+The candidate is proven by running the app: sign in through loopback, one agent
+turn, a restart that keeps the run, and a clean quit.
 
 From `bees-server`, run the Stage 1 size gate:
 

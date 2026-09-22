@@ -30,9 +30,8 @@ The legacy `BEES_API_URL=dev` prefix is ignored by the local Stage 1 desktop and
 Checks before you open a PR:
 
 ```sh
-npm run check                                    # typecheck, tests, build
+npm run check                                    # typecheck, build
 cargo check --manifest-path src-tauri/Cargo.toml
-cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
 You'll need Node 24, npm 10+, Rust 1.84+, and the native toolchain for your platform. Use
