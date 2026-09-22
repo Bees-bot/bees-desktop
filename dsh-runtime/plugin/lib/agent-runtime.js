@@ -151,19 +151,22 @@ export function latestCodexModel(models, family) {
 function assertConnected(ctx, selection, agentName) {
   const connected = ctx.llm?.listProviders?.();
   if (connected && !connected.some(({ id }) => id === selection.provider))
-    throw new Error(`${agentName ?? "This agent"} is set to ${selection.provider}/${selection.model}, which is not connected. Connect it under Settings → AI or change the agent's model.`);
+    throw new Error(`${agentName ?? "This agent"} is set to ${selection.provider}/${selection.model}, which is not connected. Connect it under Settings → AI connections, or change the agent's model under Agents.`);
 }
 
 export async function resolveRunModel(ctx, data) {
   let selection = data.model ? modelRef(data.model) : ctx.agentDefaultModel.currentSelection();
-  if (!selection?.provider || !selection?.model) throw new Error("Choose a system default model first.");
+  if (!selection?.provider || !selection?.model)
+    throw new Error("Choose a system default model first, under Settings → AI connections.");
   assertConnected(ctx, selection, data.agentName ?? data.name);
   const channel = CODEX_CHANNELS.get(selection.model);
   if (channel) {
     const name = `${channel[0].toUpperCase()}${channel.slice(1)}`;
-    if (selection.provider !== "openai-codex") throw new Error(`Latest ${name} requires the Codex connection`);
+    if (selection.provider !== "openai-codex")
+      throw new Error(`Latest ${name} needs the Codex connection. Connect Codex under Settings → AI connections, or pick a different model under Agents.`);
     const latest = latestCodexModel(await ctx.llm.listModels(selection.provider), channel);
-    if (!latest) throw new Error(`No ${name} model is available in Codex. Add one under Settings → AI.`);
+    if (!latest)
+      throw new Error(`No ${name} model is available in Codex. Add one under Settings → AI connections, or pick a different model under Agents.`);
     selection = { provider: selection.provider, model: latest.id };
   }
   const effort = data.reasoningEffort ?? (data.model ? undefined : selection.reasoningEffort);
@@ -2047,7 +2050,7 @@ export class AgentRuntime {
       const model = data.resolvedModel ?? data.model;
       const detail = `${data.stagePurpose ?? data.mode ?? "agent"}${data.agentName ? ` (${data.agentName})` : ""}${model ? ` using ${model}` : ""}`;
       const hint = result.error.code === "TRANSPORT"
-        ? " Check this agent's model under Agents and its connection under Settings → AI before retrying."
+        ? " Check this agent's model under Agents and its connection under Settings → AI connections before retrying."
         : "";
       result = { ...result, error: { ...result.error,
         message: `${detail}: ${result.error.message}${hint}` } };

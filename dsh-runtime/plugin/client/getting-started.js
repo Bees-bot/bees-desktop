@@ -53,6 +53,9 @@ export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiSta
   const step = Math.min(3, Math.max(0, state.step || 0));
   const titles = ["Make space for your work", "Choose your AI", "Give Bees something to work with", "Create your first result"];
   const agents = planningAgents(data, parts.workspaceId);
+  // Step 1 names its own next move, so the footer button beside it was a second copy of the same
+  // click under a vaguer label. Hide it only when the panel really does have that button.
+  const stepOneHasItsOwnButton = done[0] || (!parts.team && parts.organizationId);
   const defaultModel = data.systemDefaultModel?.provider && data.systemDefaultModel?.model
     ? `${data.systemDefaultModel.provider}/${data.systemDefaultModel.model}` : "Choose your AI above";
   return h("div", { className: "bees-stack bees-onboarding" },
@@ -65,8 +68,10 @@ export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiSta
       ...titles.map((title, index) => h("button", { type: "button", key: title,
         className: `bees-box ${step === index ? "active" : ""}`, "aria-current": step === index ? "step" : undefined,
         onClick: () => update({ step: index, active: true }) },
-        // "4 of 4" next to a sibling reading "Complete" looks like the last step is finished.
-        h("span", { className: "bees-badge" }, done[index] ? "✓ Complete" : `Step ${index + 1}`),
+        // "4 of 4" next to a sibling reading "Complete" looks like the last step is finished. And a
+        // fresh install already has a team, so the step you are standing on can read "Complete"
+        // before you have chosen anything: only the steps you have moved past count.
+        h("span", { className: "bees-badge" }, done[index] && index !== step ? "✓ Complete" : `Step ${index + 1}`),
         h("strong", null, title)))),
     h("section", { className: "bees-box bees-stack" }, h("h2", null, titles[step]),
       step === 0 ? h("div", { className: "bees-stack" },
@@ -124,11 +129,14 @@ export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiSta
               h("label", { key: row.id }, h("input", { type: "checkbox", checked: (state.inputLocationIds || []).includes(row.id),
                 onChange: (event) => update({ inputLocationIds: event.target.checked ? [...(state.inputLocationIds || []), row.id] : (state.inputLocationIds || []).filter((id) => id !== row.id) }) }), ` ${row.name}`)),
             h("p", { className: "bees-muted" }, "Work (plan together, then execute) → Review → Done. The lead creates first-result.md, then a fresh reviewer session checks it. Planning uses additional AI calls. If the planning partner cannot run, the lead performs a self-review and shows the fallback."),
-            !aiReady ? h("p", { role: "status" }, "Choose and test your AI before starting. You can prepare this prompt while a model downloads.") : null,
+            !aiReady ? h("div", { className: "bees-stack" },
+              h("p", { role: "status" }, "Choose and test your AI before starting. You can prepare this prompt while a model downloads."),
+              h(Button, { onClick: () => update({ step: 1 }) }, "Go to Choose your AI")) : null,
             h(Button, { type: "submit", className: "primary", disabled: busy || !done[0] || !aiReady || !prompt.trim() }, busy ? "Starting…" : "Create my first result"))) : null,
       h("div", { className: "bees-card-actions" },
         step > 0 ? h(Button, { onClick: () => update({ step: step - 1 }) }, "Back") : null,
-        step < 3 ? h(Button, { onClick: () => update({ step: step + 1 }) }, done[step] ? "Continue" : "Skip for now") : null)),
+        step < 3 && (step > 0 || !stepOneHasItsOwnButton)
+          ? h(Button, { onClick: () => update({ step: step + 1 }) }, done[step] ? "Continue" : "Skip for now") : null)),
     done[3] ? h(Button, { onClick: () => { update({ active: false }); navigate("home"); } }, "Finish setup") : null);
 }
 

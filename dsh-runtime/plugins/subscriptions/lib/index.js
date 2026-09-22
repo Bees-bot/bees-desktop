@@ -312,7 +312,7 @@ class ClaudeCodeAdapter extends LlmAdapter {
   }
   async *stream(options) {
     const command = (await this.ctx.credentials.resolve(CLAUDE_PATH_REF))?.value;
-    if (!command) throw new LlmError("Choose Claude Code under Settings → AI", "MISSING_CREDENTIAL");
+    if (!command) throw new LlmError("Choose Claude Code under Settings → AI connections", "MISSING_CREDENTIAL");
     const tools = options.tools ?? [];
     const mode = claudeProtocolMode(options);
     const schema = tools.length ? claudeResponseSchema(tools, mode) : undefined;

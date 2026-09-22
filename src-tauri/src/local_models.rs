@@ -632,8 +632,9 @@ fn download_model(app: &AppHandle, spec: &ModelSpec, cancelled: &AtomicBool) -> 
     }
     let mut response = request.send().map_err(|error| error.to_string())?;
     if !response.status().is_success() {
+        // A CDN blip reaches the user as a bare status code, which says nothing about what to do.
         return Err(format!(
-            "The model host returned {} while downloading",
+            "The model host returned {} while downloading. Try the download again in a moment.",
             response.status()
         ));
     }
@@ -661,7 +662,7 @@ fn download_model(app: &AppHandle, spec: &ModelSpec, cancelled: &AtomicBool) -> 
     };
     if spec.bytes > 0 && total != spec.bytes {
         return Err(format!(
-            "Unexpected model download size: expected {} bytes, got {total}",
+            "Unexpected model download size: expected {} bytes, got {total}. Delete the model and download it again.",
             spec.bytes
         ));
     }
@@ -707,7 +708,7 @@ fn download_model(app: &AppHandle, spec: &ModelSpec, cancelled: &AtomicBool) -> 
     output.flush().map_err(|error| error.to_string())?;
     if total > 0 && bytes != total {
         return Err(format!(
-            "Incomplete model download: expected {total} bytes, got {bytes}"
+            "Incomplete model download: expected {total} bytes, got {bytes}. Start the download again."
         ));
     }
     if bytes == 0 {

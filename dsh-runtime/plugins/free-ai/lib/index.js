@@ -139,8 +139,10 @@ export async function apply(ctx) {
     };
     await ctx.credentials.set(API_KEY_REF, embedded.getUnifiedApiKey());
   } catch (error) {
-    startupError = error instanceof Error ? error : new Error(String(error));
-    ctx.logger.warn(`Embedded FreeLLMAPI could not start: ${startupError.message}`);
+    const cause = error instanceof Error ? error.message : String(error);
+    ctx.logger.warn(`Embedded FreeLLMAPI could not start: ${cause}`);
+    // "unavailable" names a component the person has never heard of and offers no way forward
+    startupError = new Error(`The free AI option did not start on this computer. Try again, or choose another AI in AI connections. (${cause})`);
   }
 
   ctx.effect(() => ctx.webServer.register({
@@ -149,7 +151,7 @@ export async function apply(ctx) {
     handler: async (req, res) => {
       if (req.method !== "GET") return json(res, 405, { error: "method not allowed" });
       try {
-        if (!runtime) throw startupError ?? new Error("Embedded FreeLLMAPI is unavailable");
+        if (!runtime) throw startupError;
         json(res, 200, await snapshot(runtime));
       } catch (error) {
         json(res, 503, { error: error instanceof Error ? error.message : String(error) });
@@ -163,7 +165,7 @@ export async function apply(ctx) {
     handler: async (req, res) => {
       if (req.method !== "POST") return json(res, 405, { error: "method not allowed" });
       try {
-        if (!runtime) throw startupError ?? new Error("Embedded FreeLLMAPI is unavailable");
+        if (!runtime) throw startupError;
         json(res, 200, await runCommand(runtime, await requestBody(req)));
       } catch (error) {
         json(res, 409, { error: error instanceof Error ? error.message : String(error) });
