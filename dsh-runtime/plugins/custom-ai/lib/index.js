@@ -37,6 +37,23 @@ async function requestBody(req) {
   return value ? JSON.parse(value) : {};
 }
 
+// A dead socket reaches the person as "fetch failed" or a bare status, neither of which says what
+// to do about it. The host is safe to name: the person typed it.
+const unreachable = (url, error) => new Error(
+  `Could not reach ${url.host}. Check this computer's internet connection, then test again. (${error.message})`);
+
+// A bad key is 400 from Google and xAI but 401 from the other nine, so the provider's own sentence
+// is the only signal covering both. Capped: it goes straight into the settings screen.
+async function upstreamReason(response) {
+  const text = await response.text().catch(() => "");
+  try {
+    const value = JSON.parse(text);
+    const message = value?.error?.message ?? value?.error ?? value?.message;
+    if (typeof message === "string") return message.replace(/\s+/g, " ").trim().slice(0, 200);
+  } catch {}
+  return "";
+}
+
 export function apply(ctx) {
   ctx.effect(() => ctx.webServer.register({
     kind: "exact",
@@ -53,12 +70,18 @@ export function apply(ctx) {
         const headers = { accept: "application/json" };
         if (definition.queryKey) url.searchParams.set("key", key);
         else headers.authorization = `Bearer ${key}`;
-        const response = await fetch(url, { headers, signal: AbortSignal.timeout(12_000) });
-        await response.body?.cancel();
+        const response = await fetch(url, { headers, signal: AbortSignal.timeout(12_000) })
+          .catch((error) => { throw unreachable(url, error); });
         if (!response.ok) {
-          if ([401, 403].includes(response.status)) throw new Error("The provider rejected this API key");
+          const reason = await upstreamReason(response);
+          if ([400, 401, 403].includes(response.status)) throw new Error(
+            `${reason || "The provider rejected this API key."} Check the key was copied whole, with no spaces.`);
+          if (response.status === 429) throw new Error("The provider is limiting how often this key can be used. Wait a minute, then test again.");
+          if (response.status >= 500) throw new Error(`The provider is having trouble of its own (HTTP ${response.status}). Try again in a few minutes.`);
           throw new Error(`The provider returned HTTP ${response.status}`);
         }
+        // only the failure path reads the body, so a good response is dropped rather than left open
+        await response.body?.cancel();
         json(res, 200, { ok: true, message: "Connection works" });
       } catch (error) {
         json(res, 409, { error: error instanceof Error ? error.message : String(error) });
