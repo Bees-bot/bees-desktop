@@ -21,9 +21,14 @@ export async function testPlanningModels(ctx, { plannerModel = null, reviewerMod
   }
 }
 
+// The provider SDKs report a dead socket as the bare "Connection error.", which names neither the
+// model that failed nor anything a person can do about it.
+const vague = (text) => !String(text ?? "").trim() || /^connection error\.?$/i.test(String(text).trim());
+
 async function probeModel(ctx, { resolvedModel, resolvedReasoningEffort }) {
   const separator = resolvedModel.indexOf("/");
   const selection = { provider: resolvedModel.slice(0, separator), model: resolvedModel.slice(separator + 1) };
+  const where = resolvedModel;
   const signal = AbortSignal.timeout(60_000);
   let text = false;
   let finished = false;
@@ -36,12 +41,16 @@ async function probeModel(ctx, { resolvedModel, resolvedReasoningEffort }) {
     if (chunk.type === "text-delta" && chunk.text.trim()) text = true;
     if (chunk.type === "block-end" && chunk.block?.type === "text" && chunk.block.text.trim()) text = true;
     if (chunk.type === "finish") {
-      if (["error", "aborted"].includes(chunk.reason.kind))
-        throw new Error(chunk.reason.failure?.message || "AI connection failed without saying why. Check the provider under Settings → AI connections, then run the test again.");
+      if (["error", "aborted"].includes(chunk.reason.kind)) {
+        const cause = chunk.reason.failure?.message;
+        throw new Error(vague(cause)
+          ? `${where} did not answer. Check this connection under Settings → AI connections, then run the test again.`
+          : `${where} did not answer: ${cause}`);
+      }
       finished = true;
     }
   }
   signal.throwIfAborted();
-  if (!finished || !text) throw new Error("The model did not return a greeting. Try again or choose another model.");
+  if (!finished || !text) throw new Error(`${where} did not return a greeting. Try again or choose another model.`);
   return selection;
 }
