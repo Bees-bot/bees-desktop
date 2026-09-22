@@ -53,6 +53,9 @@ export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiSta
   const step = Math.min(3, Math.max(0, state.step || 0));
   const titles = ["Make space for your work", "Choose your AI", "Give Bees something to work with", "Create your first result"];
   const agents = planningAgents(data, parts.workspaceId);
+  // Step 1 names its own next move, so the footer button beside it was a second copy of the same
+  // click under a vaguer label. Hide it only when the panel really does have that button.
+  const stepOneHasItsOwnButton = done[0] || (!parts.team && parts.organizationId);
   const defaultModel = data.systemDefaultModel?.provider && data.systemDefaultModel?.model
     ? `${data.systemDefaultModel.provider}/${data.systemDefaultModel.model}` : "Choose your AI above";
   return h("div", { className: "bees-stack bees-onboarding" },
@@ -132,7 +135,8 @@ export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiSta
             h(Button, { type: "submit", className: "primary", disabled: busy || !done[0] || !aiReady || !prompt.trim() }, busy ? "Starting…" : "Create my first result"))) : null,
       h("div", { className: "bees-card-actions" },
         step > 0 ? h(Button, { onClick: () => update({ step: step - 1 }) }, "Back") : null,
-        step < 3 ? h(Button, { onClick: () => update({ step: step + 1 }) }, done[step] ? "Continue" : "Skip for now") : null)),
+        step < 3 && (step > 0 || !stepOneHasItsOwnButton)
+          ? h(Button, { onClick: () => update({ step: step + 1 }) }, done[step] ? "Continue" : "Skip for now") : null)),
     done[3] ? h(Button, { onClick: () => { update({ active: false }); navigate("home"); } }, "Finish setup") : null);
 }
 
