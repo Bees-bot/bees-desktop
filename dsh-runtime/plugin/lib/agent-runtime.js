@@ -9,6 +9,7 @@ import { scopeOf } from "@deepseek-ai/dsh-scope";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { hideAgentBrowser } from "./agent-browser.js";
+import { assertRootOnDisk, shortPath } from "./folder-roots.js";
 import { isBrowserCatalog, MCP_CATALOG } from "./mcp-catalog.js";
 import { mountAppTools } from "./app-tools.js";
 import { installContextPolicy, readToolResult } from "./context-policy.js";
@@ -614,7 +615,7 @@ export class AgentRuntime {
     ctx.tools?.guard?.((exec) => {
       // the sandbox confines writes only; an mcp tool's path argument is an api route, not a file
       const targets = exec.name.startsWith("mcp__") ? [] : ["file_path", "path", "cwd"].map((key) => exec.arguments?.[key]).filter((value) => typeof value === "string");
-      const link = database.prepare(`SELECT execution_id AS id, config_json AS config, mounted(run_directory) AS directory
+      const link = database.prepare(`SELECT execution_id AS id, config_json AS config, resolved(run_directory, workspace_id) AS directory
         FROM execution_links WHERE current_session_id IN (?, ?)`)
         .get(String(exec.agent?.session?.id), String(exec.agent?.session?.header?.parentSession ?? ""));
       const approvals = () => link ? database.prepare(`SELECT metadata_json AS meta FROM dsh_audit_events WHERE execution_id = ? AND event_type = 'human-work-approved'`)
@@ -891,7 +892,7 @@ export class AgentRuntime {
     return this.database.prepare(`
       SELECT execution_id AS executionId, work_item_id AS workItemId, agent_name AS agentName,
              current_session_id AS currentSessionId, previous_session_id AS previousSessionId,
-             instance_uid AS instanceUid, mounted(run_directory) AS runDirectory, config_json AS configJson,
+             instance_uid AS instanceUid, resolved(run_directory, workspace_id) AS runDirectory, config_json AS configJson,
              status, recovery_count AS recoveryCount
       FROM execution_links WHERE execution_id = ?
     `).get(executionId);
@@ -1565,7 +1566,7 @@ export class AgentRuntime {
       throw new Error("evidence_offset must be a nonnegative integer");
     const run = this.database.prepare(`
       SELECT e.execution_id AS executionId, e.current_session_id AS sessionId,
-             e.previous_session_id AS previousSessionId, mounted(e.run_directory) AS directory,
+             e.previous_session_id AS previousSessionId, resolved(e.run_directory, e.workspace_id) AS directory,
              r.outcome, r.summary FROM execution_links e
       JOIN bees_stage_results r ON r.execution_id = e.execution_id
       WHERE e.work_item_id = ? AND r.purpose = 'worker'
@@ -1704,7 +1705,11 @@ export class AgentRuntime {
     validateRunData(initialData);
     authorizeReferences(this.database, initialData.workspaceId, typedReferences(payload.body));
     const storedData = { ...initialData };
-    const workspace = resolve(String(payload.workspace ?? process.env.BEES_DEFAULT_WORKSPACE ?? process.cwd()));
+    assertRootOnDisk(initialData.workspaceId);
+    const workspace = resolve(payload.workspace);
+    // the folder this run writes to is stored as the part below its workspace root, so the other
+    // computer reads it against its own root and finds the same run
+    const runDirectory = shortPath(initialData.workspaceId, workspace);
     await mkdir(workspace, { recursive: true });
     const uid = randomUUID();
     const at = new Date().toISOString();
@@ -1716,7 +1721,7 @@ export class AgentRuntime {
            instance_uid, run_directory, config_json, status, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)
       `).run(executionId, initialData.workspaceId, initialData.workItemId || null, agentName,
-        executionId, uid, workspace, JSON.stringify(storedData), at, at);
+        executionId, uid, runDirectory, JSON.stringify(storedData), at, at);
       const existing = this.database.prepare(
         "SELECT delivery_id AS deliveryId FROM bees_run_queue WHERE execution_id = ?"
       ).get(executionId);
@@ -1724,7 +1729,7 @@ export class AgentRuntime {
       const inserted = this.database.prepare(`
         INSERT OR IGNORE INTO bees_run_queue (execution_id, delivery_id, payload_json, created_at)
         VALUES (?, ?, ?, ?)
-      `).run(executionId, payload.idempotencyKey, JSON.stringify({ ...payload, workspace }), at);
+      `).run(executionId, payload.idempotencyKey, JSON.stringify({ ...payload, workspace: runDirectory }), at);
       const stored = this.database.prepare(
         "SELECT delivery_id AS deliveryId FROM bees_run_queue WHERE execution_id = ?"
       ).get(executionId);
