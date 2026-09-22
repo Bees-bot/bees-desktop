@@ -53,6 +53,8 @@ This product includes software developed by third parties:
   The rest are permissive: MIT, BSD, zlib, the libpng licence, and the Mozilla
   Public License 2.0 for cairo. The package README names every one of them and
   links its licence text. Source for all of them is at the address above.
+  The LGPL-3 text is in LICENSE-LGPL-3.0, and it incorporates the GPL-3 text
+  in LICENSE-GPL-3.0. Both ship beside this file, unmodified.
 
 Model weights are downloaded at first run and are not distributed with this
 software. The default model is Nanbeige 4.2 3B, licensed under the Apache

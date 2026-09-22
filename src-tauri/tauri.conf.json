@@ -33,7 +33,13 @@
     "externalBin": ["binaries/bees-node", "binaries/temporal"],
     "resources": {
       "../dsh-runtime": "dsh-runtime",
-      "../llama-runtime": "llama-runtime"
+      "../llama-runtime": "llama-runtime",
+      "../NOTICE": "licenses/NOTICE",
+      "../LICENSE": "licenses/LICENSE",
+      "../LICENSE-APACHE": "licenses/LICENSE-APACHE",
+      "../LICENSE-MIT": "licenses/LICENSE-MIT",
+      "../LICENSE-LGPL-3.0": "licenses/LICENSE-LGPL-3.0",
+      "../LICENSE-GPL-3.0": "licenses/LICENSE-GPL-3.0"
     }
   }
 }
