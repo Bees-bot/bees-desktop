@@ -6,6 +6,8 @@ import { basename, join, resolve, sep } from "node:path";
 export const dataDirectory = () => process.env.BEES_DATA_DIR;
 export const appDirectory = () => process.env.BEES_APP_DATA;
 export const sharedFolder = () => dataDirectory() !== appDirectory();
+// both computers read the shared folder, so nothing under it belongs to one of them alone
+export const inSharedFolder = (path) => sharedFolder() && path.startsWith(dataDirectory() + sep);
 // several computers open a shared folder, so the app writes this computer's id beside itself
 export const deviceId = () => readFileSync(join(appDirectory(), "device-id"), "utf8").trim();
 
@@ -17,8 +19,14 @@ function folderHeldBy(directory) {
   } catch (error) { return error.code === "ENOENT" ? "" : "Another computer"; }
 }
 
+/** A run waiting to start holds the folder it was queued with, and a live one writes into it now. */
+export function assertNothingRunning(database, live) {
+  const queued = database.prepare("SELECT count(*) AS count FROM execution_links WHERE status = 'queued'").get().count;
+  if (live?.size || queued) throw new Error("Wait for what is running to finish, then choose the folder");
+}
+
 /** Point Bees at a shared folder, or back at this computer. The work is copied, never moved. */
-export async function useDataFolder(database, directory) {
+export async function useDataFolder(database, directory, live) {
   const target = resolve(String(directory ?? "").trim() || appDirectory());
   if (!existsSync(target) || !statSync(target).isDirectory())
     throw new Error("That folder is not on this computer. Pick one that exists here, or open Settings → Data folder and switch back to this computer.");
@@ -27,10 +35,7 @@ export async function useDataFolder(database, directory) {
   if (target === dataDirectory()) return { path: target, shared: sharedFolder(), restart: false };
   const busy = folderHeldBy(target);
   if (busy) throw new Error(`${busy} has that Bees folder open. Quit Bees there first.`);
-  // a run writing during the copy would be left behind in the old folder
-  const running = database.prepare(`SELECT count(*) AS count FROM execution_links
-    WHERE status IN ('queued', 'running', 'waiting_for_input', 'waiting_for_approval')`).get().count;
-  if (running) throw new Error("Wait for what is running to finish, then choose the folder");
+  assertNothingRunning(database, live);
   const file = join(target, basename(process.env.BEES_DATABASE_PATH));
   // a shared folder that already has a database is the other computer's work, so join it instead
   if (target === appDirectory() || !existsSync(file)) {
@@ -46,6 +51,10 @@ export async function useDataFolder(database, directory) {
   }
   const pointer = join(appDirectory(), "data-folder");
   if (target === appDirectory()) rmSync(pointer, { force: true });
-  else writeFileSync(pointer, target);
+  else {
+    // renamed in last, so a write that dies halfway leaves the last good folder named
+    writeFileSync(`${pointer}.writing`, target);
+    renameSync(`${pointer}.writing`, pointer);
+  }
   return { path: target, shared: target !== appDirectory(), restart: true };
 }

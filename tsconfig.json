@@ -11,8 +11,6 @@
   },
   "include": [
     "src/entry.ts",
-    "tests/dsh-*.test.ts",
-    "tests/node-database.ts",
     "vite.config.ts"
   ]
 }

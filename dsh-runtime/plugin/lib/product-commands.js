@@ -308,7 +308,7 @@ function producerSpecialization(database, executionId, itemId) {
 
 export async function executeProductCommand(action, input) {
     const at = iso();
-    if (action === "set_data_folder") return useDataFolder(this.database, input.directory);
+    if (action === "set_data_folder") return useDataFolder(this.database, input.directory, this.agents?.live);
     if (action === "set_folder_root") {
       const workspace = workspaceContext(this.database, input.workspaceId, ["admin"]);
       // a folder is set on this team's own organization, team or workspace, never on someone else's
@@ -316,7 +316,7 @@ export async function executeProductCommand(action, input) {
       if (own[input.level] !== input.id) throw new Error("This team cannot set that folder");
       // Removing Bees deletes its own folder whole, and a root inside it would go with it
       assertFolderOutsideBees(input.directory, appDirectory(), "Runs");
-      setFolderRoot(this.database, { level: input.level, id: input.id, directory: input.directory });
+      setFolderRoot(this.database, { level: input.level, id: input.id, directory: input.directory, live: this.agents?.live });
       return { level: input.level, folder: input.directory };
     }
     if (action === "create_organization") return transaction(this.database, () => {
