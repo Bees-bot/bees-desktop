@@ -137,6 +137,23 @@ function replyPage(res, ok, detail = "") {
   res.end(body);
 }
 
+// A tab that was open at quit, or a bookmarked port, arrives with no cookie. A bare "unauthorized"
+// tells the person nothing and the launch token it wants is not something they can find.
+function replyLocked(res) {
+  const body = `<!doctype html><html><head><meta charset="utf-8"><title>Open Bees again</title>
+<style>body{font-family:system-ui,sans-serif;max-width:30rem;margin:5rem auto;padding:0 1rem;text-align:center}</style>
+</head><body><h2>Open Bees again</h2><p>This tab is not signed in. Bees only answers the app on this computer, and the link this tab was opened with has expired.</p><p>Open Bees from the Dock or the menu bar, or quit it and open it again. The new window will work.</p></body></html>`;
+  res.writeHead(401, {
+    "content-type": "text/html; charset=utf-8",
+    "cache-control": "no-store",
+    "content-length": Buffer.byteLength(body)
+  });
+  res.end(body);
+}
+
+const unauthorized = (req, res) => String(req.headers.accept ?? "").includes("text/html")
+  ? replyLocked(res) : reply(res, 401, { error: "unauthorized" });
+
 async function body(req) {
   let value = "";
   for await (const chunk of req) {
@@ -257,8 +274,7 @@ export async function apply(ctx, _config = {}, internals = {}) {
     server.off("upgrade", guardUpgrade);
   }, "bees loopback auth");
 
-  register(ctx, { kind: "exact", path: "/_bees_unauthorized", handler: (_req, res) =>
-    reply(res, 401, { error: "unauthorized" }) });
+  register(ctx, { kind: "exact", path: "/_bees_unauthorized", handler: unauthorized });
   register(ctx, { kind: "exact", path: "/healthz", handler: (_req, res) =>
     reply(res, 200, { status: "ok", runtime: "dsh", product: "bees" }) });
   mark("bees.health-route.registered");
@@ -286,7 +302,7 @@ export async function apply(ctx, _config = {}, internals = {}) {
   } });
   register(ctx, { kind: "exact", path: "/bees-auth", handler: (req, res) => {
     const offered = new URL(req.url ?? "/", "http://127.0.0.1").searchParams.get("token");
-    if (!equalSecret(offered, token)) return reply(res, 401, { error: "unauthorized" });
+    if (!equalSecret(offered, token)) return unauthorized(req, res);
     // dsh gates its own index on a launch-token cookie, so send the browser the URL it hands
     // out rather than a bare /, which lands on "dsh web authentication required".
     const base = `http://127.0.0.1:${req.socket.localPort}`;
