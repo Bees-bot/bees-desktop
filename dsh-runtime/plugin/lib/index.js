@@ -300,21 +300,48 @@ export async function apply(ctx, _config = {}, internals = {}) {
     heartbeat.unref();
     req.once("close", () => { clearInterval(heartbeat); changeSubscribers.delete(send); });
   } });
-  register(ctx, { kind: "exact", path: "/bees-auth", handler: (req, res) => {
+  register(ctx, { kind: "exact", path: "/bees-auth", handler: async (req, res) => {
     const offered = new URL(req.url ?? "/", "http://127.0.0.1").searchParams.get("token");
     if (!equalSecret(offered, token)) return unauthorized(req, res);
-    // dsh gates its own index on a launch-token cookie, so send the browser the URL it hands
-    // out rather than a bare /, which lands on "dsh web authentication required".
     const base = `http://127.0.0.1:${req.socket.localPort}`;
-    const stale = String(req.headers.cookie ?? "").split(";")
-      .map((part) => part.trim().split("=")[0])
-      .filter((name) => /^bees_dsh_\d+$/.test(name))
-      .map((name) => `${name}=; Max-Age=0; Path=/`);
-    res.writeHead(302, {
-      location: ctx.connection?.authenticatedUrl?.(base) ?? `${base}/`,
-      "set-cookie": [`${COOKIE_NAME}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/`, ...stale],
-      "cache-control": "no-store"
-    });
+    const session = [`${COOKIE_NAME}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/`,
+      ...String(req.headers.cookie ?? "").split(";")
+        .map((part) => part.trim().split("=")[0])
+        .filter((name) => /^bees_dsh_\d+$/.test(name))
+        .map((name) => `${name}=; Max-Age=0; Path=/`)];
+    const handoff = ctx.connection?.authenticatedUrl?.(base);
+    // dsh hands its cookie back on a redirect and the webview does not have it stored for the request
+    // that follows, so the exchange happens here and both cookies ride the one response.
+    if (handoff) {
+      try {
+        // the guard sits in front of these fetches too, so they carry its own token
+        const auth = { authorization: `Bearer ${token}` };
+        const signal = AbortSignal.timeout(5_000);
+        const ticket = await fetch(handoff, { redirect: "manual", signal, headers: auth });
+        const granted = ticket.headers.getSetCookie();
+        await ticket.body?.cancel();
+        if (!granted.length) throw new Error(`dsh answered ${ticket.status} to its own token`);
+        const page = await fetch(`${base}/`, {
+          signal,
+          headers: { ...auth, cookie: granted.map((cookie) => cookie.split(";")[0]).join("; ") }
+        });
+        const html = Buffer.from((await page.text())
+          .replace("</head>", '<script>history.replaceState(null,"","/")</script></head>'));
+        if (!page.ok) throw new Error(`the app index answered ${page.status}`);
+        res.writeHead(200, {
+          "content-type": page.headers.get("content-type") ?? "text/html; charset=utf-8",
+          "content-length": html.length,
+          "cache-control": "no-store",
+          "set-cookie": [...session, ...granted]
+        });
+        return res.end(html);
+      } catch (error) {
+        ctx.logger.warn(`bees: dsh session handoff failed, falling back to a redirect: ${userMessage(error)}`);
+        // a throw after the 200 has gone out must not try to write a second set of headers
+        if (res.headersSent) return;
+      }
+    }
+    res.writeHead(302, { location: handoff ?? `${base}/`, "set-cookie": session, "cache-control": "no-store" });
     res.end();
   } });
   register(ctx, { kind: "exact", path: "/bees-social-callback", handler: async (req, res) => {
