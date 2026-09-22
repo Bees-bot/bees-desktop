@@ -2,8 +2,9 @@ import { createHash, randomUUID } from "node:crypto";
 import { cpSync, existsSync, rmSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
-import { dataDirectory, deviceId, mounted } from "./data-folder.js";
+import { dataDirectory, deviceId } from "./data-folder.js";
 import { EXECUTIVE_AGENTS } from "./executive-agents.js";
+import { refreshFolderRoots, resolveStored } from "./folder-roots.js";
 
 export const DEFAULT_WORKSPACE_NAME = "Default workspace";
 
@@ -370,8 +371,6 @@ export function assertMcpAccess(access) {
 }
 
 export function initializeProductDatabase(database) {
-  // run folders are stored as absolute paths, so queries rebase them onto this computer's mount
-  database.function("mounted", (path) => path && mounted(path));
   const version = Number(database.prepare("PRAGMA user_version").get().user_version);
   if (version < 17) database.exec(`
     PRAGMA foreign_keys = OFF;
@@ -948,6 +947,30 @@ export function initializeProductDatabase(database) {
     }
     database.exec("PRAGMA user_version = 32");
   });
+  // Run folders were stored as whole paths, which only mean something on the computer that wrote
+  // them. They are stored as the part below their workspace root now, so every computer reads one
+  // the same, and the roots themselves stay in a file of this computer's own.
+  if (version < 33) transaction(database, () => {
+    const present = new Set(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map(({ name }) => name));
+    for (const [table, column, key] of [
+      ["execution_links", "run_directory", "execution_id"],
+      ["bees_run_resources", "directory", "root_id"],
+      ["bees_context_results", "directory", "execution_id"]
+    ]) {
+      if (!present.has(table)) continue;
+      for (const row of database.prepare(
+        `SELECT ${key} AS id, ${column} AS folder FROM ${table} WHERE ${column} LIKE '/%'`).all()) {
+        const at = row.folder.lastIndexOf("/runs/");
+        if (at === -1) continue;
+        database.prepare(`UPDATE ${table} SET ${column} = ? WHERE ${key} = ?`)
+          .run(row.folder.slice(at + 1), row.id);
+      }
+    }
+    database.exec("PRAGMA user_version = 33");
+  });
+  // every stored folder is read against the root this computer keeps for that workspace
+  refreshFolderRoots(database);
+  database.function("resolved", (path, workspaceId) => path && resolveStored(workspaceId, path));
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
     database.prepare("INSERT OR IGNORE INTO devices VALUES (?1, ?2, ?3, ?3)").run(deviceId(), hostname(), iso());
     database.exec(`

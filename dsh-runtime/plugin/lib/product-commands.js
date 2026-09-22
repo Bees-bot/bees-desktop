@@ -1,5 +1,6 @@
 import { catalogEntry } from "./mcp-catalog.js";
-import { useDataFolder } from "./data-folder.js";
+import { appDirectory, useDataFolder } from "./data-folder.js";
+import { rootForWorkspace, setFolderRoot, workspaceRoot } from "./folder-roots.js";
 import { randomUUID } from "node:crypto";
 import { hideAgentBrowser, navigateAgentBrowser, showAgentBrowser } from "./agent-browser.js";
 
@@ -36,7 +37,8 @@ export const withoutSecrets = (changes) => changes.map(({ secrets, ...change }) 
 /** Bees keeps its runs, databases and workspaces here; a server bound to any of it reads a folder
  *  that belongs to the machine, not to the person's work. */
 export function assertFolderOutsideBees(directory, root, label) {
-  const path = String(directory ?? "").trim();
+  if (!directory) return;
+  const path = resolve(String(directory).trim());
   if (path === root || path.startsWith(root + sep))
     throw new Error(`${label} needs a folder the person named, not one inside Bees`);
 }
@@ -307,6 +309,16 @@ function producerSpecialization(database, executionId, itemId) {
 export async function executeProductCommand(action, input) {
     const at = iso();
     if (action === "set_data_folder") return useDataFolder(this.database, input.directory);
+    if (action === "set_folder_root") {
+      const workspace = workspaceContext(this.database, input.workspaceId, ["admin"]);
+      // a folder is set on this team's own organization, team or workspace, never on someone else's
+      const own = { organization: workspace.membership.organizationId, team: workspace.teamId, workspace: workspace.id };
+      if (own[input.level] !== input.id) throw new Error("This team cannot set that folder");
+      // Removing Bees deletes its own folder whole, and a root inside it would go with it
+      assertFolderOutsideBees(input.directory, appDirectory(), "Runs");
+      setFolderRoot(this.database, { level: input.level, id: input.id, directory: input.directory });
+      return { level: input.level, folder: input.directory };
+    }
     if (action === "create_organization") return transaction(this.database, () => {
       const { userId } = currentIdentity(this.database);
       const id = randomUUID();
@@ -351,13 +363,19 @@ export async function executeProductCommand(action, input) {
     if (action === "create_team") {
       const { userId } = currentIdentity(this.database);
       const organizationId = required(input.organizationId, "Organization");
-      if (!this.database.prepare(`
-        SELECT 1 FROM organization_memberships WHERE user_id = ? AND organization_id = ? AND status = 'active'
-      `).get(userId, organizationId)) throw new Error("You are not a member of this organization");
+      const organization = this.database.prepare(`
+        SELECT o.name FROM organizations o JOIN organization_memberships om ON om.organization_id = o.id
+        WHERE om.user_id = ? AND om.organization_id = ? AND om.status = 'active'
+      `).get(userId, organizationId);
+      if (!organization) throw new Error("You are not a member of this organization");
       const name = required(input.name, "Team name");
       const id = randomUUID();
       const workspaceId = randomUUID();
-      const path = resolve(this.defaultWorkspace, "workspaces", workspaceId);
+      // the folder comes first so the workspace already has one the moment it appears in the list
+      const path = resolve(rootForWorkspace({
+        id: workspaceId, name: DEFAULT_WORKSPACE_NAME, organizationId, organizationName: organization.name,
+        teamId: id, teamName: name
+      }), "workspaces", workspaceId);
       mkdirSync(path, { recursive: true });
       const dshWorkspace = this.workspaceRegistry
         ? await this.workspaceRegistry.create(path, DEFAULT_WORKSPACE_NAME)
@@ -1240,7 +1258,7 @@ export async function executeProductCommand(action, input) {
       const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);
       const executionId = randomUUID();
       const reasoningEffort = optionalReasoningEffort(input.reasoningEffort);
-      const runDirectory = resolve(this.defaultWorkspace, "runs", executionId);
+      const runDirectory = resolve(workspaceRoot(workspace.id), "runs", executionId);
       const policy = checkMcpServers(this.database, mcpPolicy(input));
       const resolved = resolveReferences(this.database, workspace.id, required(input.outcome, "Outcome"));
       const outcome = resolved.text;
@@ -1293,7 +1311,7 @@ export async function executeProductCommand(action, input) {
           WHERE work_item_id = ? ORDER BY created_at DESC LIMIT 1
         `).get(item.id)?.executionId : null
       });
-      const runDirectory = this.workContext.directory(item.id, this.defaultWorkspace);
+      const runDirectory = this.workContext.directory(item.id);
       const manifest = inputManifest(stageInputs(this.database, item.id, runDirectory, assignment.id));
       const root = this.workContext.lineage(item.id)[0];
       this.workContext.pin(executionId, item, { instructions: assignment.instructions, stageName: stagePurpose,

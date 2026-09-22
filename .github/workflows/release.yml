@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 22.22.3
+          node-version: 24.21.0
           cache: npm
       - run: npm ci
       - run: npm run check
@@ -88,7 +88,7 @@ jobs:
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 22.22.3
+          node-version: 24.21.0
           cache: npm
 
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
@@ -188,7 +188,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 22.22.3
+          node-version: 24.21.0
       - name: Verify all installers, checksum, and publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -201,7 +201,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 22.22.3
+          node-version: 24.21.0
       - name: Announce published release to Discord
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -26,7 +26,9 @@ executes/schedules the work. No cloud worker, sending connector or paid service
 is enabled by installation. See `bees-apps/README.md` for catalog publishing and
 the current 16 MB shared-state limit.
 
-Requirements: Node.js 22.19+, npm 10+, Rust 1.84+, and a native desktop toolchain.
+Requirements: Node.js 24, npm 10+, Rust 1.84+, and a native desktop toolchain. Node 24 is
+not a preference: the app runs its own Node 24 runtime, and native modules built under an
+older Node make the free AI option fail on a fresh install.
 
 ```sh
 npm ci

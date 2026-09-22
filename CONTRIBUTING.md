@@ -35,7 +35,9 @@ cargo check --manifest-path src-tauri/Cargo.toml
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-You'll need Node 22.19+, npm 10+, Rust 1.84+, and the native toolchain for your platform.
+You'll need Node 24, npm 10+, Rust 1.84+, and the native toolchain for your platform. Use
+Node 24 and not an older one: the app runs Node 24 itself, and native modules built under an
+older Node break the free AI option on a fresh install.
 The desktop bundles neither PostgreSQL nor Python. It does bundle `llama-server`; the first
 macOS build compiles it and therefore also needs CMake (`brew install cmake`).
 

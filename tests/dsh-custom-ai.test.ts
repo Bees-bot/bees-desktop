@@ -71,19 +71,23 @@ function settingsUi(providers: Record<string, any>, savedModels: any[] = []) {
     return nodes;
   };
   return { render, modelSettings, preferences, models: () => adapter.listModels("openrouter"),
-    resolve: () => adapter.resolveModel("openrouter", modelId) };
+    resolve: (id: string = modelId) => adapter.resolveModel("openrouter", id) };
 }
 
-it.each([false, true])("serves a custom OpenRouter ID when the provider was already enabled: %s", async (enabled) => {
+// dsh serves each OpenRouter model on the protocol its own catalog entry names, and 15 of them
+// speak anthropic-messages while the rest speak openai-completions. A route that pins one protocol
+// sends the other group to the OpenAI-shaped endpoint, which is not there, so the screen must never
+// write one. The cost is that a model ID the installed catalog does not carry is refused.
+it.each([false, true])("leaves the OpenRouter route on the protocols its catalog describes: %s", async (enabled) => {
   const ui = settingsUi(enabled ? { openrouter: { models: [{ id: "openai/gpt-4o" }] } } : {},
-    [{ id: modelId }]);
+    [{ id: "openai/gpt-4o" }]);
   const nodes = ui.render();
   if (enabled) await nodes.find((node) => node.props.children.includes("Add model")).props.onClick();
   else await nodes.find((node) => node.props["aria-label"] === "Enable OpenRouter").props.onChange({ target: { checked: true } });
   expect(ui.modelSettings.set).toHaveBeenCalledOnce();
-  expect(ui.modelSettings.getSnapshot().value.providers.openrouter.api).toBe("openai-completions");
-  expect(await ui.models()).toContainEqual(expect.objectContaining({ id: modelId, provider: "openrouter" }));
-  expect(await ui.resolve()).toMatchObject({ id: modelId, provider: "openrouter" });
+  expect(ui.modelSettings.getSnapshot().value.providers.openrouter.api).toBeUndefined();
+  expect(await ui.models()).toContainEqual(expect.objectContaining({ id: "openai/gpt-4o", provider: "openrouter" }));
+  expect(await ui.resolve("openai/gpt-4o")).toMatchObject({ id: "openai/gpt-4o", provider: "openrouter" });
 });
 
 it("keeps the saved model list unchanged when runtime configuration rejects an edit", async () => {

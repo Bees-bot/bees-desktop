@@ -1,4 +1,5 @@
 import { dataDirectory, sharedFolder } from "./data-folder.js";
+import { folderChoices, rootOnDisk, setDefaultRoot, workspaceRoot } from "./folder-roots.js";
 import { WorkContext } from "./work-context.js";
 import { WorkMemory } from "./work-memory.js";
 import { randomUUID } from "node:crypto";
@@ -56,6 +57,7 @@ export class BeesProduct {
     this.agents = agents;
     this.processes = processes;
     this.defaultWorkspace = defaultWorkspace;
+    setDefaultRoot(defaultWorkspace);
     this.workspaceRegistry = services.workspaceRegistry;
     this.knowledge = new TeamKnowledgeSearch(defaultWorkspace, services.googleDrive);
     this.agentPresets = services.agentPresets;
@@ -101,13 +103,13 @@ export class BeesProduct {
   }
 
   async initialize() {
-    mkdirSync(resolve(this.defaultWorkspace, "workspaces"), { recursive: true });
-    mkdirSync(resolve(this.defaultWorkspace, "runs"), { recursive: true });
     if (!this.workspaceRegistry) return;
     for (const workspace of this.database.prepare(`
       SELECT id, name, dsh_workspace_id AS dshWorkspaceId FROM workspaces WHERE status = 'active'
     `).all()) {
-      const path = resolve(this.defaultWorkspace, "workspaces", workspace.id);
+      // a folder set for this workspace that is not on this computer is left alone until it is back
+      if (!rootOnDisk(workspace.id)) continue;
+      const path = resolve(workspaceRoot(workspace.id), "workspaces", workspace.id);
       mkdirSync(path, { recursive: true });
       let record = workspace.dshWorkspaceId ? this.workspaceRegistry.get(workspace.dshWorkspaceId) : undefined;
       if (!record) record = await this.workspaceRegistry.create(path, workspace.name);
@@ -211,7 +213,7 @@ export class BeesProduct {
     const executionId = required(stage.executionId, "Execution");
     const reviewer = stage.purpose === "reviewer";
     const root = this.workContext.lineage(item.id)[0];
-    const runDirectory = this.workContext.directory(item.id, this.defaultWorkspace);
+    const runDirectory = this.workContext.directory(item.id);
     let assignment;
     try {
       assignment = resolveStageAgent(this.database, {
@@ -264,7 +266,7 @@ export class BeesProduct {
     const reviewPath = `.bees-reviews/${encodeURIComponent(executionId)}`;
     if (stage.candidateExecutionId) {
       const candidate = this.database.prepare(`
-        SELECT mounted(e.run_directory) AS runDirectory, r.summary
+        SELECT resolved(e.run_directory, e.workspace_id) AS runDirectory, r.summary
         FROM execution_links e
         LEFT JOIN bees_stage_results r ON r.execution_id = e.execution_id
         WHERE e.execution_id = ? AND e.work_item_id = ?
@@ -543,7 +545,7 @@ export class BeesProduct {
              e.current_session_id AS sessionId, e.previous_session_id AS previousSessionId,
              CASE WHEN e.status IN ('queued', 'running', 'waiting_for_input', 'waiting_for_approval') AND i.runtime_phase IN ('completed', 'failed', 'cancelled') THEN i.runtime_phase ELSE e.status END AS status, json_extract(e.config_json, '$.mode') AS mode,
              json_extract(e.config_json, '$.purpose') AS purpose,
-             mounted(e.run_directory) AS runDirectory, e.updated_at AS updatedAt,
+             resolved(e.run_directory, e.workspace_id) AS runDirectory, e.updated_at AS updatedAt,
              starts.startedAt,
              d.stage_id AS dispatchStageId, d.agent_assignment_id AS resolvedAgentId,
              d.agent_ids_json AS resolvedAgentIds,
@@ -617,6 +619,7 @@ export class BeesProduct {
         .sort((left, right) =>
         String(right.updatedAt).localeCompare(String(left.updatedAt))),
       proposals, browserEnabled: this.capabilities?.browserEnabled() ?? false,
+      folders: workspaces.flatMap(({ id }) => folderChoices(this.database, id).map((choice) => ({ ...choice, workspaceId: id }))),
       dataFolder: { path: dataDirectory(), shared: sharedFolder() }
     };
   }
@@ -730,7 +733,8 @@ export class BeesProduct {
   runFile(executionId, filePath, native = false) {
     const id = required(executionId, "Run");
     const row = this.database.prepare(`
-      SELECT workspace_id AS workspaceId, mounted(run_directory) AS runDirectory, current_session_id AS sessionId, status
+      SELECT workspace_id AS workspaceId, resolved(run_directory, workspace_id) AS runDirectory,
+             current_session_id AS sessionId, status
       FROM execution_links WHERE execution_id = ?
     `).get(id);
     if (!row) throw new Error("Run not found");
@@ -739,10 +743,8 @@ export class BeesProduct {
     const [rootName] = logical.split("/");
     if (!["inputs", "outputs"].includes(rootName)) throw new Error("Only run inputs and outputs can be previewed");
     if (!native && !TEXT_EXTENSIONS.has(extname(logical).toLowerCase())) throw new Error("This file type cannot be previewed as text");
-    const runsRoot = realpathSync(resolve(this.defaultWorkspace, "runs"));
+    // the stored folder is always below this workspace's root, so only a link placed by hand could leave it
     const runDirectory = realpathSync(row.runDirectory);
-    if (runDirectory !== runsRoot && !runDirectory.startsWith(`${runsRoot}${sep}`))
-      throw new Error("The run directory is outside the Bees workspace");
     const root = realpathSync(resolve(runDirectory, rootName));
     if (!root.startsWith(`${runDirectory}${sep}`)) throw new Error("The file escaped its run directory");
     const path = realpathSync(resolve(runDirectory, logical));
