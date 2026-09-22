@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { appDirectory } from "./data-folder.js";
 
 /**
@@ -34,24 +34,24 @@ export const setDefaultRoot = (path) => { if (path) namedRoot = path; };
 const defaultRoot = () => namedRoot || process.env.BEES_DEFAULT_WORKSPACE;
 
 /** A name safe to be a folder, the same way the folders under a root were always named. */
-const folderName = (name) => String(name).trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+const folderName = (name, id) => String(name).trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || String(id);
 
+/** A file this computer cannot read is worth less than a Bees that starts, so it reads as nothing set. */
 function readRoots() {
-  if (!existsSync(rootsFile())) return {};
-  return JSON.parse(readFileSync(rootsFile(), "utf8"));
+  try { return JSON.parse(readFileSync(rootsFile(), "utf8")) ?? {}; } catch { return {}; }
 }
 
 /**
  * The three levels for one workspace: the folder picked for each, and the folder it ends up using.
  * `mount` is the picked folder a level sits under, so the level is usable only while that one is here.
  */
-function levelsFor(workspace) {
+function levelsFor(workspace, picks = chosen) {
   let path = "";
   let mount = "";
   return LEVELS.map(([level, idKey, nameKey]) => {
-    const picked = chosen[`${level}:${workspace[idKey]}`] ?? "";
+    const picked = picks[`${level}:${workspace[idKey]}`] ?? "";
     if (picked) { path = picked; mount = picked; }
-    else if (path) path = join(path, folderName(workspace[nameKey]));
+    else if (path) path = join(path, folderName(workspace[nameKey], workspace[idKey]));
     return { level, id: workspace[idKey], name: workspace[nameKey], picked, mount, folder: path || defaultRoot() };
   });
 }
@@ -113,6 +113,41 @@ export function resolveStored(workspaceId, stored) {
   return resolve(workspaceRoot(workspaceId), stored);
 }
 
+// every run folder the database names for one workspace, which is what moves with its root
+const STORED_RUNS = `SELECT run_directory AS folder FROM execution_links WHERE workspace_id = ?
+  UNION
+  SELECT 'runs/' || r.root_id FROM bees_run_resources r JOIN work_items w ON w.id = r.root_id
+    JOIN processes p ON p.id = w.process_id WHERE p.workspace_id = ?`;
+
+/** Every workspace whose folder moves when `picks` takes effect, with the folder it uses before and after. */
+const movingRoots = (database, picks) => database.prepare(WORKSPACES).all()
+  .map((row) => ({ id: row.id, from: workspaceRoot(row.id), to: levelsFor(row, picks).at(-1).folder }))
+  .filter((row) => row.from !== row.to);
+
+/**
+ * Copies the runs already written under the old folder to the new one, so a stored run and its files
+ * still meet. Nothing is deleted here: the copies are complete before the folders file changes.
+ */
+function copyRuns(database, moving) {
+  if (!moving.length) return [];
+  const busy = database.prepare(`SELECT count(*) AS count FROM execution_links
+    WHERE workspace_id IN (${moving.map(() => "?").join(",")})
+      AND status IN ('queued', 'running', 'waiting_for_input', 'waiting_for_approval')`)
+    .get(...moving.map((row) => row.id)).count;
+  if (busy) throw new Error("Wait for what is running to finish, then choose the folder");
+  const copied = [];
+  for (const row of moving) for (const { folder } of database.prepare(STORED_RUNS).all(row.id, row.id)) {
+    const source = join(row.from, folder);
+    if (!existsSync(source)) continue;
+    const target = join(row.to, folder);
+    mkdirSync(dirname(target), { recursive: true });
+    // a picked folder is usually another disk, where a rename will not do
+    cpSync(source, target, { recursive: true });
+    copied.push(source);
+  }
+  return copied;
+}
+
 /** Points a level at a folder on this computer, or clears it back to the level above. */
 export function setFolderRoot(database, { level, id, directory }) {
   if (!LEVELS.some(([name]) => name === level)) throw new Error("A folder is set for an organization, a team or a workspace");
@@ -125,8 +160,10 @@ export function setFolderRoot(database, { level, id, directory }) {
       throw new Error("That folder is not on this computer. Pick one that exists here.");
     next[`${level}:${id}`] = target;
   }
+  const copied = copyRuns(database, movingRoots(database, next));
   // renamed in last, so a write that dies halfway never leaves a file the next boot cannot read
   writeFileSync(`${rootsFile()}.writing`, `${JSON.stringify(next, null, 2)}\n`);
   renameSync(`${rootsFile()}.writing`, rootsFile());
+  for (const path of copied) rmSync(path, { recursive: true, force: true });
   refreshFolderRoots(database);
 }

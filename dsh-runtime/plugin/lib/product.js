@@ -1,5 +1,5 @@
 import { dataDirectory, sharedFolder } from "./data-folder.js";
-import { folderChoices, rootOnDisk, setDefaultRoot, workspaceRoot } from "./folder-roots.js";
+import { assertRootOnDisk, folderChoices, rootOnDisk, setDefaultRoot, workspaceRoot } from "./folder-roots.js";
 import { WorkContext } from "./work-context.js";
 import { WorkMemory } from "./work-memory.js";
 import { randomUUID } from "node:crypto";
@@ -693,6 +693,8 @@ export class BeesProduct {
       FROM execution_links WHERE execution_id = ?
     `).get(id);
     if (!row) throw new Error("Run not found");
+    // a folder someone set that is not on this computer reads as a plain reply here, not a missing file
+    assertRootOnDisk(row.workspaceId);
     workspaceContext(this.database, row.workspaceId);
     const logical = logicalRelativePath(required(filePath, "File"));
     const [rootName] = logical.split("/");

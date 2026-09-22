@@ -1729,7 +1729,7 @@ export class AgentRuntime {
       const inserted = this.database.prepare(`
         INSERT OR IGNORE INTO bees_run_queue (execution_id, delivery_id, payload_json, created_at)
         VALUES (?, ?, ?, ?)
-      `).run(executionId, payload.idempotencyKey, JSON.stringify({ ...payload, workspace: runDirectory }), at);
+      `).run(executionId, payload.idempotencyKey, JSON.stringify(payload), at);
       const stored = this.database.prepare(
         "SELECT delivery_id AS deliveryId FROM bees_run_queue WHERE execution_id = ?"
       ).get(executionId);
