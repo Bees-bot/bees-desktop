@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     const { useEffect, useMemo, useState } = React;
 
     const PROVIDERS = [
-      { id: "openrouter", name: "OpenRouter", api: "openai-completions", signup: "https://openrouter.ai/keys", note: "Uses API credits and paid models" },
+      { id: "openrouter", name: "OpenRouter", signup: "https://openrouter.ai/keys", note: "Uses API credits and paid models" },
       { id: "google", name: "Google AI Studio", signup: "https://aistudio.google.com/apikey", note: "Gemini API" },
       { id: "groq", name: "Groq", signup: "https://console.groq.com/keys", note: "Fast hosted models" },
       { id: "cerebras", name: "Cerebras", signup: "https://cloud.cerebras.ai", note: "Fast hosted models" },
@@ -21,6 +21,9 @@ window.__ModuleLoader__.load({
       { id: "xai", name: "xAI", signup: "https://console.x.ai/team/default/api-keys", note: "Grok API" }
     ];
     const BY_ID = Object.fromEntries(PROVIDERS.map((provider) => [provider.id, provider]));
+    // No route names a wire protocol of its own: OpenRouter and Fireworks describe both protocols in
+    // their catalogs, and a route that picks one sends the other's models to the wrong endpoint.
+    const routeOf = (route = {}) => { const { api, ...rest } = route; return rest; };
     // Preserve credentials saved by the earlier combined AI APIs screen.
     const refFor = (provider) => `BEES_FREE_${provider.replace(/[^a-z0-9]/gi, "_").toUpperCase()}_API_KEY`;
     const CUSTOM_KEY_REF = "BEES_CUSTOM_OPENAI_API_KEY";
@@ -39,10 +42,12 @@ window.__ModuleLoader__.load({
       return result.value;
     };
 
-    async function testProvider(provider) {
+    // One token of a real call, because the model-list endpoints answer any key, junk included.
+    async function testProvider(provider, model) {
       const response = await fetch("/bees-api/general-ai/test", {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider })
-      });
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider, model }),
+        signal: AbortSignal.timeout(45_000)
+      }).catch(() => { throw new Error("Bees did not answer the connection test. Restart Bees, then try again."); });
       const value = await response.json();
       if (!response.ok) throw new Error(value.error || "Connection test failed");
       return value;
@@ -89,27 +94,36 @@ window.__ModuleLoader__.load({
         await refreshCredentials();
       };
       const modelsFor = (id) => config.providers?.[id]?.models ?? ui.generalAiModels?.[id] ?? [];
+      const idsOf = (models) => (models ?? []).map((entry) => entry.id).join(", ");
+      // A write the app turns down reloads the stored document instead of throwing, so a route it
+      // will not accept has to be noticed here or the switch silently stays off.
+      const unknownModel = (id) => new Error(`Bees cannot serve that ${BY_ID[id].name} model ID. Try a model ID ${BY_ID[id].name} itself lists, or connect it below under Custom OpenAI-compatible API.`);
+      const unchanged = (id) => new Error(`Bees did not save that change to ${BY_ID[id].name}. Try again.`);
+      const stored = (id) => modelSettings.getSnapshot().value?.providers?.[id];
       const saveModels = async (id, models) => {
         const providers = { ...(modelSettings.getSnapshot().value?.providers ?? {}) };
         if (providers[id]) {
-          providers[id] = { api: BY_ID[id].api, ...providers[id] };
+          providers[id] = routeOf(providers[id]);
           if (models.length) providers[id].models = models;
           else delete providers[id].models;
           await modelSettings.set("providers", providers);
+          if (idsOf(stored(id)?.models) !== idsOf(models)) throw unknownModel(id);
         }
         await preferences.set("generalAiModels", { ...(preferences.getSnapshot().value?.generalAiModels ?? {}), [id]: models });
       };
       const setEnabled = async (id, enabled, requestedModels = modelsFor(id)) => {
         const providers = { ...(modelSettings.getSnapshot().value?.providers ?? {}) };
         if (enabled) {
-          // Custom OpenRouter model IDs need the wire protocol declared explicitly.
-          providers[id] = { api: BY_ID[id].api, ...(providers[id] ?? {}), displayName: BY_ID[id].name, apiKeyEnv: refFor(id) };
+          providers[id] = { ...routeOf(providers[id]), displayName: BY_ID[id].name, apiKeyEnv: refFor(id) };
           if (requestedModels.length) providers[id].models = requestedModels;
         } else {
           if (requestedModels.length) await preferences.set("generalAiModels", { ...(ui.generalAiModels ?? {}), [id]: requestedModels });
           delete providers[id];
         }
         await modelSettings.set("providers", providers);
+        if (enabled && !stored(id)) throw unknownModel(id);
+        // turning one off is a write like any other, and a refused one would leave the key gone
+        if (!enabled && stored(id)) throw unchanged(id);
       };
       const saveProviderIds = async (next) => {
         await preferences.set("generalAiProviders", next);
@@ -121,12 +135,18 @@ window.__ModuleLoader__.load({
         if (!model.trim()) throw new Error("Enter the model ID");
         const models = [{ id: model.trim() }];
         await saveKey(chosen, key.trim());
-        const result = await testProvider(chosen);
-        setTests((current) => ({ ...current, [chosen]: result.message }));
-        await setEnabled(chosen, true, models);
-        await saveProviderIds([...new Set([...ids, chosen])]);
-        await preferences.set("generalAiModels", { ...(ui.generalAiModels ?? {}), [chosen]: models });
-        setKey(""); setModel(""); setSelected(""); setAdding(false);
+        try {
+          const result = await testProvider(chosen, model.trim());
+          setTests((current) => ({ ...current, [chosen]: result.message }));
+          await setEnabled(chosen, true, models);
+          await saveProviderIds([...new Set([...ids, chosen])]);
+          await preferences.set("generalAiModels", { ...(ui.generalAiModels ?? {}), [chosen]: models });
+          setKey(""); setModel(""); setSelected(""); setAdding(false);
+        } catch (reason) {
+          // an add that failed this way would leave its key in the store with no row to show for it
+          if (!stored(chosen)) await credentials.unset(refFor(chosen)).catch(() => {});
+          throw reason;
+        }
       });
       const addModel = (id) => perform(`model:${id}`, async () => {
         const value = (await ask(`${BY_ID[id].name} model ID`, ""))?.trim();
@@ -141,11 +161,11 @@ window.__ModuleLoader__.load({
         const value = await ask(`${BY_ID[id].name} API key`, "", "password");
         if (!value) return;
         await saveKey(id, value);
-        const result = await testProvider(id);
+        const result = await testProvider(id, modelsFor(id)[0]?.id);
         setTests((current) => ({ ...current, [id]: result.message }));
       });
       const test = (id) => perform(`test:${id}`, async () => {
-        const result = await testProvider(id);
+        const result = await testProvider(id, modelsFor(id)[0]?.id);
         setTests((current) => ({ ...current, [id]: result.message }));
       });
       const remove = (id) => perform(`remove:${id}`, async () => {
@@ -175,6 +195,7 @@ window.__ModuleLoader__.load({
           apiKeyEnv: CUSTOM_KEY_REF,
           models
         } });
+        if (!stored("custom-openai")?.baseURL) throw new Error("Bees did not save that endpoint. Try again.");
       });
       const addCustomModel = () => perform("custom-model", async () => {
         const id = (await ask("Model ID", ""))?.trim(); if (!id) return;
@@ -223,8 +244,8 @@ window.__ModuleLoader__.load({
                   h(Button, { disabled: Boolean(busy), onClick: () => perform(`link:${id}`, () => openExternal(provider.signup)) }, "Provider website"))),
               h("td", null, h("div", { className: "bees-general-models" },
                 ...(models.length ? models.map((entry) => h("span", { className: "bees-badge", key: entry.id }, entry.id,
-                  h(Button, { title: models.length > 1 && protects(id, entry.id) ? defaultGuard : `Remove ${entry.id}`, "aria-label": `Remove ${entry.id}`,
-                    disabled: Boolean(busy) || (models.length > 1 && protects(id, entry.id)), onClick: () => removeModel(id, entry.id) }, "×")))
+                  h(Button, { title: protects(id, entry.id) ? defaultGuard : `Remove ${entry.id}`, "aria-label": `Remove ${entry.id}`,
+                    disabled: Boolean(busy) || protects(id, entry.id), onClick: () => removeModel(id, entry.id) }, "×")))
                   : [h("span", { className: "bees-muted", key: "all" }, "All catalog models")]),
                 h(Button, { disabled: Boolean(busy), onClick: () => addModel(id) }, "Add model"))),
               h("td", null, h("div", { className: "bees-general-actions" },
