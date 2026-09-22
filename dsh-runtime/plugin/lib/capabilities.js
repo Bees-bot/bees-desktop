@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,19 +50,25 @@ const PLACEHOLDER = /^(?:[Bb]earer\s+)?(?:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+|\$\{?\w+
 const placed = (value) => value === "{node}" ? process.execPath : value === "{browserState}" ? browserStatePath()
   : value.replace("{lib}", () => dirname(fileURLToPath(import.meta.url))).replace("{data}", dataDirectory);
 
-/** A server whose program reaches one folder, which each computer picks for itself. */
+/** A folder-bound server takes its folder as its last argument, and that folder belongs to this computer. */
 const FOLDER = "{folder}";
-const needsFolder = (server) => Boolean(catalogEntry(server.catalogId)?.requiresDirectory);
-/** The folder is a folder-bound server's last argument, and where it is belongs to this computer. */
+const needsFolder = (catalogId) => Boolean(catalogEntry(catalogId)?.requiresDirectory);
 const argsFor = (server) => server.args.map((arg) => arg === FOLDER ? serverFolder(server.id) || arg : placed(arg));
-/** A server installed on another computer arrives with no folder here, and there is nothing to try. */
-const noFolderReason = (server) => needsFolder(server) && !serverFolder(server.id)
-  ? `${server.label} has no folder on this computer. Choose one on the MCP servers page.` : "";
+
+/** A folder-bound server runs only while it has a folder here: one picked on another computer is not ours. */
+const noFolderReason = (server) => {
+  if (!needsFolder(server.catalogId)) return "";
+  const folder = serverFolder(server.id);
+  if (!folder) return `${server.label} has no folder on this computer. Choose one on the MCP servers page.`;
+  if (!existsSync(folder)) return `${folder} is the folder you gave ${server.label}, and it is not on this computer. `
+    + "Reconnect it, or choose another on the MCP servers page.";
+  return "";
+};
 
 function rowToServer(row) {
   const args = JSON.parse(row.args_json);
   // the slot holds its place, never a path: a folder named in a row written on another computer is not ours
-  if (needsFolder({ catalogId: row.catalog_id })) args[args.length - 1] = FOLDER;
+  if (needsFolder(row.catalog_id)) args[args.length - 1] = FOLDER;
   return {
     id: row.id, serverName: row.server_name, label: row.label, transport: row.transport,
     command: row.command, url: row.url, catalogId: row.catalog_id, source: row.source,
@@ -323,7 +330,7 @@ export class Capabilities {
           command: placed(server.command),
           args: argsFor(server),
           // null for a server that takes no folder, so the page shows a picker only where one belongs
-          folder: needsFolder(server) ? serverFolder(server.id) : null,
+          folder: needsFolder(server.catalogId) ? serverFolder(server.id) : null,
           toolCount,
           perRun,
           error: state?.error ?? "",
@@ -703,7 +710,7 @@ export class Capabilities {
   /** The folder a folder-bound server may reach, picked on this computer and kept out of the database. */
   async setFolder(input) {
     const server = this.row(input.serverId);
-    if (!needsFolder(server)) throw new Error(`${server.label} does not take a folder`);
+    if (!needsFolder(server.catalogId)) throw new Error(`${server.label} does not take a folder`);
     assertFolderOutsideBees(input.directory, this.defaultWorkspace, server.label);
     setServerFolder(server.id, input.directory);
     // a row from another computer still names its folder, and the slot is all this one keeps

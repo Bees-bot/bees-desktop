@@ -976,7 +976,7 @@ export class AgentRuntime {
       .filter(({ name }) => !data || data.mcpAccess === "all" ||
         data.mcpAccess === "listed" && data.mcpServers.includes(name))
       .filter(({ catalogId }) => bound.has(catalogId))
-      // a folder this computer never picked leaves the server unmounted, so it has no tools to explain
+      // a server with no folder on this computer is never mounted, so it has no tools to explain
       .flatMap(({ id, name }) => serverFolder(id)
         ? [`Every mcp__${name}__ tool takes a path argument. Always pass ${serverFolder(id)}, never your working directory.`] : []);
   }

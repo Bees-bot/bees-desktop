@@ -2,6 +2,26 @@ import { h, React, useEffect, useRef, useState } from "./runtime.js";
 
 import { HomeIcon, WorkIcon, AgentsIcon, ProcessesIcon, FilesIcon, ActivityIcon, KnowledgeIcon, SettingsIcon } from "./icons.js";
 
+/** The settings rail's groups, which the nav tree takes its page names from so the two cannot drift apart. */
+export const GLOBAL_SETTINGS = [
+  ["personal-ai", "AI connections"],
+  ["appearance", "Appearance"],
+  ["data-folder", "Data folder"],
+  ["system-instructions", "System instructions"],
+  ["organizations", "Organizations"],
+  ["connections", "Connections"],
+  ["removing-bees", "Removing Bees"]
+];
+export const ORGANIZATION_SETTINGS = [
+  ["organization-settings", "General"],
+  ["organization-members", "Members & invitations", ["owner", "admin"]],
+  ["organization-authentication", "Authentication", ["owner"]]
+];
+export const TEAM_SETTINGS = [
+  ["team-settings", "Members"],
+  ["team-folders", "Folders", ["admin"]]
+];
+
 export const NAVIGATION = [
   { id: "home", label: "Home", icon: HomeIcon, defaultChild: "home", children: [] },
   { id: "apps", label: "Apps", icon: WorkIcon, defaultChild: "apps", children: [] },
@@ -20,13 +40,8 @@ export const NAVIGATION = [
   { id: "knowledge", label: "Knowledge Base", icon: KnowledgeIcon, defaultChild: "search", children: [
     ["search", "Search & sources"], ["artifacts", "Artifacts"]
   ] },
-  { id: "settings", label: "Settings", icon: SettingsIcon, defaultChild: "personal-ai", children: [
-    ["personal-ai", "AI connections"], ["organizations", "Organizations"], ["connections", "Connections"],
-    ["organization-settings", "Organization general"], ["organization-members", "Organization members & invitations"],
-    ["organization-authentication", "Organization authentication"], ["team-settings", "Team members"],
-    ["team-folders", "Team folders"],
-    ["appearance", "Appearance"], ["system-instructions", "System instructions"]
-  ] }
+  { id: "settings", label: "Settings", icon: SettingsIcon, defaultChild: "personal-ai",
+    children: [...GLOBAL_SETTINGS, ...ORGANIZATION_SETTINGS, ...TEAM_SETTINGS].map(([id, label]) => [id, label]) }
 ];
 
 const OLD_THEME_IDS = [

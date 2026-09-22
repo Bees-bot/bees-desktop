@@ -1,9 +1,9 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { appDirectory } from "./data-folder.js";
+import { appDirectory, assertNothingRunning, inSharedFolder } from "./data-folder.js";
 
 /**
- * Where an organization, a team and a workspace keep their folders on this computer.
+ * The folders a person picked for this computer: one per organization, team, workspace and MCP server.
  *
  * The database is shared between computers, so it never holds a path: it holds the part below the
  * workspace's folder. The folders themselves differ per computer, so they live in a file beside the
@@ -43,31 +43,39 @@ function readRoots() {
 
 /**
  * The three levels for one workspace: the folder picked for each, and the folder it ends up using.
- * `mount` is the picked folder a level sits under, so the level is usable only while that one is here.
+ * `anchor` is the folder a person picked at this level or above, so this level works only while that one is here.
  */
 function levelsFor(workspace, picks = chosen) {
   let path = "";
-  let mount = "";
+  let anchor = "";
   return LEVELS.map(([level, idKey, nameKey]) => {
     const picked = picks[`${level}:${workspace[idKey]}`] ?? "";
-    if (picked) { path = picked; mount = picked; }
+    if (picked) { path = picked; anchor = picked; }
     else if (path) path = join(path, folderName(workspace[nameKey], workspace[idKey]));
-    return { level, id: workspace[idKey], name: workspace[nameKey], picked, mount, folder: path || defaultRoot() };
+    return { level, id: workspace[idKey], name: workspace[nameKey], picked, anchor, folder: path || defaultRoot() };
   });
 }
 
 /** False when the folder someone set at this level or above is not on this computer. */
-const onDisk = (row) => !row.mount || existsSync(row.mount);
+const onDisk = (row) => !row.anchor || existsSync(row.anchor);
+
+/** The folder a person picked, as this computer sees it, empty when they are clearing one. */
+function pickedFolder(directory) {
+  const picked = String(directory ?? "").trim();
+  if (!picked) return "";
+  const target = resolve(picked);
+  if (!existsSync(target) || !statSync(target).isDirectory())
+    throw new Error("That folder is not on this computer. Pick one that exists here.");
+  return target;
+}
 
 /** The folder a person picked for one MCP server: its program runs here, so its folder is this computer's. */
 export const serverFolder = (serverId) => chosen[`server:${serverId}`] ?? "";
 
+/** Points one MCP server at a folder here, or clears it so the server stays unmounted. */
 export function setServerFolder(serverId, directory) {
-  const picked = String(directory ?? "").trim();
-  const target = picked && resolve(picked);
-  if (target && (!existsSync(target) || !statSync(target).isDirectory()))
-    throw new Error("That folder is not on this computer. Pick one that exists here.");
-  const next = readRoots();
+  const target = pickedFolder(directory);
+  const next = { ...chosen };
   if (target) next[`server:${serverId}`] = target;
   else delete next[`server:${serverId}`];
   writeRoots(next);
@@ -105,7 +113,7 @@ export const rootOnDisk = (workspaceId) => (rootOf(workspaceId) ?? []).every(onD
 export function assertRootOnDisk(workspaceId) {
   const gone = (rootOf(workspaceId) ?? []).find((row) => !onDisk(row));
   if (gone)
-    throw new Error(`${gone.mount} is the folder you set for the ${gone.level} ${gone.name}, and it is not on this computer. `
+    throw new Error(`${gone.anchor} is the folder you set for the ${gone.level} ${gone.name}, and it is not on this computer. `
       + "Reconnect it, or clear it in Settings, Folders.");
 }
 
@@ -126,9 +134,6 @@ export function shortPath(workspaceId, path) {
 
 /** What comes back out: the same stored value read against this computer's own folder. */
 export function resolveStored(workspaceId, stored) {
-  // a whole path is what a build before this one wrote, and it still means what it did on the
-  // computer that wrote it, so it is read as it stands rather than hiding the folder it names
-  if (isAbsolute(String(stored ?? ""))) return String(stored);
   if (!stored || String(stored).split("/").includes(".."))
     throw new Error(`A stored folder has to be a path inside its workspace, and this one is ${stored || "empty"}`);
   return resolve(workspaceRoot(workspaceId), stored);
@@ -149,13 +154,9 @@ const movingRoots = (database, picks) => database.prepare(WORKSPACES).all()
  * Copies the runs already written under the old folder to the new one, so a stored run and its files
  * still meet. Nothing is deleted here: the copies are complete before the folders file changes.
  */
-function copyRuns(database, moving) {
+function copyRuns(database, moving, live) {
   if (!moving.length) return [];
-  const busy = database.prepare(`SELECT count(*) AS count FROM execution_links
-    WHERE workspace_id IN (${moving.map(() => "?").join(",")})
-      AND status IN ('queued', 'running', 'waiting_for_input', 'waiting_for_approval')`)
-    .get(...moving.map((row) => row.id)).count;
-  if (busy) throw new Error("Wait for what is running to finish, then choose the folder");
+  assertNothingRunning(database, live);
   const copied = [];
   for (const row of moving) for (const { folder } of database.prepare(STORED_RUNS).all(row.id, row.id)) {
     const source = join(row.from, folder);
@@ -164,24 +165,20 @@ function copyRuns(database, moving) {
     mkdirSync(dirname(target), { recursive: true });
     // a picked folder is usually another disk, where a rename will not do
     cpSync(source, target, { recursive: true });
-    copied.push(source);
+    // a run in the shared folder is the other computer's too, so the copy here does not replace it
+    if (!inSharedFolder(source)) copied.push(source);
   }
   return copied;
 }
 
 /** Points a level at a folder on this computer, or clears it back to the level above. */
-export function setFolderRoot(database, { level, id, directory }) {
+export function setFolderRoot(database, { level, id, directory, live }) {
   if (!LEVELS.some(([name]) => name === level)) throw new Error("A folder is set for an organization, a team or a workspace");
-  const picked = String(directory ?? "").trim();
+  const target = pickedFolder(directory);
   const next = { ...chosen };
-  if (!picked) delete next[`${level}:${id}`];
-  else {
-    const target = resolve(picked);
-    if (!existsSync(target) || !statSync(target).isDirectory())
-      throw new Error("That folder is not on this computer. Pick one that exists here.");
-    next[`${level}:${id}`] = target;
-  }
-  const copied = copyRuns(database, movingRoots(database, next));
+  if (target) next[`${level}:${id}`] = target;
+  else delete next[`${level}:${id}`];
+  const copied = copyRuns(database, movingRoots(database, next), live);
   writeRoots(next);
   for (const path of copied) rmSync(path, { recursive: true, force: true });
   refreshFolderRoots(database);

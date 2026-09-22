@@ -3,8 +3,8 @@ import {
   React, SubscriptionSettings, useEffect, useState
 } from "./runtime.js";
 import {
-  ask, Button, collaboration, confirmAction, defaultOrgColor, Empty, openExternal, request, useSubmit,
-  THEME_PRESETS, usePreference
+  ask, Button, collaboration, confirmAction, defaultOrgColor, Empty, GLOBAL_SETTINGS, openExternal,
+  ORGANIZATION_SETTINGS, request, TEAM_SETTINGS, THEME_PRESETS, usePreference, useSubmit
 } from "./shared.js";
 import { MemorySettings } from "./collaboration.js";
 import { SystemDefaultSettings } from "./agents.js";
@@ -668,25 +668,6 @@ function RemoveBeesSettings() {
       : h("p", { className: "bees-muted" }, "Open the installed app to remove Bees from here."),
     h("p", { className: "bees-muted" }, "This removes your workspaces, runs, reviews, memory, downloaded models and logs. Folders you chose yourself are not touched."));
 }
-
-const GLOBAL_SETTINGS = [
-  ["personal-ai", "AI connections"],
-  ["appearance", "Appearance"],
-  ["data-folder", "Data folder"],
-  ["system-instructions", "System instructions"],
-  ["organizations", "Organizations"],
-  ["connections", "Connections"],
-  ["removing-bees", "Removing Bees"]
-];
-const ORGANIZATION_SETTINGS = [
-  ["organization-settings", "General"],
-  ["organization-members", "Members & invitations", ["owner", "admin"]],
-  ["organization-authentication", "Authentication", ["owner"]]
-];
-const TEAM_SETTINGS = [
-  ["team-settings", "Members"],
-  ["team-folders", "Folders", ["admin"]]
-];
 
 function SettingsGroup({ label, routes, route, navigate, role, connected = true }) {
   const shown = routes.filter(([, , needs]) => !needs || connected && needs.includes(role));
