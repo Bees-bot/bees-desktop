@@ -107,7 +107,7 @@ Selected company folders remain data-only. Bees stages inputs into app-data work
 
 ## Known limitations
 
-There is no in-app updater and no uninstall, 0.1.1 data does not carry across, and Windows
+There is no in-app updater, 0.1.1 data does not carry across, and Windows
 installers are unsigned. The full list is in [Known limitations](docs/limitations.md). Read it
 before you install.
 

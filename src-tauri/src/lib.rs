@@ -297,6 +297,10 @@ fn device_id(app_data: &Path) -> Result<String, String> {
 /// The lock this launch holds, so quit releases ours and never a folder we were refused.
 static CLAIMED: Mutex<Option<PathBuf>> = Mutex::new(None);
 
+/// Armed by Settings → Removing Bees, emptied as the app exits. Deleting the folder while the
+/// sidecars still run only removes what they recreate a second later.
+static REMOVE_ON_EXIT: Mutex<Option<PathBuf>> = Mutex::new(None);
+
 /// One computer at a time, and no expiry since Google Drive can carry a lock slower than any wait.
 fn claim_data_folder(data: &Path, app_data: &Path) -> Result<(), String> {
     // written either way, the plugin reads it on every launch
@@ -743,6 +747,55 @@ fn restart_app(app: tauri::AppHandle) {
     app.request_restart();
 }
 
+/// Recursive so the confirmation can name what it is about to remove.
+fn folder_size(path: &Path) -> u64 {
+    let Ok(entries) = fs::read_dir(path) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .map(|entry| match entry.file_type() {
+            // a symlink is neither, which is what stops the walk following one out of the folder
+            Ok(kind) if kind.is_dir() => folder_size(&entry.path()),
+            _ => entry.metadata().map(|meta| meta.len()).unwrap_or(0),
+        })
+        .sum()
+}
+
+/// The folder the app owns, and how much is in it. Its own copy of the identifier check is the
+/// point: the settings screen names the path, so it has to be the path that goes.
+fn bees_data_folder(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let data = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    let named = data.file_name().and_then(|name| name.to_str()) == Some(app.config().identifier.as_str());
+    // the parent check rules out a home directory, which would otherwise be deleted whole
+    if !named || data.parent().is_none() {
+        return Err(format!("{} is not the Bees data folder.", data.display()));
+    }
+    Ok(data)
+}
+
+#[derive(Serialize)]
+struct DataFolder {
+    path: String,
+    bytes: u64,
+}
+
+#[tauri::command]
+fn bees_data_size(app: tauri::AppHandle) -> Result<DataFolder, String> {
+    let data = bees_data_folder(&app)?;
+    Ok(DataFolder { bytes: folder_size(&data), path: data.display().to_string() })
+}
+
+/// Settings → Removing Bees. Nothing is deleted here: the app quits, the exit hook takes the
+/// sidecars down, and the removal runs after them.
+#[tauri::command]
+fn uninstall_bees(app: tauri::AppHandle) -> Result<(), String> {
+    let data = bees_data_folder(&app)?;
+    *REMOVE_ON_EXIT.lock().map_err(|error| error.to_string())? = Some(data);
+    app.exit(0);
+    Ok(())
+}
+
 /// Closing the window only hides it, so this is how the window comes back: the tray, the dock,
 /// and a second launch all route here.
 fn show_main_window(app: &tauri::AppHandle) {
@@ -833,7 +886,9 @@ pub fn run() {
             cancel_local_model_download,
             delete_local_model,
             local_model_connection,
-            open_external_url
+            open_external_url,
+            bees_data_size,
+            uninstall_bees
         ])
         .on_page_load(|_window, payload| {
             // Do not log the URL: the initial handoff carries an authentication token.
@@ -872,6 +927,10 @@ pub fn run() {
                 // the only place the folder lock comes off, since quitting kills the harness outright
                 if let Some(lock) = CLAIMED.lock().ok().and_then(|mut held| held.take()) {
                     let _ = fs::remove_file(lock);
+                }
+                // last, so the files the sidecars were holding are closed before the folder goes
+                if let Some(folder) = REMOVE_ON_EXIT.lock().ok().and_then(|mut armed| armed.take()) {
+                    let _ = fs::remove_dir_all(folder);
                 }
             }
         });

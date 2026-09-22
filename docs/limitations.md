@@ -28,10 +28,11 @@ reviewed 22 September 2026.
 
 ## Uninstalling
 
-There is no uninstall. No script, no menu entry, and nothing in the documentation. Deleting the
-application on its own leaves the local database, downloaded models and sessions in the
-application support directory, and a later install inherits them. This is the largest gap on
-this page, and it is the first thing to add.
+**Settings → Removing Bees** names the application data folder and its size, then deletes the
+folder and quits Bees. There is no undo, and shared folders you chose yourself are left alone.
+
+The app itself is still removed by hand: drag it from Applications to the Trash. Doing only that
+leaves the data folder behind, and the next install reads it as it was.
 
 ## Platforms
 
