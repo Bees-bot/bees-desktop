@@ -1,0 +1,45 @@
+name: Bug report
+description: Something broke, crashed, or behaved differently from what the docs say
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not report security problems here. Use the private advisory link below instead.
+  - type: input
+    id: version
+    attributes:
+      label: Bees version
+      description: Settings, then About. Or the file name of the installer you ran.
+    validations:
+      required: true
+  - type: dropdown
+    id: chip
+    attributes:
+      label: Mac
+      options:
+        - Apple Silicon (M1 or later)
+        - Intel
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      description: Apple menu, About This Mac.
+    validations:
+      required: true
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you saw instead.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log lines
+      description: The app writes a log beside its data folder. Paste the lines around the failure and remove any keys, tokens or personal file paths first.
+    validations:
+      required: false
