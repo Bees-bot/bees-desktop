@@ -10,7 +10,7 @@ import { applyWorkItemLayout, workItemLayoutFrom } from "./dashboard-model.js";
 import { FlexibleGrid, GridStackPage } from "./flexible-grid.js";
 import { addLocationFromDevice, FilePreview, inheritedInputs, ResourceFields, WorkFiles, WorkLocations } from "./location-fields.js";
 
-import { useMcpPreflight } from "./agents.js";
+import { McpAccess, useMcpPreflight } from "./agents.js";
 import { ProcessMcpForm } from "./processes.js";
 import { generatedFileKeys, watchFilesViewed } from "./file-notifications.js";
 import { agentMentionOptions, conversationMessages, mentionedRecipient, OUTCOME_LABELS, pollConversation } from "./conversation-model.js";
@@ -308,6 +308,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
         timestamp: new Date(entry.createdAt).getTime() || 0 }))
   ].sort((left, right) => left.timestamp - right.timestamp);
   const [showSteps, setShowSteps] = useState(false);
+  const teamQuestions = (data.teamQuestions ?? []).filter((question) => question.workItemId === item.id);
+  const processExecution = (data.processExecutions ?? []).find((execution) => execution.workItemId === item.id);
   useEffect(() => {
     if (isScrolledUpRef.current) return;
     const scrollToBottom = () => { if (!isScrolledUpRef.current && convoRef.current) convoRef.current.scrollTop = convoRef.current.scrollHeight; };
@@ -330,12 +332,19 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
   if (run?.ranElsewhere) convoItems.push(h("div", { className: "bees-convo-msg system", key: "elsewhere" },
     "This ran on another device. Its result is above; the full transcript and any files it wrote stayed there."));
   else if (run && !visibleHistory && !historyError) convoItems.push(h("div", { className: "bees-convo-msg system", key: "loading" }, "Loading conversation…"));
+  if (processExecution) {
+    const runner = data.directory?.find((row) => row.accountUserId === processExecution.userId)?.email
+      ?? data.accounts?.find((row) => row.userId === processExecution.userId)?.name ?? processExecution.userId;
+    convoItems.push(h("div", { className: "bees-convo-msg system", key: "executor" },
+      `Ran by ${runner} on ${processExecution.machineName} from ${new Date(processExecution.startedAt).toLocaleString()}${processExecution.endedAt ? ` to ${new Date(processExecution.endedAt).toLocaleString()}` : ""}.`));
+  }
   const conversation = h("div", { className: "bees-convo-panel" },
     h("div", { className: "bees-convo-header" },
       h("div", { className: "bees-convo-title" }, "Conversation"),
       isWorking ? h("span", { className: "bees-detail-badge running" }, run?.status === "queued" ? "Agent starting" : "Agent active") : null,
       pendingRun ? h("button", { type: "button", className: "bees-btn-secondary", style: { marginLeft: "auto" }, onClick: () => setShowSteps((value) => !value) },
         showSteps ? "Hide agent steps" : `Show agent steps (${messages.length})`) : null),
+    ...teamQuestions.map((question) => h(TeamQuestionCard, { key: question.id, question, data, act })),
     pendingRun ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" },
       h(AgentInteractionPanel, { run: pendingRun, item, session, interaction, handled, onAnswered: answered, act, data })) : null,
     // a waiting question goes first and the agent's steps fold away, so nobody scrolls to find it
@@ -677,6 +686,12 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, parent, 
       inputLocationIds, outputLocationId
     };
     if (!await guardRun(goal ? initialProcess?.id : processId)) return;
+    if (process && !parent) {
+      const mcpAccess = String(form.get("mcpAccess") ?? "none");
+      const mcpServers = form.getAll("mcpServers").map(String);
+      if (mcpAccess !== (process.mcpAccess ?? "none") || JSON.stringify(mcpServers) !== JSON.stringify(process.mcpServers ?? []))
+        if (!await act({ action: "set_process_mcp", processId: process.id, mcpAccess, mcpServers })) return;
+    }
     const created = await act(command); if (created?.id) onCreated(created.id);
   });
   if (!goal && !processes.length) return h("div", { className: "bees-stack" },
@@ -707,6 +722,12 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, parent, 
     h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds, onInputIds: setInputLocationIds,
       outputId: outputLocationId, onOutputId: setOutputLocationId, inherited,
       defaultOutputId, defaultOutputName: data.locations.find(({ id }) => id === defaultOutputId)?.name ?? "" }),
+    process && !parent ? h(React.Fragment, null,
+      h("p", { className: "bees-muted" }, "Process MCPs are shared with every agent and future work in this process. Changes save when you start."),
+      h(McpAccess, { key: process.id, ctx, servers: capabilities?.data?.servers ?? [],
+        tools: capabilities?.data?.tools ?? [], catalog: capabilities?.data?.catalog ?? [],
+        onServerAction: capabilities?.act, access: process.mcpAccess, chosen: process.mcpServers,
+        scope: "process", showAll: true })) : null,
     h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Creating…" : parent ? "Add work item" : goal ? "Create goal" : "Start process run"),
       h(Button, { onClick: onCancel }, "Cancel"))
   ));
@@ -814,6 +835,37 @@ function WorkReviewPanel({ wait, onAnswered, act, executionId, item, data }) {
 
 // Autofocus scrolled the widget to the box, so the question above it was out of view before you read it.
 const focusWithoutScroll = (element) => element?.focus({ preventScroll: true });
+
+function TeamQuestionCard({ question, data, act }) {
+  const [answer, setAnswer] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const person = (id) => data.directory?.find((row) => row.accountUserId === id)?.email
+    ?? data.accounts?.find((row) => row.userId === id)?.name ?? id;
+  const send = async () => {
+    if (!answer.trim()) return;
+    setBusy(true); setError("");
+    try {
+      const result = await act({ action: "answer_team_question", teamId: question.teamId,
+        questionId: question.id, answer: answer.trim() });
+      if (result?.accepted === false) setError(`Already answered by ${person(result.question.answeredBy)}.`);
+      else setAnswer("");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
+  };
+  return h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" },
+    h("strong", null, "Question for the team"),
+    h("p", { style: { whiteSpace: "pre-wrap" } }, question.question),
+    h("div", { className: "bees-muted" }, `Asked by ${person(question.askedBy)} on ${new Date(question.askedAt).toLocaleString()}`),
+    question.answeredAt
+      ? h("div", null, h("p", null, question.answer), h("div", { className: "bees-muted" },
+        `Answered by ${person(question.answeredBy)} on ${new Date(question.answeredAt).toLocaleString()} · device ${question.answeredOnDevice}`))
+      : h("div", null,
+        h("textarea", { className: "bees-textarea", value: answer, disabled: busy,
+          "aria-label": "Answer the team question", onChange: (event) => setAnswer(event.target.value) }),
+        h(Button, { className: "primary", disabled: busy || !answer.trim(), onClick: send }, busy ? "Sending…" : "Answer")),
+    error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
+}
 
 export function QuestionPanel({ wait, onAnswered, act, executionId, browser }) {
   const pending = wait;

@@ -298,6 +298,17 @@ describe("Temporal process projection", () => {
     ).get()).toEqual({ phase: "ready" });
   });
 
+  it("checks local readiness before attempting the team lease", async () => {
+    const acquire = vi.fn();
+    const state = harness({ claims: { acquire, renew: vi.fn(), release: vi.fn() } } as any);
+    insertGoal(state, "unready-goal");
+    (state.runtime as any).canStart = async () => ({ ready: false, reason: "Mail is not connected" });
+    await expect(state.runtime.startItem("unready-goal")).resolves.toEqual({
+      automatic: true, claimed: false, waitingFor: "Mail is not connected"
+    });
+    expect(acquire).not.toHaveBeenCalled();
+  });
+
   it("recovers legacy heartbeat failures while leaving agent errors for explicit retry", async () => {
     const state = harness();
     insertGoal(state);

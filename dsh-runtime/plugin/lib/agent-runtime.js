@@ -69,6 +69,7 @@ const REVIEW_PERSONA = `You are a fresh Bees reviewer. Independently inspect the
 
 const HUMAN_INTERACTION_PROTOCOL = `Human interaction protocol:
 - Use ask_user_question only to obtain missing information or ask the human to take an external action, such as signing in.
+- In a team process, use bees_ask_team for ordinary missing information that any team member may answer. Use ask_user_question for a personal sign-in or information only the owner can supply.
 - What your tools can look up is not missing. A run meant for one record from an outside source, such as a project, an email or a ticket, that carries none takes the next one there that your instructions or the process requirements select and that is not handled yet, instead of asking the owner which one.
 - If the task, process, or user asks the human to approve, accept, reject, review, sign off, continue, or stop based on completed work, call bees_request_work_review. This includes approval after each entry, step, or child task.
 - Never create Approve, Reject, Continue, or Stop choices with ask_user_question.
@@ -1059,6 +1060,35 @@ export class AgentRuntime {
       execute: async (args) => {
         if (!this.knowledgeReader) throw new Error("Bees knowledge reading is unavailable");
         return { document_json: JSON.stringify(await this.knowledgeReader(args.result_id, data.workspaceId)) };
+      }
+    }));
+    if (data.workItemId && this.connected) agentCtx.tools.register(defineTool({
+      name: "bees_ask_team",
+      description: "Ask this process's team one ordinary question. Any team member can answer; the answer and responder identity are recorded. Never request a password, token, personal sign-in, or approval for an external action here.",
+      timeoutMs: 2_147_483_647,
+      parameters: { question: { type: "string", required: true, description: "One clear question for the team." } },
+      output: { schema: { type: "object", additionalProperties: false, properties: {
+        answer: { type: "string", required: true }, answeredBy: { type: "string", required: true },
+        answeredAt: { type: "string", required: true }
+      } }, render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }] },
+      execute: async (args, exec) => {
+        const team = this.database.prepare(`SELECT ws.team_id AS teamId FROM work_items w
+          JOIN processes p ON p.id=w.process_id JOIN workspaces ws ON ws.id=p.workspace_id
+          WHERE w.id=?`).get(data.workItemId);
+        if (!team) throw new Error("This work item is unavailable");
+        const question = String(args.question ?? "").trim();
+        if (!question || question.length > 8_000) throw new Error("Ask one question under 8,000 characters");
+        const id = randomUUID();
+        await this.connected.askProcessQuestion(team.teamId, {
+          id, workItemId: data.workItemId, executionId, question
+        });
+        while (true) {
+          exec.signal?.throwIfAborted();
+          const reply = (await this.connected.listProcessQuestions(team.teamId)).find((row) => row.id === id);
+          if (reply?.answeredAt) return { answer: reply.answer, answeredBy: reply.answeredBy,
+            answeredAt: reply.answeredAt };
+          await delay(5_000, undefined, exec.signal ? { signal: exec.signal } : undefined);
+        }
       }
     }));
     if (["work", "review"].includes(data.mode)) agentCtx.tools.register(defineTool({

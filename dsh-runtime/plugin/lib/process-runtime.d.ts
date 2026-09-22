@@ -9,6 +9,7 @@ export declare class ProcessRuntime {
     abortAgent?: (executionId: string) => unknown;
     needsRecovery?: (executionId: string) => boolean;
     pendingInteraction?: (executionId: string) => unknown;
+    canStart?: (workItemId: string) => Promise<{ ready: boolean; reason?: string }> | { ready: boolean; reason?: string };
   });
   item(workItemId: string): any;
   stages(processId: string): any[];

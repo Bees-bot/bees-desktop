@@ -3,6 +3,7 @@ export class BeesProduct {
   constructor(database: any, agents: any, processes: any, defaultWorkspace: string, services?: Record<string, any>);
   initialize(): Promise<void>;
   recoverRuns(): Promise<void>;
+  canStartItem(workItemId: string): Promise<{ ready: boolean; reason?: string }>;
   runProcessStage(stage: Record<string, any>, signal?: AbortSignal): Promise<any>;
   snapshot(): Promise<any>;
   references(query: string, workspaceId: string): Promise<any>;

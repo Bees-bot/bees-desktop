@@ -1,4 +1,6 @@
 import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
+import { Script } from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 import { clientSource as client } from "./client-source.js";
 
@@ -15,6 +17,38 @@ describe("New work form", () => {
     expect(client).toContain('"Keep results in Bees only"');
     expect(client).toContain('Use process result folder');
     expect(client).toContain('"Save outputs to folder…"');
+  });
+
+  it("saves selected process MCPs before starting its run", async () => {
+    const source = readFileSync(new URL("../dsh-runtime/plugin/client/work.js", import.meta.url), "utf8");
+    const h = (tag: any, props: any, ...children: any[]) => ({ tag, props, children });
+    const WorkItemForm = new Script(source.slice(source.indexOf("function WorkItemForm("), source.indexOf("function displayOption("))
+      + "; WorkItemForm").runInNewContext({
+      h, React: { Fragment: "fragment" }, useState: (value: any) => [value, vi.fn()],
+      useSubmit: (handler: any) => [false, handler], useMcpPreflight: () => [async () => true, null],
+      inheritedInputs: () => [], PageHead: "head", Button: "button", ResourceFields: "resources", McpAccess: "mcp",
+      FormData: class { constructor(private form: any) {} get(key: string) { return this.form[key]; }
+        getAll(key: string) { return this.form[key] ?? []; } }
+    });
+    const act = vi.fn(async (command: any) => command.action === "create_run" ? { id: "run" } : {});
+    const onCreated = vi.fn();
+    const tree = WorkItemForm({ ctx: {}, data: {
+      processes: [{ id: "process", workspaceId: "workspace", mcpAccess: "none", mcpServers: [] }],
+      workspaces: [{ id: "workspace", teamId: "team" }], stages: [{ processId: "process" }],
+      assignments: [], attachments: [], locations: []
+    }, kind: "run", workspaceId: "workspace", act, onCreated, capabilities: { data: { servers: [] } } });
+    const form = tree.children.find((child: any) => child?.tag === "form");
+    const hasMcp = (node: any): boolean => Array.isArray(node) ? node.some(hasMcp)
+      : node?.tag === "mcp" || node?.children?.some(hasMcp) || false;
+    expect(hasMcp(form)).toBe(true);
+    await form.props.onSubmit({ currentTarget: {
+      title: "Report", description: "Make a report", priority: "normal",
+      mcpAccess: "listed", mcpServers: ["mail"]
+    } });
+    expect(act.mock.calls.map(([command]) => command.action)).toEqual(["set_process_mcp", "create_run"]);
+    expect(act).toHaveBeenNthCalledWith(1, { action: "set_process_mcp", processId: "process",
+      mcpAccess: "listed", mcpServers: ["mail"] });
+    expect(onCreated).toHaveBeenCalledWith("run");
   });
 });
 
