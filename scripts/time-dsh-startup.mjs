@@ -14,23 +14,21 @@ const timed = (phase, expression) =>
   `(globalThis.__beesStartup?.step ?? ((_phase, run) => run()))(${JSON.stringify(phase)}, () => ${expression})`;
 
 export const bootTimings = [
-  ["const ctx = new Context();\n\tlet stage", "const ctx = new Context();\n\tglobalThis.__beesStartup?.observe(ctx);\n\tlet stage"],
+  ["const ctx = new Context();\n\tconst startupLogs = [];", "const ctx = new Context();\n\tglobalThis.__beesStartup?.observe(ctx);\n\tconst startupLogs = [];"],
   ...[
     ["dsh.loader.init", "ctx.plugin(Loader)"],
     ["dsh.host.prepare", "prepare?.(ctx)"],
     ["dsh.tree.mount", "mountRootInclude(ctx, absoluteConfigPath, patches, bareModuleBaseUrl)"],
     ["dsh.tree.settle", 'ctx.get("loader")?.await()'],
-    ["dsh.tree.validate", "assertEntriesActivated(ctx, binName)"]
+    ["dsh.tree.validate", "auditStartupEntries(ctx, binName)"]
   ].map(([phase, expression]) => [`await ${expression};`, `await ${timed(phase, expression)};`])
 ];
 
 export const profileTimings = [
-  ["const profile = prepareProfile(name, true, fromDefaultProfile);",
-    `const profile = ${timed("dsh.profile.resolve", "prepareProfile(name, true, fromDefaultProfile)")};`],
-  ["await healProfilesModuleFallback({\n\t\tinstallAnchor: INSTALL_ANCHOR,\n\t\tprofile\n\t});",
-    `await ${timed("dsh.profile.module-fallback", "healProfilesModuleFallback({ installAnchor: INSTALL_ANCHOR, profile })")};`],
-  ["await composeProfile(options.profile, options.patchFiles, options.fromDefaultProfile)",
-    `await ${timed("dsh.profile.compose", "composeProfile(options.profile, options.patchFiles, options.fromDefaultProfile)")}`]
+  ["prepareProfile(name, true, fromDefaultProfile)",
+    `${timed("dsh.profile.resolve", "prepareProfile(name, true, fromDefaultProfile)")}`],
+  ["await composeProfile(options.profile, options.patchFiles, options.fromDefaultProfile, options.resolvedProfile)",
+    `await ${timed("dsh.profile.compose", "composeProfile(options.profile, options.patchFiles, options.fromDefaultProfile, options.resolvedProfile)")}`]
 ];
 
 export const loaderTimings = [[

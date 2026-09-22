@@ -186,17 +186,17 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
   const [activeTab, setActiveTab] = useState("files");
   const filesRef = React.useRef(null);
   const fileKeys = generatedFileKeys(fileRuns);
-  const seenKey = `seenFiles:${processRunId}`;
-  const seenFiles = new Set(Array.isArray(preference[seenKey]) ? preference[seenKey] : []);
+  const seenFiles = new Set(preference.seenFiles?.[processRunId] ?? []);
   const unreadFiles = fileKeys.filter((key) => !seenFiles.has(key)).length;
   const fileRevision = JSON.stringify(fileKeys);
   useEffect(() => {
     if (activeTab !== "files" || !unreadFiles || !filesRef.current) return;
     return watchFilesViewed(filesRef.current, () => {
-      void preferences.set(seenKey, JSON.parse(fileRevision))
+      // One path per run, so two runs finishing a scroll at once cannot drop each other's entry.
+      void preferences.mutate([{ op: "set", path: ["seenFiles", processRunId], value: JSON.parse(fileRevision) }])
         .catch((error) => console.error("Could not save viewed files:", error));
     });
-  }, [activeTab, seenKey, fileRevision, unreadFiles, preferences]);
+  }, [activeTab, processRunId, fileRevision, unreadFiles, preferences]);
 
   const [handled, setHandled] = useState(() => new Set());
   const [history, setHistory] = useState(null);

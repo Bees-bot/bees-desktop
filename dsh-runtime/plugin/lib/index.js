@@ -45,8 +45,10 @@ const DashboardPreference = z.object({
   widgets: z.array(DashboardWidget).default([])
 });
 
-const BeesUiSettings = z.object({
-  onboardingAiFocus: z.string().default(""),
+// DSH keeps a plugin's settings in its own Config schema. Every field the UI writes is volatile,
+// which is what makes a write land live instead of restarting the plugin.
+export const Config = z.object({
+  onboardingAiFocus: z.string().default("").volatile(),
   onboarding: z.object({
     version: z.number().default(0),
     active: z.boolean().default(false),
@@ -58,38 +60,40 @@ const BeesUiSettings = z.object({
     task: z.string().default("plan"),
     prompt: z.string().default(""),
     inputLocationIds: z.array(z.string()).default([])
-  }).default({}),
-  lastScope: z.string().default(""),
-  systemInstructions: z.string().default(""),
-  activeDashboardId: z.string().default("home"),
-  dashboards: z.array(DashboardPreference).default([]),
-  workItemLayout: z.array(DashboardWidget).default([]),
-  pageLayouts: z.dict(z.array(DashboardWidget)).default({}),
-  memoryModel: z.string().default(""),
-  localModelWantedIds: z.array(z.string()).default([]),
-  removedLocalModelIds: z.array(z.string()).default([]),
-  themePreset: z.string().default("forest"),
-  colorMode: z.string().default("dark"),
-  darkThemePreset: z.string().default("forest"),
-  lightThemePreset: z.string().default("emerald"),
-  organizationColors: z.dict(z.string()).default({}),
-  freeAiProviders: z.array(z.string()).default([]),
-  generalAiProviders: z.array(z.string()).default([]),
-  generalAiModels: z.dict(z.array(ModelPreference)).default({}),
-  codexModels: z.array(ModelPreference).default([]),
+  }).default({}).volatile(),
+  lastScope: z.string().default("").volatile(),
+  lastConnectionId: z.string().default("").volatile(),
+  systemInstructions: z.string().default("").volatile(),
+  activeDashboardId: z.string().default("home").volatile(),
+  dashboards: z.array(DashboardPreference).default([]).volatile(),
+  workItemLayout: z.array(DashboardWidget).default([]).volatile(),
+  pageLayouts: z.dict(z.array(DashboardWidget)).default({}).volatile(),
+  seenFiles: z.dict(z.array(z.string())).default({}).volatile(),
+  memoryModel: z.string().default("").volatile(),
+  localModelWantedIds: z.array(z.string()).default([]).volatile(),
+  removedLocalModelIds: z.array(z.string()).default([]).volatile(),
+  themePreset: z.string().default("forest").volatile(),
+  colorMode: z.string().default("dark").volatile(),
+  darkThemePreset: z.string().default("forest").volatile(),
+  lightThemePreset: z.string().default("emerald").volatile(),
+  organizationColors: z.dict(z.string()).default({}).volatile(),
+  freeAiProviders: z.array(z.string()).default([]).volatile(),
+  generalAiProviders: z.array(z.string()).default([]).volatile(),
+  generalAiModels: z.dict(z.array(ModelPreference)).default({}).volatile(),
+  codexModels: z.array(ModelPreference).default([]).volatile(),
   externalLocalAiProfile: z.object({
     displayName: z.string(),
     api: z.string(),
     baseURL: z.string(),
     models: z.array(ModelPreference).default([])
-  }).default({}),
+  }).default({}).volatile(),
   localModels: z.array(z.object({
     id: z.string(),
     name: z.string(),
     fileName: z.string(),
     url: z.string(),
     bytes: z.number().default(0)
-  })).default([])
+  })).default([]).volatile()
 });
 
 function equalSecret(left, right) {
@@ -167,7 +171,19 @@ function register(ctx, route) {
   ctx.effect(() => ctx.webServer.register(route), `bees route ${route.path}`);
 }
 
-export async function apply(ctx, _config = {}, internals = {}) {
+// Read the live settings and write them back through DSH's settings service, so a change here and
+// a change from the browser land in the same profile document.
+function liveSettings(ctx, config, logger) {
+  const current = () => Object.fromEntries(Object.entries(config ?? {})
+    .map(([key, field]) => [key, typeof field?.get === "function" ? field.get() : field]));
+  return {
+    get: current,
+    update: (patch) => ctx.settings.update("bees", patch)
+      .catch((error) => logger.warn(`bees: settings were not saved: ${userMessage(error)}`))
+  };
+}
+
+export async function apply(ctx, config = {}, internals = {}) {
   const databasePath = process.env.BEES_DATABASE_PATH;
   const token = process.env.BEES_DSH_TOKEN;
   const workspace = process.env.BEES_DEFAULT_WORKSPACE;
@@ -200,7 +216,9 @@ export async function apply(ctx, _config = {}, internals = {}) {
     await capabilities?.close();
     database.close();
   }, "bees shutdown");
-  const beesSettings = ctx.settings.register("bees-ui", BeesUiSettings);
+  const beesSettings = liveSettings(ctx, config, ctx.logger);
+  // Bees owns these screens; without this, DSH also generates a settings page from the same fields.
+  ctx.effect(() => ctx.settings.configure({ auto: false }, ctx.fiber), "bees settings presentation");
   step("bees.database.initialize", () => initializeProductDatabase(database));
   connected = new ConnectedAccount(database, ctx.credentials, undefined, ctx.logger);
   capabilities = new Capabilities(ctx, database, workspace, connected);

@@ -207,6 +207,9 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     return () => { clearTimeout(refreshTimer); source.close(); };
   }, []);
   useEffect(() => {
+    // A first render holds no values, so this would push the forest/dark default into DSH's theme and
+    // persist it over the saved choice. Wait for the served settings; the effect re-runs when they land.
+    if (preferences.getSnapshot().status !== "ready") return;
     const theme = ctx.get?.("theme") ?? ctx.theme;
     const preset = THEME_PRESETS.find(({ id }) => id === preference.themePreset)
       ?? THEME_PRESETS.find(({ id }) => id === "forest");

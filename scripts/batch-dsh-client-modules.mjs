@@ -1,4 +1,4 @@
-// DSH 0.1.5-rc.2 rebuilds every browser bundle after each plugin activation.
+// DSH 0.1.7-alpha.1 rebuilds every browser bundle after each plugin activation.
 // Batch those activations until appReady; an early graph/page request still
 // flushes immediately, and hot reload keeps its normal microtask behavior.
 export function batchDshClientModules(source) {

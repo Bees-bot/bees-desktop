@@ -25,7 +25,9 @@ export class LocalMemory {
   }
 
   models() {
-    return Object.entries(this.settings.get("llm-pi-ai")?.providers ?? {}).flatMap(([provider, profile]) => {
+    // Live provider list from the running profile, so a model started in the browser is usable here.
+    const providers = this.settings.describe().find((row) => row.ns === "llm-pi-ai")?.value?.providers ?? {};
+    return Object.entries(providers).flatMap(([provider, profile]) => {
       if (!(provider === "local-openai" || provider.startsWith("local-openai-") || provider === "external-local-ai")) return [];
       let url;
       try { url = new URL(profile.baseURL); } catch { return []; }
