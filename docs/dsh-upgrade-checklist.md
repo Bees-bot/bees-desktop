@@ -23,8 +23,9 @@ Run these from `bees-desktop`:
 ```sh
 npm ci
 npm run check
+npm run prepare:dsh
 cargo check --manifest-path src-tauri/Cargo.toml
-cargo test --manifest-path src-tauri/Cargo.toml
+cargo test --manifest-path src-tauri/Cargo.toml --lib
 npm run tauri:build
 ```
 
@@ -37,13 +38,12 @@ approval checkpoint tests are part of the same suite.
 From `bees-server`, run the Stage 1 size gate:
 
 ```sh
-./scripts/count-lines-of-code-dsh.sh
+./scripts/count-lines-of-code.sh
 ```
 
-Regenerate the two checked-in CycloneDX files under `docs/sbom/` with the release
-pipeline, review new licenses and native artifacts, and fail the release if the
-SBOM does not match the packaged desktop. Finally, exercise this packaged critical
-flow without a network connection:
+Review new licenses and native artifacts, and refresh the two checked-in CycloneDX
+files under `docs/sbom/` by hand; nothing regenerates them automatically. Finally,
+exercise this packaged critical flow without a network connection:
 
 1. launch with no account and create a team plus two workspaces;
 2. map one team folder and reference it from work in both workspaces;
