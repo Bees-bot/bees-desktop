@@ -335,6 +335,8 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
     }) : [h(Empty, { key: "empty" }, "No process templates yet")]));
   return h(GridStackPage, {
     layoutId: "processes", defaults: PROCESSES_LAYOUT, preference, preferences, setPageActions,
+    pageActions: h(Button, { className: "primary", disabled: !workspaceId,
+      onClick: () => { setProcessDraft(null); setCreating("process"); } }, "New process template"),
     panels: {
       processes: {
         label: "Process Templates",
@@ -342,9 +344,7 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
           h("select", { className: "bees-select", value: templateStatus, "aria-label": "Process template status",
             onChange: (event) => setTemplateStatus(event.target.value) },
             h("option", { value: "active" }, "Active"), h("option", { value: "archived" }, "Archived")),
-          h(Button, { disabled: !workspaceId, onClick: () => setPlanning(true) }, "Build with Bees"),
-          h(Button, { className: "primary", disabled: !workspaceId,
-            onClick: () => { setProcessDraft(null); setCreating("process"); } }, "New process template")),
+          h(Button, { disabled: !workspaceId, onClick: () => setPlanning(true) }, "Build with Bees")),
         minW: 6, minH: 4,
         content: h("div", { className: "bees-stack" },
           planning ? h(ProcessPlanner, { workspaceId, act, openWorkItem, onClose: () => setPlanning(false) }) : null,
