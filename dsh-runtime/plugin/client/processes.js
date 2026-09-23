@@ -333,18 +333,19 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
           h("div", { className: "bees-row-title" }, process.name), h("div", { className: "bees-muted" }, subtitle)),
         h(ProcessListActions, { process, act, openWorkItem }));
     }) : [h(Empty, { key: "empty" }, "No process templates yet")]));
-  return h(GridStackPage, {
-    layoutId: "processes", defaults: PROCESSES_LAYOUT, preference, preferences, setPageActions,
-    panels: {
-      beforeGrid: h("div", { className: "bees-row", style: { padding: "0 16px", justifyContent: "flex-end", marginBottom: "8px" } },
-        h("select", { className: "bees-select", value: templateStatus, "aria-label": "Process template status",
-          onChange: (event) => setTemplateStatus(event.target.value) },
-          h("option", { value: "active" }, "Active"), h("option", { value: "archived" }, "Archived")),
-        h(Button, { disabled: !workspaceId, onClick: () => setPlanning(true) }, "Build with Bees"),
-        h(Button, { className: "primary", disabled: !workspaceId,
-          onClick: () => { setProcessDraft(null); setCreating("process"); } }, "New process template")
-      ),
-      processes: {
+  return h("div", { className: "bees-stack bees-flex-page" },
+    h("div", { className: "bees-search", style: { justifyContent: "flex-end", padding: "16px 24px 0" } },
+      h("select", { className: "bees-select", value: templateStatus, "aria-label": "Process template status",
+        onChange: (event) => setTemplateStatus(event.target.value) },
+        h("option", { value: "active" }, "Active"), h("option", { value: "archived" }, "Archived")),
+      h(Button, { disabled: !workspaceId, onClick: () => setPlanning(true) }, "Build with Bees"),
+      h(Button, { className: "primary", disabled: !workspaceId,
+        onClick: () => { setProcessDraft(null); setCreating("process"); } }, "New process template")
+    ),
+    h(GridStackPage, {
+      layoutId: "processes", defaults: PROCESSES_LAYOUT, preference, preferences, setPageActions,
+      panels: {
+        processes: {
         label: "Process Templates",
         minW: 6, minH: 4,
         content: h("div", { className: "bees-stack" },
@@ -352,5 +353,6 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
           processList)
       }
     }
-  });
+    })
+  );
 }

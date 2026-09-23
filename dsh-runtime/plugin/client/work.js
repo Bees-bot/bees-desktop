@@ -1275,8 +1275,8 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
         h("td", null, h("span", { className: `bees-status bees-${run.status}` }, LIVE_RUN.includes(run.status) || planDone(run) ? run.status.replaceAll("_", " ") : "ready to apply")),
         h("td"))), ...rendered)) : rendered;
   };
-  return h("div", null,
-    h("div", { className: "bees-row" },
+  return h("div", { className: "bees-flex-page bees-stack" },
+    h("div", { className: "bees-search", style: { padding: "16px 24px 0" } },
       h("input", { className: "bees-input bees-grow", value: query, onChange: (event) => setQuery(event.target.value),
         placeholder: "Search by task name", "aria-label": "Search work items by task name" }),
       h("select", { className: "bees-select", value: status, onChange: (event) => setStatus(event.target.value), "aria-label": "Filter by status" },
