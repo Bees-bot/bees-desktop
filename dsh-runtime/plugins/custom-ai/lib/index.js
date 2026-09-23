@@ -1,11 +1,11 @@
 export const name = "bees-custom-ai";
 export const inject = ["webServer", "credentials"];
 
-// Every provider is tested with the call an agent will make, one token long. Testing the model
+// Every provider is tested with the call an agent will make, a few tokens long. Testing the model
 // list instead proved nothing: OpenRouter, NVIDIA and Hugging Face hand that list to any key.
 const PROVIDERS = {
   openrouter: { url: "https://openrouter.ai/api/v1/chat/completions" },
-  google: { url: "https://generativelanguage.googleapis.com/v1beta/models", queryKey: true },
+  google: { url: "https://generativelanguage.googleapis.com/v1beta/models", gemini: true },
   groq: { url: "https://api.groq.com/openai/v1/chat/completions" },
   cerebras: { url: "https://api.cerebras.ai/v1/chat/completions" },
   mistral: { url: "https://api.mistral.ai/v1/chat/completions" },
@@ -77,18 +77,18 @@ function providerFailure(status, text) {
   return reason;
 }
 
-// One token of a real answer, so a failed key is a failed call and not a refused list request.
+// A few tokens of a real answer, so a failed key is a failed call and not a refused list request.
 async function probe(definition, model, key) {
   const url = new URL(definition.url);
   const headers = { accept: "application/json", "content-type": "application/json" };
-  if (definition.queryKey) {
-    // Google is not OpenAI-shaped: the model is a path segment and the key is a query parameter.
+  if (definition.gemini) {
+    // Google is not OpenAI-shaped: the model is a path segment, and the key goes in a header to stay out of logs.
     url.pathname += `/${encodeURIComponent(model.replace(/^models\//, ""))}:generateContent`;
-    url.searchParams.set("key", key);
+    headers["x-goog-api-key"] = key;
   } else headers.authorization = `Bearer ${key}`;
-  const body = definition.queryKey
-    ? { contents: [{ parts: [{ text: "hi" }] }], generationConfig: { maxOutputTokens: 1 } }
-    : { model, max_tokens: 1, messages: [{ role: "user", content: "hi" }] };
+  const body = definition.gemini
+    ? { contents: [{ parts: [{ text: "hi" }] }], generationConfig: { maxOutputTokens: 16 } }
+    : { model, max_tokens: 16, messages: [{ role: "user", content: "hi" }] };
   try {
     const response = await fetch(url, { method: "POST", headers, body: JSON.stringify(body), signal: AbortSignal.timeout(30_000) });
     // read in here so the same 30 seconds covers the body, and a host that dies mid-answer reads as unreachable
@@ -105,13 +105,14 @@ export function apply(ctx) {
     handler: async (req, res) => {
       if (req.method !== "POST") return json(res, 405, { error: "method not allowed" });
       try {
-        const { provider, model } = await requestBody(req);
+        const { provider, model, key: pasted } = await requestBody(req);
         const definition = Object.hasOwn(PROVIDERS, provider) ? PROVIDERS[provider] : null;
         if (!definition) throw new Error("Choose a supported provider");
         if (typeof model !== "string" || !model.trim()) throw new Error("Add a model ID for this provider, then test again.");
-        const key = (await ctx.credentials.resolve(refFor(provider)))?.value;
+        // a key being added is tested before it is saved
+        const key = String(pasted ?? "").trim() || (await ctx.credentials.resolve(refFor(provider)))?.value;
         if (!key) throw new Error("Add the API key first");
-        const { response, text } = await probe(definition, model, key);
+        const { response, text } = await probe(definition, model.trim(), key);
         if (!response.ok) throw new Error(providerFailure(response.status, text));
         if (!reply(text)) throw new Error(upstreamReason(text)
           || "The provider answered, but not with a model reply. Check the API key and the model ID, then test again.");
