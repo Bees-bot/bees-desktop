@@ -394,8 +394,7 @@ async function buildMacLlamaRuntime(temporaryRoot, runtimeRoot, serverName) {
 function signMac(paths, label) {
   const identity = (process.env.APPLE_SIGNING_IDENTITY ?? "").trim();
   const adhoc = !identity || identity === "-";
-  // Entitlements are in the binary, not in the source: the bundled Claude CLI arrives with
-  // five of them, and a plain re-sign drops every one.
+  // Entitlements live in the binary, not the source, so a plain re-sign silently drops them.
   const signArgs = adhoc
     ? ["--force", "--timestamp=none", "--preserve-metadata=entitlements", "--sign", "-"]
     : ["--force", "--timestamp", "--options", "runtime", "--preserve-metadata=entitlements", "--sign", identity];

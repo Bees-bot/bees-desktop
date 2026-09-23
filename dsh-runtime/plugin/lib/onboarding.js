@@ -28,7 +28,6 @@ const vague = (text) => !String(text ?? "").trim() || /^connection error\.?$/i.t
 async function probeModel(ctx, { resolvedModel, resolvedReasoningEffort }) {
   const separator = resolvedModel.indexOf("/");
   const selection = { provider: resolvedModel.slice(0, separator), model: resolvedModel.slice(separator + 1) };
-  const where = resolvedModel;
   const signal = AbortSignal.timeout(60_000);
   let text = false;
   let finished = false;
@@ -44,13 +43,13 @@ async function probeModel(ctx, { resolvedModel, resolvedReasoningEffort }) {
       if (["error", "aborted"].includes(chunk.reason.kind)) {
         const cause = chunk.reason.failure?.message;
         throw new Error(vague(cause)
-          ? `${where} did not answer. Check this connection under Settings → AI connections, then run the test again.`
-          : `${where} did not answer: ${cause}`);
+          ? `${resolvedModel} did not answer. Check this connection under Settings → AI connections, then run the test again.`
+          : `${resolvedModel} did not answer: ${cause}`);
       }
       finished = true;
     }
   }
   signal.throwIfAborted();
-  if (!finished || !text) throw new Error(`${where} did not return a greeting. Try again or choose another model.`);
+  if (!finished || !text) throw new Error(`${resolvedModel} did not return a greeting. Try again or choose another model.`);
   return selection;
 }

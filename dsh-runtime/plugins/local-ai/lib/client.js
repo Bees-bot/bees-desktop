@@ -137,14 +137,6 @@ window.__ModuleLoader__.load({
         const models = allModels(config);
         const wanted = wantedModelIds(config);
         void (async () => {
-          const providers = settingValue(modelSettings).providers ?? {};
-          const renamed = Object.fromEntries(Object.entries(providers).map(([id, profile]) => {
-            if (id !== "local-openai" && !id.startsWith("local-openai-")) return [id, profile];
-            const displayName = profile.displayName?.replace(/^Local AI(?= ·|$)|^Local OpenAI-compatible$/, "Bees AI");
-            return [id, displayName !== profile.displayName ? { ...profile, displayName } : profile];
-          }));
-          if (Object.keys(providers).some((id) => renamed[id] !== providers[id]))
-            await modelSettings.set("providers", renamed);
           for (const id of wanted) {
             const model = models.find(({ id: modelId }) => modelId === id);
             if (!model) continue;
