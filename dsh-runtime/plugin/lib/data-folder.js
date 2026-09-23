@@ -6,8 +6,6 @@ import { basename, join, resolve, sep } from "node:path";
 export const dataDirectory = () => process.env.BEES_DATA_DIR;
 export const appDirectory = () => process.env.BEES_APP_DATA;
 export const sharedFolder = () => dataDirectory() !== appDirectory();
-// both computers read the shared folder, so nothing under it belongs to one of them alone
-export const inSharedFolder = (path) => sharedFolder() && path.startsWith(dataDirectory() + sep);
 // several computers open a shared folder, so the app writes this computer's id beside itself
 export const deviceId = () => readFileSync(join(appDirectory(), "device-id"), "utf8").trim();
 
@@ -29,7 +27,7 @@ export function assertNothingRunning(database, live) {
 export async function useDataFolder(database, directory, live) {
   const target = resolve(String(directory ?? "").trim() || appDirectory());
   if (!existsSync(target) || !statSync(target).isDirectory())
-    throw new Error("That folder is not on this computer. Pick one that exists here, or open Settings → Data folder and switch back to this computer.");
+    throw new Error("That folder is not on this computer. Pick one that exists here, or open Settings → Data folder and use this computer again.");
   if (target.startsWith(appDirectory() + sep))
     throw new Error("Choose a folder outside Bees, one this computer shares with your other computer");
   if (target === dataDirectory()) return { path: target, shared: sharedFolder(), restart: false };

@@ -1,6 +1,6 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { appDirectory, assertNothingRunning, inSharedFolder } from "./data-folder.js";
+import { appDirectory, assertNothingRunning } from "./data-folder.js";
 
 /**
  * The folders a person picked for this computer: one per organization, team, workspace and MCP server.
@@ -24,14 +24,11 @@ const WORKSPACES = `SELECT w.id, w.name, w.team_id AS teamId, t.name AS teamName
 let chosen = {};
 let roots = new Map();
 let opened = null;
-let namedRoot = "";
 
 const rootsFile = () => join(appDirectory(), "roots.json");
 
-/** The folder the app names at startup, where runs live until a workspace is given one of its own. */
-export const setDefaultRoot = (path) => { if (path) namedRoot = path; };
-
-const defaultRoot = () => namedRoot || process.env.BEES_DEFAULT_WORKSPACE;
+/** Where runs live until a workspace is given a folder of its own. */
+const defaultRoot = () => process.env.BEES_DEFAULT_WORKSPACE;
 
 /** A name safe to be a folder, the same way the folders under a root were always named. */
 const folderName = (name, id) => String(name).trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || String(id);
@@ -134,7 +131,7 @@ export function shortPath(workspaceId, path) {
 
 /** What comes back out: the same stored value read against this computer's own folder. */
 export function resolveStored(workspaceId, stored) {
-  if (!stored || String(stored).split("/").includes(".."))
+  if (!stored || isAbsolute(stored) || String(stored).split("/").includes(".."))
     throw new Error(`A stored folder has to be a path inside its workspace, and this one is ${stored || "empty"}`);
   return resolve(workspaceRoot(workspaceId), stored);
 }
@@ -142,8 +139,8 @@ export function resolveStored(workspaceId, stored) {
 // every run folder the database names for one workspace, which is what moves with its root
 const STORED_RUNS = `SELECT run_directory AS folder FROM execution_links WHERE workspace_id = ?
   UNION
-  SELECT 'runs/' || r.root_id FROM bees_run_resources r JOIN work_items w ON w.id = r.root_id
-    JOIN processes p ON p.id = w.process_id WHERE p.workspace_id = ?`;
+  SELECT r.directory FROM bees_run_resources r JOIN work_items w ON w.id = r.root_id
+    JOIN processes p ON p.id = w.process_id WHERE p.workspace_id = ? AND r.directory IS NOT NULL`;
 
 /** Every workspace whose folder moves when `picks` takes effect, with the folder it uses before and after. */
 const movingRoots = (database, picks) => database.prepare(WORKSPACES).all()
@@ -152,23 +149,20 @@ const movingRoots = (database, picks) => database.prepare(WORKSPACES).all()
 
 /**
  * Copies the runs already written under the old folder to the new one, so a stored run and its files
- * still meet. Nothing is deleted here: the copies are complete before the folders file changes.
+ * still meet. The old folder is left alone: it may be a synced folder another computer still reads.
  */
 function copyRuns(database, moving, live) {
-  if (!moving.length) return [];
+  if (!moving.length) return;
   assertNothingRunning(database, live);
-  const copied = [];
   for (const row of moving) for (const { folder } of database.prepare(STORED_RUNS).all(row.id, row.id)) {
-    const source = join(row.from, folder);
+    const source = resolveStored(row.id, folder);
     if (!existsSync(source)) continue;
     const target = join(row.to, folder);
     mkdirSync(dirname(target), { recursive: true });
-    // a picked folder is usually another disk, where a rename will not do
-    cpSync(source, target, { recursive: true });
-    // a run in the shared folder is the other computer's too, so the copy here does not replace it
-    if (!inSharedFolder(source)) copied.push(source);
+    // a picked folder is usually another disk, so copy, and keep the newer file so neither computer's work is undone
+    cpSync(source, target, { recursive: true, preserveTimestamps: true,
+      filter: (from, to) => !existsSync(to) || statSync(from).isDirectory() || statSync(from).mtimeMs > statSync(to).mtimeMs });
   }
-  return copied;
 }
 
 /** Points a level at a folder on this computer, or clears it back to the level above. */
@@ -178,8 +172,7 @@ export function setFolderRoot(database, { level, id, directory, live }) {
   const next = { ...chosen };
   if (target) next[`${level}:${id}`] = target;
   else delete next[`${level}:${id}`];
-  const copied = copyRuns(database, movingRoots(database, next), live);
+  copyRuns(database, movingRoots(database, next), live);
   writeRoots(next);
-  for (const path of copied) rmSync(path, { recursive: true, force: true });
   refreshFolderRoots(database);
 }

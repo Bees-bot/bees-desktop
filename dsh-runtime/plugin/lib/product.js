@@ -1,5 +1,5 @@
 import { dataDirectory, sharedFolder } from "./data-folder.js";
-import { assertRootOnDisk, folderChoices, rootOnDisk, setDefaultRoot, workspaceRoot } from "./folder-roots.js";
+import { assertRootOnDisk, folderChoices, rootOnDisk, workspaceRoot } from "./folder-roots.js";
 import { WorkContext } from "./work-context.js";
 import { WorkMemory } from "./work-memory.js";
 import { randomUUID } from "node:crypto";
@@ -57,7 +57,6 @@ export class BeesProduct {
     this.agents = agents;
     this.processes = processes;
     this.defaultWorkspace = defaultWorkspace;
-    setDefaultRoot(defaultWorkspace);
     this.workspaceRegistry = services.workspaceRegistry;
     this.knowledge = new TeamKnowledgeSearch(defaultWorkspace, services.googleDrive);
     this.agentPresets = services.agentPresets;
