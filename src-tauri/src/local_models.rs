@@ -632,11 +632,16 @@ fn download_model(app: &AppHandle, spec: &ModelSpec, cancelled: &AtomicBool) -> 
     }
     let mut response = request.send().map_err(|error| error.to_string())?;
     if !response.status().is_success() {
-        // A CDN blip reaches the user as a bare status code, which says nothing about what to do.
-        return Err(format!(
-            "The model host returned {} while downloading. Try the download again in a moment.",
-            response.status()
-        ));
+        // 416: the half-downloaded file no longer matches the host, so the next try starts over
+        if response.status() == StatusCode::RANGE_NOT_SATISFIABLE {
+            let _ = fs::remove_file(&part);
+        }
+        let retry = if matches!(response.status().as_u16(), 416 | 429 | 500..=599) {
+            " Try the download again in a moment."
+        } else {
+            ""
+        };
+        return Err(format!("The model host returned {} while downloading.{retry}", response.status()));
     }
     let resumed = offset > 0 && response.status() == StatusCode::PARTIAL_CONTENT;
     if offset > 0 && !resumed {
@@ -661,8 +666,10 @@ fn download_model(app: &AppHandle, spec: &ModelSpec, cancelled: &AtomicBool) -> 
         None => spec.bytes,
     };
     if spec.bytes > 0 && total != spec.bytes {
+        drop(output);
+        let _ = fs::remove_file(&part);
         return Err(format!(
-            "Unexpected model download size: expected {} bytes, got {total}. Delete the model and download it again.",
+            "Unexpected model download size: expected {} bytes, got {total}. Try the download again.",
             spec.bytes
         ));
     }
