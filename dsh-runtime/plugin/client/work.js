@@ -606,7 +606,7 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onScheduleCre
       h(React.Fragment, null,
         h(Button, { onClick: onBack }, "← Process Runs"),
         h("div", { style: { display: "flex", flexDirection: "column", marginLeft: 12, minWidth: 0 } },
-          h("div", { className: "bees-title", style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, root.title),
+          h("div", { className: "bees-title", title: root.title, style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, root.title.length > 60 ? root.title.slice(0, 60).trim() + "…" : root.title),
           h("div", { className: "bees-context", style: { marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, `${process?.name ?? "Process"} · ${completed} of ${total} work items complete`)
         )
       )
@@ -615,7 +615,7 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onScheduleCre
       h(React.Fragment, null,
         editing ? h(Button, { onClick: () => preferences.set("workItemLayout", []) }, "Reset") : null,
         !root.archivedAt && schedulable ? h(Button, { onClick: () => setScheduleEditor(true) }, h("span", {className: "bees-btn-icon"}, "🕒"), "Schedule") : null,
-        h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) }, editing ? "Done" : "Edit layout"),
+        h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) }, editing ? "Done" : "Customize"),
         !editing && !root.archivedAt && !isScheduleDefinition(root) && root.kind !== "plan" ? h(Button, { className: "primary", onClick: () => setAddingWork(true) }, "Add work item") : null
       )
     );
