@@ -44,6 +44,11 @@ expected to write. Anything else in that file is left alone.
 - `@deepseek-ai/dsh-deepseek-account` and `@deepseek-ai/dsh-ptc-runtime` are
   direct dependencies and lockfile overrides. Their platform packages import
   them at boot and nothing else pulled them in.
+- Session events changed shape. A `tool/result` carries its call id at
+  `data.message.source.callId`, a `user/message` event's data is the message
+  itself, and the runtime context arrives as a user message whose
+  `source.kind` is `runtime-context`. The client's pending questions moved to
+  `ctx.uiSession.sessionStatus`.
 - The installer patch set is re-anchored for 0.1.7. Both long-standing fixes
   (Agent Team model routing, HMR response completion) are still required, and
   the patch applier fails loudly if an anchor moves.

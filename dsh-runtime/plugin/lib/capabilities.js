@@ -270,7 +270,8 @@ export class Capabilities {
       rows.push(row);
       if (raw.broken) continue;
       try {
-        const scope = await this.ctx.agentPresets.standingKeyFor(preset.id);
+        await using lease = await this.ctx.agentPresets.acquireScope(preset.id);
+        const scope = lease.key;
         row.tools = this.ctx.tools.schemas(scope)
           .map(({ name, description }) => ({ name, description: description ?? "" }))
           .sort((left, right) => left.name.localeCompare(right.name));
