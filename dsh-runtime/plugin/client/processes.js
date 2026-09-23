@@ -10,8 +10,9 @@ const TEMPLATES_LAYOUT = [
   { kind: "templates", x: 0, y: 2, w: 12, h: 10 }
 ];
 const PROCESS_DETAIL_LAYOUT = [
-  { kind: "routing", x: 0, y: 0, w: 12, h: 7 },
-  { kind: "archive", x: 0, y: 7, w: 12, h: 3 }
+  { kind: "routing", x: 0, y: 0, w: 12, h: 6 },
+  { kind: "files", x: 0, y: 6, w: 6, h: 5 },
+  { kind: "mcp", x: 6, y: 6, w: 6, h: 5 }
 ];
 
 function StageAgentRoute({ stage, agents, servers = [], act, onOpenAgent, onCreateAgent }) {
@@ -21,50 +22,51 @@ function StageAgentRoute({ stage, agents, servers = [], act, onOpenAgent, onCrea
   const fallback = !ids.length && agents.find((agent) => agent.systemRole === (stage.driver === "review" ? "reviewer" : "worker"));
   const selected = ids.map((id) => agents.find((agent) => agent.id === id)).filter(Boolean);
   const available = agents.filter((agent) => agent.enabled && !ids.includes(agent.id));
+  const leadOptions = agents.filter((agent) => agent.enabled || ids.includes(agent.id));
   const save = (agentIds) => act({
     action: "set_stage_route", stageId: stage.id, agentIds,
     requiredCapabilities: stage.requiredCapabilities
   });
-  const move = (index, offset) => {
-    const reordered = [...ids];
-    [reordered[index], reordered[index + offset]] = [reordered[index + offset], reordered[index]];
-    return save(reordered);
-  };
-  return h("div", { className: "bees-form", style: { marginTop: "8px" } },
-    fallback ? h("div", { className: "bees-row" },
-      h("div", { className: "bees-row-main" }, h("strong", null, fallback.name),
-        h("span", { className: "bees-muted" }, " · Automatic lead"), needsNote(fallback, servers)),
-      h(Button, { onClick: () => onOpenAgent(fallback.id) }, "Configure")) : null,
-    ...selected.map((agent, index) => h("div", { className: "bees-row", key: agent.id },
-      h("div", { className: "bees-row-main" },
-        h("strong", null, agent.name),
-        h("span", { className: "bees-muted" }, index === 0 ? (ids.length > 1 ? " · Lead" : " · Assigned agent") : " · Participant"),
-        needsNote(agent, servers)),
-      h(Button, { onClick: () => onOpenAgent(agent.id) }, "Configure"),
-      h(Button, { disabled: index === 0, onClick: () => move(index, -1), title: "Move earlier" }, "↑"),
-      h(Button, { disabled: index === ids.length - 1, onClick: () => move(index, 1), title: "Move later" }, "↓"),
-      h(Button, { onClick: () => save(ids.filter((id) => id !== agent.id)) }, "Remove"))),
-    stage.driver === "review" && ids.length ? null : h("div", { className: "bees-row" },
-      h("select", { className: "bees-select bees-grow", value: nextId, disabled: !available.length,
-        "aria-label": `${stage.name} agent to add`, onChange: (event) => setNextId(event.target.value) },
-        h("option", { value: "" }, available.length ? "Choose an agent" : "No more available agents"),
-        ...available.map((agent) => h("option", { value: agent.id, key: agent.id }, agent.name))),
-      h(Button, { className: "primary", disabled: !nextId, onClick: async () => {
-        await save([...ids, nextId]); setNextId("");
-      } }, ids.length ? "Add participant" : "Assign agent")),
-    ids.length ? h(Button, { onClick: () => save([]) }, "Use automatic assignment") : h("p", { className: "bees-muted" }, stage.driver === "review" ? "An eligible independent reviewer is selected automatically." : "The lead handles the stage and selects suitable specialists when useful."),
-    h(Button, { onClick: onCreateAgent }, "+ Create new agent"),
-    ids.length > 1 ? h("p", { className: "bees-muted" }, "The first agent leads. Participants contribute analysis or execution through the same peer workflow.") : null
+  return h("div", { className: "bees-hierarchy-card bees-route-card", style: { cursor: "default" } },
+    h("label", { className: "bees-route-field" }, h("strong", null, stage.driver === "review" ? "Reviewer" : "Lead agent"),
+      h("div", { className: "bees-route-control" },
+        h("select", { className: "bees-select", value: selected[0]?.id ?? "", onChange: (event) => {
+          const id = event.target.value;
+          return save(id ? [id, ...(ids.includes(id) ? ids.filter((value) => value !== id) : ids.slice(1))] : []);
+        } },
+          h("option", { value: "" }, "Automatic assignment"),
+          ...leadOptions.map((agent) => h("option", { value: agent.id, key: agent.id }, agent.name))),
+        selected[0] ? h(Button, { onClick: () => onOpenAgent(selected[0].id), title: "Edit lead agent", "aria-label": "Edit lead agent" }, "Edit") : null)),
+    selected[0] ? needsNote(selected[0], servers) : h("p", { className: "bees-muted", style: { margin: 0 } }, fallback
+        ? (stage.driver === "review" ? `${fallback.name} is selected as the independent reviewer.` : `${fallback.name} is the automatic lead. Bees may add specialists when useful.`)
+        : (stage.driver === "review" ? "Bees chooses an eligible independent reviewer automatically." : "Bees chooses the best available agent when work reaches this stage.")),
+    stage.driver === "review" || !ids.length ? null : h("div", { className: "bees-route-field" },
+      h("strong", null, "Participants"),
+      ...selected.slice(1).map((agent) => h("div", { className: "bees-route-agent", key: agent.id },
+        h("button", { type: "button", className: "bees-route-agent-link", onClick: () => onOpenAgent(agent.id) }, agent.name),
+        h(Button, { className: "danger", onClick: () => save(ids.filter((id) => id !== agent.id)), title: `Remove ${agent.name}`, "aria-label": `Remove ${agent.name}` }, "×"))),
+      h("div", { className: "bees-route-control" },
+        h("select", { className: "bees-select bees-grow", value: nextId, disabled: !available.length,
+          "aria-label": `${stage.name} agent to add`, onChange: (event) => setNextId(event.target.value) },
+          h("option", { value: "" }, available.length ? "Add a participant" : "No agents available"),
+          ...available.map((agent) => h("option", { value: agent.id, key: agent.id }, agent.name))),
+        h(Button, { className: "primary", disabled: !nextId, onClick: async () => {
+          await save([...ids, nextId]); setNextId("");
+        } }, "Add"))),
+    h(Button, { onClick: onCreateAgent }, "+ New agent")
   );
 }
 
 export function ProcessRoutingBoard({ stages, agents, servers = [], act, onOpenAgent, onCreateAgent }) {
-  return h("div", { className: "bees-cockpit-board bees-routing-board" }, ...stages.map((stage) =>
+  return h("div", { className: "bees-cockpit-board bees-routing-board" }, ...stages.map((stage, index) =>
     h("section", { className: "bees-column", key: stage.id },
-      h("header", { className: "bees-column-head" }, stage.name),
+      h("header", { className: "bees-column-head" }, h("span", null, `${index + 1}. ${stage.name}`),
+        h("span", { className: "bees-count" }, ["manual", "terminal"].includes(stage.driver)
+          ? (stage.driver === "terminal" ? "Finish" : "Human")
+          : (stage.agentIds?.length ? `${stage.agentIds.length} agent${stage.agentIds.length === 1 ? "" : "s"}` : "Auto"))),
       h("div", { className: "bees-cards" },
         ["manual", "terminal"].includes(stage.driver)
-          ? h("div", { className: "bees-hierarchy-card", style: { cursor: "default" } },
+          ? h("div", { className: "bees-hierarchy-card bees-route-terminal", style: { cursor: "default" } },
             h("span", { className: "bees-badge" }, stage.driver === "terminal" ? "Terminal" : "Human"),
             h("p", { className: "bees-muted", style: { marginTop: "8px" } },
               stage.driver === "terminal" ? "Work completes here." : "A person moves work through this stage."))
@@ -94,41 +96,38 @@ function ProcessForm({ ctx, data, servers, tools, catalog, onServerAction, kind,
     if (created?.id) onCreated(created.id);
   });
 
-  return h("form", { className: "bees-form", onSubmit, style: { gap: "24px", paddingTop: "8px" } },
+  return h("form", { className: "bees-form bees-process-form", onSubmit },
     h(PageHead, { setPageHeader }, 
       h(Button, { onClick: onCancel }, "← Process Templates"),
       h("div", null,
         h("h2", null, template ? "New process template" : draft ? "Create process template from preset" : "New process template"),
-        h("div", { className: "bees-muted" }, template
-          ? "A template is a reusable blueprint. It does not run work by itself."
-          : "Define the reusable workflow here. Each line becomes a stage; the final stage is Done."))
+        template ? h("div", { className: "bees-muted" }, "A template is a reusable blueprint. It does not run work by itself.") : null)
     ),
-    h("label", null, template ? "Template name" : "Process template name", h("input", { className: "bees-input", name: "name", required: true, autoFocus: true,
+    h("label", { className: "bees-process-name" }, template ? "Template name" : "Process template name", h("input", { className: "bees-input", name: "name", required: true, autoFocus: true,
       defaultValue: draft?.name ?? "", placeholder: template ? "Editorial workflow" : "Publish an article" })),
-    h("label", null, "Description & instructions", h("textarea", { className: "bees-textarea", name: "description", defaultValue: draft?.description ?? "",
-      placeholder: "Describe this workflow, its instructions and completion criteria. Every assigned agent receives this brief." })),
-    h("label", null, "Stages (one per line)",
+    h("label", { className: "bees-process-description" }, "Description & instructions", h("textarea", { className: "bees-textarea", name: "description", defaultValue: draft?.description ?? "",
+      placeholder: "Describe the goal, instructions, and completion criteria." })),
+    h("label", { className: "bees-process-stages" }, "Stages (one per line)",
       h("textarea", { className: "bees-textarea", name: "stages", required: true,
         defaultValue: initialStages.join("\n"), "aria-describedby": "process-stage-help" }),
-      h("span", { className: "bees-muted", id: "process-stage-help" }, "Use 2–12 unique stages. Leave assignment automatic or choose a lead and participants; Review uses one independent reviewer; Approval or Sign-off requires human approval; the last stage completes the work.")),
-    template ? null : h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds,
-      onInputIds: setInputLocationIds, outputId: outputLocationId, onOutputId: setOutputLocationId }),
-    template ? null : h("div", { style: { display: "grid", gap: "5px" } },
-      h("p", { className: "bees-muted", style: { margin: 0 } }, "Process MCPs are available to every agent in this process, alongside each agent's own MCPs."),
+      h("span", { className: "bees-muted", id: "process-stage-help" }, "Use 2–12 unique stages. The final stage completes the work.")),
+    template ? null : h("div", { className: "bees-process-files" }, h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds,
+      onInputIds: setInputLocationIds, outputId: outputLocationId, onOutputId: setOutputLocationId, compact: true })),
+    template ? null : h("div", { className: "bees-process-mcps" },
       h(McpAccess, { ctx, servers, tools, catalog, onServerAction, access: "none", scope: "process" })),
-    h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Creating…" : template ? "Create template" : "Create process template"),
+    h("div", { className: "bees-detail-actions bees-process-actions" }, h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Creating…" : template ? "Create template" : "Create process template"),
       h(Button, { onClick: onCancel }, "Cancel"))
   );
 }
 
-export function ProcessMcpForm({ ctx, process, servers, tools, catalog, onServerAction, act, showAll = false }) {
+export function ProcessMcpForm({ ctx, process, servers, tools, catalog, onServerAction, act, showAll = false, compact = false }) {
   const [busy, onSubmit] = useSubmit(async (event) => {
     const form = new FormData(event.currentTarget);
     await act({ action: "set_process_mcp", processId: process.id,
       mcpAccess: String(form.get("mcpAccess") ?? "none"), mcpServers: form.getAll("mcpServers").map(String) });
   });
   return h("form", { className: "bees-form", onSubmit, style: { paddingTop: "8px" } },
-    h("p", { className: "bees-muted", style: { marginBottom: "16px" } }, "Every agent in this process inherits these MCPs in addition to its own."),
+    compact ? null : h("p", { className: "bees-muted", style: { marginBottom: "16px" } }, "Every agent in this process inherits these MCPs in addition to its own."),
     h(McpAccess, { ctx, servers, tools, catalog, onServerAction, access: process.mcpAccess, chosen: process.mcpServers, scope: "process", showAll }),
     h("div", { style: { display: "flex", justifyContent: "flex-end", marginTop: "16px" } },
       h("button", { className: "bees-btn", disabled: busy, type: "submit" }, busy ? "Saving…" : "Save process MCPs")
@@ -251,15 +250,11 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
           h(AgentEditForm, { ctx, data, servers, tools, catalog, onServerAction, selected: selectedAgent, act, dialog: true, processId: process.id,
             onCancel: () => setSelectedAgentId(""), onSaved: () => setSelectedAgentId("") })) : null;
 
-      const archive = process.kind === "standard" ? h("div", { className: "bees-box", style: { border: "1px solid #cf5b5b44", background: "#cf5b5b11" } },
-        h("h3", { style: { color: "#cf5b5b" } }, "Archive process template"),
-        h("p", { className: "bees-muted", style: { margin: "8px 0 16px" } }, "Archive hides this process template without breaking process-run history or database links."),
-        h(Button, { className: "danger", onClick: archiveProcess }, "Archive process template")) : null;
-
-      const pageActions = h(React.Fragment, null,
+      const processActions = h("div", { className: "bees-detail-actions", style: { justifyContent: "flex-end", margin: "0 0 16px" }, role: "group", "aria-label": "Process template actions" },
           h(Button, { onClick: editProcess }, "Edit"),
           h(Button, { onClick: copyProcess }, "Duplicate"),
-          h(Button, { className: "primary", onClick: () => openWorkItem(null, process.id) }, "Start")
+          process.kind === "standard" ? h(Button, { className: "danger", onClick: archiveProcess }, "Archive") : null,
+          h(Button, { className: "primary", onClick: () => openWorkItem(null, process.id) }, "Start Process")
       );
 
       const routingPanel = h("div", null,
@@ -267,27 +262,23 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
           h(Button, { onClick: () => setProcessId("") }, "← Process Templates"),
           h("div", { className: "bees-title" }, process.name)
         ),
-        h("details", { className: "bees-box", style: { marginBottom: "16px" } },
-          h("summary", null, `Files & folders · ${attached.length} inputs`),
-          h(AttachedResourceFields, { key: process.id, ctx, data, teamId, act,
-            owner: { processId: process.id }, references: attached, outputId: process.outputLocationId ?? "" })),
-        h("details", { className: "bees-box", style: { marginBottom: "16px" } },
-          h("summary", null, "Description & instructions"),
-          h("p", { className: "bees-muted" }, "Shared with workers, discussion participants and reviewers."),
-          h("div", { style: { whiteSpace: "pre-wrap" } }, process.description || "No process instructions configured.")),
-        h("details", { style: { marginBottom: "16px" } },
-          h("summary", null, "Process MCPs"),
-          h(ProcessMcpForm, { key: `${process.id}:${process.mcpAccess}:${JSON.stringify(process.mcpServers)}`,
-            ctx, process, servers, tools, catalog, onServerAction, act })),
+        h("p", { className: "bees-muted bees-route-guide" }, "Stages move from left to right."),
         routingBoard
       );
+      const filesPanel = h("div", null,
+        h(AttachedResourceFields, { key: process.id, ctx, data, teamId, act,
+          owner: { processId: process.id }, references: attached, outputId: process.outputLocationId ?? "", compact: true }));
+      const mcpPanel = h(ProcessMcpForm, { key: `${process.id}:${process.mcpAccess}:${JSON.stringify(process.mcpServers)}`,
+        ctx, process, servers, tools, catalog, onServerAction, act, compact: true });
 
       return h(React.Fragment, null,
         h(GridStackPage, {
-          layoutId: "process-detail", defaults: PROCESS_DETAIL_LAYOUT, preference, preferences, setPageActions, pageActions,
+          layoutId: "process-detail-v2", defaults: PROCESS_DETAIL_LAYOUT, preference, preferences, setPageActions,
           panels: {
-            routing: { label: "Routing & Files", minW: 6, minH: 4, content: routingPanel },
-            archive: archive ? { label: "Archive", minW: 6, minH: 2, content: archive } : undefined
+            beforeGrid: processActions,
+            routing: { label: "Agent setup", minW: 6, minH: 5, content: routingPanel },
+            files: { label: "Files", minW: 4, minH: 3, content: filesPanel },
+            mcp: { label: "Process MCPs", minW: 4, minH: 3, content: mcpPanel }
           }
         }),
         agentForm

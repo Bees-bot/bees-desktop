@@ -842,6 +842,7 @@ pub fn run() {
             show_main_window(app);
         }));
     }
+    builder = builder.plugin(tauri_plugin_dialog::init());
     builder
         .setup(|app| {
             if let Ok(state) = state_dir(app.handle()) {

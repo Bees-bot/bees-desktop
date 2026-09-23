@@ -699,11 +699,10 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, parent, 
     h(Empty, null, "Create a process template first. Work always follows a process template so Bees knows its stages."));
   return h(React.Fragment, null, preflight, h("form", { className: "bees-form", onSubmit, style: { gap: "24px", paddingTop: "8px" } },
     h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, backLabel),
-      h("div", null, h("h2", null, heading),
+      h("div", null, h("h2", null, heading), parent || goal ?
         h("div", { className: "bees-muted" }, parent
-          ? `Add to “${parent.title}” with its existing context, files and discussion.` : goal
-          ? "Describe the outcome. Bees will plan and execute the work needed to reach it."
-          : "Name this process run and provide its inputs. Bees starts it in the template's first stage."))),
+          ? `Add to “${parent.title}” with its existing context, files and discussion.`
+          : "Describe the outcome. Bees will plan and execute the work needed to reach it.") : null)),
     !goal && !parent ? h("label", null, "Process template", h("select", { className: "bees-select", name: "processId", required: true,
       value: processId, onChange: (event) => {
         setProcessId(event.target.value); setOutputLocationId("");

@@ -1,11 +1,11 @@
 import { NativeRunFilePreview } from "./native-conversation.js";
+import { open } from "@tauri-apps/plugin-dialog";
 import { CodeBlock, h, MarkdownText, React, useEffect, useRef, useState } from "./runtime.js";
 import { ask, Button, request } from "./shared.js";
 import { FilesIcon, FileIcon, ExpandIcon, CollapseIcon, CloseIcon, FolderOpenIcon } from "./icons.js";
 
 export async function addLocationFromDevice(ctx, act, teamId, kind) {
-  const path = kind === "folder" ? await ctx.uiWorkspace.pickDirectory()
-    : await ask("Absolute path to a file on this device", "");
+  const path = await open({ directory: kind === "folder", multiple: false });
   if (!path) return null;
   const fallback = path.split(/[\\/]/).filter(Boolean).pop() ?? (kind === "folder" ? "Files" : "File");
   const name = await ask(kind === "folder" ? "Folder name in Bees" : "File name in Bees", fallback);
@@ -23,7 +23,8 @@ export function inheritedInputs(data, processId, agentId) {
 
 export function ResourceFields({
   ctx, data, teamId, act, inputIds, onInputIds, outputId = "", onOutputId,
-  inputReferences = [], inherited = [], onRemoveReference, defaultOutputName = "", defaultOutputId = "", allowOutput = true, disabled = false
+  inputReferences = [], inherited = [], onRemoveReference, defaultOutputName = "", defaultOutputId = "", allowOutput = true, disabled = false,
+  compact = false
 }) {
   const team = data.teams.find(({ id }) => id === teamId);
   const locations = data.locations.filter((row) => row.teamId === teamId);
@@ -61,31 +62,36 @@ export function ResourceFields({
   const available = locations.filter((row) => !row.archivedAt && row.mapped && !selected.has(row.id) &&
     !inherited.some((ref) => ref.locationId === row.id && !ref.relativePath));
   const output = locations.find(({ id }) => id === (outputId || defaultOutputId));
+  const viewingOutput = viewer?.placement === "output" && viewer.locationId === output?.id;
   const locked = disabled || busy || !["admin", "member"].includes(team?.role);
   return h(React.Fragment, null,
-    h("div", { style: { display: "grid", gap: "5px" } },
-      h("div", { style: { fontWeight: 500 } }, "Inputs"),
-      h("p", { className: "bees-muted", style: { margin: 0 } }, "Read-only copies for each run. Originals stay unchanged."),
-    rows.size ? h("div", { className: "bees-resource-list" }, ...[...rows.values()].map((row) => {
+    h("div", { className: "bees-resource-inputs", style: { display: "grid", gap: "5px" } },
+      h("div", { style: { fontWeight: 500 } }, compact ? "Input files" : "Inputs"),
+      compact ? null : h("p", { className: "bees-muted", style: { margin: 0 } }, "Read-only copies for each run. Originals stay unchanged."),
+    rows.size ? h("div", { className: "bees-resource-list bees-resource-input-list" }, ...[...rows.values()].map((row) => {
       const sources = [...row.sources];
       const location = locations.find(({ id }) => id === row.locationId);
       const label = `${location?.name ?? "Unavailable input"}${row.relativePath ? `/${row.relativePath}` : ""}`;
       const own = row.own;
-      return h("div", { key: row.key, className: "bees-resource-option" },
-        h("label", { className: "bees-resource-copy" },
-          h("input", { type: "checkbox", checked: true, disabled: locked || !own,
-            "aria-label": `${label}${sources.length ? ` · From ${sources.join(" + ")}` : ""}`,
-            onChange: () => change(() => onRemoveReference ? onRemoveReference(row)
-              : onInputIds(inputIds.filter((id) => id !== row.locationId))) }),
-          h("span", null, h("strong", { title: label }, label),
-            h("span", { className: "bees-muted", title: location?.localPath ?? "Not mapped on this device" }, [location?.kind,
-              sources.length ? `From ${sources.join(" + ")}${own ? " · Also selected here" : ""}` : "Selected here",
-              location?.archivedAt ? "Archived" : !location?.mapped ? "Not mapped on this device" : location.localPath
-            ].filter(Boolean).join(" · ")))),
-        h(Button, { disabled: !location?.mapped || Boolean(location?.archivedAt),
-          title: `View ${label}`, "aria-label": `View ${label}`,
-          onClick: () => setViewer({ locationId: row.locationId, path: row.relativePath }) }, "View"));
-    })) : h("p", { className: "bees-muted" }, "No inputs selected."),
+      const viewing = viewer?.placement === "input" && viewer.locationId === row.locationId && viewer.path === row.relativePath;
+      return h(React.Fragment, { key: row.key },
+        h("div", { className: "bees-resource-option" },
+          h("label", { className: "bees-resource-copy" },
+            h("input", { type: "checkbox", checked: true, disabled: locked || !own,
+              "aria-label": `${label}${sources.length ? ` · From ${sources.join(" + ")}` : ""}`,
+              onChange: () => change(() => onRemoveReference ? onRemoveReference(row)
+                : onInputIds(inputIds.filter((id) => id !== row.locationId))) }),
+            h("span", null, h("strong", { title: label }, label),
+              h("span", { className: "bees-muted", title: location?.localPath ?? "Not mapped on this device" }, [location?.kind,
+                sources.length ? `From ${sources.join(" + ")}${own ? " · Also selected here" : ""}` : "Selected here",
+                location?.archivedAt ? "Archived" : !location?.mapped ? "Not mapped on this device" : location.localPath
+              ].filter(Boolean).join(" · ")))),
+          h(Button, { disabled: !location?.mapped || Boolean(location?.archivedAt),
+            title: `${viewing ? "Hide" : "View"} ${label}`, "aria-label": `${viewing ? "Hide" : "View"} ${label}`,
+            onClick: () => setViewer(viewing ? null : { locationId: row.locationId, path: row.relativePath, placement: "input" }) }, viewing ? "Hide" : "View")),
+        viewing ? h("div", { className: "bees-resource-inline-preview" },
+          h(FilePreview, { target: viewer, inline: true, onClose: () => setViewer(null) })) : null);
+    })) : h("p", { className: "bees-muted" }, compact ? "No input files selected." : "No inputs selected."),
     h("div", { className: "bees-resource-controls" },
       h("select", { className: "bees-select", value: "", disabled: locked || !available.length,
         "aria-label": "Select input file or folder", onChange: (event) => {
@@ -94,14 +100,14 @@ export function ResourceFields({
         } }, h("option", { value: "" }, "Select file or folder…"),
         ...available.map((location) => h("option", { value: location.id, key: location.id },
           `${location.name} · ${location.kind} · ${location.localPath}`))),
-      h(Button, { disabled: locked, onClick: () => change(() => add("file")) }, "Add file"),
-      h(Button, { disabled: locked, onClick: () => change(() => add("folder")) }, "Add folder"))),
-    allowOutput ? h("div", { style: { display: "grid", gap: "5px" } },
+      h(Button, { disabled: locked, onClick: () => change(() => add("file")) }, "Choose file"),
+      h(Button, { disabled: locked, onClick: () => change(() => add("folder")) }, "Choose folder"))),
+    allowOutput ? h("div", { className: "bees-resource-output", style: { display: "grid", gap: "5px" } },
       h("div", { style: { fontWeight: 500 } }, "Output folder"),
-      h("p", { className: "bees-muted", style: { margin: 0 } }, "Results stay in Bees. Choose a folder for an approved copy."),
+      h("p", { className: "bees-muted", style: { margin: 0 } }, compact ? "Optional destination for approved results." : "Results stay in Bees. Choose a folder for an approved copy."),
       h("div", { className: "bees-resource-controls" },
         h("select", { className: "bees-select", value: outputId, disabled: locked,
-          onChange: (event) => { const id = event.target.value; void change(() => onOutputId(id)); }, "aria-label": "Output folder" },
+          onChange: (event) => { setViewer(null); const id = event.target.value; void change(() => onOutputId(id)); }, "aria-label": "Output folder" },
           h("option", { value: "" }, defaultOutputName
             ? `Use process result folder (${defaultOutputName})` : "Keep results in Bees only"),
           ...locations.filter((row) => row.id === outputId || row.kind === "folder" && !row.archivedAt && row.mapped)
@@ -109,11 +115,13 @@ export function ResourceFields({
               disabled: Boolean(location.archivedAt) || !location.mapped },
               `${location.name}${location.archivedAt ? " · Archived" : !location.mapped ? " · Not mapped" : ""}`)),
           outputId && !output ? h("option", { value: outputId, disabled: true }, "Unavailable output folder") : null),
-        output ? h(Button, { disabled: !output.mapped || Boolean(output.archivedAt), "aria-label": "View output folder",
-          onClick: () => setViewer({ locationId: output.id, path: "" }) }, "View") : null,
-        h(Button, { disabled: locked, onClick: () => change(() => add("folder", true)) }, "Add folder"))) : null,
+        output ? h(Button, { disabled: !output.mapped || Boolean(output.archivedAt), "aria-label": `${viewingOutput ? "Hide" : "View"} output folder`,
+          onClick: () => setViewer(viewingOutput ? null : { locationId: output.id, path: "", placement: "output" }) }, viewingOutput ? "Hide" : "View") : null,
+        h(Button, { disabled: locked, onClick: () => change(() => add("folder", true)) }, "Choose folder")),
+      viewingOutput ? h("div", { className: "bees-resource-inline-preview" },
+        h(FilePreview, { target: viewer, inline: true, onClose: () => setViewer(null) })) : null) : null,
     error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
-    viewer ? h(FilePreview, { target: viewer, onClose: () => setViewer(null) }) : null);
+  );
 }
 
 // Existing owners save one changed selection at a time, preserving other references' child paths.
