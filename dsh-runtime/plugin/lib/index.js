@@ -390,7 +390,11 @@ export async function apply(ctx, _config = {}, internals = {}) {
     const failures = [];
     for (const provider of ctx.llm.listProviders()) {
       try {
-        groups.push({ ...provider, models: await ctx.llm.listModels(provider.id) });
+        const models = await ctx.llm.listModels(provider.id);
+        groups.push({ ...provider, models: await Promise.all(models.map(async (model) => {
+          try { return await ctx.llm.resolveModelInfo(provider.id, model.id); }
+          catch { return model; }
+        })) });
       } catch (error) {
         // One unreachable provider must not cost the editor every other model.
         failures.push({ provider: provider.id, error: userMessage(error) });

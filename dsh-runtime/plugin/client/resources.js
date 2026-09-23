@@ -5,27 +5,7 @@ import {
 } from "./shared.js";
 import { addLocationFromDevice } from "./location-fields.js";
 
-function DriveNotice({ onOpenConnections }) {
-  const [drive, setDrive] = useState(null);
-  useEffect(() => {
-    let active = true;
-    request("/bees-api/connections")
-      .then((value) => active && setDrive(value.googleDrive), () => active && setDrive(null));
-    return () => { active = false; };
-  }, []);
-  if (!drive) return null;
-  return h("section", { className: "bees-box" },
-    h("div", { className: "bees-row" }, h("div", { className: "bees-row-main" },
-      h("div", { className: "bees-row-title" }, "Google Workspace documents"),
-      h("div", { className: "bees-muted" }, drive.connected
-        ? `Connected locally${drive.profile?.emailAddress ? ` as ${drive.profile.emailAddress}` : ""}. Docs, every Sheet tab, Slides, Drawings, and Forms are exported for QMD on demand.`
-        : drive.needsReconnect
-          ? "Reconnect Google Drive once to grant read-only Google Forms access."
-          : "Connect Google Drive on this desktop to index native Google document pointers.")),
-    h(Button, { onClick: onOpenConnections }, drive.connected ? "Manage" : drive.needsReconnect ? "Reconnect" : "Connect")));
-}
-
-export function FilesPage({ ctx, data, teamId, act, onOpenConnections }) {
+export function FilesPage({ ctx, data, teamId, act }) {
   const team = data.teams.find(({ id }) => id === teamId);
   const locations = data.locations.filter((row) => row.teamId === teamId && !row.archivedAt);
   const pickFolder = async () => ctx.uiWorkspace.pickDirectory();
@@ -33,7 +13,6 @@ export function FilesPage({ ctx, data, teamId, act, onOpenConnections }) {
     ? pickFolder()
     : ask(`Absolute path for ${location.name} on this device`, location.localPath ?? "");
   return h("div", null,
-    h(DriveNotice, { onOpenConnections }),
     h("div", { className: "bees-row" }, h("div", { className: "bees-grow" }),
       h(Button, { disabled: !teamId || !["admin", "member"].includes(team?.role), onClick: () => addLocationFromDevice(ctx, act, teamId, "file") }, "Add file"),
       h(Button, { className: "primary", disabled: !teamId || !["admin", "member"].includes(team?.role), onClick: () => addLocationFromDevice(ctx, act, teamId, "folder") }, "Add folder")),
@@ -79,7 +58,7 @@ export function ActivityPage({ data, route, workspaceIds, openWorkItem, openProc
   ;
 }
 
-export function KnowledgePage({ data, route, workspaceId, teamId, onOpenConnections }) {
+export function KnowledgePage({ data, route, workspaceId, teamId }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [searchError, setSearchError] = useState("");
@@ -99,7 +78,6 @@ export function KnowledgePage({ data, route, workspaceId, teamId, onOpenConnecti
   }
   const locations = data.locations.filter((row) => row.teamId === teamId && !row.archivedAt);
   return h("div", { className: "bees-stack" },
-    h(DriveNotice, { onOpenConnections }),
     h("form", { className: "bees-search", onSubmit: async (event) => {
     event.preventDefault();
     setSearchError("");
