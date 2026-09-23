@@ -509,7 +509,7 @@ export class BeesProduct {
     })) : [];
     const recurringWork = workspaceIds.length ? this.database.prepare(`
       SELECT id, workspace_id AS workspaceId, process_id AS processId,
-             source_work_item_id AS sourceWorkItemId, name,
+             source_work_item_id AS sourceWorkItemId, origin_work_item_id AS originWorkItemId, name,
              schedule_kind AS scheduleKind, schedule_json AS schedule,
              timezone, temporal_schedule_id AS temporalScheduleId,
              status, next_run_at AS nextRunAt, created_at AS createdAt, updated_at AS updatedAt

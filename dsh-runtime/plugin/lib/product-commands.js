@@ -537,10 +537,10 @@ export async function executeProductCommand(action, input) {
         if (!stageId) throw new Error("Process has no starting stage");
         this.database.prepare(`
           INSERT INTO recurring_work
-            (id, workspace_id, process_id, source_work_item_id, name, schedule_kind,
+            (id, workspace_id, process_id, source_work_item_id, origin_work_item_id, name, schedule_kind,
              schedule_json, timezone, temporal_schedule_id, status, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(id, item.workspaceId, item.processId, sourceWorkItemId, name, schedule.kind,
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(id, item.workspaceId, item.processId, sourceWorkItemId, item.id, name, schedule.kind,
           JSON.stringify(schedule.value), schedule.timezone, temporalScheduleId, input.paused ? "paused" : "active", at, at);
         this.database.prepare(`
           INSERT INTO work_items
@@ -1197,6 +1197,8 @@ export async function executeProductCommand(action, input) {
             if (existing) {
               results[index] = await this.execute("edit_recurring_work", { ...payload, recurringWorkId: existing.id });
               transaction(this.database, () => {
+                this.database.prepare("UPDATE recurring_work SET origin_work_item_id = ? WHERE id = ?")
+                  .run(payload.itemId, existing.id);
                 this.database.prepare(`
                   UPDATE work_items SET (title, description, owner, agent_assignment_id, agent_ids_json, priority, output_location_id, run_settings_json, updated_at) =
                     (SELECT title, description, owner, agent_assignment_id, agent_ids_json, priority, output_location_id, run_settings_json, ? FROM work_items WHERE id = ?)

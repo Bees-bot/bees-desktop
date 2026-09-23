@@ -543,7 +543,7 @@ export function initializeProductDatabase(database) {
     CREATE TABLE IF NOT EXISTS recurring_work (
       id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
       process_id TEXT NOT NULL REFERENCES processes(id) ON DELETE CASCADE,
-      source_work_item_id TEXT NOT NULL, name TEXT NOT NULL,
+      source_work_item_id TEXT NOT NULL, origin_work_item_id TEXT, name TEXT NOT NULL,
       schedule_kind TEXT NOT NULL CHECK (schedule_kind IN ('interval', 'calendar', 'cron')),
       schedule_json TEXT NOT NULL, timezone TEXT,
       temporal_schedule_id TEXT NOT NULL UNIQUE,
@@ -707,6 +707,10 @@ export function initializeProductDatabase(database) {
   );
   if (!itemColumns.has("account_user_id")) database.exec(
     "ALTER TABLE work_items ADD COLUMN account_user_id TEXT"
+  );
+  const recurringColumns = new Set(database.prepare("PRAGMA table_info(recurring_work)").all().map(({ name }) => name));
+  if (!recurringColumns.has("origin_work_item_id")) database.exec(
+    "ALTER TABLE recurring_work ADD COLUMN origin_work_item_id TEXT"
   );
   const dispatchColumns = new Set(database.prepare("PRAGMA table_info(agent_dispatches)").all().map(({ name }) => name));
   if (!dispatchColumns.has("agent_ids_json")) database.exec(

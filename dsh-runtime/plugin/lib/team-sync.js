@@ -115,13 +115,15 @@ function teamRecords(database, organizationId, connectionId = "", includeAppDefi
 
   for (const row of database.prepare(`
     SELECT r.id, w.team_id AS teamId, r.process_id AS processId,
-           r.source_work_item_id AS sourceWorkItemId, r.name, r.schedule_kind AS scheduleKind,
+           r.source_work_item_id AS sourceWorkItemId, r.origin_work_item_id AS originWorkItemId,
+           r.name, r.schedule_kind AS scheduleKind,
            r.schedule_json AS schedule, r.timezone, r.status,
            r.created_at AS createdAt, r.updated_at AS updatedAt
     FROM recurring_work r JOIN workspaces w ON w.id = r.workspace_id
     JOIN teams t ON t.id = w.team_id WHERE t.organization_id = ?
   `).all(organizationId)) records.push(record("recurring_work", row, {
     teamId: row.teamId, processId: row.processId, sourceWorkItemId: row.sourceWorkItemId,
+    originWorkItemId: row.originWorkItemId,
     name: row.name, scheduleKind: row.scheduleKind, schedule: json(row.schedule, {}),
     timezone: row.timezone, status: row.status,
     createdAt: timestamp(row.createdAt), updatedAt: timestamp(row.updatedAt)
@@ -411,15 +413,16 @@ function applyRecurring(database, record) {
   const workspaceId = workspaceFor(database, p.teamId, p.createdAt);
   database.prepare(`
     INSERT INTO recurring_work
-      (id, workspace_id, process_id, source_work_item_id, name, schedule_kind, schedule_json,
+      (id, workspace_id, process_id, source_work_item_id, origin_work_item_id, name, schedule_kind, schedule_json,
        timezone, temporal_schedule_id, status, next_run_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
     ON CONFLICT(id) DO UPDATE SET process_id = excluded.process_id,
       source_work_item_id = excluded.source_work_item_id, name = excluded.name,
+      origin_work_item_id = COALESCE(excluded.origin_work_item_id, recurring_work.origin_work_item_id),
       schedule_kind = excluded.schedule_kind, schedule_json = excluded.schedule_json,
       timezone = excluded.timezone, status = excluded.status, next_run_at = NULL,
       updated_at = excluded.updated_at
-  `).run(record.recordId, workspaceId, p.processId, p.sourceWorkItemId, p.name, p.scheduleKind,
+  `).run(record.recordId, workspaceId, p.processId, p.sourceWorkItemId, p.originWorkItemId ?? null, p.name, p.scheduleKind,
     JSON.stringify(p.schedule), p.timezone, `bees/recurring/${record.recordId}`, p.status,
     p.createdAt, p.updatedAt);
 }

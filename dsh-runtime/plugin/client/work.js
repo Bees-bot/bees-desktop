@@ -169,7 +169,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
   const schedulable = processStages.length >= 2 && processStages.at(-1)?.driver === "terminal" &&
     processStages.every(({ driver }) => ["agent", "discussion", "review", "terminal"].includes(driver));
   const recurringWork = (data.recurringWork ?? []).filter((recurring) =>
-    recurring.sourceWorkItemId === item.id || recurring.id === item.recurringWorkId);
+    recurring.sourceWorkItemId === item.id || recurring.originWorkItemId === item.id || recurring.id === item.recurringWorkId);
   const itemRuns = data.runs.filter(({ workItemId }) => workItemId === item.id);
   const processRunId = item.processRunId ?? item.id;
   const sharedFiles = new Map();
@@ -1206,7 +1206,6 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
       (route === "schedules" ? isScheduleDefinition(item) : !isScheduleDefinition(item)) &&
       (route !== "goals" || process?.kind === "goals");
   });
-  const statuses = [...new Set(items.map(workItemStatus))].sort();
   const processes = data.processes.filter((process) => workspaceIds.includes(process.workspaceId))
     .sort((left, right) => left.name.localeCompare(right.name));
   const ownerId = (item) => {
@@ -1221,12 +1220,19 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
   const owners = [...new Set(items.map(ownerId))]
     .map((id) => ({ id, label: ownerLabel(id) }))
     .sort((left, right) => left.label.localeCompare(right.label));
+  const scheduleFor = (item) => route === "schedules"
+    ? (data.recurringWork ?? []).find(({ sourceWorkItemId }) => sourceWorkItemId === item.id) : null;
+  const statusFor = (item) => scheduleFor(item)?.status ?? workItemStatus(item);
+  const statuses = [...new Set(items.map(statusFor))].sort();
   const needle = query.trim().toLocaleLowerCase();
-  const rows = items.filter((item) => (!needle || String(item.title ?? "").toLocaleLowerCase().includes(needle)) &&
-    (status === "all" || workItemStatus(item) === status) &&
+  const rows = items.filter((item) => {
+    const recurring = scheduleFor(item);
+    return (!needle || `${item.title} ${recurring?.name ?? ""}`.toLocaleLowerCase().includes(needle)) &&
+    (status === "all" || statusFor(item) === status) &&
     (processFilter === "all" || item.processId === processFilter) &&
     (itemScope === "all" || !item.parentId) &&
-    (owner === "all" || ownerId(item) === owner));
+    (owner === "all" || ownerId(item) === owner);
+  });
   const plans = route === "schedules" || status !== "all" || processFilter !== "all" || owner !== "all" ? []
     : data.runs.filter((run) => !run.workItemId && workspaceIds.includes(run.workspaceId) && runTitle(data, run).toLocaleLowerCase().includes(needle));
   // a plan with nothing live and nothing left to apply is finished, however it ended
@@ -1236,26 +1242,31 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
     const rendered = records.map((item) => {
       const process = data.processes.find(({ id }) => id === item.processId);
       const stage = data.stages.find(({ id }) => id === item.stageId);
+      const recurring = scheduleFor(item);
       const initiator = ownerId(item) ? ownerLabel(ownerId(item)) : null;
-      const subtitle = [
+      const subtitle = recurring ? [
+        item.title, process?.name ?? "Process", scheduleSummary(recurring),
+        recurring.nextRunAt ? `Next ${new Date(recurring.nextRunAt).toLocaleString()}` : "Next run pending"
+      ].join(" · ") : [
         item.kind === "run" ? item.recurringWorkId ? "scheduled run" : "process run" : item.kind,
         process?.name ?? "Process",
         stage?.name ?? "Stage",
         initiator && !showColumns ? `by ${initiator}` : null
       ].filter(Boolean).join(" · ");
-      const title = h("span", { className: "bees-row-main" }, h("span", { className: "bees-row-title" }, item.title), h("span", { className: "bees-muted" }, subtitle));
-      const status = h("span", { className: `bees-status bees-${workItemStatus(item)}` }, workItemStatus(item));
+      const title = h("span", { className: "bees-row-main" }, h("span", { className: "bees-row-title" }, recurring?.name ?? item.title), h("span", { className: "bees-muted" }, subtitle));
+      const statusValue = statusFor(item);
+      const status = h("span", { className: `bees-status bees-${statusValue}` }, statusValue);
       const open = { type: "button", className: "bees-row bees-work-item-row", onClick: () => setWorkItemId(item.id) };
       return showColumns ? h("tr", { key: item.id },
         h("td", null, h("button", { ...open, title: item.title }, title)),
-        h("td", null, item.kind === "run" ? "Process" : "Work item"),
+        h("td", null, recurring ? "Schedule" : item.kind === "run" ? "Process" : "Work item"),
         h("td", null, h("span", { className: "bees-work-owner", title: initiator || "Unknown owner" }, initiator || "Unknown owner")),
         h("td", null, status),
           h("td", null, h("div", { className: "bees-answer-controls", role: "group", "aria-label": `Actions for ${item.title}` },
             h(WorkItemControls, { item, act, showUnavailable: false, data, allowReRun: includeReRun }))))
         : h("button", { ...open, key: item.id }, title, status);
     });
-    return showColumns ? h("table", { className: "bees-work-table", "aria-label": "Active work" },
+    return showColumns ? h("table", { className: "bees-work-table", "aria-label": route === "schedules" ? "Schedules" : "Active work" },
       h("thead", null, h("tr", null, ...["Work", "Type", "Owner", "Status", "Actions"].map((label) => h("th", { key: label, scope: "col" }, label)))),
       h("tbody", null, ...planRows.map((run) => h("tr", { key: run.id },
         h("td", null, h("button", { type: "button", className: "bees-row bees-work-item-row", onClick: () => setWorkItemId(run.id) },
