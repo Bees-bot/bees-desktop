@@ -1357,11 +1357,13 @@ export async function executeProductCommand(action, input) {
       if (!existsSync(targetPath))
         throw new Error("The path does not exist on this device");
       const { execFile } = await import("node:child_process");
-      const mac = process.platform === "darwin";
-      const log = (error) => error && console.error("open_in_explorer:", error.message);
-      // a file opens in its own app; no app claims .md on a fresh mac, so fall back to the text editor
-      execFile(mac ? "open" : process.platform === "win32" ? "explorer" : "xdg-open", [targetPath],
-        (error) => error && mac ? execFile("open", ["-t", targetPath], log) : log(error));
+      const open = (command, args) => new Promise((done, fail) =>
+        execFile(command, args, (error) => error ? fail(new Error(`Could not open ${targetPath}`)) : done()));
+      // explorer exits 1 even when it opens the path, so its exit code means nothing
+      if (process.platform === "win32") execFile("explorer", [targetPath]);
+      // no app claims .md on a fresh mac, so fall back to the text editor
+      else if (process.platform === "darwin") await open("open", [targetPath]).catch(() => open("open", ["-t", targetPath]));
+      else await open("xdg-open", [targetPath]);
       return { opened: true };
     }
     if (action === "stop_run") {

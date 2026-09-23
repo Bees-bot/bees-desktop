@@ -208,16 +208,15 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
   const [sendError, setSendError] = useState("");
   const [sendNotice, setSendNotice] = useState("");
   const [refreshCount, setRefreshCount] = useState(0);
-  const run = itemRuns.find(({ id }) => id === selectedRun) ?? itemRuns[0];
+  // a finished item's newest run is the reviewer, which won't edit, so follow-ups default to the worker
+  const run = itemRuns.find(({ id }) => id === selectedRun)
+    ?? itemRuns.find(({ mode }) => item.runtimePhase === "completed" && mode === "work") ?? itemRuns[0];
   const pendingRun = itemRuns.find(({ status, sessionId }) => sessionId && ["waiting_for_input", "waiting_for_approval"].includes(status));
-  const binding = pendingRun ? ctx.sessions.binding(pendingRun.sessionId) : run?.sessionId ? ctx.sessions.binding(run.sessionId) : null;
-  const session = useSnapshot(binding?.session);
-  const waiting = useSnapshot(ctx.uiSession.pendingInteractions, EMPTY_INTERACTIONS);
-  const interaction = pendingInteractionFor(waiting, binding?.sessionId, handled);
+  const waiting = useSnapshot(ctx.uiSession.sessionStatus, EMPTY_STATUS);
+  const interaction = pendingInteractionFor(waiting, (pendingRun ?? run)?.sessionId, handled);
   // The composer sends into the selected run's own session, not whichever session happens to
   // have a pending question — those can differ once a work item has more than one execution.
   const activeRun = run?.ranElsewhere ? null : run?.sessionId ? run : itemRuns.find(({ sessionId }) => sessionId);
-  const activeBinding = activeRun ? ctx.sessions.binding(activeRun.sessionId) : null;
   const liveRevision = useBeesChangeRevision();
   useEffect(() => {
     setSelectedRun(""); setHandled(new Set()); setActiveTab("files");
@@ -346,7 +345,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
         showSteps ? "Hide agent steps" : `Show agent steps (${messages.length})`) : null),
     ...teamQuestions.map((question) => h(TeamQuestionCard, { key: question.id, question, data, act })),
     pendingRun ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" },
-      h(AgentInteractionPanel, { run: pendingRun, item, session, interaction, handled, onAnswered: answered, act, data })) : null,
+      h(AgentInteractionPanel, { run: pendingRun, item, interaction, handled, onAnswered: answered, act, data })) : null,
     // a waiting question goes first and the agent's steps fold away, so nobody scrolls to find it
     pendingRun && !showSteps ? null : h("div", {
       className: "bees-convo-history", ref: convoRef,
@@ -390,24 +389,16 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
         finally { setSending(false); }
         return;
       }
-      if (!activeBinding) {
-        if (run && (item.runtimePhase === "completed" || item.runtimePhase === "failed")) {
-          setSending(true);
-          try {
-            await act({ action: "continue_run", executionId: run.id, text });
-            setComposerText("");
-          } catch (reason) { setSendError(reason instanceof Error ? reason.message : String(reason)); }
-          finally {
-            setSending(false);
-            setRefreshCount((count) => count + 1);
-            setTimeout(() => setRefreshCount((count) => count + 1), 500);
-          }
-        }
-        return;
-      }
+      const finished = run && (item.runtimePhase === "completed" || item.runtimePhase === "failed");
+      if (!finished && !activeRun) return;
       setSending(true);
       try {
-        await activeBinding.session.prompt([{ type: "text", text }], "queue");
+        if (finished) await act({ action: "continue_run", executionId: run.id, text });
+        else {
+          const result = await ctx.sessions.using(activeRun.sessionId, { source: "bees" },
+            (reference) => reference.binding.session.prompt([{ type: "text", text }], "queue"));
+          if (!result.ok) throw result.error;
+        }
         setComposerText("");
       } catch (reason) { setSendError(reason instanceof Error ? reason.message : String(reason)); }
       finally {
@@ -991,10 +982,10 @@ function ApprovalPanel({ wait, onAnswered }) {
 }
 
 // DSH publishes one pending interaction per session. Keep the empty snapshot stable.
-export const EMPTY_INTERACTIONS = new Map();
+const EMPTY_STATUS = new Map();
 
-export const pendingInteractionFor = (waiting, sessionId, handled) => {
-  const pending = sessionId ? waiting.get(sessionId) : undefined;
+const pendingInteractionFor = (waiting, sessionId, handled) => {
+  const pending = sessionId ? waiting.get(sessionId)?.pendingInteraction : undefined;
   return pending && !handled.has(pending.key) ? pending : undefined;
 };
 
@@ -1057,7 +1048,7 @@ function WorkItemControls({ item, act, onDone, showUnavailable = false, data, al
       busy === "archive_item" ? "Archiving…" : "Archive"));
 }
 
-function AgentInteractionPanel({ run, item, title, summary, session, interaction, handled, onAnswered, onOpen, openLabel, act, onControlled, data }) {
+function AgentInteractionPanel({ run, item, title, summary, interaction, handled, onAnswered, onOpen, openLabel, act, onControlled, data }) {
   const files = [...new Set(run.files ?? (run.outputs ?? []).map((path) => `outputs/${path}`))];
   const [viewer, setViewer] = useState(files.length ? { executionId: run.id, path: files[0] } : null);
   const fileKey = files.join("|");
@@ -1087,7 +1078,7 @@ function AgentInteractionPanel({ run, item, title, summary, session, interaction
 
 export function useNeedsYouQueue(ctx, data, workspaceIds, initialSelectedId = "", autoSelect = true) {
   const sessions = useSnapshot(ctx.sessions.list, { ids: [], byId: {} });
-  const waiting = useSnapshot(ctx.uiSession.pendingInteractions, EMPTY_INTERACTIONS);
+  const waiting = useSnapshot(ctx.uiSession.sessionStatus, EMPTY_STATUS);
   const [selectedId, setSelectedId] = useState(initialSelectedId);
   const [handled, setHandled] = useState(() => new Set());
   const [handledRuns, setHandledRuns] = useState(() => new Set());
@@ -1097,13 +1088,11 @@ export function useNeedsYouQueue(ctx, data, workspaceIds, initialSelectedId = ""
   const rows = activeRuns.filter((run) => run.sessionId)
     .map((run) => ({ run, session: sessions.byId[run.sessionId], item: data.items.find(({ id }) => id === run.workItemId) }))
     .filter(({ run }) => ["waiting_for_input", "waiting_for_approval"].includes(run.status) && !seen.has(run.sessionId) && seen.add(run.sessionId));
-  const rowKey = rows.map(({ run }) => `${run.id}:${waiting.get(run.sessionId)?.kind ?? "none"}`).join("|");
+  const rowKey = rows.map(({ run }) => `${run.id}:${waiting.get(run.sessionId)?.pendingInteraction?.kind ?? "none"}`).join("|");
   useEffect(() => setSelectedId((current) => rows.some(({ run }) => run.id === current)
     ? current : autoSelect ? rows[0]?.run.id ?? "" : ""), [rowKey, autoSelect]);
   useEffect(() => setHandledRuns((current) => new Set([...current].filter((id) => activeRuns.some((run) => run.id === id)))), [rowKey]);
   const selected = rows.find(({ run }) => run.id === selectedId) ?? rows[0];
-  const binding = selected ? ctx.sessions.binding(selected.run.sessionId) : null;
-  const session = useSnapshot(binding?.session);
   const interaction = pendingInteractionFor(waiting, selected?.run.sessionId, handled);
   // Answered runs stay on screen while Bees works, so an answer does not just make the row vanish.
   const working = activeRuns.filter((run) => handledRuns.has(run.id) && ["queued", "running"].includes(run.status));
@@ -1115,7 +1104,7 @@ export function useNeedsYouQueue(ctx, data, workspaceIds, initialSelectedId = ""
     const next = candidates.find(({ run }) => !completed.has(run.id));
     if (next) setSelectedId(next.run.id);
   };
-  return { rows, selected, selectedId, setSelectedId, session, interaction, handled, working, answered };
+  return { rows, selected, selectedId, setSelectedId, interaction, handled, working, answered };
 }
 
 /** The one list the Needs you count and the rows under it both read, so they cannot disagree. */
@@ -1163,7 +1152,7 @@ export function NeedsYouWidget({ data, act, queue, records, limit = 8 }) {
         isSelected ? h("div", { className: "bees-dashboard-needs-answer", id: panelId },
           h(AgentInteractionPanel, {
             run: selected.run, item: selected.item, title: runTitle(data, selected.run), summary: selected.session, data,
-            session: queue.session, interaction: queue.interaction, handled: queue.handled,
+            interaction: queue.interaction, handled: queue.handled,
             onAnswered: (key) => queue.answered(key, visibleRecords.map(r => r.live)), act,
             onControlled: () => queue.answered(`control:${selected.run.id}`, visibleRecords.map(r => r.live))
           })) : null
@@ -1189,7 +1178,7 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
   const [itemScope, setItemScope] = useState("primary");
   const [owner, setOwner] = useState("all");
   useEffect(() => { setStatus(route === "completed" ? "completed" : "all"); }, [route]);
-  useEffect(() => { setProcessFilter("all"); setItemScope("primary"); setOwner("all"); }, [route, workspaceIds.join(",")]);
+  useEffect(() => { setQuery(""); setProcessFilter("all"); setItemScope("primary"); setOwner("all"); }, [route, workspaceIds.join(",")]);
   const plan = data.runs.find((run) => run.id === workItemId && !run.workItemId);
   if (workItemId) return h(WorkItemCockpit, {
     ctx, data: plan ? planView(data, plan) : data, rootId: workItemId, teamId, act, preference, preferences, capabilities, onBack: () => setWorkItemId(""),

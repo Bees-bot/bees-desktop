@@ -25,6 +25,8 @@ const DEFAULT_CODEX_MODELS = Object.values(OPENAI_CODEX_MODELS)
 const CLAUDE_REASONING = { efforts: ["low", "medium", "high", "xhigh", "max"].map((id) => ({
   id, name: `${id[0].toUpperCase()}${id.slice(1)}`
 })) };
+const claudeModel = (id) => ({ provider: "claude-code", id, name: id === "default" ? "Claude Code (default)" : `Claude ${id}`,
+  inputModalities: ["text"], context: { contextWindow: 200_000 }, reasoning: CLAUDE_REASONING });
 const LOGIN_TIMEOUT_MS = 15 * 60 * 1000;
 const OUTPUT_LIMIT = 2 * 1024 * 1024;
 const REQUIRED_TOOL_NAMES = new Set(["bees_propose_changes", "bees_submit_stage_result"]);
@@ -123,7 +125,6 @@ function messageText(content) {
   return content.map((block) => {
     if (block?.type === "text" || block?.type === "reasoning") return block.text ?? "";
     if (block?.type === "tool-call") return `DSH tool call ${block.name}: ${block.arguments}`;
-    if (block?.type === "tool-result") return block.content?.map((part) => part.text ?? "").join("\n") ?? "";
     return "";
   }).filter(Boolean).join("\n");
 }
@@ -131,13 +132,15 @@ function messageText(content) {
 export function claudeProtocolMode(options) {
   if (!(options.tools ?? []).some((tool) => REQUIRED_TOOL_NAMES.has(tool.name))) return "either";
   const requiredCalls = new Set();
-  for (const message of options.messages ?? []) for (const block of message.content ?? []) {
-    if (block?.type === "tool-call" && REQUIRED_TOOL_NAMES.has(block.name))
-      requiredCalls.add(String(block.id));
-    if (block?.type === "tool-result" && !block.isError && requiredCalls.has(String(block.toolCallId)))
-      return "finish";
+  let mode = "tool";
+  for (const message of options.messages ?? []) {
+    if (message.role === "tool" && !message.isError && requiredCalls.has(String(message.toolCallId))) mode = "finish";
+    // a follow-up sent after the result reopens the run, injected context does not
+    else if (mode === "finish" && message.source?.kind === "user") mode = "either";
+    for (const block of message.content ?? [])
+      if (block?.type === "tool-call" && REQUIRED_TOOL_NAMES.has(block.name)) requiredCalls.add(String(block.id));
   }
-  return "tool";
+  return mode;
 }
 
 export function claudeResponseSchema(tools, mode = "either") {
@@ -154,26 +157,36 @@ export function claudeResponseSchema(tools, mode = "either") {
   };
 }
 
-function claudePrompt(options, mode) {
+// argv tops out near 1 MB on macOS, so a huge system prompt rides in the message instead
+const claudeSystemInArgv = (system) => Boolean(system) && Buffer.byteLength(system) < 256_000;
+
+// one block per row with a marker on the last transcript row, so the next turn reads everything before it from cache
+function claudeInput(options, mode) {
   const rows = [];
-  if (options.system) rows.push(`System:\n${options.system}`);
-  for (const message of options.messages ?? []) {
-    const text = messageText(message.content);
-    if (text) rows.push(`${message.role === "assistant" ? "Assistant" : "User"}:\n${text}`);
-  }
+  if (!claudeSystemInArgv(options.system) && options.system) rows.push(`System:\n${options.system}`);
   const tools = options.tools ?? [];
+  // tools go before the transcript because they rarely change, the mode line goes after the marker because it does
   if (tools.length) rows.push([
     "DSH tool protocol:",
-    mode === "tool"
-      ? "Choose exactly one DSH tool. A text-only response is not allowed; use the required completion tool when finished."
-      : mode === "finish"
-        ? "The required completion tool succeeded. Do not call another tool; return a concise final answer with an empty tool name."
-        : "Choose one DSH tool, or answer with an empty tool name and put the answer in text.",
     "These are virtual DSH tools, not Claude Code native tools. Select one only through this structured JSON response; never try to invoke its name directly.",
     "For a tool call, set text to an empty string and provide its JSON arguments.",
     `Available DSH tools:\n${JSON.stringify(tools)}`
   ].join("\n"));
-  return rows.join("\n\n");
+  for (const message of options.messages ?? []) {
+    const text = messageText(message.content);
+    const label = { assistant: "Assistant", tool: "DSH tool result", system: "System", developer: "System" }[message.role] ?? "User";
+    if (text) rows.push(`${label}:\n${text}`);
+  }
+  if (!rows.length) rows.push("User:\nContinue.");
+  const content = rows.map((text) => ({ type: "text", text }));
+  // 1h because the cli puts its own 1h marker after ours, and a shorter ttl before a longer one is a 400
+  content.at(-1).cache_control = { type: "ephemeral", ttl: "1h" };
+  if (tools.length) content.push({ type: "text", text: mode === "tool"
+    ? "Choose exactly one DSH tool. A text-only response is not allowed; use the required completion tool when finished."
+    : mode === "finish"
+      ? "The required completion tool succeeded. Do not call another tool; return a concise final answer with an empty tool name."
+      : "Choose one DSH tool, or answer with an empty tool name and put the answer in text." });
+  return `${JSON.stringify({ type: "user", message: { role: "user", content } })}\n`;
 }
 
 function safeEnvironment() {
@@ -194,11 +207,20 @@ function structuredOutput(parsed) {
   }
 }
 
-function runClaude(command, model, effort, prompt, signal, schema) {
+// a dsh tool called by its own name often gets the StructuredOutput shape instead of its own arguments
+function directArguments(input) {
+  if (typeof input !== "object" || !input || !("arguments" in input) || Object.keys(input).some((key) => !["tool", "arguments", "text"].includes(key))) return input ?? {};
+  let inner = input.arguments;
+  if (typeof inner === "string") try { inner = JSON.parse(inner); } catch { return input; }
+  return inner && typeof inner === "object" && !Array.isArray(inner) ? inner : input;
+}
+
+function runClaude(command, model, effort, input, signal, schema, system) {
   const args = [
-    "--print", "--output-format", "stream-json", "--verbose", "--safe-mode", "--no-session-persistence",
+    "--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--safe-mode", "--no-session-persistence",
     "--setting-sources", "", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}",
     "--tools", "", "--permission-mode", "dontAsk",
+    ...(claudeSystemInArgv(system) ? ["--system-prompt", system] : []),
     ...(schema ? ["--json-schema", JSON.stringify(schema)] : []),
     ...(model && model !== "default" ? ["--model", model] : []),
     ...(effort ? ["--effort", effort] : [])
@@ -223,7 +245,7 @@ function runClaude(command, model, effort, prompt, signal, schema) {
       const block = event.type === "assistant" && event.message?.content?.find?.((part) => part.type === "tool_use");
       // a dsh tool called by its own name gets "No such tool available" from the cli, and the model then reports every tool as down
       const structured = block?.name === "StructuredOutput" ? typeof block.input?.tool === "string" && block.input
-        : block && schema?.properties.tool.enum.some(Boolean) && { tool: block.name, arguments: block.input ?? {}, text: "" };
+        : block && schema?.properties.tool.enum.some(Boolean) && { tool: block.name, arguments: directArguments(block.input), text: "" };
       if (structured && !early) { early = { structured, usage: event.message.usage ?? {} }; stop(); }
     };
     const stop = () => child.kill("SIGKILL");
@@ -258,11 +280,13 @@ function runClaude(command, model, effort, prompt, signal, schema) {
         reject(error instanceof LlmError ? error : new LlmError(error.message, "CLAUDE_CODE"));
       }
     });
-    child.stdin.end(prompt);
+    // a cli that exits before reading its input breaks the pipe, and close reports why it exited
+    child.stdin.on("error", () => {});
+    child.stdin.end(input);
   });
 }
 
-export function claudeChunks(result, tools) {
+export function claudeChunks(result) {
   const usage = { type: "usage", usage: {
     inputTokens: Number(result.usage.input_tokens ?? 0),
     outputTokens: Number(result.usage.output_tokens ?? 0),
@@ -301,25 +325,25 @@ class ClaudeCodeAdapter extends LlmAdapter {
   constructor(ctx) { super(); this.ctx = ctx; }
   providerInfo() { return { id: "claude-code", name: "Claude Code subscription" }; }
   async listModels() {
-    return (await configuredClaudeModels(this.ctx)).map((id) => ({
-      provider: "claude-code", id, name: id === "default" ? "Claude Code (default)" : `Claude ${id}`,
-      inputModalities: ["text"]
-    }));
+    return (await configuredClaudeModels(this.ctx)).map(claudeModel);
   }
-  resolveModel(provider, model) {
-    return Promise.resolve({ provider, id: model, name: model === "default" ? "Claude Code (default)" : `Claude ${model}`,
-      inputModalities: ["text"], context: { contextWindow: 200_000 }, reasoning: CLAUDE_REASONING });
+  resolveModel(_provider, model) {
+    return Promise.resolve(claudeModel(model));
   }
-  async *stream(options) {
+  async *stream(request) {
     const command = (await this.ctx.credentials.resolve(CLAUDE_PATH_REF))?.value;
     if (!command) throw new LlmError("Choose Claude Code under Settings → AI connections", "MISSING_CREDENTIAL");
+    // the agent loop sends its prompt as a leading system message, only one-shot callers set system
+    const [first, ...rest] = request.messages ?? [];
+    const options = request.system === undefined && first?.role === "system"
+      ? { ...request, system: messageText(first.content), messages: rest } : request;
     const tools = options.tools ?? [];
     const mode = claudeProtocolMode(options);
     const schema = tools.length ? claudeResponseSchema(tools, mode) : undefined;
     const result = await runClaude(
-      command, options.model, options.reasoningEffort, claudePrompt(options, mode), options.signal, schema
+      command, options.model, options.reasoningEffort, claudeInput(options, mode), options.signal, schema, options.system
     );
-    for (const chunk of claudeChunks(result, tools)) yield chunk;
+    for (const chunk of claudeChunks(result)) yield chunk;
   }
 }
 
@@ -327,21 +351,22 @@ async function executable(path) {
   try { await access(path, constants.X_OK); return true; } catch { return false; }
 }
 
-async function claudeVersion(path) {
+function claudeStdout(path, args) {
   return new Promise((resolve, reject) => {
-    const child = spawn(path, ["--version"], { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(path, args, { env: safeEnvironment(), stdio: ["ignore", "pipe", "ignore"] });
     let output = "";
     const timer = setTimeout(() => child.kill("SIGKILL"), 5_000);
     child.stdout.on("data", (chunk) => { output += chunk.toString(); });
-    child.stderr.on("data", (chunk) => { output += chunk.toString(); });
     child.on("error", reject);
     child.on("close", (code) => {
       clearTimeout(timer);
       if (code !== 0) reject(new Error("That file is not a working Claude Code program"));
-      else resolve(output.trim().split("\n")[0] || "Claude Code");
+      else resolve(output.trim());
     });
   });
 }
+
+const claudeVersion = async (path) => (await claudeStdout(path, ["--version"])).split("\n")[0] || "Claude Code";
 
 async function findClaude(ctx) {
   const configured = (await ctx.credentials.resolve(CLAUDE_PATH_REF))?.value;
@@ -378,9 +403,6 @@ export async function apply(ctx) {
   const syncClaude = (reset = false) => { claudeSync = claudeSync.then(() => updateClaude(reset), () => updateClaude(reset)); return claudeSync; };
   await time("subscriptions.codex.refresh", ensureCodex).catch((error) => ctx.logger.warn(`Codex token refresh failed: ${error.message}`));
   await time("subscriptions.claude.configure", syncClaude);
-  ctx.on("credentials/updated", (ref) => {
-    if (ref === CLAUDE_PATH_REF || ref === CLAUDE_ENABLED_REF) void syncClaude();
-  });
   const refreshTimer = setInterval(() => {
     void ensureCodex().catch((error) => ctx.logger.warn(`Codex token refresh failed: ${error.message}`));
   }, 60_000);
@@ -444,7 +466,9 @@ export async function apply(ctx) {
       if (input.action === "claude_test") {
         const path = (await ctx.credentials.resolve(CLAUDE_PATH_REF))?.value;
         if (!path) throw new Error("Connect Claude Code first");
-        return json(res, 200, { ok: true, version: await claudeVersion(path) });
+        const status = await claudeStdout(path, ["auth", "status"]).then(JSON.parse).catch(() => ({}));
+        if (!status.loggedIn) throw new Error("Claude Code is not signed in. Open Terminal, run claude, sign in, then test again.");
+        return json(res, 200, { ok: true });
       }
       if (input.action === "claude_toggle") {
         if (input.enabled) {

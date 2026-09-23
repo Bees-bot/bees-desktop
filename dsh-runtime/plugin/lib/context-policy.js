@@ -74,17 +74,14 @@ export function pruneToolResults(session, tokenMeter) {
     // fixed sizes, not a slide: rewriting a result drops the provider's cache of everything after it
     const budget = recalled || laterResponses < 2 || remaining >= TOOL_PREVIEW_CHARS
       ? TOOL_PREVIEW_CHARS : TOOL_RECEIPT_CHARS;
-    const result = event.data.message.content[0];
-    const before = textLength(result.content);
+    const before = textLength(event.data.message.content);
     remaining -= Math.min(before, budget);
     if (before <= budget) continue;
-    const original = originals.get(callId).data.message.content[0];
-    const content = spillReceipt(original.content) ?? previewContent(original.content, budget, callId);
+    const original = originals.get(callId).data.message.content;
+    const content = spillReceipt(original) ?? previewContent(original, budget, callId);
     const after = textLength(content);
     if (after >= before) continue;
-    const message = freezeMessage({
-      ...event.data.message, content: [{ ...result, content }]
-    });
+    const message = freezeMessage({ ...event.data.message, content });
     session.append("compaction/prune", {
       shadowedRange: { start: seq, end: seq }, shadowedSeqs: [seq],
       shadowedTokenCount: tokenMeter.estimateMessage(event.data.message)
@@ -121,8 +118,8 @@ export function readToolResult(session, args, visited = new Set()) {
   }
   const event = originalResults(session).get(call_id);
   if (!event) throw new Error("No tool result with that call_id exists in this session.");
-  const result = event.data.message.content[0];
-  const points = Array.from(result.content.filter((block) => block.type === "text")
+  const { content, isError } = event.data.message;
+  const points = Array.from(content.filter((block) => block.type === "text")
     .map((block) => block.text).join(""));
   if (offset > points.length) throw new Error(`offset exceeds the result's ${points.length} characters.`);
   if (find) {
@@ -133,7 +130,7 @@ export function readToolResult(session, args, visited = new Set()) {
   }
   const end = Math.min(points.length, offset + TOOL_READ_CHARS);
   return {
-    call_id, is_error: Boolean(result.isError), total_chars: points.length,
+    call_id, is_error: Boolean(isError), total_chars: points.length,
     offset, next_offset: end < points.length ? end : null, text: points.slice(offset, end).join("")
   };
 }

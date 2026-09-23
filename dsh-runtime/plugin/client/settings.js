@@ -12,6 +12,7 @@ import { SystemDefaultSettings } from "./agents.js";
 function AiSettings({ ctx, modelSettings, preferences, systemDefault, reload }) {
   const preference = usePreference(preferences);
   const isOnboarding = preference.onboarding?.active;
+  const [modelsChanged, setModelsChanged] = useState(0);
 
   return h("div", { className: "bees-stack" },
     isOnboarding ? h("section", { className: "bees-callout" },
@@ -19,9 +20,10 @@ function AiSettings({ ctx, modelSettings, preferences, systemDefault, reload }) 
       h("p", null, "Connect or start a model below, save it as your system default, then return to setup to test it. You can continue setup during a download.")
     ) : null,
 
-    h(SystemDefaultSettings, { ctx, modelSettings, systemDefault, reload }),
+    h(SystemDefaultSettings, { ctx, modelSettings, systemDefault, reload, modelsChanged }),
 
-    h(SubscriptionSettings, { modelSettings, preferences, systemDefault, ask, openExternal, Button }),
+    h(SubscriptionSettings, { modelSettings, preferences, systemDefault, ask, openExternal, Button,
+      onChange: () => setModelsChanged((count) => count + 1) }),
     h(FreeAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button }),
     h(CustomAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button }),
     h(LocalAiSettings, { modelSettings, preferences, systemDefault, ask, confirmAction, Button }),

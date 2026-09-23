@@ -227,8 +227,7 @@ const STAGE_RESULT_COLUMNS = `
         summary TEXT NOT NULL,
         created_at TEXT NOT NULL
       ) STRICT;`;
-/** A tool result names the call it answers in one of two shapes, depending on the provider. */
-const resultCallId = (data) => String(data?.message?.source?.callId ?? data?.message?.content?.[0]?.toolCallId ?? "");
+const resultCallId = (data) => String(data.message.source.callId);
 
 function reviewTimeline(events) {
   const calls = new Set();
@@ -241,7 +240,7 @@ function reviewTimeline(events) {
     if (event.type === "tool/result") {
       const callId = resultCallId(event.data);
       return calls.has(callId) ? [{ seq: event.seq, time: event.time, type: event.type,
-        callId, error: Boolean(event.data.error), detail: excerpt(event.data.message?.content) }] : [];
+        callId, error: Boolean(event.data.message.isError), detail: excerpt(event.data.message.content) }] : [];
     }
     return ["approval/asked", "approval/decided"].includes(event.type)
       ? [{ seq: event.seq, time: event.time, type: event.type, detail: excerpt(event.data) }]
@@ -282,9 +281,7 @@ function messageParts(content) {
 const STAGE_BRIEF = /^(Complete only the |Independently review the candidate |Resume this )/;
 function internalPromptLabel(message) {
   const source = message?.source;
-  if (source?.kind === "skill-catalog" ||
-    (source?.kind === "plugin" && source.plugin === "@deepseek-ai/dsh-system-prompt"))
-    return `Context injection · ${source.plugin || source.kind}`;
+  if (source?.kind === "skill-catalog" || source?.kind === "runtime-context") return `Context injection · ${source.kind}`;
   return STAGE_BRIEF.test(textBlocks(message?.content)[0] ?? "") ? "Bees stage brief" : null;
 }
 
@@ -352,7 +349,7 @@ function eventsToConversation(events, settlements) {
     } else if (event.type === "tool/result") {
       const part = calls.get(resultCallId(event.data));
       if (part) {
-        part.state = event.data.error ? "output-error" : "output-available";
+        part.state = event.data.message.isError ? "output-error" : "output-available";
         part.output = textBlocks(event.data.message.content).join("\n") || event.data.message.content;
       }
     }
@@ -857,7 +854,7 @@ export class AgentRuntime {
       const callId = resultCallId(event.data);
       const pending = this.pendingInteraction(executionId);
       if (["question", "work-review"].includes(pending?.kind) && pending.callId === callId) {
-        const answered = !event.data.error;
+        const answered = !event.data.message.isError;
         const at = new Date().toISOString();
         this.setStatus(executionId, "running", at);
         this.database.prepare(`
@@ -875,9 +872,9 @@ export class AgentRuntime {
       const output = {
         sessionId,
         seq: event.seq,
-        callId: callId || null,
-        error: Boolean(event.data.error),
-        contentHash: jsonHash(event.data.message?.content ?? null)
+        callId,
+        error: Boolean(event.data.message.isError),
+        contentHash: jsonHash(event.data.message.content)
       };
       const prior = this.database.prepare(`
         SELECT completed_outputs_json AS completedOutputsJson
@@ -1614,9 +1611,9 @@ export class AgentRuntime {
       const events = await this.sessionEvents(run.executionId, sessionId).catch(() => null);
       if (!events?.length) { evidence.push({ session_id: sessionId, unavailable: true }); continue; }
       const results = new Set(events.filter(({ type }) => type === "tool/result")
-        .map(({ data }) => data.message.source.callId));
+        .map(({ data }) => resultCallId(data)));
       for (const { type, data } of events) {
-        if (type !== "tool/call" || !results.has(data.callId)) continue;
+        if (type !== "tool/call" || !results.has(String(data.callId))) continue;
         if (data.name === "write") {
           try {
             const args = typeof data.arguments === "string" ? JSON.parse(data.arguments) : data.arguments;

@@ -603,7 +603,7 @@ export class BeesProduct {
     try {
       presets = this.agentPresets ? await Promise.all((await this.agentPresets.list()).map(async (preset) => {
         const { id, name, description } = namePreset(preset);
-        return { id, name, description, broken: preset.broken || await this.presetGap(id).catch(message), trust: preset.trust };
+        return { id, name, description, broken: preset.broken || await this.presetGap(id).catch(message) };
       })) : [];
     } catch { /* the Agents page reports the empty roster honestly */ }
     return {
@@ -625,7 +625,8 @@ export class BeesProduct {
 
   /** A stage writes under outputs/ and may have to ask a person. Without those tools a run cannot follow the persona. */
   async presetGap(presetId) {
-    const names = new Set(this.tools.schemas(await this.agentPresets.standingKeyFor(presetId)).map(({ name }) => name));
+    await using scope = await this.agentPresets.acquireScope(presetId);
+    const names = new Set(this.tools.schemas(scope.key).map(({ name }) => name));
     const missing = ["write", "ask_user_question"].filter((name) => !names.has(name));
     return missing.length ? `Has no ${missing.join(" or ")} tool, so it cannot run a stage` : null;
   }

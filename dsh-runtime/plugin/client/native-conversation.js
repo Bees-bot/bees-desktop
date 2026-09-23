@@ -33,33 +33,22 @@ export function DshRunPanels({ ctx, run, item = {}, activeTab }) {
     setError("");
     setOpening(true);
     if (!sessionId) return;
-    let disposed = false, refreshing = false, selected = sessionId, opened = false;
+    let disposed = false, opened = false;
     const target = { main: main.current, rightbar: rightbar.current };
-    const open = async (refresh = true) => {
-      if (disposed || refreshing) return;
-      refreshing = true;
+    const fail = (reason) => { if (!disposed) setError(reason instanceof Error ? reason.message : String(reason)); };
+    const open = () => {
+      if (disposed || opened || !ctx.sessions.list.getSnapshot().byId[sessionId]) return;
+      // openSession updates the list, which calls open again before it returns
+      opened = true;
       try {
-        if (refresh) await ctx.sessions.refresh();
-        if (disposed || !ctx.sessions.list.getSnapshot().byId[selected]) return;
-        ctx.sessions.open(selected);
-        opened = true;
+        ctx.uiWorkspace.openSession(sessionId);
         setError(""); setOpening(false);
         nativeEmbedding.update({ target });
-      } catch (reason) { if (!disposed) setError(reason instanceof Error ? reason.message : String(reason)); }
-      finally { refreshing = false; }
+      } catch (reason) { opened = false; fail(reason); }
     };
-    const unsubscribe = ctx.sessions.list.subscribe(() => {
-      if (disposed || refreshing) return;
-      const current = ctx.sessions.list.getSnapshot().current;
-      if (opened && current) selected = current;
-      else if (opened) {
-        // Refresh durable history once when Bees releases a completed writer.
-        opened = false; setOpening(true);
-        nativeEmbedding.update({ target: null });
-        void open();
-      } else void open(false); // A queued retry may be listed only after the initial refresh.
-    });
-    void open();
+    // a queued retry may be listed only after the first refresh
+    const unsubscribe = ctx.sessions.list.subscribe(open);
+    ctx.sessions.refresh().then(open, fail);
     return () => {
       disposed = true; unsubscribe();
       if (nativeEmbedding.getSnapshot().target === target) nativeEmbedding.update({ target: null });
