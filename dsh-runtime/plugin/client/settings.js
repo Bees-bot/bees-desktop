@@ -328,20 +328,28 @@ function OrganizationSettings({
   const failure = error ? h("div", { className: "bees-error", role: "alert" }, error) : null;
 
   if (route === "organization-settings") return h("div", { className: "bees-stack" },
-    h("section", { className: "bees-box" }, h("h3", null, "Organization"),
-      h("div", { className: "bees-row" }, h("div", { className: "bees-row-main" },
-        h("div", { className: "bees-row-title" }, organization.name),
-        h("div", { className: "bees-muted" }, organization.connected
-          ? `Regular organization · ${organization.role}` : "Private organization · this device")))),
-    h("section", { className: "bees-box" }, h("h3", null, "Branding"),
-      h("p", { className: "bees-muted" },
-        "Choose the color used for this organization in the switcher. This preference is saved on this device."),
-      h("div", { className: "bees-org-branding" },
-        h("span", { className: "bees-org-branding-preview", style: { background: organizationColor }, "aria-hidden": "true" },
-          organization.name.trim().charAt(0).toLocaleUpperCase() || "•"),
-        h("label", null, "Organization color", h("input", { type: "color", className: "bees-color-input",
-          value: organizationColor, onChange: (event) => setOrganizationColor(event.target.value) })),
-        customColor ? h(Button, { onClick: resetOrganizationColor }, "Use automatic color") : null)),
+    h("section", { className: "bees-box bees-appearance-card", style: { padding: "20px" } }, 
+      h("h3", null, "Organization Profile"),
+      h("p", { className: "bees-muted", style: { marginBottom: "20px" } }, "General settings and details about this organization."),
+      h("div", { className: "bees-row", style: { background: "var(--dsw-alias-bg-base)", padding: "16px", borderRadius: "8px", border: "1px solid var(--dsw-alias-border-l2)" } }, 
+        h("div", { 
+          style: { width: "40px", height: "40px", borderRadius: "8px", background: organizationColor, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", fontWeight: "bold" }
+        }, organization.name.trim().charAt(0).toLocaleUpperCase() || "•"),
+        h("div", { className: "bees-row-main", style: { marginLeft: "12px" } },
+          h("div", { className: "bees-row-title", style: { fontSize: "16px" } }, organization.name),
+          h("div", { className: "bees-muted" }, organization.connected
+            ? `Regular organization · Role: ${organization.role}` : "Private organization · Saved on this device")))),
+    
+    h("section", { className: "bees-box bees-appearance-card", style: { padding: "20px" } }, 
+      h("h3", null, "Branding & Appearance"),
+      h("p", { className: "bees-muted", style: { marginBottom: "16px" } },
+        "Personalize the color used for this organization in the sidebar switcher. This preference is saved locally on this device."),
+      h("div", { className: "bees-form-row", style: { display: "flex", alignItems: "center", gap: "16px", background: "var(--dsw-alias-bg-base)", padding: "16px", borderRadius: "8px", border: "1px solid var(--dsw-alias-border-l2)" } },
+        h("label", { style: { display: "flex", alignItems: "center", gap: "12px", margin: 0, flex: 1 } }, 
+          h("span", { style: { fontWeight: "500" } }, "Organization color"), 
+          h("input", { type: "color", className: "bees-color-input", style: { width: "32px", height: "32px", padding: "0", border: "none", borderRadius: "4px", cursor: "pointer" },
+            value: organizationColor, onChange: (event) => setOrganizationColor(event.target.value) })),
+        customColor ? h(Button, { onClick: resetOrganizationColor }, "Reset to default") : null)),
     dangerZone,
     failure);
 
@@ -356,14 +364,24 @@ function OrganizationSettings({
   if (route === "organization-members") {
     if (!people) return h(Empty, null, error || "Loading organization members…");
     return h("div", { className: "bees-stack" },
-      h("section", { className: "bees-box" }, h("h3", null, `${organization.name} members`),
-        ...(people.memberships.length ? people.memberships.map((member) => h("div", { className: "bees-row", key: member.id },
-          h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, member.email || member.userId),
-            h("div", { className: "bees-muted" }, member.status)),
+      h("section", { className: "bees-box bees-appearance-card", style: { padding: "20px" } }, 
+        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" } },
+          h("h3", { style: { margin: 0 } }, `${organization.name} Members`),
+          h("span", { className: "bees-badge", style: { padding: "4px 8px" } }, `${people.memberships.length} members`)
+        ),
+        h("div", { style: { display: "flex", flexDirection: "column", gap: "8px" } },
+        ...(people.memberships.length ? people.memberships.map((member) => h("div", { className: "bees-row", key: member.id, style: { background: "var(--dsw-alias-bg-base)", padding: "12px 16px", borderRadius: "8px", border: "1px solid var(--dsw-alias-border-l2)" } },
+          h("div", { 
+            style: { width: "32px", height: "32px", borderRadius: "50%", background: "var(--dsw-alias-border-l2)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "600", fontSize: "14px", marginRight: "12px", color: "var(--dsw-alias-label-primary)" }
+          }, (member.email || member.userId).charAt(0).toUpperCase()),
+          h("div", { className: "bees-row-main" }, 
+            h("div", { className: "bees-row-title", style: { fontWeight: "500" } }, member.email || member.userId),
+            h("div", { className: "bees-muted", style: { fontSize: "13px" } }, member.status)),
           member.role === "owner"
-            ? h("span", { className: "bees-badge" }, member.role)
+            ? h("span", { className: "bees-badge", style: { background: "var(--dsw-alias-brand)", color: "#fff" } }, "Owner")
             : h("select", {
                 className: "bees-select",
+                style: { padding: "4px 8px", height: "auto" },
                 value: member.role,
                 disabled: updatingMemberId === member.userId,
                 "aria-label": `Role for ${member.email || member.userId}`,
@@ -371,25 +389,36 @@ function OrganizationSettings({
               },
               h("option", { value: "member" }, "Member"),
               h("option", { value: "admin" }, "Admin"))))
-          : [h(Empty, { key: "empty" }, "No organization members")])),
-      h("section", { className: "bees-box" }, h("h3", null, "Invite member"),
-        h("form", { className: "bees-form-row", onSubmit: invite },
-          h("label", null, "Email", h("input", { className: "bees-input", name: "email", type: "email", required: true })),
-          h("label", null, "Role", h("select", { className: "bees-select", name: "role" }, h("option", { value: "member" }, "Member"), h("option", { value: "admin" }, "Admin"))),
-          h("button", { className: "bees-btn primary", disabled: inviting }, inviting ? "Sending…" : "Send invitation")),
-        ...(people.invitations.length ? people.invitations.map((invitation) => h("div", { className: "bees-row", key: invitation.id },
-          h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, invitation.email),
-            h("div", { className: "bees-muted" }, invitation.expiresAt ? `Pending · expires ${new Date(invitation.expiresAt).toLocaleDateString()}` : "Pending")),
-          h("select", {
-            className: "bees-select",
-            value: invitation.role,
-            disabled: updatingInvitationId === invitation.id,
-            "aria-label": `Role for invitation ${invitation.email}`,
-            onChange: (event) => void changeInvitationRole(invitation.id, event.target.value)
-          },
-          h("option", { value: "member" }, "Member"),
-          h("option", { value: "admin" }, "Admin"))))
-          : [h(Empty, { key: "empty" }, "No pending organization invitations")])),
+          : [h(Empty, { key: "empty" }, "No organization members")]))),
+          
+      h("section", { className: "bees-box bees-appearance-card", style: { padding: "20px" } }, 
+        h("h3", null, "Invite new member"),
+        h("p", { className: "bees-muted", style: { marginBottom: "16px" } }, "Send an email invitation to join this organization."),
+        h("form", { className: "bees-form-row", style: { display: "flex", gap: "12px", alignItems: "flex-end", background: "var(--dsw-alias-bg-base)", padding: "16px", borderRadius: "8px", border: "1px solid var(--dsw-alias-border-l2)" }, onSubmit: invite },
+          h("label", { style: { flex: "1 1 0", margin: 0 } }, h("div", { style: { marginBottom: "6px", fontSize: "13px", fontWeight: "500" } }, "Email address"), h("input", { className: "bees-input", name: "email", type: "email", placeholder: "colleague@example.com", required: true, style: { width: "100%" } })),
+          h("label", { style: { width: "120px", margin: 0 } }, h("div", { style: { marginBottom: "6px", fontSize: "13px", fontWeight: "500" } }, "Role"), h("select", { className: "bees-select", name: "role", style: { width: "100%" } }, h("option", { value: "member" }, "Member"), h("option", { value: "admin" }, "Admin"))),
+          h("button", { className: "bees-btn primary", disabled: inviting, style: { height: "32px" } }, inviting ? "Sending…" : "Send invitation")),
+          
+        people.invitations.length > 0 ? h("div", { style: { marginTop: "24px" } },
+          h("h4", { style: { marginBottom: "12px", fontSize: "14px", fontWeight: "600", color: "var(--dsw-alias-label-secondary)" } }, "Pending Invitations"),
+          h("div", { style: { display: "flex", flexDirection: "column", gap: "8px" } },
+            ...people.invitations.map((invitation) => h("div", { className: "bees-row", key: invitation.id, style: { background: "var(--dsw-alias-bg-base)", padding: "12px 16px", borderRadius: "8px", border: "1px solid var(--dsw-alias-border-l2)" } },
+              h("div", { 
+                style: { width: "32px", height: "32px", borderRadius: "50%", background: "var(--dsw-alias-border-l2)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "600", fontSize: "14px", marginRight: "12px", color: "var(--dsw-alias-label-secondary)" }
+              }, "@"),
+              h("div", { className: "bees-row-main" }, 
+                h("div", { className: "bees-row-title", style: { fontWeight: "500" } }, invitation.email),
+                h("div", { className: "bees-muted", style: { fontSize: "13px" } }, invitation.expiresAt ? `Expires ${new Date(invitation.expiresAt).toLocaleDateString()}` : "Pending")),
+              h("select", {
+                className: "bees-select",
+                style: { padding: "4px 8px", height: "auto" },
+                value: invitation.role,
+                disabled: updatingInvitationId === invitation.id,
+                "aria-label": `Role for invitation ${invitation.email}`,
+                onChange: (event) => void changeInvitationRole(invitation.id, event.target.value)
+              },
+              h("option", { value: "member" }, "Member"),
+              h("option", { value: "admin" }, "Admin")))))) : null),
       failure);
   }
 

@@ -212,10 +212,10 @@ export function Home({ ctx, data, workspaceId, act, openWorkItem, navigate, rows
           }, h("strong", null, definition.label), h("span", null, definition.description)))
             : h("div", { className: "bees-muted" }, "Every widget is already on this dashboard."))
       ) : null,
-      editing ? h(Button, { onClick: resetDashboard }, "Reset dashboard") : null,
+      editing ? h(Button, { onClick: resetDashboard }, "Reset") : null,
       editing && dashboard.id !== "home" ? h(Button, { className: "danger", onClick: deleteDashboard }, "Delete dashboard") : null,
       h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) },
-        editing ? "Done" : h(React.Fragment, null, h("span", { className: "bees-btn-icon" }, h(EditIcon)), "Customize dashboard"))));
+        editing ? "Done" : "Customize")));
     return () => setPageActions(null);
   }, [setup, editing, preference.activeDashboardId, preference.dashboards, setPageActions]);
 
@@ -232,7 +232,7 @@ export function Home({ ctx, data, workspaceId, act, openWorkItem, navigate, rows
       widgetProps,
       onLayout: (layout) => saveDashboard(applyDashboardLayout(dashboard, layout)),
       onRemove: (kind) => saveDashboard({ ...dashboard, widgets: dashboard.widgets.filter((widget) => widget.kind !== kind) })
-    }) : h(Empty, null, editing ? "Add a widget to build this dashboard." : "This dashboard is empty. Choose Customize dashboard to add widgets."))
+    }) : h(Empty, null, editing ? "Add a widget to build this dashboard." : "This dashboard is empty. Choose Customize to add widgets."))
   );
 }
 
