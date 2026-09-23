@@ -94,26 +94,27 @@ function ProcessForm({ ctx, data, servers, tools, catalog, onServerAction, kind,
     if (created?.id) onCreated(created.id);
   });
 
-  return h("form", { className: "bees-box bees-form", onSubmit },
+  return h("form", { className: "bees-form", onSubmit, style: { gap: "24px", paddingTop: "8px" } },
     h(PageHead, { setPageHeader }, 
       h(Button, { onClick: onCancel }, "← Process Templates"),
-      h("div", { className: "bees-title" }, template ? "New process template" : draft ? "Create process template from preset" : "New process template"),
-      h("div", { className: "bees-grow" })
-    ),
-    h("div", { className: "bees-muted", style: { marginBottom: "16px" } }, template
+      h("div", null,
+        h("h2", null, template ? "New process template" : draft ? "Create process template from preset" : "New process template"),
+        h("div", { className: "bees-muted" }, template
           ? "A template is a reusable blueprint. It does not run work by itself."
-          : "Define the reusable workflow here. Each line becomes a stage; the final stage is Done."),
+          : "Define the reusable workflow here. Each line becomes a stage; the final stage is Done."))
+    ),
     h("label", null, template ? "Template name" : "Process template name", h("input", { className: "bees-input", name: "name", required: true, autoFocus: true,
       defaultValue: draft?.name ?? "", placeholder: template ? "Editorial workflow" : "Publish an article" })),
     h("label", null, "Description & instructions", h("textarea", { className: "bees-textarea", name: "description", defaultValue: draft?.description ?? "",
       placeholder: "Describe this workflow, its instructions and completion criteria. Every assigned agent receives this brief." })),
-    h("label", null, "Stages (one per line)", h("textarea", { className: "bees-textarea", name: "stages", required: true,
-      defaultValue: initialStages.join("\n"), "aria-describedby": "process-stage-help" })),
-    h("div", { className: "bees-muted", id: "process-stage-help" }, "Use 2–12 unique stages. Leave assignment automatic or choose a lead and participants; Review uses one independent reviewer; Approval or Sign-off requires human approval; the last stage completes the work."),
+    h("label", null, "Stages (one per line)",
+      h("textarea", { className: "bees-textarea", name: "stages", required: true,
+        defaultValue: initialStages.join("\n"), "aria-describedby": "process-stage-help" }),
+      h("span", { className: "bees-muted", id: "process-stage-help" }, "Use 2–12 unique stages. Leave assignment automatic or choose a lead and participants; Review uses one independent reviewer; Approval or Sign-off requires human approval; the last stage completes the work.")),
     template ? null : h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds,
       onInputIds: setInputLocationIds, outputId: outputLocationId, onOutputId: setOutputLocationId }),
-    template ? null : h(React.Fragment, null,
-      h("p", { className: "bees-muted" }, "Process MCPs are available to every agent in this process, alongside each agent's own MCPs."),
+    template ? null : h("div", { style: { display: "grid", gap: "5px" } },
+      h("p", { className: "bees-muted", style: { margin: 0 } }, "Process MCPs are available to every agent in this process, alongside each agent's own MCPs."),
       h(McpAccess, { ctx, servers, tools, catalog, onServerAction, access: "none", scope: "process" })),
     h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Creating…" : template ? "Create template" : "Create process template"),
       h(Button, { onClick: onCancel }, "Cancel"))
