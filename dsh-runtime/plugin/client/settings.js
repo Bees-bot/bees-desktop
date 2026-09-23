@@ -636,7 +636,7 @@ function FoldersSettings({ ctx, data, team, act }) {
 
 // Deleting the app on its own leaves the database, downloaded models and sessions behind, and the
 // next install reads them, so the size is in front of the person before it goes.
-function RemoveBeesSettings() {
+function RemoveBeesSettings({ dataFolder }) {
   const invoke = window.__TAURI__?.core?.invoke;
   const [folder, setFolder] = useState(null);
   const [notice, setNotice] = useState("");
@@ -659,14 +659,16 @@ function RemoveBeesSettings() {
   };
   return h("section", { className: "bees-box bees-stack" },
     h("h2", null, "Removing Bees"),
-    h("p", null, "Bees keeps its database, downloaded models and sessions in a folder of its own. Putting the app in the Trash leaves that folder behind, and the next install makes use of it."),
+    h("p", null, "Bees keeps its downloaded models and sessions in a folder of its own. Putting the app in the Trash leaves that folder behind, and the next install makes use of it."),
     h("p", null, folder ? `${folder.path} · about ${readable(folder.bytes)}` : "Reading the size of that folder…"),
     notice ? h("p", { className: "bees-callout", role: "status" }, notice) : null,
     invoke
       ? h("div", { className: "bees-detail-actions" },
         h(Button, { className: "danger", disabled: busy || !folder, onClick: remove }, busy ? "Removing…" : "Remove Bees and its data"))
       : h("p", { className: "bees-muted" }, "Open the installed app to remove Bees from here."),
-    h("p", { className: "bees-muted" }, "This removes your workspaces, runs, reviews, memory, downloaded models and logs. Folders you chose yourself are not touched."));
+    h("p", { className: "bees-muted" }, dataFolder.shared
+      ? `This removes memory, downloaded models, sessions and logs on this computer. Your shared folder at ${dataFolder.path} keeps your workspaces, runs and reviews and is not touched. After you reinstall, choose it again in Settings → Data folder.`
+      : "This removes your workspaces, runs, reviews, memory, downloaded models and logs. Folders you chose yourself are not touched."));
 }
 
 function SettingsGroup({ label, routes, route, navigate, role, connected = true }) {
@@ -724,7 +726,7 @@ export function SettingsPage({
       ? h(SystemInstructionsSettings, { preferences, instructions: preference.systemInstructions ?? "" })
     : route === "appearance" ? h(AppearanceSettings, { ctx, preferences })
     : route === "data-folder" ? h(DataFolderSettings, { ctx, data, act })
-    : route === "removing-bees" ? h(RemoveBeesSettings)
+    : route === "removing-bees" ? h(RemoveBeesSettings, { dataFolder: data.dataFolder })
     : route === "organizations" ? h(OrganizationsSettings)
     : route === "connections" ? h(ConnectionsSettings)
     : ORGANIZATION_SETTINGS.some(([id]) => id === route)
