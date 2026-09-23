@@ -54,7 +54,24 @@ This product includes software developed by third parties:
   Public License 2.0 for cairo. The package README names every one of them and
   links its licence text. Source for all of them is at the address above.
   The LGPL-3 text is in LICENSE-LGPL-3.0, and it incorporates the GPL-3 text
-  in LICENSE-GPL-3.0. Both ship beside this file, unmodified.
+  in LICENSE-GPL-3.0. Both ship unmodified, beside this file in the app and
+  under licenses/ in the source.
+
+  LibreOffice 26.8, shipped inside @deepseek-ai/libreoffice-kit
+  https://github.com/deepseek-harness/libreoffice-kit
+  https://www.libreoffice.org
+  Turns Word, Excel and PowerPoint files into PDF. Licensed under the Mozilla
+  Public License 2.0. Its licence text and the notices for the libraries it
+  includes ship in the package's licenses folder, unmodified.
+
+  sherpa-onnx, with ONNX Runtime
+  https://github.com/k2-fsa/sherpa-onnx
+  Turns speech into text on the device. sherpa-onnx is licensed under the
+  Apache License, Version 2.0, and ONNX Runtime under the MIT License.
+
+  Lightning CSS
+  https://github.com/parcel-bundler/lightningcss
+  Licensed under the Mozilla Public License 2.0
 
 Model weights are downloaded at first run and are not distributed with this
 software. The default model is Nanbeige 4.2 3B, licensed under the Apache
