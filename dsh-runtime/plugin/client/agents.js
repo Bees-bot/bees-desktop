@@ -73,13 +73,12 @@ export function AgentModelSelect({ ctx, value = "", effort = "", systemDefault, 
         : !route ? h("option", { value: "", disabled: true }, catalog.loading ? "Loading available models…" : "Choose a model") : null,
       preserveCurrent ? h("option", { value: route }, catalog.loading ? `Current: ${route}`
         : catalog.error ? `Current: ${route} (catalog unavailable)` : `Current: ${route} (unavailable)`) : null,
-      ...groups.flatMap((group) => [
-        h("option", { value: `__provider_${group.id}`, disabled: true, key: `provider:${group.id}` }, group.name),
+      ...groups.map((group) => h("optgroup", { label: group.name, key: group.id },
         ...(group.id === "openai-codex" ? channels.map((channel) => h("option", {
-          value: channel.route, key: `${group.id}:channel:${channel.id}`
-        }, `\u00a0\u00a0Latest ${channel.name} (auto-updates)`)) : []),
-        ...group.models.map((model) => h("option", { value: `${group.id}/${model.id}`, key: `${group.id}:${model.id}` },
-          `\u00a0\u00a0${agentModelLabel(group, model)}`))])),
+          value: channel.route, key: `channel:${channel.id}`
+        }, `Latest ${channel.name} (auto-updates)`)) : []),
+        ...group.models.map((model) => h("option", { value: `${group.id}/${model.id}`, key: model.id },
+          agentModelLabel(group, model)))))),
     catalog.error ? h("span", { className: "bees-muted", role: "status" }, `Could not load available models: ${catalog.error}`)
       : catalog.failures.length ? h("span", { className: "bees-muted", role: "status" },
         `Some providers could not load: ${catalog.failures.map(({ name }) => name).join(", ")}`) : null),
@@ -93,7 +92,7 @@ export function AgentModelSelect({ ctx, value = "", effort = "", systemDefault, 
       !route ? h("span", { className: "bees-muted" }, "Choose a model to override its reasoning effort.") : null));
 }
 
-export function SystemDefaultSettings({ ctx, modelSettings, systemDefault, reload }) {
+export function SystemDefaultSettings({ ctx, modelSettings, systemDefault, reload, modelsChanged = 0 }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const activeModelSettings = usePreference(modelSettings);
@@ -120,7 +119,7 @@ export function SystemDefaultSettings({ ctx, modelSettings, systemDefault, reloa
     h("h2", null, "System default"),
     h("p", { className: "bees-muted" }, "New agents use this model unless you choose a different one. Choose another default before turning this connection off."),
     h("form", { key: `${route}:${systemDefault?.reasoningEffort ?? ""}`, className: "bees-form-row", onSubmit: save },
-      h(AgentModelSelect, { ctx, value: route, effort: systemDefault?.reasoningEffort, allowSystemDefault: false, refreshKey: JSON.stringify(activeModelSettings) }),
+      h(AgentModelSelect, { ctx, value: route, effort: systemDefault?.reasoningEffort, allowSystemDefault: false, refreshKey: `${modelsChanged}:${JSON.stringify(activeModelSettings)}` }),
       h(Button, { type: "submit", className: "primary", disabled: busy }, busy ? "Saving…" : "Save default")),
     message ? h("div", { className: message.endsWith("updated.") ? "bees-muted" : "bees-error", role: "status" }, message) : null);
 }
@@ -380,14 +379,12 @@ export function AgentListActions({ agent, act }) {
       await act(input);
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   });
-  const deleteUnavailable = "Deleting agents is not available here.";
   return h("div", null,
     h("div", { className: "bees-detail-actions", style: { marginTop: 0 }, role: "group", "aria-label": `Actions for ${agent.name}` },
       agent.archivedAt ? h(Button, { disabled: busy, onClick: (event) => submit(event, "restore_agent_assignment") }, "Restore")
         : h(React.Fragment, null,
           h(Button, { disabled: busy, onClick: (event) => submit(event, "copy_agent_assignment") }, "Duplicate"),
-          agent.systemRole ? null : h(Button, { className: "danger", disabled: busy, onClick: (event) => submit(event, "archive_agent_assignment") }, "Archive"),
-          h(Button, { disabled: true, title: deleteUnavailable }, "Delete"))),
+          agent.systemRole ? null : h(Button, { className: "danger", disabled: busy, onClick: (event) => submit(event, "archive_agent_assignment") }, "Archive"))),
     error ? h("p", { className: "bees-error", role: "alert" }, error) : null);
 }
 
@@ -407,8 +404,7 @@ export function AgentsPage({ ctx, data, servers = [], tools = [], catalog = [], 
         h(Button, { onClick: openDshSettings }, "Manage presets & skills")),
       ...(data.presets.length ? data.presets.map((preset) => h("div", { className: "bees-row", key: preset.id },
         h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, preset.name),
-          h("div", { className: "bees-muted" }, preset.broken ? "Unavailable" : preset.description || "Agent preset")),
-        h("span", { className: "bees-badge" }, preset.trust ?? "preset"))) : [h(Empty, { key: "empty" }, "No agent presets are available")]));
+          h("div", { className: "bees-muted" }, preset.broken ? "Unavailable" : preset.description || "Agent preset")))) : [h(Empty, { key: "empty" }, "No agent presets are available")]));
   return h("div", { className: "bees-flex-page bees-stack" },
     h("div", { className: "bees-search", style: { justifyContent: "flex-end" } },
       h("select", { className: "bees-select", value: agentStatus, "aria-label": "Agent status", onChange: (event) => setAgentStatus(event.target.value) },

@@ -28,7 +28,7 @@ window.__ModuleLoader__.load({
       return value;
     }
 
-    function SubscriptionSettings({ modelSettings, preferences, systemDefault, ask, openExternal, Button }) {
+    function SubscriptionSettings({ modelSettings, preferences, systemDefault, ask, openExternal, Button, onChange }) {
       const config = usePreference(modelSettings);
       const ui = usePreference(preferences);
       const [status, setStatus] = useState({ codex: false, codexModels: [],
@@ -45,7 +45,8 @@ window.__ModuleLoader__.load({
       useEffect(() => { void refresh().catch((reason) => setError(reason.message)); }, []);
       const perform = async (name, work, success = "") => {
         setBusy(name); setError(""); setNotice("");
-        try { await work(); await refresh(); setNotice(success); }
+        // claude state lives on the server, so the model pickers above never see it change on their own
+        try { await work(); await refresh(); onChange?.(); setNotice(success); }
         catch (reason) {
           const message = reason instanceof Error ? reason.message : String(reason);
           setError(success ? `Test failed: ${message}` : message);

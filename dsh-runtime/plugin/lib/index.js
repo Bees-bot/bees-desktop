@@ -59,7 +59,8 @@ export const Config = z.object({
     connectionId: z.string().default(""),
     task: z.string().default("plan"),
     prompt: z.string().default(""),
-    inputLocationIds: z.array(z.string()).default([])
+    inputLocationIds: z.array(z.string()).default([]),
+    aiTested: z.string().default("")
   }).default({}).volatile(),
   lastScope: z.string().default("").volatile(),
   lastConnectionId: z.string().default("").volatile(),
@@ -414,7 +415,7 @@ export async function apply(ctx, config = {}, internals = {}) {
         })) });
       } catch (error) {
         // One unreachable provider must not cost the editor every other model.
-        failures.push({ provider: provider.id, error: userMessage(error) });
+        failures.push({ name: provider.name, error: userMessage(error) });
       }
     }
     reply(res, 200, { groups, failures });
