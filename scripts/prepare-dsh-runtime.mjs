@@ -405,8 +405,15 @@ function signMac(paths, label) {
   );
   // A linker-generated ad-hoc signature passes `codesign --verify`, but macOS can still
   // assess it on every launch and wedge the process before main, so nothing is left as is.
-  for (const path of paths) execFileSync("codesign", [...signArgs, path]);
+  for (const path of paths) {
+    // libreoffice's uno bridge writes code at runtime and ships with no entitlements to preserve,
+    // so without allow-jit the hardened runtime kills every word/excel/powerpoint to pdf with SIGTRAP
+    const office = /libreoffice-kit-darwin-[^/]+\/bin\/libreoffice-kit$/.test(path);
+    execFileSync("codesign", [...signArgs, ...(office ? ["--entitlements", officeEntitlements] : []), path]);
+  }
 }
+
+const officeEntitlements = resolve(desktopRoot, "src-tauri", "libreoffice-entitlements.plist");
 
 function signMacRuntime(runtimeRoot) {
   if (!macTarget) return;
