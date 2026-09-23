@@ -62,9 +62,10 @@ export function ResourceFields({
     !inherited.some((ref) => ref.locationId === row.id && !ref.relativePath));
   const output = locations.find(({ id }) => id === (outputId || defaultOutputId));
   const locked = disabled || busy || !["admin", "member"].includes(team?.role);
-  return h("section", { className: "bees-resource-fields" },
-    h("h3", null, "Inputs"),
-    h("p", { className: "bees-muted" }, "Read-only copies for each run. Originals stay unchanged."),
+  return h(React.Fragment, null,
+    h("div", { style: { display: "grid", gap: "5px" } },
+      h("div", { style: { fontWeight: 500 } }, "Inputs"),
+      h("p", { className: "bees-muted", style: { margin: 0 } }, "Read-only copies for each run. Originals stay unchanged."),
     rows.size ? h("div", { className: "bees-resource-list" }, ...[...rows.values()].map((row) => {
       const sources = [...row.sources];
       const location = locations.find(({ id }) => id === row.locationId);
@@ -94,10 +95,10 @@ export function ResourceFields({
         ...available.map((location) => h("option", { value: location.id, key: location.id },
           `${location.name} · ${location.kind} · ${location.localPath}`))),
       h(Button, { disabled: locked, onClick: () => change(() => add("file")) }, "Add file"),
-      h(Button, { disabled: locked, onClick: () => change(() => add("folder")) }, "Add folder")),
-    allowOutput ? h("div", { className: "bees-output-field" },
-      h("h3", null, "Output folder"),
-      h("p", { className: "bees-muted" }, "Results stay in Bees. Choose a folder for an approved copy."),
+      h(Button, { disabled: locked, onClick: () => change(() => add("folder")) }, "Add folder"))),
+    allowOutput ? h("div", { style: { display: "grid", gap: "5px" } },
+      h("div", { style: { fontWeight: 500 } }, "Output folder"),
+      h("p", { className: "bees-muted", style: { margin: 0 } }, "Results stay in Bees. Choose a folder for an approved copy."),
       h("div", { className: "bees-resource-controls" },
         h("select", { className: "bees-select", value: outputId, disabled: locked,
           onChange: (event) => { const id = event.target.value; void change(() => onOutputId(id)); }, "aria-label": "Output folder" },
