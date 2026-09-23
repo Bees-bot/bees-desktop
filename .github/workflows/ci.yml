@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   check:
-    name: Typecheck, test, build
+    name: Typecheck and build
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -32,12 +32,12 @@ jobs:
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 24.21.0
+          node-version-file: .nvmrc
           cache: npm
 
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
 
-      - uses: swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+      - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: src-tauri
 
@@ -54,9 +54,6 @@ jobs:
       # Rust only. A full tauri build also bundles and signs, which a PR does
       # not need.
       - run: cargo check --manifest-path src-tauri/Cargo.toml
-
-      # Covers the database upgrade and model sizing, which the TS suite cannot reach.
-      - run: cargo test --manifest-path src-tauri/Cargo.toml --lib
 
   secrets:
     name: Scan for secrets

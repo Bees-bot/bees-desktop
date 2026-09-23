@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,6 +8,7 @@ import { assertFolderOutsideBees } from "./product-commands.js";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import { browserStatePath, closeAgentBrowser, saveBrowserState, startAgentBrowser } from "./agent-browser.js";
 import { dataDirectory } from "./data-folder.js";
+import { serverFolder, setServerFolder } from "./folder-roots.js";
 import { iso, message, required, transaction } from "./product-database.js";
 import { catalogEntry, isBrowserCatalog, MCP_CATALOG } from "./mcp-catalog.js";
 import { googleConsent } from "./google-consent.js";
@@ -48,12 +50,30 @@ const PLACEHOLDER = /^(?:[Bb]earer\s+)?(?:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+|\$\{?\w+
 const placed = (value) => value === "{node}" ? process.execPath : value === "{browserState}" ? browserStatePath()
   : value.replace("{lib}", () => dirname(fileURLToPath(import.meta.url))).replace("{data}", dataDirectory);
 
+/** A folder-bound server takes its folder as its last argument, and that folder belongs to this computer. */
+const FOLDER = "{folder}";
+const needsFolder = (catalogId) => Boolean(catalogEntry(catalogId)?.requiresDirectory);
+const argsFor = (server) => server.args.map((arg) => arg === FOLDER ? serverFolder(server.id) || arg : placed(arg));
+
+/** A folder-bound server runs only while it has a folder here: one picked on another computer is not ours. */
+const noFolderReason = (server) => {
+  if (!needsFolder(server.catalogId)) return "";
+  const folder = serverFolder(server.id);
+  if (!folder) return `${server.label} has no folder on this computer. Choose one on the MCP servers page.`;
+  if (!existsSync(folder)) return `${folder} is the folder you gave ${server.label}, and it is not on this computer. `
+    + "Reconnect it, or choose another on the MCP servers page.";
+  return "";
+};
+
 function rowToServer(row) {
+  const args = JSON.parse(row.args_json);
+  // the slot holds its place, never a path: a folder named in a row written on another computer is not ours
+  if (needsFolder(row.catalog_id)) args[args.length - 1] = FOLDER;
   return {
     id: row.id, serverName: row.server_name, label: row.label, transport: row.transport,
     command: row.command, url: row.url, catalogId: row.catalog_id, source: row.source,
     createdAt: row.created_at, enabled: Boolean(row.enabled),
-    args: JSON.parse(row.args_json),
+    args,
     envNames: JSON.parse(row.env_names_json),
     headerNames: JSON.parse(row.header_names_json)
   };
@@ -149,6 +169,8 @@ export class Capabilities {
 
   /** Resolve a row's secrets and hand `dsh-mcp-client` the config shape it validates. */
   async configFor(server) {
+    const missing = noFolderReason(server);
+    if (missing) throw new Error(missing);
     if (server.transport === "stdio") {
       const env = {};
       for (const name of server.envNames) {
@@ -164,7 +186,7 @@ export class Capabilities {
         transport: "stdio",
         serverName: server.serverName,
         command: placed(server.command),
-        args: server.args.map(placed),
+        args: argsFor(server),
         env,
         // Without this a dead command activates with no tools and no error, stuck on Starting.
         failOnStartupError: true
@@ -190,8 +212,10 @@ export class Capabilities {
     // Reserve before the first await, or a second enable leaves an undisposable fiber.
     const entry = { fiber: null, error: "", ready: false, at: Date.now() };
     this.mounted.set(server.id, entry);
+    const noFolder = noFolderReason(server);
     const finish = startStep(`mcp.shared:${server.serverName}`);
     try {
+      if (noFolder) throw new Error(noFolder);
       const fiber = this.ctx.plugin(mcpClient, await this.configFor(server));
       entry.fiber = fiber;
       await started(fiber, server.serverName);
@@ -202,9 +226,9 @@ export class Capabilities {
       const reason = message(error);
       // The client names the server but never what it tried, which is what you need.
       const attempted = server.transport === "stdio"
-        ? `Bees tried to run: ${[server.command, ...server.args].map(placed).join(" ")}`
+        ? `Bees tried to run: ${[placed(server.command), ...argsFor(server)].join(" ")}`
         : `Bees tried to reach ${server.url}`;
-      entry.error = `${reason}. ${attempted}`;
+      entry.error = noFolder ? noFolder : `${reason}. ${attempted}`;
     }
     // A row removed while its fiber was starting must not leave the child process behind.
     if (!this.mounted.has(server.id) && entry.fiber) await stop(this.ctx, entry.fiber, server.serverName);
@@ -304,7 +328,9 @@ export class Capabilities {
         return {
           ...server,
           command: placed(server.command),
-          args: server.args.map(placed),
+          args: argsFor(server),
+          // null for a server that takes no folder, so the page shows a picker only where one belongs
+          folder: needsFolder(server.catalogId) ? serverFolder(server.id) : null,
           toolCount,
           perRun,
           error: state?.error ?? "",
@@ -396,6 +422,7 @@ export class Capabilities {
     if (action === "connect_mcp_server") return this.connect(input);
     if (action === "add_mcp_server") return this.add(input);
     if (action === "set_mcp_server_enabled") return this.setEnabled(input);
+    if (action === "set_mcp_server_folder") return this.setFolder(input);
     if (action === "remove_mcp_server") return this.remove(input);
     throw new Error(`Unknown capability action ${action || "(none)"}`);
   }
@@ -427,6 +454,8 @@ export class Capabilities {
   }
 
   async insert(server, secrets) {
+    // Before the row, so a folder that is not on this computer leaves no server behind.
+    if (server.folder) setServerFolder(server.id, server.folder);
     const at = iso();
     transaction(this.database, () => {
       this.database.prepare(`
@@ -547,6 +576,8 @@ export class Capabilities {
     const entry = catalogEntry(required(input.catalogId, "Catalog entry"));
     if (!entry) throw new Error("That catalog entry is unavailable");
     if (entry.scopes && !signIn) throw new Error(`${entry.label} needs the owner to click Connect with Google on the MCP servers page`);
+    // Which folder a server may reach is a person's choice on the machine it runs on, so a run cannot make it
+    if (input.viaAgent && entry.requiresDirectory) throw new Error(`${entry.label} is added on the MCP servers page, where the person picks the folder it may reach`);
     const directory = String(input.directory ?? "").trim();
     if (entry.requiresDirectory && !directory) throw new Error(`${entry.label} needs a folder`);
     assertFolderOutsideBees(directory, this.defaultWorkspace, entry.label);
@@ -580,11 +611,13 @@ export class Capabilities {
       // A field with no flag is consumed here rather than passed to the command.
       if (value && field.flag) args.push(field.flag, value);
     }
-    if (directory) args.push(directory);
+    // The folder is the person's on this computer, so the row keeps its place rather than its path.
+    if (entry.requiresDirectory) args.push(FOLDER);
     await this.typedTools(args, given.openapiSpec);
     await this.verifyEndpoints(given.openapiSpec);
     return this.insert({
       id: randomUUID(),
+      folder: directory,
       serverName: this.freeServerName(
         (entry.nameFrom && this.hostServerName(given[entry.nameFrom])) || entry.serverName
       ),
@@ -674,6 +707,19 @@ export class Capabilities {
     return { id: server.id, enabled };
   }
 
+  /** The folder a folder-bound server may reach, picked on this computer and kept out of the database. */
+  async setFolder(input) {
+    const server = this.row(input.serverId);
+    if (!needsFolder(server.catalogId)) throw new Error(`${server.label} does not take a folder`);
+    assertFolderOutsideBees(input.directory, this.defaultWorkspace, server.label);
+    setServerFolder(server.id, input.directory);
+    // a row from another computer still names its folder, and the slot is all this one keeps
+    this.database.prepare("UPDATE mcp_servers SET args_json = ? WHERE id = ?")
+      .run(JSON.stringify(server.args), server.id);
+    await this.serialize(server.id, () => this.remount(server));
+    return { id: server.id, folder: serverFolder(server.id) };
+  }
+
   async remove(input) {
     const server = this.row(input.serverId);
     await this.serialize(server.id, () => this.unmount(server.id));
@@ -681,6 +727,7 @@ export class Capabilities {
       await this.ctx.credentials.unset(secretRef(server, name));
     }
     this.database.prepare("DELETE FROM mcp_servers WHERE id = ?").run(server.id);
+    setServerFolder(server.id, "");
     return { id: server.id, removed: true };
   }
 }

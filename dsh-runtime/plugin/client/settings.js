@@ -3,8 +3,8 @@ import {
   React, SubscriptionSettings, useEffect, useState
 } from "./runtime.js";
 import {
-  ask, Button, collaboration, confirmAction, defaultOrgColor, Empty, openExternal, request, useSubmit,
-  THEME_PRESETS, usePreference
+  ask, Button, collaboration, confirmAction, defaultOrgColor, Empty, GLOBAL_SETTINGS, openExternal,
+  ORGANIZATION_SETTINGS, request, TEAM_SETTINGS, THEME_PRESETS, usePreference, useSubmit
 } from "./shared.js";
 import { MemorySettings } from "./collaboration.js";
 import { SystemDefaultSettings } from "./agents.js";
@@ -603,10 +603,12 @@ function DataFolderSettings({ ctx, data, act }) {
 const FOLDER_LEVELS = { organization: "Organization", team: "Team", workspace: "Workspace" };
 
 function FoldersSettings({ ctx, data, team, act }) {
-  const workspaceIds = data.workspaces.filter(({ teamId }) => teamId === team?.id).map(({ id }) => id);
+  const workspaceIds = data.workspaces.filter(({ teamId }) => teamId === team.id).map(({ id }) => id);
   const rows = (data.folders ?? []).filter((row) => workspaceIds.includes(row.workspaceId))
     // a team's workspaces share one organization and one team folder, so those rows are listed once
     .filter((row, index, all) => all.findIndex((other) => other.level === row.level && other.id === row.id) === index);
+  // nothing sits above the organization, so its fallback is the app's own folder, not a level
+  const above = (row) => row.level === "organization" ? "the default folder" : "the level above";
   const [notice, setNotice] = useState("");
   const [busy, choose] = useSubmit(async (event, row, reset) => {
     try {
@@ -616,21 +618,20 @@ function FoldersSettings({ ctx, data, team, act }) {
       await act({ action: "set_folder_root", workspaceId: row.workspaceId, level: row.level, id: row.id, directory: picked });
     } catch (error) { setNotice(error.message || String(error)); }
   });
-  if (!team) return h(Empty, null, "Choose a team");
   return h("section", { className: "bees-box bees-stack" },
     h("h2", null, "Folders"),
     h("p", { className: "bees-muted" }, "Bees remembers a run by its place inside this level's folder, so the same run ",
-      "opens on both computers. Set a folder here to keep this level's runs in one you choose."),
+      "opens on both computers. Set a folder here to keep this level's runs in one you choose; runs from before move with it."),
     notice ? h("p", { className: "bees-callout", role: "status" }, notice) : null,
     ...rows.map((row) => h("div", { className: "bees-row", key: `${row.level}:${row.id}` },
       h("div", { className: "bees-row-main" },
         h("div", { className: "bees-row-title" }, `${FOLDER_LEVELS[row.level]} · ${row.name}`),
         h("div", { className: "bees-muted" }, row.folder),
         row.missing ? h("div", { className: "bees-error", role: "alert" }, "Not on this computer right now.") : null),
-      h("span", { className: "bees-badge" }, row.picked ? "Set here" : "Uses the folder above"),
+      h("span", { className: "bees-badge" }, row.picked ? "Set here" : `Uses ${above(row)}`),
       h("div", { className: "bees-detail-actions" },
         h(Button, { disabled: busy, onClick: (event) => choose(event, row) }, "Choose folder"),
-        row.picked ? h(Button, { disabled: busy, onClick: (event) => choose(event, row, true) }, "Use the level above") : null))));
+        row.picked ? h(Button, { disabled: busy, onClick: (event) => choose(event, row, true) }, `Use ${above(row)}`) : null))));
 }
 
 // Deleting the app on its own leaves the database, downloaded models and sessions behind, and the
@@ -667,25 +668,6 @@ function RemoveBeesSettings() {
       : h("p", { className: "bees-muted" }, "Open the installed app to remove Bees from here."),
     h("p", { className: "bees-muted" }, "This removes your workspaces, runs, reviews, memory, downloaded models and logs. Folders you chose yourself are not touched."));
 }
-
-const GLOBAL_SETTINGS = [
-  ["personal-ai", "AI connections"],
-  ["appearance", "Appearance"],
-  ["data-folder", "Data folder"],
-  ["system-instructions", "System instructions"],
-  ["organizations", "Organizations"],
-  ["connections", "Connections"],
-  ["removing-bees", "Removing Bees"]
-];
-const ORGANIZATION_SETTINGS = [
-  ["organization-settings", "General"],
-  ["organization-members", "Members & invitations", ["owner", "admin"]],
-  ["organization-authentication", "Authentication", ["owner"]]
-];
-const TEAM_SETTINGS = [
-  ["team-settings", "Members"],
-  ["team-folders", "Folders", ["admin"]]
-];
 
 function SettingsGroup({ label, routes, route, navigate, role, connected = true }) {
   const shown = routes.filter(([, , needs]) => !needs || connected && needs.includes(role));
@@ -731,8 +713,10 @@ export function SettingsPage({
       ...data.workspaces.filter((workspace) => workspace.teamId === teamId).map((workspace) =>
         h(MemorySettings, { key: workspace.id, workspace, canManage: team?.role === "admin" })))
     : route === "team-folders"
-      ? team?.role === "admin" ? h(FoldersSettings, { ctx, data, team, act })
-        : h(Empty, null, "Only team administrators can set this team's folders")
+      // the folder belongs to this computer, so the person's local role decides, not a synced account's
+      ? !rawTeam ? h(Empty, null, "Choose a team")
+        : rawTeam.role !== "admin" ? h(Empty, null, "Only team administrators can set this team's folders")
+          : h(FoldersSettings, { ctx, data, team: rawTeam, act })
 
     : route === "personal-ai"
       ? h(AiSettings, { ctx, modelSettings, preferences, systemDefault: data.systemDefaultModel, reload })
@@ -749,5 +733,6 @@ export function SettingsPage({
         organizationColors: preference.organizationColors ?? {}
       })
       : h(Empty, null, "Choose a settings section");
-  return h(SettingsLayout, { route, navigate, organization, team }, content);
+  // the rail lists this computer's own settings, so its team group carries the local role
+  return h(SettingsLayout, { route, navigate, organization, team: rawTeam }, content);
 }

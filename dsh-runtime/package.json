@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "engines": {
-    "node": "^22.19.0 || >=24.0.0 <25.0.0"
+    "node": ">=24.0.0 <25.0.0"
   },
   "dependencies": {
     "@bees/dsh-custom-ai": "file:plugins/custom-ai",
@@ -202,7 +202,6 @@
     "@deepseek-ai/dsh-storage-sqlite": "0.1.5-rc.2",
     "@deepseek-ai/dsh-subagent": "0.1.5-rc.2",
     "@deepseek-ai/dsh-subagent-acp": "0.1.5-rc.2",
-    "@deepseek-ai/dsh-subagent-claude-code": "0.1.5-rc.2",
     "@deepseek-ai/dsh-subagent-dsh-sdk": "0.1.5-rc.2",
     "@deepseek-ai/dsh-subagent-fork-in-process": "0.1.5-rc.2",
     "@deepseek-ai/dsh-subagent-in-process-driver": "0.1.5-rc.2",
@@ -519,7 +518,6 @@
     "@deepseek-ai/dsh-subagent-in-process-driver": "0.1.5-rc.2",
     "@deepseek-ai/dsh-subagent-spawn-in-process": "0.1.5-rc.2",
     "@deepseek-ai/dsh-tool-subagent": "0.1.5-rc.2",
-    "@deepseek-ai/dsh-subagent-claude-code": "0.1.5-rc.2",
     "@deepseek-ai/dsh-subagent": "0.1.5-rc.2",
     "@deepseek-ai/dsh-subagent-codex": "0.1.5-rc.2",
     "@deepseek-ai/dsh-subagent-dsh-sdk": "0.1.5-rc.2",

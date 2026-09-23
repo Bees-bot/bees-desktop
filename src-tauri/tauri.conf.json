@@ -31,6 +31,9 @@
       "icons/icon.ico"
     ],
     "externalBin": ["binaries/bees-node", "binaries/temporal"],
+    "macOS": {
+      "entitlements": "entitlements.plist"
+    },
     "resources": {
       "../dsh-runtime": "dsh-runtime",
       "../llama-runtime": "llama-runtime",
