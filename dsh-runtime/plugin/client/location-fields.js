@@ -9,7 +9,7 @@ export async function addLocationFromDevice(ctx, act, teamId, kind) {
   if (!path) return null;
   const fallback = path.split(/[\\/]/).filter(Boolean).pop() ?? (kind === "folder" ? "Files" : "File");
   const name = await ask(kind === "folder" ? "Folder name in Bees" : "File name in Bees", fallback);
-  return name ? act({ action: "add_location", teamId, name, kind, path }) : null;
+  return name === null ? null : act({ action: "add_location", teamId, name: name || fallback, kind, path });
 }
 
 export function inheritedInputs(data, processId, agentId) {

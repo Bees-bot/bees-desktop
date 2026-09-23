@@ -71,7 +71,7 @@ function AddRepo({ act }) {
             className: "bees-input", value: repo, placeholder: "owner/name",
             "aria-label": "GitHub repository", onChange: (event) => setRepo(event.target.value)
           })),
-        h(Button, { className: "primary", type: "submit" }, "Browse"))),
+        h(Button, { className: "primary", type: "submit", disabled: !repo.trim() }, "Browse"))),
     ...added.map((pack) => h(SkillPack, { pack, act, key: pack.repo })));
 }
 

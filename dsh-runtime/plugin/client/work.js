@@ -208,7 +208,9 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
   const [sendError, setSendError] = useState("");
   const [sendNotice, setSendNotice] = useState("");
   const [refreshCount, setRefreshCount] = useState(0);
-  const run = itemRuns.find(({ id }) => id === selectedRun) ?? itemRuns[0];
+  // a finished item's newest run is the reviewer, which won't edit, so follow-ups default to the worker
+  const run = itemRuns.find(({ id }) => id === selectedRun)
+    ?? itemRuns.find(({ mode }) => item.runtimePhase === "completed" && mode === "work") ?? itemRuns[0];
   const pendingRun = itemRuns.find(({ status, sessionId }) => sessionId && ["waiting_for_input", "waiting_for_approval"].includes(status));
   const waiting = useSnapshot(ctx.uiSession.sessionStatus, EMPTY_STATUS);
   const interaction = pendingInteractionFor(waiting, (pendingRun ?? run)?.sessionId, handled);

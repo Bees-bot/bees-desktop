@@ -412,7 +412,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   const activeTheme = THEME_PRESETS.find(({ id }) => id === preference.themePreset)
     ?? THEME_PRESETS.find(({ id }) => id === "forest");
   const section = sectionFor(route);
-  const routeLabel = route === "getting-started" ? "Getting started" : route === "basics" ? "Bees basics" : route === "guide" ? "Detailed guides" : route === "create-organization" ? "Create workspace" : route === "home" ? activeDashboard.name : route === "accounts" ? "Accounts"
+  const routeLabel = route === "getting-started" ? "Getting started" : route === "basics" ? "Bees basics" : route === "guide" ? "Detailed guides" : route === "create-organization" ? "Create organization" : route === "home" ? activeDashboard.name : route === "accounts" ? "Accounts"
     : section.children.find(([id]) => id === route)?.[1] ?? section.label;
   const openProcess = (id) => { setRoute("all-processes"); setProcessId(id); setWorkItemId(""); setCreating(""); };
   const openWorkItem = (id, processForWork = "") => {
@@ -561,7 +561,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
         : section.id === "agents" ? h(AgentsPage, { ctx, data: viewData, servers: capabilities.data?.servers ?? [], tools: capabilities.data?.tools ?? [], catalog: capabilities.data?.catalog ?? [], onServerAction: capabilities.act, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings"), preference, preferences, setPageActions })
           : section.id === "files" ? h(FilesPage, { ctx, data: viewData, teamId: parts.teamId, act })
             : section.id === "activity" ? h(ActivityPage, { data: viewData, route, workspaceIds, openWorkItem, openProcess })
-              : section.id === "knowledge" ? h(KnowledgePage, { data: viewData, route, workspaceId: parts.workspaceId, teamId: parts.teamId })
+              : section.id === "knowledge" ? h(KnowledgePage, { data: viewData, route, workspaceId: parts.workspaceId, teamId: parts.teamId, openWorkItem })
                 : h(SettingsPage, { ctx, data: viewData, act, route, teamId: parts.teamId,
                     organizationId: parts.organizationId, connectionId, modelSettings, preferences, preference, reload: load,
                     navigate,

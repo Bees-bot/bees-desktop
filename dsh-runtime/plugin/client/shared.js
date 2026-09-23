@@ -37,7 +37,7 @@ export const NAVIGATION = [
   ] },
   { id: "files", label: "Files & folders", icon: FilesIcon, defaultChild: "locations", children: [] },
   { id: "activity", label: "Activity", icon: ActivityIcon, defaultChild: "runs", children: [
-    ["runs", "Executions"], ["evaluations", "Evaluations"], ["audit", "Audit"]
+    ["runs", "Executions"], ["audit", "Audit"]
   ] },
   { id: "knowledge", label: "Knowledge base", icon: KnowledgeIcon, defaultChild: "search", children: [
     ["search", "Search & sources"], ["artifacts", "Artifacts"]

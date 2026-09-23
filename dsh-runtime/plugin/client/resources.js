@@ -22,7 +22,7 @@ export function FilesPage({ ctx, data, teamId, act }) {
         h("div", { className: "bees-muted" }, `$[${location.name}] · stable logical id ${location.logicalId}`)),
       h(Button, { onClick: async () => { const path = await pickMapping(location); if (path) await act({ action: "map_location", locationId: location.id, path }); } }, location.mapped ? "Change mapping" : "Map"),
       location.mapped ? h(Button, { onClick: () => act({ action: "unmap_location", locationId: location.id }) }, "Remove mapping") : null,
-      h(Button, { className: "danger", disabled: !["admin", "member"].includes(team?.role), onClick: async () => (await confirmAction(`Archive “${location.name}”? This will not delete the external folder.`)) && act({ action: "archive_location", locationId: location.id }) }, "Archive")
+      h(Button, { className: "danger", disabled: !["admin", "member"].includes(team?.role), onClick: async () => (await confirmAction(`Archive “${location.name}”? This will not delete the ${location.kind} on your device.`)) && act({ action: "archive_location", locationId: location.id }) }, "Archive")
     )) : [h(Empty, { key: "empty" }, "No shared team locations yet")])
   );
 }
@@ -37,7 +37,6 @@ export function ActivityPage({ data, route, workspaceIds, openWorkItem, openProc
       .then((value) => active && setEvents(value.events ?? []), () => active && setEvents([]));
     return () => { active = false; };
   }, [route, liveRevision]);
-  if (route === "evaluations") return h(Empty, null, "Evaluations are not available in the current Bees profile.");
   if (route === "audit") return h("div", null, ...(events.length ? events.map((event) => {
     const run = runs.find(({ id }) => id === event.executionId);
     const relatedIds = [event.metadata?.itemId, event.metadata?.parentId, event.metadata?.resultId].filter(Boolean);
@@ -46,7 +45,7 @@ export function ActivityPage({ data, route, workspaceIds, openWorkItem, openProc
     const process = data.processes.find(({ id, workspaceId }) =>
       workspaceIds.includes(workspaceId) && [event.metadata?.processId, event.metadata?.resultId].includes(id));
     const runItem = run ? data.items.find(({ id }) => id === run.workItemId) : null;
-    const detail = runItem?.title ?? item?.title ?? process?.name ?? event.metadata?.action ?? event.metadata?.outcome;
+    const detail = [runItem?.title ?? item?.title ?? process?.name, event.metadata?.outcome === "error" && "Failed"].filter(Boolean).join(" · ");
     const onOpen = run ? () => openWorkItem(run.workItemId ?? run.id)
       : item ? () => openWorkItem(item.id) : process ? () => openProcess(process.id) : null;
     return h(AuditEvent, { event, detail, onOpen, key: event.id,
@@ -58,7 +57,7 @@ export function ActivityPage({ data, route, workspaceIds, openWorkItem, openProc
   ;
 }
 
-export function KnowledgePage({ data, route, workspaceId, teamId }) {
+export function KnowledgePage({ data, route, workspaceId, teamId, openWorkItem }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState(null);
   const [searchError, setSearchError] = useState("");
@@ -66,15 +65,15 @@ export function KnowledgePage({ data, route, workspaceId, teamId }) {
   if (route === "artifacts") {
     const rows = data.runs.filter((run) => run.workspaceId === workspaceId && run.outputs?.length);
     if (!rows.length) return h(Empty, null, "No run artifacts yet");
-    return h("div", { className: "bees-stack" }, ...rows.map((run) => h("div", { className: "bees-row", key: run.id },
+    return h("div", { className: "bees-stack" }, ...rows.flatMap((run) => [h("div", { className: "bees-row", key: run.id },
       h("div", { className: "bees-row-main" },
         h("div", { className: "bees-row-title" }, data.items.find(({ id }) => id === run.workItemId)?.title ?? "Run"),
         h("div", { className: "bees-file-list" }, ...run.outputs.map((name) => h(Button, {
           key: name,
           className: viewer?.executionId === run.id && viewer?.path === `outputs/${name}` ? "bees-file-chip active" : "bees-file-chip",
           onClick: () => setViewer({ executionId: run.id, path: `outputs/${name}` })
-        }, name)))))),
-      viewer ? h(FilePreview, { target: viewer, onClose: () => setViewer(null) }) : null);
+        }, name))))),
+      viewer?.executionId === run.id ? h(FilePreview, { key: `${run.id}:preview`, target: viewer, onClose: () => setViewer(null) }) : null]));
   }
   const locations = data.locations.filter((row) => row.teamId === teamId && !row.archivedAt);
   return h("div", { className: "bees-stack" },
@@ -90,7 +89,9 @@ export function KnowledgePage({ data, route, workspaceId, teamId }) {
     ...(results ?? []).map((result) => {
       const source = [result.authority ? `Authority: ${result.authority}` : "",
         result.modifiedAt ? `Updated ${new Date(result.modifiedAt).toLocaleString()}` : ""].filter(Boolean).join(" · ");
-      return h("div", { className: "bees-row", key: result.id }, h("div", { className: "bees-row-main" },
+      const item = result.kind === "item";
+      return h(item ? "button" : "div", { className: item ? "bees-row bees-nav-link" : "bees-row", key: result.id,
+        onClick: item ? () => openWorkItem(result.id) : undefined }, h("div", { className: "bees-row-main" },
         h("div", { className: "bees-row-title" }, result.title),
         source ? h("div", { className: "bees-muted" }, source) : null,
         h("div", { className: "bees-muted" }, result.excerpt)));
