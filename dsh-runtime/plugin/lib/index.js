@@ -223,6 +223,7 @@ export async function apply(ctx, config = {}, internals = {}) {
   connected = new ConnectedAccount(database, ctx.credentials, undefined, ctx.logger);
   capabilities = new Capabilities(ctx, database, workspace, connected);
   agents = step("bees.agents.initialize", () => new AgentRuntime(ctx, database, beesSettings, notify, subscribe, capabilities));
+  agents.connected = connected;
   mountEvidenceCapture(ctx, database, ctx.logger);
   googleDrive = new GoogleDriveConnection(ctx.credentials, workspace);
   void connected.authConfig().then((config) => googleDrive.configure(config));
@@ -241,9 +242,10 @@ export async function apply(ctx, config = {}, internals = {}) {
   const product = new BeesProduct(database, agents, processes, workspace, {
     workspaceRegistry: ctx.workspaceRegistry,
     agentPresets: ctx.agentPresets,
-    tools: ctx.tools,
+    tools: ctx.tools, connected,
     googleDrive, notify, capabilities
   });
+  processes.canStart = (workItemId) => product.canStartItem(workItemId);
   memory = product.memory;
   // gigabytes built for this machine, so it stays here when the work moves to a shared folder
   memory.local = new LocalMemory(ctx.settings, beesSettings, join(appDirectory(), "memory"));
@@ -261,6 +263,10 @@ export async function apply(ctx, config = {}, internals = {}) {
   await step("bees.processes.start", () => processes.start((stage, signal) => product.runProcessStage(stage, signal)));
   const syncTick = async () => {
     await connected.sync();
+    const teamIds = database.prepare(`SELECT DISTINCT team_id AS id FROM bees_connection_teams`).all();
+    await Promise.allSettled(teamIds.flatMap(({ id }) => [
+      connected.listProcessQuestions(id), connected.listProcessExecutions(id)
+    ]));
     await product.initialize();
     await processes.reconcile();
     notify({ type: "team-sync" });
@@ -401,7 +407,11 @@ export async function apply(ctx, config = {}, internals = {}) {
     const failures = [];
     for (const provider of ctx.llm.listProviders()) {
       try {
-        groups.push({ ...provider, models: await ctx.llm.listModels(provider.id) });
+        const models = await ctx.llm.listModels(provider.id);
+        groups.push({ ...provider, models: await Promise.all(models.map(async (model) => {
+          try { return await ctx.llm.resolveModelInfo(provider.id, model.id); }
+          catch { return model; }
+        })) });
       } catch (error) {
         // One unreachable provider must not cost the editor every other model.
         failures.push({ provider: provider.id, error: userMessage(error) });

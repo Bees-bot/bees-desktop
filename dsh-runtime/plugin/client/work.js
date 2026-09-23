@@ -10,7 +10,7 @@ import { applyWorkItemLayout, workItemLayoutFrom } from "./dashboard-model.js";
 import { FlexibleGrid, GridStackPage } from "./flexible-grid.js";
 import { addLocationFromDevice, FilePreview, inheritedInputs, ResourceFields, WorkFiles, WorkLocations } from "./location-fields.js";
 
-import { useMcpPreflight } from "./agents.js";
+import { McpAccess, useMcpPreflight } from "./agents.js";
 import { ProcessMcpForm } from "./processes.js";
 import { generatedFileKeys, watchFilesViewed } from "./file-notifications.js";
 import { agentMentionOptions, conversationMessages, mentionedRecipient, OUTCOME_LABELS, pollConversation } from "./conversation-model.js";
@@ -169,7 +169,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
   const schedulable = processStages.length >= 2 && processStages.at(-1)?.driver === "terminal" &&
     processStages.every(({ driver }) => ["agent", "discussion", "review", "terminal"].includes(driver));
   const recurringWork = (data.recurringWork ?? []).filter((recurring) =>
-    recurring.sourceWorkItemId === item.id || recurring.id === item.recurringWorkId);
+    recurring.sourceWorkItemId === item.id || recurring.originWorkItemId === item.id || recurring.id === item.recurringWorkId);
   const itemRuns = data.runs.filter(({ workItemId }) => workItemId === item.id);
   const processRunId = item.processRunId ?? item.id;
   const sharedFiles = new Map();
@@ -308,6 +308,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
         timestamp: new Date(entry.createdAt).getTime() || 0 }))
   ].sort((left, right) => left.timestamp - right.timestamp);
   const [showSteps, setShowSteps] = useState(false);
+  const teamQuestions = (data.teamQuestions ?? []).filter((question) => question.workItemId === item.id);
+  const processExecution = (data.processExecutions ?? []).find((execution) => execution.workItemId === item.id);
   useEffect(() => {
     if (isScrolledUpRef.current) return;
     const scrollToBottom = () => { if (!isScrolledUpRef.current && convoRef.current) convoRef.current.scrollTop = convoRef.current.scrollHeight; };
@@ -330,12 +332,19 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
   if (run?.ranElsewhere) convoItems.push(h("div", { className: "bees-convo-msg system", key: "elsewhere" },
     "This ran on another device. Its result is above; the full transcript and any files it wrote stayed there."));
   else if (run && !visibleHistory && !historyError) convoItems.push(h("div", { className: "bees-convo-msg system", key: "loading" }, "Loading conversation…"));
+  if (processExecution) {
+    const runner = data.directory?.find((row) => row.accountUserId === processExecution.userId)?.email
+      ?? data.accounts?.find((row) => row.userId === processExecution.userId)?.name ?? processExecution.userId;
+    convoItems.push(h("div", { className: "bees-convo-msg system", key: "executor" },
+      `Ran by ${runner} on ${processExecution.machineName} from ${new Date(processExecution.startedAt).toLocaleString()}${processExecution.endedAt ? ` to ${new Date(processExecution.endedAt).toLocaleString()}` : ""}.`));
+  }
   const conversation = h("div", { className: "bees-convo-panel" },
     h("div", { className: "bees-convo-header" },
       h("div", { className: "bees-convo-title" }, "Conversation"),
       isWorking ? h("span", { className: "bees-detail-badge running" }, run?.status === "queued" ? "Agent starting" : "Agent active") : null,
       pendingRun ? h("button", { type: "button", className: "bees-btn-secondary", style: { marginLeft: "auto" }, onClick: () => setShowSteps((value) => !value) },
         showSteps ? "Hide agent steps" : `Show agent steps (${messages.length})`) : null),
+    ...teamQuestions.map((question) => h(TeamQuestionCard, { key: question.id, question, data, act })),
     pendingRun ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" },
       h(AgentInteractionPanel, { run: pendingRun, item, session, interaction, handled, onAnswered: answered, act, data })) : null,
     // a waiting question goes first and the agent's steps fold away, so nobody scrolls to find it
@@ -452,11 +461,11 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
       h("button", { type: "button", role: "tab", id: "bees-tab-details", className: `bees-clean-tab ${activeTab === "details" ? "active" : ""}`, "aria-selected": activeTab === "details", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("details") }, "Details"),
       !plan && process ? h("button", { type: "button", role: "tab", id: "bees-tab-tools", className: `bees-clean-tab ${activeTab === "tools" ? "active" : ""}`, "aria-selected": activeTab === "tools", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("tools") }, "Tools") : null,
       h("button", { type: "button", role: "tab", id: "bees-tab-chat", className: `bees-clean-tab ${activeTab === "chat" ? "active" : ""}`, "aria-selected": activeTab === "chat", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("chat") }, "Chat"),
-      h("button", { type: "button", role: "tab", id: "bees-tab-runs", className: `bees-clean-tab ${activeTab === "runs" ? "active" : ""}`, "aria-selected": activeTab === "runs", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("runs") }, "Executions"),
-      schedulable && !item.parentId ? h("button", { type: "button", role: "tab", id: "bees-tab-recurring", className: `bees-clean-tab ${activeTab === "recurring" ? "active" : ""}`, "aria-selected": activeTab === "recurring", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("recurring") }, `Schedules${recurringWork.length ? ` (${recurringWork.length})` : ""}`) : null,
-      plan ? null : h("button", { type: "button", role: "tab", id: "bees-tab-context", className: `bees-clean-tab ${activeTab === "context" ? "active" : ""}`, "aria-selected": activeTab === "context", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("context") }, "Context"),
-      plan ? null : h("button", { type: "button", role: "tab", id: "bees-tab-discussion", className: `bees-clean-tab ${activeTab === "discussion" ? "active" : ""}`, "aria-selected": activeTab === "discussion", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("discussion") }, "Discussion"),
-      h("button", { type: "button", role: "tab", id: "bees-tab-audit", className: `bees-clean-tab ${activeTab === "audit" ? "active" : ""}`, "aria-selected": activeTab === "audit", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("audit") }, "Traces")
+      itemRuns.length ? h("button", { type: "button", role: "tab", id: "bees-tab-runs", className: `bees-clean-tab ${activeTab === "runs" ? "active" : ""}`, "aria-selected": activeTab === "runs", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("runs") }, "Executions") : null,
+      schedulable && !item.parentId && recurringWork.length ? h("button", { type: "button", role: "tab", id: "bees-tab-recurring", className: `bees-clean-tab ${activeTab === "recurring" ? "active" : ""}`, "aria-selected": activeTab === "recurring", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("recurring") }, `Schedules (${recurringWork.length})`) : null,
+      !plan && itemRuns.length ? h("button", { type: "button", role: "tab", id: "bees-tab-context", className: `bees-clean-tab ${activeTab === "context" ? "active" : ""}`, "aria-selected": activeTab === "context", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("context") }, "Context") : null,
+      !plan && itemRuns.length ? h("button", { type: "button", role: "tab", id: "bees-tab-discussion", className: `bees-clean-tab ${activeTab === "discussion" ? "active" : ""}`, "aria-selected": activeTab === "discussion", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("discussion") }, "Discussion") : null,
+      itemRuns.length ? h("button", { type: "button", role: "tab", id: "bees-tab-audit", className: `bees-clean-tab ${activeTab === "audit" ? "active" : ""}`, "aria-selected": activeTab === "audit", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("audit") }, "Traces") : null
     ),
 
     // tab content
@@ -467,7 +476,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
       activeTab === "discussion" ? h(WorkDiscussion, { key: item.id, item, onOpenWork: (id) => { onOpenWork?.(id); setActiveTab("files"); } }) : activeTab === "context" ? h(SharedWorkContext, { key: item.id, item, executionId: run?.id }) : activeTab === "details" ? h(React.Fragment, null,
         plan ? null : h("div", { className: "bees-detail-actions", style: { marginTop: 0 } },
           h("button", { className: "bees-btn-secondary", onClick: edit }, h("span", { className: "bees-btn-icon" }, "✎"), "Edit item"),
-          h("button", { className: "bees-btn-secondary", onClick: addSubitem }, h("span", { className: "bees-btn-icon" }, "⑆"), "Delegate work")),
+          h("button", { className: "bees-btn-secondary", onClick: addSubitem }, h("span", { className: "bees-btn-icon" }, "⑆"), "Delegate work"),
+          !item.archivedAt && schedulable ? h("button", { className: "bees-btn-secondary", onClick: () => onEditSchedule(true) }, h("span", { className: "bees-btn-icon" }, "🕒"), "Schedule") : null),
         // Description
         h("div", { className: "bees-card-section" },
           h("div", { className: "bees-card-section-head" }, "Description"),
@@ -597,7 +607,7 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onScheduleCre
       h(React.Fragment, null,
         h(Button, { onClick: onBack }, "← Process Runs"),
         h("div", { style: { display: "flex", flexDirection: "column", marginLeft: 12, minWidth: 0 } },
-          h("div", { className: "bees-title", style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, root.title),
+          h("div", { className: "bees-title", title: root.title, style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, root.title.length > 60 ? root.title.slice(0, 60).trim() + "…" : root.title),
           h("div", { className: "bees-context", style: { marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, `${process?.name ?? "Process"} · ${completed} of ${total} work items complete`)
         )
       )
@@ -605,8 +615,7 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onScheduleCre
     setPageActions && setPageActions(
       h(React.Fragment, null,
         editing ? h(Button, { onClick: () => preferences.set("workItemLayout", []) }, "Reset") : null,
-        !root.archivedAt && schedulable ? h(Button, { onClick: () => setScheduleEditor(true) }, h("span", {className: "bees-btn-icon"}, "🕒"), "Schedule") : null,
-        h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) }, editing ? "Done" : "Edit layout"),
+        h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) }, editing ? "Done" : "Customize"),
         !editing && !root.archivedAt && !isScheduleDefinition(root) && root.kind !== "plan" ? h(Button, { className: "primary", onClick: () => setAddingWork(true) }, "Add work item") : null
       )
     );
@@ -677,12 +686,18 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, parent, 
       inputLocationIds, outputLocationId
     };
     if (!await guardRun(goal ? initialProcess?.id : processId)) return;
+    if (process && !parent) {
+      const mcpAccess = String(form.get("mcpAccess") ?? "none");
+      const mcpServers = form.getAll("mcpServers").map(String);
+      if (mcpAccess !== (process.mcpAccess ?? "none") || JSON.stringify(mcpServers) !== JSON.stringify(process.mcpServers ?? []))
+        if (!await act({ action: "set_process_mcp", processId: process.id, mcpAccess, mcpServers })) return;
+    }
     const created = await act(command); if (created?.id) onCreated(created.id);
   });
   if (!goal && !processes.length) return h("div", { className: "bees-stack" },
     h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, backLabel), h("h2", null, heading)),
     h(Empty, null, "Create a process template first. Work always follows a process template so Bees knows its stages."));
-  return h(React.Fragment, null, preflight, h("form", { className: "bees-box bees-form", onSubmit },
+  return h(React.Fragment, null, preflight, h("form", { className: "bees-form", onSubmit, style: { gap: "24px", paddingTop: "8px" } },
     h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, backLabel),
       h("div", null, h("h2", null, heading),
         h("div", { className: "bees-muted" }, parent
@@ -707,6 +722,12 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, parent, 
     h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds, onInputIds: setInputLocationIds,
       outputId: outputLocationId, onOutputId: setOutputLocationId, inherited,
       defaultOutputId, defaultOutputName: data.locations.find(({ id }) => id === defaultOutputId)?.name ?? "" }),
+    process && !parent ? h("div", { style: { display: "grid", gap: "5px" } },
+      h("p", { className: "bees-muted", style: { margin: 0 } }, "Process MCPs are shared with every agent and future work in this process. Changes save when you start."),
+      h(McpAccess, { key: process.id, ctx, servers: capabilities?.data?.servers ?? [],
+        tools: capabilities?.data?.tools ?? [], catalog: capabilities?.data?.catalog ?? [],
+        onServerAction: capabilities?.act, access: process.mcpAccess, chosen: process.mcpServers,
+        scope: "process", showAll: true })) : null,
     h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Creating…" : parent ? "Add work item" : goal ? "Create goal" : "Start process run"),
       h(Button, { onClick: onCancel }, "Cancel"))
   ));
@@ -814,6 +835,37 @@ function WorkReviewPanel({ wait, onAnswered, act, executionId, item, data }) {
 
 // Autofocus scrolled the widget to the box, so the question above it was out of view before you read it.
 const focusWithoutScroll = (element) => element?.focus({ preventScroll: true });
+
+function TeamQuestionCard({ question, data, act }) {
+  const [answer, setAnswer] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const person = (id) => data.directory?.find((row) => row.accountUserId === id)?.email
+    ?? data.accounts?.find((row) => row.userId === id)?.name ?? id;
+  const send = async () => {
+    if (!answer.trim()) return;
+    setBusy(true); setError("");
+    try {
+      const result = await act({ action: "answer_team_question", teamId: question.teamId,
+        questionId: question.id, answer: answer.trim() });
+      if (result?.accepted === false) setError(`Already answered by ${person(result.question.answeredBy)}.`);
+      else setAnswer("");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
+  };
+  return h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" },
+    h("strong", null, "Question for the team"),
+    h("p", { style: { whiteSpace: "pre-wrap" } }, question.question),
+    h("div", { className: "bees-muted" }, `Asked by ${person(question.askedBy)} on ${new Date(question.askedAt).toLocaleString()}`),
+    question.answeredAt
+      ? h("div", null, h("p", null, question.answer), h("div", { className: "bees-muted" },
+        `Answered by ${person(question.answeredBy)} on ${new Date(question.answeredAt).toLocaleString()} · device ${question.answeredOnDevice}`))
+      : h("div", null,
+        h("textarea", { className: "bees-textarea", value: answer, disabled: busy,
+          "aria-label": "Answer the team question", onChange: (event) => setAnswer(event.target.value) }),
+        h(Button, { className: "primary", disabled: busy || !answer.trim(), onClick: send }, busy ? "Sending…" : "Answer")),
+    error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
+}
 
 export function QuestionPanel({ wait, onAnswered, act, executionId, browser }) {
   const pending = wait;
@@ -1154,7 +1206,6 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
       (route === "schedules" ? isScheduleDefinition(item) : !isScheduleDefinition(item)) &&
       (route !== "goals" || process?.kind === "goals");
   });
-  const statuses = [...new Set(items.map(workItemStatus))].sort();
   const processes = data.processes.filter((process) => workspaceIds.includes(process.workspaceId))
     .sort((left, right) => left.name.localeCompare(right.name));
   const ownerId = (item) => {
@@ -1169,12 +1220,19 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
   const owners = [...new Set(items.map(ownerId))]
     .map((id) => ({ id, label: ownerLabel(id) }))
     .sort((left, right) => left.label.localeCompare(right.label));
+  const scheduleFor = (item) => route === "schedules"
+    ? (data.recurringWork ?? []).find(({ sourceWorkItemId }) => sourceWorkItemId === item.id) : null;
+  const statusFor = (item) => scheduleFor(item)?.status ?? workItemStatus(item);
+  const statuses = [...new Set(items.map(statusFor))].sort();
   const needle = query.trim().toLocaleLowerCase();
-  const rows = items.filter((item) => (!needle || String(item.title ?? "").toLocaleLowerCase().includes(needle)) &&
-    (status === "all" || workItemStatus(item) === status) &&
+  const rows = items.filter((item) => {
+    const recurring = scheduleFor(item);
+    return (!needle || `${item.title} ${recurring?.name ?? ""}`.toLocaleLowerCase().includes(needle)) &&
+    (status === "all" || statusFor(item) === status) &&
     (processFilter === "all" || item.processId === processFilter) &&
     (itemScope === "all" || !item.parentId) &&
-    (owner === "all" || ownerId(item) === owner));
+    (owner === "all" || ownerId(item) === owner);
+  });
   const plans = route === "schedules" || status !== "all" || processFilter !== "all" || owner !== "all" ? []
     : data.runs.filter((run) => !run.workItemId && workspaceIds.includes(run.workspaceId) && runTitle(data, run).toLocaleLowerCase().includes(needle));
   // a plan with nothing live and nothing left to apply is finished, however it ended
@@ -1184,26 +1242,31 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
     const rendered = records.map((item) => {
       const process = data.processes.find(({ id }) => id === item.processId);
       const stage = data.stages.find(({ id }) => id === item.stageId);
+      const recurring = scheduleFor(item);
       const initiator = ownerId(item) ? ownerLabel(ownerId(item)) : null;
-      const subtitle = [
+      const subtitle = recurring ? [
+        item.title, process?.name ?? "Process", scheduleSummary(recurring),
+        recurring.nextRunAt ? `Next ${new Date(recurring.nextRunAt).toLocaleString()}` : "Next run pending"
+      ].join(" · ") : [
         item.kind === "run" ? item.recurringWorkId ? "scheduled run" : "process run" : item.kind,
         process?.name ?? "Process",
         stage?.name ?? "Stage",
         initiator && !showColumns ? `by ${initiator}` : null
       ].filter(Boolean).join(" · ");
-      const title = h("span", { className: "bees-row-main" }, h("span", { className: "bees-row-title" }, item.title), h("span", { className: "bees-muted" }, subtitle));
-      const status = h("span", { className: `bees-status bees-${workItemStatus(item)}` }, workItemStatus(item));
+      const title = h("span", { className: "bees-row-main" }, h("span", { className: "bees-row-title" }, recurring?.name ?? item.title), h("span", { className: "bees-muted" }, subtitle));
+      const statusValue = statusFor(item);
+      const status = h("span", { className: `bees-status bees-${statusValue}` }, statusValue);
       const open = { type: "button", className: "bees-row bees-work-item-row", onClick: () => setWorkItemId(item.id) };
       return showColumns ? h("tr", { key: item.id },
         h("td", null, h("button", { ...open, title: item.title }, title)),
-        h("td", null, item.kind === "run" ? "Process" : "Work item"),
+        h("td", null, recurring ? "Schedule" : item.kind === "run" ? "Process" : "Work item"),
         h("td", null, h("span", { className: "bees-work-owner", title: initiator || "Unknown owner" }, initiator || "Unknown owner")),
         h("td", null, status),
           h("td", null, h("div", { className: "bees-answer-controls", role: "group", "aria-label": `Actions for ${item.title}` },
             h(WorkItemControls, { item, act, showUnavailable: false, data, allowReRun: includeReRun }))))
         : h("button", { ...open, key: item.id }, title, status);
     });
-    return showColumns ? h("table", { className: "bees-work-table", "aria-label": "Active work" },
+    return showColumns ? h("table", { className: "bees-work-table", "aria-label": route === "schedules" ? "Schedules" : "Active work" },
       h("thead", null, h("tr", null, ...["Work", "Type", "Owner", "Status", "Actions"].map((label) => h("th", { key: label, scope: "col" }, label)))),
       h("tbody", null, ...planRows.map((run) => h("tr", { key: run.id },
         h("td", null, h("button", { type: "button", className: "bees-row bees-work-item-row", onClick: () => setWorkItemId(run.id) },
@@ -1212,8 +1275,8 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
         h("td", null, h("span", { className: `bees-status bees-${run.status}` }, LIVE_RUN.includes(run.status) || planDone(run) ? run.status.replaceAll("_", " ") : "ready to apply")),
         h("td"))), ...rendered)) : rendered;
   };
-  return h("div", null,
-    h("div", { className: "bees-row" },
+  return h("div", { className: "bees-flex-page bees-stack" },
+    h("div", { className: "bees-search" },
       h("input", { className: "bees-input bees-grow", value: query, onChange: (event) => setQuery(event.target.value),
         placeholder: "Search by task name", "aria-label": "Search work items by task name" }),
       h("select", { className: "bees-select", value: status, onChange: (event) => setStatus(event.target.value), "aria-label": "Filter by status" },

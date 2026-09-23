@@ -399,8 +399,8 @@ export function McpPage({ ctx, capabilities }) {
       className: "bees-search",
       onSubmit: (event) => { event.preventDefault(); void searchRegistry(new FormData(event.currentTarget).get("q")); }
     },
-      h("input", { className: "bees-input", name: "q", defaultValue: registry.query, placeholder: "Search the registry", "aria-label": "Search the MCP registry" }),
-      h("button", { className: "bees-btn primary" }, "Search")),
+      h("input", { className: "bees-input bees-grow", name: "q", defaultValue: registry.query, placeholder: "Search the registry", "aria-label": "Search the MCP registry" }),
+      h("button", { className: "bees-btn" }, "Search")),
     registry.note ? h("p", { className: "bees-muted" }, registry.note) : null,
     ...(registry.results ?? []).map((row) => h("div", { className: "bees-row", key: row.name },
       h("div", { className: "bees-row-main" },

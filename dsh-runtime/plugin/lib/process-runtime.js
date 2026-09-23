@@ -27,6 +27,7 @@ export class ProcessRuntime {
     this.claimWatchers = new Map();
     this.needsRecovery = options.needsRecovery ?? (() => false);
     this.pendingInteraction = options.pendingInteraction ?? (() => null);
+    this.canStart = options.canStart ?? (() => ({ ready: true }));
     this.database.exec(`CREATE TABLE IF NOT EXISTS bees_stage_waits (
       work_item_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE CASCADE,
       execution_id TEXT NOT NULL
@@ -400,7 +401,7 @@ export class ProcessRuntime {
             OR EXISTS (
               SELECT 1 FROM bees_connections c
               JOIN bees_connection_teams ct ON ct.connection_id = c.id AND ct.team_id = t.id
-              WHERE c.account_user_id = w.account_user_id
+              JOIN bees_accounts a ON a.user_id = c.account_user_id AND a.enabled = 1
             )
           )
         )
@@ -439,6 +440,10 @@ export class ProcessRuntime {
   async startItem(workItemId) {
     const input = this.input(workItemId);
     if (!this.isAutomatic(input.processId)) return { automatic: false };
+    const readiness = await this.canStart(workItemId);
+    if (!readiness?.ready) return {
+      automatic: true, claimed: false, waitingFor: readiness?.reason ?? "This device is not ready"
+    };
     const claimKey = `work-item:${workItemId}`;
     if (this.claimWatchers.has(claimKey)) {
       return { automatic: true, workflowId: processWorkflowId(workItemId), claimed: true };

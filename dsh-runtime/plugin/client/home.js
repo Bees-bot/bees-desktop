@@ -1,11 +1,12 @@
 import { h, React, useEffect, useState } from "./runtime.js";
-import { ask, Button, confirmAction, Empty, HelpTooltip, openExternal, ProposalCard, useSubmit } from "./shared.js";
+import { Button, confirmAction, Empty, HelpTooltip, openExternal, ProposalCard, useSubmit } from "./shared.js";
 import { addDashboardWidget, applyDashboardLayout, dashboardsFrom, DEFAULT_WIDGETS } from "./dashboard-model.js";
 import { FlexibleGrid } from "./flexible-grid.js";
 import { needsYouRows, NeedsYouWidget, useNeedsYouQueue } from "./work.js";
 import { ProcessListActions } from "./processes.js";
 import { AgentListActions, useMcpPreflight } from "./agents.js";
 import { AskBeesSetup, workFromOutcome } from "./ask-bees.js";
+import { EditIcon } from "./icons.js";
 
 export function OutcomeWidget({ ctx, data, workspaceId, outcome, setOutcome, configureGoal, act, openWorkItem, capabilities }) {
   const [error, setError] = useState("");
@@ -170,8 +171,6 @@ function DashboardGrid({ dashboard, editing, onLayout, onRemove, widgetProps }) 
   });
 }
 
-const newDashboardId = () => globalThis.crypto?.randomUUID?.() ?? `dashboard-${Date.now()}`;
-
 export function Home({ ctx, data, workspaceId, act, openWorkItem, navigate, rowsForRoute, preference, preferences, setPageActions, createWork, createProcess, createRun, createAgent, capabilities }) {
   const [outcome, setOutcome] = useState("");
   const [setup, setSetup] = useState(false);
@@ -182,18 +181,6 @@ export function Home({ ctx, data, workspaceId, act, openWorkItem, navigate, rows
   useEffect(() => setEditing(false), [dashboard.id]);
   const saveDashboard = (nextDashboard) => {
     void preferences.set("dashboards", dashboards.map((candidate) => candidate.id === dashboard.id ? nextDashboard : candidate));
-  };
-  const createDashboard = async () => {
-    if (dashboards.length >= 20) return;
-    const name = await ask("Dashboard name", "New dashboard");
-    if (!name) return;
-    const created = { id: newDashboardId(), name, widgets: dashboard.widgets.map((widget) => ({ ...widget })) };
-    await preferences.set("dashboards", [...dashboards, created]);
-    await preferences.set("activeDashboardId", created.id);
-  };
-  const renameDashboard = async () => {
-    const name = await ask("Dashboard name", dashboard.name);
-    if (name) saveDashboard({ ...dashboard, name });
   };
   const resetDashboard = async () => {
     if (!await confirmAction("Reset this layout back to the default arrangement?")) return;
@@ -217,19 +204,18 @@ export function Home({ ctx, data, workspaceId, act, openWorkItem, navigate, rows
   useEffect(() => {
     if (setup) { setPageActions(null); return; }
     setPageActions(h("div", { className: "bees-page-actions" },
-      h(Button, { onClick: createDashboard, disabled: dashboards.length >= 20 }, "+ Dashboard"),
       editing ? h("details", { className: "bees-dashboard-add" },
-        h("summary", { className: "bees-btn" }, "+ Widget"),
+        h("summary", { className: "bees-btn" }, "Add widget"),
         h("div", { className: "bees-dashboard-widget-menu" },
           availableWidgets.length ? availableWidgets.map((definition) => h("button", {
             type: "button", key: definition.kind, onClick: (event) => addWidget(definition, event)
           }, h("strong", null, definition.label), h("span", null, definition.description)))
             : h("div", { className: "bees-muted" }, "Every widget is already on this dashboard."))
       ) : null,
-      editing ? h(Button, { onClick: renameDashboard }, "Rename") : null,
-      editing ? h(Button, { onClick: resetDashboard, title: "Reset layout" }, "Reset") : null,
-      editing && dashboard.id !== "home" ? h(Button, { className: "danger", onClick: deleteDashboard }, "Delete") : null,
-      h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) }, editing ? "Done" : "Edit")));
+      editing ? h(Button, { onClick: resetDashboard }, "Reset") : null,
+      editing && dashboard.id !== "home" ? h(Button, { className: "danger", onClick: deleteDashboard }, "Delete dashboard") : null,
+      h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) },
+        editing ? "Done" : "Customize")));
     return () => setPageActions(null);
   }, [setup, editing, preference.activeDashboardId, preference.dashboards, setPageActions]);
 
@@ -246,7 +232,7 @@ export function Home({ ctx, data, workspaceId, act, openWorkItem, navigate, rows
       widgetProps,
       onLayout: (layout) => saveDashboard(applyDashboardLayout(dashboard, layout)),
       onRemove: (kind) => saveDashboard({ ...dashboard, widgets: dashboard.widgets.filter((widget) => widget.kind !== kind) })
-    }) : h(Empty, null, editing ? "Add a widget to build this dashboard." : "This dashboard is empty. Choose Edit to add widgets."))
+    }) : h(Empty, null, editing ? "Add a widget to build this dashboard." : "This dashboard is empty. Choose Customize to add widgets."))
   );
 }
 

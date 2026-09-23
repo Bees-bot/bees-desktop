@@ -29,6 +29,8 @@ export class ConnectedAccount {
     this.syncQueue = Promise.resolve();
     this.closed = false;
     this.rejectedSyncs = new Map();
+    this.processQuestions = new Map();
+    this.processExecutions = new Map();
   }
 
   accounts() {
@@ -471,21 +473,47 @@ export class ConnectedAccount {
 
   executionClaims() {
     const acquire = async (kind, id, teamId, occurrenceAt = "", accountUserId = "") => {
-      const scope = this.claimScope(teamId, accountUserId);
+      const teamWorkItem = kind === "work_item";
+      const ownerScope = this.claimScope(teamId, accountUserId);
+      const scope = ownerScope ?? (teamWorkItem
+        ? this.database.prepare(`SELECT t.organization_id AS organizationId, c.id AS connectionId,
+            c.account_user_id AS accountUserId FROM teams t
+          JOIN bees_connection_teams ct ON ct.team_id=t.id JOIN bees_connections c ON c.id=ct.connection_id
+          JOIN bees_accounts a ON a.user_id=c.account_user_id AND a.enabled=1
+          WHERE t.id=? ORDER BY c.account_user_id=? DESC LIMIT 1`)
+          .get(teamId, currentIdentity(this.database).userId)
+        : null);
       if (!scope) return null;
       if (!scope.connectionId) return { local: true, accountUserId: "" };
       const claimId = kind === "work_item" ? id : stableUuid(`${kind}:${id}:${occurrenceAt}`);
       const appProcessId = this.database.prepare(`SELECT a.process_id FROM app_process_owners a
         JOIN ${kind === 'work_item' ? 'work_items' : 'recurring_work'} w ON w.process_id=a.process_id WHERE w.id=?`).get(id)?.process_id;
       const machineId = currentIdentity(this.database).deviceId;
-      const result = await this.request(`/api/execution-claims/${encodeURIComponent(claimId)}`, {
-        method: "POST", organizationId: scope.organizationId, accountUserId,
-        body: { teamId, machineId, permanent: kind !== "work_item", appProcessId }
-      });
+      const machineName = this.database.prepare("SELECT name FROM devices WHERE id=?").get(machineId)?.name ?? machineId;
+      let result;
+      try {
+        result = await this.request(`/api/execution-claims/${encodeURIComponent(claimId)}`, {
+          method: "POST", organizationId: scope.organizationId,
+          accountUserId: scope.accountUserId ?? accountUserId,
+          body: { teamId, machineId, machineName, permanent: kind !== "work_item", appProcessId, teamWorkItem }
+        });
+      } catch (error) {
+        if (teamWorkItem && error?.status === 409) return null;
+        throw error;
+      }
+      if (!ownerScope && result.acquired && result.scope !== "team-work-item") {
+        await this.request(`/api/execution-claims/${encodeURIComponent(claimId)}`, {
+          method: "DELETE", organizationId: scope.organizationId,
+          accountUserId: scope.accountUserId,
+          body: { teamId, machineId, token: result.token, appProcessId }
+        }).catch(() => undefined);
+        return null;
+      }
       return result.acquired
         ? {
             claimId, teamId, machineId, organizationId: scope.organizationId,
-            accountUserId, token: result.token, permanent: kind !== "work_item", appProcessId
+            accountUserId: scope.accountUserId ?? accountUserId, token: result.token,
+            permanent: kind !== "work_item", appProcessId, teamWorkItem
           }
         : null;
     };
@@ -493,7 +521,8 @@ export class ConnectedAccount {
       if (claim.local) return claim;
       const result = await this.request(`/api/execution-claims/${encodeURIComponent(claim.claimId)}`, {
         method: "POST", organizationId: claim.organizationId, accountUserId: claim.accountUserId,
-        body: { teamId: claim.teamId, machineId: claim.machineId, token: claim.token, appProcessId: claim.appProcessId }
+        body: { teamId: claim.teamId, machineId: claim.machineId, token: claim.token,
+          appProcessId: claim.appProcessId, teamWorkItem: claim.teamWorkItem }
       });
       return result.acquired ? claim : null;
     };
@@ -501,10 +530,56 @@ export class ConnectedAccount {
       if (claim?.local || claim?.permanent || !claim) return;
       await this.request(`/api/execution-claims/${encodeURIComponent(claim.claimId)}`, {
         method: "DELETE", organizationId: claim.organizationId, accountUserId: claim.accountUserId,
-        body: { teamId: claim.teamId, machineId: claim.machineId, token: claim.token, appProcessId: claim.appProcessId }
+        body: { teamId: claim.teamId, machineId: claim.machineId, token: claim.token,
+          appProcessId: claim.appProcessId, teamWorkItem: claim.teamWorkItem }
       });
     };
     return { acquire, renew, release };
+  }
+
+  processQuestionAccount(teamId) {
+    return this.database.prepare(`SELECT t.organization_id AS organizationId,
+      c.account_user_id AS accountUserId FROM teams t
+      JOIN bees_connection_teams ct ON ct.team_id=t.id
+      JOIN bees_connections c ON c.id=ct.connection_id
+      JOIN bees_accounts a ON a.user_id=c.account_user_id AND a.enabled=1
+      WHERE t.id=? ORDER BY c.account_user_id=? DESC LIMIT 1`)
+      .get(teamId, currentIdentity(this.database).userId);
+  }
+
+  async listProcessQuestions(teamId) {
+    const account = this.processQuestionAccount(teamId);
+    if (!account) return [];
+    const { questions } = await this.request(`/api/teams/${teamId}/process-questions`, account);
+    this.processQuestions.set(teamId, questions);
+    return questions;
+  }
+
+  async listProcessExecutions(teamId) {
+    const account = this.processQuestionAccount(teamId);
+    if (!account) return [];
+    const { executions } = await this.request(`/api/teams/${teamId}/process-executions`, account);
+    this.processExecutions.set(teamId, executions);
+    return executions;
+  }
+
+  async askProcessQuestion(teamId, input) {
+    const account = this.processQuestionAccount(teamId);
+    if (!account) throw new Error("Sign in to this team to ask a shared question");
+    const { question } = await this.request(`/api/teams/${teamId}/process-questions`, {
+      ...account, method: "POST", body: { ...input, deviceId: currentIdentity(this.database).deviceId }
+    });
+    return question;
+  }
+
+  async answerProcessQuestion(teamId, id, answer) {
+    const account = this.processQuestionAccount(teamId);
+    if (!account) throw new Error("Sign in to this team to answer");
+    const result = await this.request(`/api/teams/${teamId}/process-questions/${id}/answer`, {
+      ...account, method: "POST", body: { answer, deviceId: currentIdentity(this.database).deviceId }
+    });
+    await this.listProcessQuestions(teamId);
+    return result;
   }
 
   appConnection(teamId, { connectionId = '', accountUserId = '' } = {}) {

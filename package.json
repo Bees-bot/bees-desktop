@@ -12,9 +12,10 @@
     "prepare:dsh": "node scripts/install-dsh-runtime.mjs && node scripts/stage-dsh-plugin.mjs && node scripts/prepare-dsh-runtime.mjs",
     "build": "vite build",
     "build:dsh-client": "node scripts/build-dsh-client.mjs",
+    "check:schedules": "node scripts/check-schedules.mjs",
     "release:prepare": "node scripts/release.mjs version",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm run build",
+    "check": "npm run typecheck && npm run check:schedules && npm run build",
     "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "tauri:build": "tauri build"
   },

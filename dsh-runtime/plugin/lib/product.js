@@ -62,6 +62,7 @@ export class BeesProduct {
     this.agentPresets = services.agentPresets;
     this.capabilities = services.capabilities;
     this.tools = services.tools;
+    this.connected = services.connected;
     this.notify = services.notify ?? (() => {});
     initializeProductDatabase(database);
     this.workContext = agents?.workContext ?? new WorkContext(database, this.notify);
@@ -134,6 +135,48 @@ export class BeesProduct {
     for (const settled of await Promise.allSettled(recoveries))
       if (settled.status === "rejected")
         this.agents.ctx.logger.warn(`bees: a run failed to resume: ${message(settled.reason)}`);
+  }
+
+  async canStartItem(workItemId) {
+    try {
+      const item = itemContext(this.database, workItemId, ["admin", "member"]);
+      const route = this.database.prepare(`SELECT r.agent_assignment_id AS agentId,
+        r.agent_ids_json AS agentIds FROM stage_routes r WHERE r.stage_id=?`).get(item.stageId);
+      let ids = item.agentIds?.length ? item.agentIds : JSON.parse(route?.agentIds || "[]");
+      if (!ids.length && route?.agentId) ids = [route.agentId];
+      if (!ids.length) {
+        const fallback = this.database.prepare(`SELECT id FROM agent_assignments
+          WHERE workspace_id=? AND enabled=1 AND coalesce(system_role,'worker')='worker' ORDER BY name LIMIT 1`)
+          .get(item.workspaceId);
+        if (fallback) ids = [fallback.id];
+      }
+      if (!ids.length) return { ready: false, reason: "No enabled worker agent is available on this device" };
+      const requiredServers = new Set();
+      for (const id of ids) {
+        const agent = findAssignment(this.database, id, item.workspaceId);
+        if (!agent?.enabled) return { ready: false, reason: "An assigned agent is unavailable on this device" };
+        const presetGap = await this.presetGap(agent.presetId);
+        if (presetGap) return { ready: false, reason: presetGap };
+        const grant = mcpGrantFor(this.database, id, item.runSettings, item.processId);
+        if (grant.mcpAccess === "listed") for (const name of grant.mcpServers) requiredServers.add(name);
+      }
+      if (requiredServers.size && this.capabilities) {
+        await this.capabilities.retryFailed([...requiredServers]);
+        const servers = (await this.capabilities.snapshot()).servers;
+        const unavailable = [...requiredServers].find((name) =>
+          !servers.some((server) => server.serverName === name && ["connected", "per run"].includes(server.status)));
+        if (unavailable) return { ready: false, reason: `${unavailable} is not connected on this device` };
+      }
+      const missing = this.database.prepare(`SELECT l.name FROM team_locations l WHERE l.id IN (
+          SELECT location_id FROM work_item_locations WHERE work_item_id=?
+          UNION SELECT location_id FROM process_locations WHERE process_id=?
+          UNION SELECT location_id FROM agent_locations WHERE agent_assignment_id IN (SELECT value FROM json_each(?))
+        ) AND NOT EXISTS (SELECT 1 FROM device_location_mappings m
+          WHERE m.location_id=l.id AND m.device_id=?) LIMIT 1`)
+        .get(item.id, item.processId, JSON.stringify(ids), currentIdentity(this.database).deviceId);
+      if (missing) return { ready: false, reason: `${missing.name} is not mapped on this device` };
+      return { ready: true };
+    } catch (error) { return { ready: false, reason: message(error) }; }
   }
 
   /** One unreadable row must not abort the whole recovery pass. */
@@ -465,7 +508,7 @@ export class BeesProduct {
     })) : [];
     const recurringWork = workspaceIds.length ? this.database.prepare(`
       SELECT id, workspace_id AS workspaceId, process_id AS processId,
-             source_work_item_id AS sourceWorkItemId, name,
+             source_work_item_id AS sourceWorkItemId, origin_work_item_id AS originWorkItemId, name,
              schedule_kind AS scheduleKind, schedule_json AS schedule,
              timezone, temporal_schedule_id AS temporalScheduleId,
              status, next_run_at AS nextRunAt, created_at AS createdAt, updated_at AS updatedAt
@@ -569,6 +612,8 @@ export class BeesProduct {
       processes, templates, archivedProcessTemplates, stages, items, locations, attachments, processAttachments, agentAttachments,
       assignments, recurringWork, recurringExecutors,
       specializations, specializationVersions,
+      teamQuestions: [...(this.connected?.processQuestions?.values() ?? [])].flat(),
+      processExecutions: [...(this.connected?.processExecutions?.values() ?? [])].flat(),
       presets, runs: [...runs, ...elsewhere.filter(({ id }) => !runs.some((run) => run.id === id))]
         .sort((left, right) =>
         String(right.updatedAt).localeCompare(String(left.updatedAt))),
@@ -1019,6 +1064,9 @@ export class BeesProduct {
   }
 
   async execute(action, input) {
+    if (action === "answer_team_question") return this.connected.answerProcessQuestion(
+      required(input.teamId, "Team"), required(input.questionId, "Question"), required(input.answer, "Answer")
+    );
     if (["memory_status", "memory_configure", "memory_test", "memory_retry", "memory_edit", "memory_delete"].includes(action))
       return this.memory.command(action, input);
     if (action === "read_work_discussion") return this.workContext.discussion(required(input.itemId, "Work item"), input.before);

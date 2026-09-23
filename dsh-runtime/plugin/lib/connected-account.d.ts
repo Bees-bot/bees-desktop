@@ -16,6 +16,10 @@ export class ConnectedAccount {
   deleteOrganization(organizationId: string, connectionId: string): Promise<any>;
   createTeam(name: string, connectionId: string): Promise<any>;
   executionClaims(): any;
+  listProcessQuestions(teamId: string): Promise<any[]>;
+  listProcessExecutions(teamId: string): Promise<any[]>;
+  askProcessQuestion(teamId: string, input: Record<string, any>): Promise<any>;
+  answerProcessQuestion(teamId: string, id: string, answer: string): Promise<any>;
   close(): Promise<void>;
   summary(): Promise<any>;
   command(input: Record<string, any>): Promise<any>;

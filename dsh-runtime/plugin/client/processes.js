@@ -11,8 +11,7 @@ const TEMPLATES_LAYOUT = [
 ];
 const PROCESS_DETAIL_LAYOUT = [
   { kind: "routing", x: 0, y: 0, w: 12, h: 7 },
-  { kind: "agent", x: 0, y: 7, w: 12, h: 10 },
-  { kind: "archive", x: 0, y: 17, w: 12, h: 3 }
+  { kind: "archive", x: 0, y: 7, w: 12, h: 3 }
 ];
 
 function StageAgentRoute({ stage, agents, servers = [], act, onOpenAgent, onCreateAgent }) {
@@ -95,26 +94,27 @@ function ProcessForm({ ctx, data, servers, tools, catalog, onServerAction, kind,
     if (created?.id) onCreated(created.id);
   });
 
-  return h("form", { className: "bees-box bees-form", onSubmit },
+  return h("form", { className: "bees-form", onSubmit, style: { gap: "24px", paddingTop: "8px" } },
     h(PageHead, { setPageHeader }, 
       h(Button, { onClick: onCancel }, "← Process Templates"),
-      h("div", { className: "bees-title" }, template ? "New process template" : draft ? "Create process template from preset" : "New process template"),
-      h("div", { className: "bees-grow" })
-    ),
-    h("div", { className: "bees-muted", style: { marginBottom: "16px" } }, template
+      h("div", null,
+        h("h2", null, template ? "New process template" : draft ? "Create process template from preset" : "New process template"),
+        h("div", { className: "bees-muted" }, template
           ? "A template is a reusable blueprint. It does not run work by itself."
-          : "Define the reusable workflow here. Each line becomes a stage; the final stage is Done."),
+          : "Define the reusable workflow here. Each line becomes a stage; the final stage is Done."))
+    ),
     h("label", null, template ? "Template name" : "Process template name", h("input", { className: "bees-input", name: "name", required: true, autoFocus: true,
       defaultValue: draft?.name ?? "", placeholder: template ? "Editorial workflow" : "Publish an article" })),
     h("label", null, "Description & instructions", h("textarea", { className: "bees-textarea", name: "description", defaultValue: draft?.description ?? "",
       placeholder: "Describe this workflow, its instructions and completion criteria. Every assigned agent receives this brief." })),
-    h("label", null, "Stages (one per line)", h("textarea", { className: "bees-textarea", name: "stages", required: true,
-      defaultValue: initialStages.join("\n"), "aria-describedby": "process-stage-help" })),
-    h("div", { className: "bees-muted", id: "process-stage-help" }, "Use 2–12 unique stages. Leave assignment automatic or choose a lead and participants; Review uses one independent reviewer; Approval or Sign-off requires human approval; the last stage completes the work."),
+    h("label", null, "Stages (one per line)",
+      h("textarea", { className: "bees-textarea", name: "stages", required: true,
+        defaultValue: initialStages.join("\n"), "aria-describedby": "process-stage-help" }),
+      h("span", { className: "bees-muted", id: "process-stage-help" }, "Use 2–12 unique stages. Leave assignment automatic or choose a lead and participants; Review uses one independent reviewer; Approval or Sign-off requires human approval; the last stage completes the work.")),
     template ? null : h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds,
       onInputIds: setInputLocationIds, outputId: outputLocationId, onOutputId: setOutputLocationId }),
-    template ? null : h(React.Fragment, null,
-      h("p", { className: "bees-muted" }, "Process MCPs are available to every agent in this process, alongside each agent's own MCPs."),
+    template ? null : h("div", { style: { display: "grid", gap: "5px" } },
+      h("p", { className: "bees-muted", style: { margin: 0 } }, "Process MCPs are available to every agent in this process, alongside each agent's own MCPs."),
       h(McpAccess, { ctx, servers, tools, catalog, onServerAction, access: "none", scope: "process" })),
     h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Creating…" : template ? "Create template" : "Create process template"),
       h(Button, { onClick: onCancel }, "Cancel"))
@@ -127,10 +127,13 @@ export function ProcessMcpForm({ ctx, process, servers, tools, catalog, onServer
     await act({ action: "set_process_mcp", processId: process.id,
       mcpAccess: String(form.get("mcpAccess") ?? "none"), mcpServers: form.getAll("mcpServers").map(String) });
   });
-  return h("form", { className: "bees-box bees-form", onSubmit },
-    h("p", { className: "bees-muted" }, "Every agent in this process inherits these MCPs in addition to its own."),
+  return h("form", { className: "bees-form", onSubmit, style: { paddingTop: "8px" } },
+    h("p", { className: "bees-muted", style: { marginBottom: "16px" } }, "Every agent in this process inherits these MCPs in addition to its own."),
     h(McpAccess, { ctx, servers, tools, catalog, onServerAction, access: process.mcpAccess, chosen: process.mcpServers, scope: "process", showAll }),
-    h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Saving…" : "Save process MCPs"));
+    h("div", { style: { display: "flex", justifyContent: "flex-end", marginTop: "16px" } },
+      h("button", { className: "bees-btn", disabled: busy, type: "submit" }, busy ? "Saving…" : "Save process MCPs")
+    )
+  );
 }
 
 
@@ -174,15 +177,13 @@ export function ProcessListActions({ process, act, openWorkItem }) {
       }
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   });
-  const deleteUnavailable = "Deleting process templates is not available here.";
   return h("div", null,
     h("div", { className: "bees-detail-actions", style: { marginTop: 0 }, role: "group", "aria-label": `Actions for ${process.name}` },
       process.archivedAt ? h(Button, { disabled: busy, onClick: (event) => submit(event, "restore") }, "Restore") : h(React.Fragment, null,
       h(Button, { disabled: busy, onClick: (event) => submit(event, "run") }, "Run"),
       h(Button, { disabled: busy, onClick: (event) => submit(event, "copy_process") }, "Duplicate"),
       process.kind === "standard" ? h(Button, { className: "danger", disabled: busy, onClick: (event) => submit(event, "archive_process") }, "Archive")
-        : h(Button, { className: "danger", disabled: true, title: "The built-in Goals process cannot be archived" }, "Archive"),
-      h(Button, { disabled: true, title: deleteUnavailable }, "Delete"))),
+        : h(Button, { className: "danger", disabled: true, title: "The built-in Goals process cannot be archived" }, "Archive"))),
     error ? h("p", { className: "bees-error", role: "alert" }, error) : null);
 }
 
@@ -256,10 +257,9 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
         h(Button, { className: "danger", onClick: archiveProcess }, "Archive process template")) : null;
 
       const pageActions = h(React.Fragment, null,
-          h(Button, { onClick: editProcess }, "Edit process template"),
-          h(Button, { onClick: copyProcess }, "Duplicate process template"),
-          h(Button, { className: "primary", onClick: () => openWorkItem(null, process.id) }, "Start process run"),
-          h(Button, { disabled: true, title: "Deleting process templates is not available here." }, "Delete")
+          h(Button, { onClick: editProcess }, "Edit"),
+          h(Button, { onClick: copyProcess }, "Duplicate"),
+          h(Button, { className: "primary", onClick: () => openWorkItem(null, process.id) }, "Start")
       );
 
       const routingPanel = h("div", null,
@@ -282,16 +282,16 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
         routingBoard
       );
 
-      const agentPanel = agentForm || h(Empty, null, "Select an agent to view or edit");
-
-      return h(GridStackPage, {
-        layoutId: "process-detail", defaults: PROCESS_DETAIL_LAYOUT, preference, preferences, setPageActions, pageActions,
-        panels: {
-          routing: { label: "Routing & Files", minW: 6, minH: 4, content: routingPanel },
-          agent: { label: "Agent Settings", minW: 6, minH: 4, content: agentPanel },
-          archive: archive ? { label: "Archive", minW: 6, minH: 2, content: archive } : undefined
-        }
-      });
+      return h(React.Fragment, null,
+        h(GridStackPage, {
+          layoutId: "process-detail", defaults: PROCESS_DETAIL_LAYOUT, preference, preferences, setPageActions, pageActions,
+          panels: {
+            routing: { label: "Routing & Files", minW: 6, minH: 4, content: routingPanel },
+            archive: archive ? { label: "Archive", minW: 6, minH: 2, content: archive } : undefined
+          }
+        }),
+        agentForm
+      );
     }
   }
   if (route === "templates") {
@@ -333,23 +333,26 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
           h("div", { className: "bees-row-title" }, process.name), h("div", { className: "bees-muted" }, subtitle)),
         h(ProcessListActions, { process, act, openWorkItem }));
     }) : [h(Empty, { key: "empty" }, "No process templates yet")]));
-  return h(GridStackPage, {
-    layoutId: "processes", defaults: PROCESSES_LAYOUT, preference, preferences, setPageActions,
-    panels: {
-      processes: {
+  return h("div", { className: "bees-stack bees-flex-page" },
+    h("div", { className: "bees-search", style: { justifyContent: "flex-end" } },
+      h("select", { className: "bees-select", value: templateStatus, "aria-label": "Process template status",
+        onChange: (event) => setTemplateStatus(event.target.value) },
+        h("option", { value: "active" }, "Active"), h("option", { value: "archived" }, "Archived")),
+      h(Button, { disabled: !workspaceId, onClick: () => setPlanning(true) }, "Build with Bees"),
+      h(Button, { className: "primary", disabled: !workspaceId,
+        onClick: () => { setProcessDraft(null); setCreating("process"); } }, "New process template")
+    ),
+    h(GridStackPage, {
+      layoutId: "processes", defaults: PROCESSES_LAYOUT, preference, preferences, setPageActions,
+      panels: {
+        processes: {
         label: "Process Templates",
-        actions: h(React.Fragment, null,
-          h("select", { className: "bees-select", value: templateStatus, "aria-label": "Process template status",
-            onChange: (event) => setTemplateStatus(event.target.value) },
-            h("option", { value: "active" }, "Active"), h("option", { value: "archived" }, "Archived")),
-          h(Button, { disabled: !workspaceId, onClick: () => setPlanning(true) }, "Build with Bees"),
-          h(Button, { className: "primary", disabled: !workspaceId,
-            onClick: () => { setProcessDraft(null); setCreating("process"); } }, "New process template")),
         minW: 6, minH: 4,
         content: h("div", { className: "bees-stack" },
           planning ? h(ProcessPlanner, { workspaceId, act, openWorkItem, onClose: () => setPlanning(false) }) : null,
           processList)
       }
     }
-  });
+    })
+  );
 }
