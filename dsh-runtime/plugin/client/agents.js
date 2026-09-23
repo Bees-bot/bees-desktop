@@ -409,14 +409,16 @@ export function AgentsPage({ ctx, data, servers = [], tools = [], catalog = [], 
         h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, preset.name),
           h("div", { className: "bees-muted" }, preset.broken ? "Unavailable" : preset.description || "Agent preset")),
         h("span", { className: "bees-badge" }, preset.trust ?? "preset"))) : [h(Empty, { key: "empty" }, "No agent presets are available")]));
-  return h(React.Fragment, null,
+  return h("div", { className: "bees-flex-page bees-stack" },
+    h("div", { className: "bees-search", style: { justifyContent: "flex-end" } },
+      h("select", { className: "bees-select", value: agentStatus, "aria-label": "Agent status", onChange: (event) => setAgentStatus(event.target.value) },
+        h("option", { value: "active" }, "Active"), h("option", { value: "archived" }, "Archived")),
+      h(Button, { className: "primary", disabled: !workspaceId, onClick: () => setCreating("agent") }, "New agent")
+    ),
     h(GridStackPage, {
       layoutId: "agents", defaults: AGENTS_LAYOUT, preference, preferences, setPageActions,
       panels: {
-        agents: { label: "Agents", actions: h(React.Fragment, null,
-          h("select", { className: "bees-select", value: agentStatus, "aria-label": "Agent status", onChange: (event) => setAgentStatus(event.target.value) },
-            h("option", { value: "active" }, "Active"), h("option", { value: "archived" }, "Archived")),
-          h(Button, { className: "primary", disabled: !workspaceId, onClick: () => setCreating("agent") }, "New agent")), minW: 4, minH: 4, content: agents },
+        agents: { label: "Agents", minW: 4, minH: 4, content: agents },
         presets: { label: "Agent presets", minW: 4, minH: 3, content: presets }
       }
     }), editor);

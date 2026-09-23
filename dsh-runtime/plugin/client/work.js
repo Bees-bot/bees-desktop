@@ -1276,7 +1276,7 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
         h("td"))), ...rendered)) : rendered;
   };
   return h("div", { className: "bees-flex-page bees-stack" },
-    h("div", { className: "bees-search", style: { padding: "16px 24px 0" } },
+    h("div", { className: "bees-search" },
       h("input", { className: "bees-input bees-grow", value: query, onChange: (event) => setQuery(event.target.value),
         placeholder: "Search by task name", "aria-label": "Search work items by task name" }),
       h("select", { className: "bees-select", value: status, onChange: (event) => setStatus(event.target.value), "aria-label": "Filter by status" },

@@ -337,7 +337,7 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
         h(ProcessListActions, { process, act, openWorkItem }));
     }) : [h(Empty, { key: "empty" }, "No process templates yet")]));
   return h("div", { className: "bees-stack bees-flex-page" },
-    h("div", { className: "bees-search", style: { justifyContent: "flex-end", padding: "16px 24px 0" } },
+    h("div", { className: "bees-search", style: { justifyContent: "flex-end" } },
       h("select", { className: "bees-select", value: templateStatus, "aria-label": "Process template status",
         onChange: (event) => setTemplateStatus(event.target.value) },
         h("option", { value: "active" }, "Active"), h("option", { value: "archived" }, "Archived")),
