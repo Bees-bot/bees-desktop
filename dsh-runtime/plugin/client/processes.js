@@ -11,8 +11,7 @@ const TEMPLATES_LAYOUT = [
 ];
 const PROCESS_DETAIL_LAYOUT = [
   { kind: "routing", x: 0, y: 0, w: 12, h: 7 },
-  { kind: "agent", x: 0, y: 7, w: 12, h: 10 },
-  { kind: "archive", x: 0, y: 17, w: 12, h: 3 }
+  { kind: "archive", x: 0, y: 7, w: 12, h: 3 }
 ];
 
 function StageAgentRoute({ stage, agents, servers = [], act, onOpenAgent, onCreateAgent }) {
@@ -177,15 +176,13 @@ export function ProcessListActions({ process, act, openWorkItem }) {
       }
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   });
-  const deleteUnavailable = "Deleting process templates is not available here.";
   return h("div", null,
     h("div", { className: "bees-detail-actions", style: { marginTop: 0 }, role: "group", "aria-label": `Actions for ${process.name}` },
       process.archivedAt ? h(Button, { disabled: busy, onClick: (event) => submit(event, "restore") }, "Restore") : h(React.Fragment, null,
       h(Button, { disabled: busy, onClick: (event) => submit(event, "run") }, "Run"),
       h(Button, { disabled: busy, onClick: (event) => submit(event, "copy_process") }, "Duplicate"),
       process.kind === "standard" ? h(Button, { className: "danger", disabled: busy, onClick: (event) => submit(event, "archive_process") }, "Archive")
-        : h(Button, { className: "danger", disabled: true, title: "The built-in Goals process cannot be archived" }, "Archive"),
-      h(Button, { disabled: true, title: deleteUnavailable }, "Delete"))),
+        : h(Button, { className: "danger", disabled: true, title: "The built-in Goals process cannot be archived" }, "Archive"))),
     error ? h("p", { className: "bees-error", role: "alert" }, error) : null);
 }
 
@@ -259,10 +256,9 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
         h(Button, { className: "danger", onClick: archiveProcess }, "Archive process template")) : null;
 
       const pageActions = h(React.Fragment, null,
-          h(Button, { onClick: editProcess }, "Edit process template"),
-          h(Button, { onClick: copyProcess }, "Duplicate process template"),
-          h(Button, { className: "primary", onClick: () => openWorkItem(null, process.id) }, "Start process run"),
-          h(Button, { disabled: true, title: "Deleting process templates is not available here." }, "Delete")
+          h(Button, { onClick: editProcess }, "Edit"),
+          h(Button, { onClick: copyProcess }, "Duplicate"),
+          h(Button, { className: "primary", onClick: () => openWorkItem(null, process.id) }, "Start")
       );
 
       const routingPanel = h("div", null,
@@ -285,16 +281,16 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
         routingBoard
       );
 
-      const agentPanel = agentForm || h(Empty, null, "Select an agent to view or edit");
-
-      return h(GridStackPage, {
-        layoutId: "process-detail", defaults: PROCESS_DETAIL_LAYOUT, preference, preferences, setPageActions, pageActions,
-        panels: {
-          routing: { label: "Routing & Files", minW: 6, minH: 4, content: routingPanel },
-          agent: { label: "Agent Settings", minW: 6, minH: 4, content: agentPanel },
-          archive: archive ? { label: "Archive", minW: 6, minH: 2, content: archive } : undefined
-        }
-      });
+      return h(React.Fragment, null,
+        h(GridStackPage, {
+          layoutId: "process-detail", defaults: PROCESS_DETAIL_LAYOUT, preference, preferences, setPageActions, pageActions,
+          panels: {
+            routing: { label: "Routing & Files", minW: 6, minH: 4, content: routingPanel },
+            archive: archive ? { label: "Archive", minW: 6, minH: 2, content: archive } : undefined
+          }
+        }),
+        agentForm
+      );
     }
   }
   if (route === "templates") {
