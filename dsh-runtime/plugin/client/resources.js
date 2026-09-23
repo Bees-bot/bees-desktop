@@ -84,7 +84,7 @@ export function KnowledgePage({ data, route, workspaceId, teamId }) {
     try { setResults((await request(`/bees-api/search?q=${encodeURIComponent(query)}&workspaceId=${encodeURIComponent(workspaceId)}`)).results ?? []); }
     catch (error) { setResults([]); setSearchError(error instanceof Error ? error.message : String(error)); }
   } },
-    h("input", { className: "bees-input", value: query, onChange: (event) => setQuery(event.target.value), disabled: !workspaceId, placeholder: "Search work and approved files", "aria-label": "Search" }), h("button", { className: "bees-btn primary", disabled: !workspaceId }, "Search")),
+    h("input", { className: "bees-input bees-grow", value: query, onChange: (event) => setQuery(event.target.value), disabled: !workspaceId, placeholder: "Search work and approved files", "aria-label": "Search" }), h("button", { className: "bees-btn", disabled: !workspaceId }, "Search")),
     searchError ? h("p", { className: "bees-error" }, searchError) : null,
     ...results.map((result) => {
       const source = [result.authority ? `Authority: ${result.authority}` : "",
