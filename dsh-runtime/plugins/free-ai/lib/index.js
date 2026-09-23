@@ -142,7 +142,7 @@ export async function apply(ctx) {
     const cause = error instanceof Error ? error.message : String(error);
     ctx.logger.warn(`Embedded FreeLLMAPI could not start: ${cause}`);
     // "unavailable" names a component the person has never heard of and offers no way forward
-    startupError = new Error(`The free AI option did not start on this computer. Try again, or choose another AI in AI connections. (${cause})`);
+    startupError = new Error(`The free AI option did not start on this computer. Restart Bees, or choose another AI in AI connections. (${cause})`);
   }
 
   ctx.effect(() => ctx.webServer.register({

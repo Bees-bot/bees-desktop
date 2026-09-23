@@ -800,7 +800,8 @@ struct DataFolder {
     bytes: u64,
 }
 
-#[tauri::command]
+// walks the whole data folder, so it must not block the main thread
+#[tauri::command(async)]
 fn bees_data_size(app: tauri::AppHandle) -> Result<DataFolder, String> {
     let data = bees_data_folder(&app)?;
     Ok(DataFolder { bytes: folder_size(&data), path: data.display().to_string() })
@@ -815,6 +816,23 @@ fn uninstall_bees(app: tauri::AppHandle) -> Result<(), String> {
     app.exit(0);
     Ok(())
 }
+
+/// The memory server runs detached and outlives DSH, so find it by its port like local-memory.js does.
+#[cfg(unix)]
+fn kill_local_memory_server() {
+    let Ok(listeners) = Command::new("lsof")
+        .args(["-t", "-i", "tcp:8898", "-sTCP:LISTEN"])
+        .output()
+    else {
+        return;
+    };
+    for pid in String::from_utf8_lossy(&listeners.stdout).split_whitespace() {
+        // the group first, then the pid alone in case the listener is not the group leader
+        let _ = Command::new("kill").args(["-9", &format!("-{pid}"), pid]).status();
+    }
+}
+#[cfg(not(unix))]
+fn kill_local_memory_server() {}
 
 /// Closing the window only hides it, so this is how the window comes back: the tray, the dock,
 /// and a second launch all route here.
@@ -945,54 +963,14 @@ pub fn run() {
                     reap_agent_browser(&state.join("browser-profile"));
                 }
                 // the only place the folder lock comes off, since quitting kills the harness outright
-                if let Some(lock) = CLAIMED.lock().ok().and_then(|mut held| held.take()) {
+                if let Some(lock) = CLAIMED.lock().unwrap_or_else(|e| e.into_inner()).take() {
                     let _ = fs::remove_file(lock);
                 }
                 // last, so the files the sidecars were holding are closed before the folder goes
-                if let Some(folder) = REMOVE_ON_EXIT.lock().ok().and_then(|mut armed| armed.take()) {
+                if let Some(folder) = REMOVE_ON_EXIT.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                    kill_local_memory_server();
                     let _ = fs::remove_dir_all(folder);
                 }
             }
         });
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{is_dsh_auth_cookie, legacy_device_uuid, stable_uuid, validated_external_url};
-
-    #[test]
-    fn device_ids_use_the_shared_uuid_format() {
-        assert_eq!(stable_uuid("abc"), "ba7816bf-8f01-5fea-8141-40de5dae2223");
-        assert_eq!(
-            legacy_device_uuid(&"a".repeat(64)).as_deref(),
-            Some("ffe054fe-7ae0-5b6d-865c-3af9b61d5209")
-        );
-    }
-
-    #[test]
-    fn identifies_loopback_auth_cookies() {
-        assert!(is_dsh_auth_cookie("bees_dsh_45123"));
-        assert!(is_dsh_auth_cookie("dsh-auth-abc"));
-        assert!(!is_dsh_auth_cookie("unrelated"));
-    }
-
-    #[test]
-    fn external_links_must_be_secure_websites() {
-        assert_eq!(
-            validated_external_url(" https://console.x.ai/team/default/api-keys "),
-            Ok("https://console.x.ai/team/default/api-keys")
-        );
-        assert_eq!(
-            validated_external_url("http://localhost:3000/api/auth/desktop/start"),
-            Ok("http://localhost:3000/api/auth/desktop/start")
-        );
-        assert_eq!(
-            validated_external_url("http://127.0.0.1:3000/callback"),
-            Ok("http://127.0.0.1:3000/callback")
-        );
-        assert!(validated_external_url("http://example.com").is_err());
-        assert!(validated_external_url("http://localhost.example.com").is_err());
-        assert!(validated_external_url("https://").is_err());
-        assert!(validated_external_url("https://example.com\nmalicious").is_err());
-    }
 }

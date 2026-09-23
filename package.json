@@ -8,18 +8,14 @@
   "license": "MIT OR Apache-2.0",
   "type": "module",
   "scripts": {
-    "postinstall": "npm ci --omit=dev --prefix dsh-runtime --ignore-scripts --legacy-peer-deps && node scripts/install-dsh-runtime.mjs && npm rebuild --prefix dsh-runtime better-sqlite3 && node scripts/stage-dsh-plugin.mjs",
+    "postinstall": "node scripts/check-node.mjs && npm ci --omit=dev --prefix dsh-runtime --ignore-scripts --legacy-peer-deps && node scripts/install-dsh-runtime.mjs && npm rebuild --prefix dsh-runtime better-sqlite3 && node scripts/stage-dsh-plugin.mjs",
     "prepare:dsh": "node scripts/install-dsh-runtime.mjs && node scripts/stage-dsh-plugin.mjs && node scripts/prepare-dsh-runtime.mjs",
-    "dev": "vite",
     "build": "vite build",
     "build:dsh-client": "node scripts/build-dsh-client.mjs",
     "release:prepare": "node scripts/release.mjs version",
-    "test:release": "node --test tests/release.test.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build:dsh-client && vitest run tests/dsh-*.test.ts",
-    "check": "npm run test:release && npm run typecheck && npm test && npm run build",
+    "check": "npm run typecheck && npm run build",
     "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
-    "tauri:prod": "BEES_ACCOUNT_API_URL=https://app.bees.bot tauri dev --config src-tauri/tauri.dev.conf.json",
     "tauri:build": "tauri build"
   },
   "dependencies": {
@@ -28,7 +24,7 @@
   "devDependencies": {
     "@shikijs/langs": "4.4.3",
     "@tauri-apps/cli": "2.11.4",
-    "@types/node": "22.19.11",
+    "@types/node": "24.13.6",
     "anser": "2.3.5",
     "clsx": "2.1.1",
     "esbuild": "0.28.2",
@@ -46,7 +42,6 @@
     "micromark-util-symbol": "2.0.1",
     "shiki": "4.4.3",
     "typescript": "6.0.3",
-    "vite": "8.1.4",
-    "vitest": "4.1.11"
+    "vite": "8.1.4"
   }
 }

@@ -7,9 +7,11 @@ llama-runtime/*
 dsh-runtime/freellmapi/*
 !dsh-runtime/freellmapi/.gitkeep
 dsh-runtime/plugin/lib/client.js
+dsh-runtime/memory-runtime/*
+src-tauri/gen/schemas/
+.serena/
 .env
 .env.*
-!.env.production
 *.db
 *.db-shm
 *.db-wal

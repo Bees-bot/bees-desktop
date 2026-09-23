@@ -68,10 +68,8 @@ export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiSta
       ...titles.map((title, index) => h("button", { type: "button", key: title,
         className: `bees-box ${step === index ? "active" : ""}`, "aria-current": step === index ? "step" : undefined,
         onClick: () => update({ step: index, active: true }) },
-        // "4 of 4" next to a sibling reading "Complete" looks like the last step is finished. And a
-        // fresh install already has a team, so the step you are standing on can read "Complete"
-        // before you have chosen anything: only the steps you have moved past count.
-        h("span", { className: "bees-badge" }, done[index] && index !== step ? "✓ Complete" : `Step ${index + 1}`),
+        // Only steps already passed read Complete, since a later step can already be done before you reach it.
+        h("span", { className: "bees-badge" }, done[index] && index < step ? "✓ Complete" : `Step ${index + 1}`),
         h("strong", null, title)))),
     h("section", { className: "bees-box bees-stack" }, h("h2", null, titles[step]),
       step === 0 ? h("div", { className: "bees-stack" },
@@ -129,9 +127,7 @@ export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiSta
               h("label", { key: row.id }, h("input", { type: "checkbox", checked: (state.inputLocationIds || []).includes(row.id),
                 onChange: (event) => update({ inputLocationIds: event.target.checked ? [...(state.inputLocationIds || []), row.id] : (state.inputLocationIds || []).filter((id) => id !== row.id) }) }), ` ${row.name}`)),
             h("p", { className: "bees-muted" }, "Work (plan together, then execute) → Review → Done. The lead creates first-result.md, then a fresh reviewer session checks it. Planning uses additional AI calls. If the planning partner cannot run, the lead performs a self-review and shows the fallback."),
-            !aiReady ? h("div", { className: "bees-stack" },
-              h("p", { role: "status" }, "Choose and test your AI before starting. You can prepare this prompt while a model downloads."),
-              h(Button, { onClick: () => update({ step: 1 }) }, "Go to Choose your AI")) : null,
+            !aiReady ? h("p", { role: "status" }, "Choose and test your AI before starting. You can prepare this prompt while a model downloads.") : null,
             h(Button, { type: "submit", className: "primary", disabled: busy || !done[0] || !aiReady || !prompt.trim() }, busy ? "Starting…" : "Create my first result"))) : null,
       h("div", { className: "bees-card-actions" },
         step > 0 ? h(Button, { onClick: () => update({ step: step - 1 }) }, "Back") : null,

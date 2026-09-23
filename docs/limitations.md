@@ -40,7 +40,8 @@ leaves the data folder behind, and the next install reads it as it was.
   four must succeed before a release becomes public.
 - 0.1.1 shipped Apple Silicon only and produced no Windows installer.
 - The Mac build has had far more use than the Linux and Windows builds.
-- The desktop bundles neither Docker nor PostgreSQL nor Python.
+- The desktop bundles neither Docker nor PostgreSQL nor Python. Memory downloads its own Python
+  the first time it starts.
 
 ## What the app does not do yet
 

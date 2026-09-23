@@ -4,6 +4,8 @@ Notable changes, newest first. Dates are release dates.
 
 ## Unreleased
 
+- Node 24 is required, and the app runtime, the native modules and the workflow builds all use it.
+  Built under an older Node, the free AI option failed on a fresh install.
 - Fixed an issue where the same output folder could not be selected multiple times by returning the existing mapped folder.
 - The custom answer box for conversational reviews with options is now a multi-line text area instead of a single-line input.
 - Planning runs (Process planner executions) now properly show up in the Process Runs list ("Recent process runs").

@@ -1,9 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
-import { itemContext, iso, transaction, workItemLineage, workRunItems } from "./product-database.js";
+import { itemContext, iso, transaction, workItemLineage } from "./product-database.js";
 import { assertRootOnDisk, shortPath, workspaceRoot } from "./folder-roots.js";
-import { outputFiles, previewFiles, stageLocation } from "./product-files.js";
+import { outputFiles, previewFiles } from "./product-files.js";
 
 const hash = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const kinds = new Set(["note", "decision", "finding", "lesson", "result"]);
@@ -73,21 +73,10 @@ export class WorkContext {
     const root = this.lineage(itemId)[0];
     assertRootOnDisk(root.workspaceId);
     const resources = this.resources(itemId);
-    if (resources.directory) return resources.directory;
-    const executions = this.database.prepare(`SELECT resolved(e.run_directory, ?) AS directory FROM execution_links e
-      LEFT JOIN bees_stage_results r ON r.execution_id = e.execution_id
-      WHERE e.work_item_id IN (SELECT value FROM json_each(?))
-        AND coalesce(json_extract(e.config_json, '$.stagePurpose'), r.purpose, json_extract(e.config_json, '$.mode'), 'worker')
-          NOT IN ('reviewer', 'review', 'planning')
-      ORDER BY e.created_at DESC, e.rowid DESC`).all(root.workspaceId, JSON.stringify(workRunItems(this.database, itemId)));
-    const directory = executions[0]?.directory ?? resolve(workspaceRoot(root.workspaceId), "runs", resources.rootId);
+    const directory = resources.directory || resolve(workspaceRoot(root.workspaceId), "runs", resources.rootId);
+    // a run started on another computer has its folder in the database but not yet on this disk
     mkdirSync(directory, { recursive: true });
-    // Older versions used a folder per stage. Retain their files without overwriting newer work.
-    for (const execution of executions) for (const name of ["inputs", "outputs"]) {
-      const source = resolve(execution.directory, name), target = resolve(directory, name);
-      if (source !== target && existsSync(source)) stageLocation({ name, kind: "folder", localPath: source }, target, false);
-    }
-    this.database.prepare("UPDATE bees_run_resources SET directory = ? WHERE root_id = ?")
+    if (!resources.directory) this.database.prepare("UPDATE bees_run_resources SET directory = ? WHERE root_id = ?")
       .run(shortPath(root.workspaceId, directory), resources.rootId);
     return directory;
   }

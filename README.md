@@ -1,118 +1,152 @@
 # Bees Desktop
 
-Bees is a local-first desktop application for coordinating AI-assisted work. Stage 1 runs as a product plugin inside a pinned DeepSeek Harness (DSH) host and Web Client. Files, credentials, agent execution, and physical paths stay on the user's machine.
+Run agentic teams from your own computer while your agents, files, browser sessions, cookies, and passwords stay local.
 
-## Development
+Bees runs a team of AI agents on your computer instead of one assistant in a single chat window. Describe an outcome in plain language, and Bees turns it into stages: agents work through them on a shared board, and a separate reviewer checks each result before it moves on. It works with agents you may already run, such as Codex or Claude Code from the command line, a hosted model, or a local model, and it reaches outside tools through MCP servers (a standard way to plug tools into an agent), the same way OpenClaw or n8n do. Actions that leave your computer wait for your approval.
 
-### Dynamic app directory
+## Install
 
-Apps loads a hosted catalog on opening and on Refresh. Users inspect the name,
-description, publisher, access and sources, then Install, finish setup and Open.
-Packages stay in `bees-apps`; no JSON upload or user GitHub credentials are needed.
-Installed versions are pinned. Updates require a separate approval and preserve
-results; schedules and active work must be stopped first. An offline catalog is
-browse-only, while existing local installs keep working.
+Download the build for your computer from the [download page](https://bees.bot/download/), or go straight to the [latest GitHub release](https://github.com/Bees-bot/bees-desktop/releases/latest).
 
-The proposed catalog URL is `https://bees-bot.github.io/bees-apps/catalog.json`.
-It must be published separately; this change does not enable hosting. Override
-it with `BEES_APP_CATALOG_URL` at launch for another credential-free HTTPS host.
-Only a future package schema/runtime capability needs a desktop upgrade.
+- **macOS:** open the DMG and drag Bees to Applications. Builds we publish are signed and notarized by Apple, so Gatekeeper lets them open.
+- **Windows:** run the installer. It is not code-signed yet, so SmartScreen will warn. Click "More info," check the name reads Bees, then "Run anyway."
+- **Linux:** install the DEB, or run the AppImage directly. Linux packages are not signed.
 
-Local apps use SQLite. Connected apps use the selected account and revisioned
-server storage for configuration, source receipts, records, drafts, decisions
-and shared limits. They need the matching Bees Server update and connectivity;
-failed writes never become offline approvals. The existing desktop runtime
-executes/schedules the work. No cloud worker, sending connector or paid service
-is enabled by installation. See `bees-apps/README.md` for catalog publishing and
-the current 16 MB shared-state limit.
+Open Bees. It creates a private workspace on this computer with no sign-in needed, so you can try it right away.
 
-Requirements: Node.js 24, npm 10+, Rust 1.84+, and a native desktop toolchain. Node 24 is
-not a preference: the app runs its own Node 24 runtime, and native modules built under an
-older Node make the free AI option fail on a fresh install.
+### Try it in about a minute
 
-```sh
-npm ci
-npm run check
-cargo check --manifest-path src-tauri/Cargo.toml
-cargo test --manifest-path src-tauri/Cargo.toml
-make bees
+Open **Settings → AI connections** and connect one AI: Codex or Claude Code (Bees uses the subscription you already have), a hosted provider, or a local model.
+
+Then, on **Home**, type this into the **Ask Bees** box:
+
+```
+Browse Hacker News and give me a table of the current stories, grouped by category: news, Show HN, and Ask HN.
 ```
 
-Run these commands from this repository:
+Select **Run using defaults**. Bees starts the work with your team's agents and opens it, a reviewer checks the table, and the result lands in that run. You can find it again under **Process Runs**.
 
-```sh
-make bees     # Start the desktop app with https://app.bees.bot (also: make prod or make)
-make server   # Start the local API and PostgreSQL from ../bees-server
-make dev      # In another terminal, start the desktop app with http://localhost:3000
-make build    # Build the desktop release installer
-```
+## Features
 
-`make server` requires Docker and the sibling server's dependencies installed (`npm --prefix ../bees-server ci`). It runs the server's existing development command, which starts PostgreSQL, applies migrations, and starts the API. `Ctrl-C` stops the API; PostgreSQL remains running until `npm --prefix ../bees-server run db:dev:stop`.
-
-`bees`, `prod`, and `dev` launch the app in development mode; `prod` selects the deployed API and does not deploy anything. Fully quit Bees before switching servers because the URL is read at startup. The `127.0.0.1` redirect inside a browser sign-in URL is the expected local callback.
-
-`npm run tauri:prod` launches the development app against the deployed API without building an installer. `npm run tauri:dev` also uses the deployed API by default; set `BEES_ACCOUNT_API_URL` to override it.
-
-Development commands use `src-tauri/tauri.dev.conf.json`: the debug app reads DSH
-and llama.cpp from this checkout, so Cargo does not copy their resource trees on
-each build. Preparation preserves unchanged Node/Temporal executable timestamps,
-letting Cargo reuse the native build on repeat launches. Source and configuration
-changes still rebuild normally. The first build downloads/prepares runtimes and
-compiles Rust dependencies; release installers include the complete resources.
-
-Production builds connect to `https://app.bees.bot` unless `BEES_ACCOUNT_API_URL` is set when launching the app.
-
-Build an installer with `make build` (or `npm run tauri:build`).
-
-DSH releases are upgraded as one pinned set through the
-[DSH upgrade checklist](docs/dsh-upgrade-checklist.md).
+- Ask Bees for an outcome in plain language, and it runs with your team's agents. Choose **Configure advanced** to pick the process and the agent for each stage first.
+- Multi-agent processes: agents work through stages on a shared board, and a separate reviewer checks each result before it moves on.
+- Bring your own AI: connect Codex, Claude Code, a hosted provider, or a local model, per agent or as the system default.
+- MCP servers and skills, scoped per agent: give one agent every tool, none, or a named few.
+- Apps: install ready-made app packages from a catalog. Each one shows its publisher, what it can access, and its sources before you install it.
+- Local knowledge search (Company Brain) over folders and Google Drive locations you map yourself.
+- Long-term memory: Bees runs its own local memory service so agents recall past work without sending it to a cloud memory provider.
+- Scheduling: turn a request into a recurring process, like a weekly report.
+- Human in the loop: questions, approvals, and failures surface under **Needs your attention**, and external actions wait for your sign-off.
 
 ## Architecture
 
-- Tauri owns native lifecycle and launches DSH plus the bundled llama.cpp inference server.
-- DSH supplies models/providers, credentials, sessions, agents, tools, skills, the MCP client, and approvals as an internal runtime; Bees owns the visible UI and product settings.
-- `dsh-runtime/plugin` is the Bees product/core plugin: board, schedules, run/recovery links, file boundaries, local document search, audit receipts, and the shared UI shell.
-- Bees owns which MCP servers exist and who may use them. Rows live in `bees-stage1.db`, each enabled one is mounted as its own `dsh-mcp-client` fiber, and every agent carries a policy of all, none, or a named few. Servers and skills are added under Agents, and secrets go to the DSH credential store.
-- `dsh-runtime/plugins/*` contains small optional integration plugins. Bees AI, embedded FreeLLMAPI free-tier routing, and direct custom OpenAI-compatible connections each ship as a separate DSH Host + Web Client package.
-- Product data starts fresh in the app-owned `bees-stage1.db`. Old Bees workspaces and runs are not migrated.
+Bees is a [Tauri](https://tauri.app) app: Tauri owns the native lifecycle (the window, the installer, the update mechanism) and launches DSH plus a bundled `llama.cpp` server for local model inference alongside it.
 
-Bees is the only visible product surface. New users open Getting started: a resumable four-step checklist for a workspace, AI connection, optional files, and a first Goals task. It reuses the existing setup screens, offers a fictional sample brief, and tests the selected AI before starting work. Local model downloads are explicit; AI connections suggests a conservative model from the shipped catalog using available memory and disk space. Download progress stays visible while setup continues. Previously enabled local models resume on later launches.
+DSH is [DeepSeek Harness](https://github.com/deepseek-ai/DeepSeek-Harness), the open-source agent runtime Bees is built on. It supplies models and providers, credentials, sessions, agents, tools, skills, the MCP client, and approvals, as an internal runtime. Bees owns the visible UI and product settings on top of it.
 
-## Data boundary
+- `dsh-runtime/plugin` is the Bees product plugin: the board, schedules, run and recovery links, file boundaries, local document search, audit receipts, and the shared UI shell.
+- `dsh-runtime/plugins/*` holds smaller, optional plugins: Bees AI, FreeLLMAPI's free-tier routing, and direct custom OpenAI-compatible connections, each its own DSH host and web client package.
+- Bees decides which MCP servers exist and who can use them. Rows live in `bees-stage1.db`; each enabled server runs as its own process, and every agent carries a policy of all, none, or a named few. Add servers and skills under Agents; secrets go into DSH's credential store.
+- Product data lives in the app's own `bees-stage1.db`. Older Bees installs are not migrated into it.
+
+## Privacy
+
+Bees keeps two kinds of data separate, and the line between them does not move.
+
+Stays on your computer, always:
+
+- Document files and their contents
+- Credentials, model connections, and installed models
+- The local search index over your documents
+- Run folders, session details, and other execution files
+
+Can sync, only if you turn on team coordination:
+
+- Organizations, teams, and memberships
+- Process templates, runs, work items, schedules, and agent definitions
+- A folder's logical ID and relative path, never the absolute path or its contents
+- Titles and descriptions you type in
+
+Storage access (Google Drive, OneDrive, a NAS, and so on) is controlled by that provider, separately from your Bees team membership. Neither one substitutes for the other.
+
+When an agent runs, content you select can go straight from your computer to the AI provider or tool you picked for that agent, for example a hosted model, an MCP server, or a command-line agent. Those services have their own privacy terms. Choose a local model and local tools to keep that content on the machine too.
 
 ### Workspace memory
 
-Hindsight is the long-term memory service. Start the pinned local service from
-the sibling `bees-server` repository using its **Hindsight memory** setup, then
-open the workspace's Memory settings in Bees. Enable memory at
-`http://127.0.0.1:8888` and select **Save and connect**. Alternatively configure
-an authenticated HTTPS Hindsight endpoint. The desktop does not bundle or start
-Docker. LLM provider credentials belong on the Hindsight service; the API key
-in Bees authenticates to that service and is kept in DSH's credential store.
+Bees runs its own local memory service (Hindsight) so agents can recall earlier work. The app installs it into its own data folder on first use and serves it on `http://127.0.0.1:8898`; you can point it at an authenticated HTTPS Hindsight instead. Memory extraction always runs on a local model, never a hosted one, so what gets remembered does not leave the machine during that step. Turning memory off stops new saves; it does not erase what is already stored. Use Forget to erase stored memories while still connected.
 
-Each workspace has its own bank. Newly accepted results are queued atomically
-with their review outcome, retained asynchronously, and marked stored only after
-Hindsight finishes processing. Pending writes resume after a restart and temporary
-failures retry every 15 seconds. Terminal extraction failures require **Retry
-synchronization** after fixing the provider. Corrections and Forget wait for any
-in-flight extraction before replacing/deleting its source, and pending sources
-are excluded from recall. Disabling memory stops new retention and recall; it
-does not erase previously stored sources. Forget them while connected to erase them.
+## Supported systems
 
-Recalled experience is frozen into the execution's shared context so its peers
-and reviewer use the same memories. Hindsight performs extraction and consolidation.
-Bees keeps exact requirements and the primary work item's discussion in SQLite;
-recalled memories never override those requirements. No separate compactor is
-needed beyond Hindsight's consolidation and DSH's existing context compaction.
+Release builds cover four targets, and all four have to succeed before a release goes out:
 
-Selected company folders remain data-only. Bees stages inputs into app-data workspaces and publishes outputs only after approval in the Bees UI. Databases, sessions, indexes, checkpoints, browser profiles, credentials, and runtime metadata never go into a selected company folder.
+- macOS, Apple Silicon
+- macOS, Intel
+- Linux x64 (DEB and AppImage)
+- Windows x64 (MSI and EXE)
 
-## Known limitations
+macOS builds are signed with a Developer ID and notarized by Apple. Windows and Linux installers are not signed yet, so Windows shows a SmartScreen warning. The Mac build has had far more real use so far than Linux and Windows.
 
-There is no in-app updater, 0.1.1 data does not carry across, and Windows
-installers are unsigned. The full list is in [Known limitations](docs/limitations.md). Read it
-before you install.
+See [Known limitations](docs/limitations.md) for the full list of what does not work yet, including why there is no in-app updater and why upgrading from version 0.1.1 does not bring your data across. Read it before you install.
+
+## Roadmap
+
+There is no separate roadmap document, only work the team has already flagged:
+
+- An in-app updater, brought back once upgrading from old local data is safe. It shipped in 0.1.1 and was dropped in the 0.2 rewrite because the two versions use different local databases.
+- Signed Windows installers, once the Azure signing account behind them is set up.
+
+See [Known limitations](docs/limitations.md) for everything else that is deliberately not built yet.
+
+## Contributing
+
+Bees is built by two people, so a real fix is genuinely useful. Read [CONTRIBUTING.md](CONTRIBUTING.md) before you start: what needs an issue first, what we usually say yes and no to, and how pull requests get reviewed. Everyone participating is covered by the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Security
+
+Do not open a public issue for a vulnerability. Report it privately through GitHub's security advisory form for this repository, or by email to security@bees.bot. See [SECURITY.md](SECURITY.md) for what to include and what happens next.
 
 ## License
 
-Licensed under either the [Apache License, Version 2.0](LICENSE-APACHE) or the [MIT License](LICENSE-MIT), at your option.
+This repository, Bees Desktop, is open source under your choice of the [Apache License, Version 2.0](LICENSE-APACHE) or the [MIT License](LICENSE-MIT).
+
+Bees Cloud, the optional coordination server that Regular organizations use to sync across teammates, lives in a separate repository, `bees-server`, and is not part of this repository or its license.
+
+Bees Desktop also ships third-party software under its own terms, including LGPL-3 libraries inside libvips (an image-processing library it uses). [NOTICE](NOTICE) lists every component and its license.
+
+## Development
+
+Requires Node 24 (pinned in `.nvmrc`), npm 10+, Rust 1.84+, and a native desktop toolchain. The app bundles its own Node 24 runtime; native modules built under an older Node break the free AI option on a fresh install. Codespaces and dev containers work for the API and the website, but not for this app: Tauri needs a real machine.
+
+```sh
+npm ci
+npm run check                 # typecheck, then build
+npm run prepare:dsh           # stages the Node runtime, llama.cpp and uv for the Rust build
+cargo check --manifest-path src-tauri/Cargo.toml
+make bees                     # start the desktop app against https://app.bees.bot (also: make)
+```
+
+Other commands, run from this repository:
+
+```sh
+make server   # start the local API and PostgreSQL from ../bees-server
+make dev      # in another terminal, start the desktop app against http://localhost:3000
+make build    # build the desktop release installer
+```
+
+`make server` needs Docker and the sibling server's dependencies installed (`npm --prefix ../bees-server ci`). It runs the server's own development command, which starts PostgreSQL, applies migrations, and starts the API. `Ctrl-C` stops the API; PostgreSQL keeps running until `npm --prefix ../bees-server run db:dev:stop`.
+
+`make bees` and `make dev` both launch the app in development mode, against the deployed API and a local API respectively. Fully quit Bees before switching between them, since the URL is read at startup. The `127.0.0.1` redirect inside a browser sign-in URL is the expected local callback.
+
+`npm run tauri:dev` uses the deployed API unless `BEES_ACCOUNT_API_URL` is set, and builds no installer. Development commands use `src-tauri/tauri.dev.conf.json`: the debug app reads DSH and llama.cpp straight from this checkout, so Cargo does not copy their resource trees on each build, and Preparation preserves unchanged Node and Temporal executable timestamps so Cargo can reuse the native build on repeat launches. Source and configuration changes still rebuild normally.
+
+Production builds connect to `https://app.bees.bot` unless `BEES_ACCOUNT_API_URL` is set when launching the app. Build a release installer with `make build` (or `npm run tauri:build`).
+
+DSH releases are upgraded as one pinned set through the [DSH upgrade checklist](docs/dsh-upgrade-checklist.md).
+
+### The Apps catalog
+
+Apps loads a hosted catalog when you open the Apps tab or select Refresh. Users inspect a package's name, description, publisher, access, and sources, then Install, finish setup, and Open. Packages live in `bees-apps`; installing one needs no JSON upload or GitHub credentials of your own. Installed versions are pinned; updating one needs a separate approval, preserves existing results, and requires stopping any schedule or active work on it first. An offline catalog is browse-only, while installs you already have keep working.
+
+The catalog URL is `https://bees-bot.github.io/bees-apps/catalog.json`. Hosting it is a separate step; this repository's code does not publish it. Override the URL with `BEES_APP_CATALOG_URL` at launch to point at another credential-free HTTPS host. Only a future package schema or runtime capability needs a desktop upgrade.
+
+Local apps use SQLite. Connected apps use the selected account and revisioned server storage for configuration, source receipts, records, drafts, decisions, and shared limits; they need a matching Bees Server update and connectivity, and failed writes never become offline approvals. See `bees-apps/README.md` for catalog publishing and the current 16 MB shared-state limit.

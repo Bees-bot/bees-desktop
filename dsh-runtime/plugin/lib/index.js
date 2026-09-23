@@ -334,18 +334,17 @@ export async function apply(ctx, config = {}, internals = {}) {
       try {
         // the guard sits in front of these fetches too, so they carry its own token
         const auth = { authorization: `Bearer ${token}` };
-        const signal = AbortSignal.timeout(5_000);
-        const ticket = await fetch(handoff, { redirect: "manual", signal, headers: auth });
+        const ticket = await fetch(handoff, { redirect: "manual", signal: AbortSignal.timeout(5_000), headers: auth });
         const granted = ticket.headers.getSetCookie();
         await ticket.body?.cancel();
         if (!granted.length) throw new Error(`dsh answered ${ticket.status} to its own token`);
         const page = await fetch(`${base}/`, {
-          signal,
+          signal: AbortSignal.timeout(5_000),
           headers: { ...auth, cookie: granted.map((cookie) => cookie.split(";")[0]).join("; ") }
         });
+        if (!page.ok) throw new Error(`the app index answered ${page.status}`);
         const html = Buffer.from((await page.text())
           .replace("</head>", '<script>history.replaceState(null,"","/")</script></head>'));
-        if (!page.ok) throw new Error(`the app index answered ${page.status}`);
         res.writeHead(200, {
           "content-type": page.headers.get("content-type") ?? "text/html; charset=utf-8",
           "content-length": html.length,

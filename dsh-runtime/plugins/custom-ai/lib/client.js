@@ -42,10 +42,10 @@ window.__ModuleLoader__.load({
       return result.value;
     };
 
-    // One token of a real call, because the model-list endpoints answer any key, junk included.
-    async function testProvider(provider, model) {
+    // A few tokens of a real call, because the model-list endpoints answer any key, junk included.
+    async function testProvider(provider, model, key) {
       const response = await fetch("/bees-api/general-ai/test", {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider, model }),
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider, model, key }),
         signal: AbortSignal.timeout(45_000)
       }).catch(() => { throw new Error("Bees did not answer the connection test. Restart Bees, then try again."); });
       const value = await response.json();
@@ -134,19 +134,13 @@ window.__ModuleLoader__.load({
         if (!key.trim()) throw new Error("Enter the API key");
         if (!model.trim()) throw new Error("Enter the model ID");
         const models = [{ id: model.trim() }];
+        const result = await testProvider(chosen, model.trim(), key.trim());
         await saveKey(chosen, key.trim());
-        try {
-          const result = await testProvider(chosen, model.trim());
-          setTests((current) => ({ ...current, [chosen]: result.message }));
-          await setEnabled(chosen, true, models);
-          await saveProviderIds([...new Set([...ids, chosen])]);
-          await preferences.set("generalAiModels", { ...(ui.generalAiModels ?? {}), [chosen]: models });
-          setKey(""); setModel(""); setSelected(""); setAdding(false);
-        } catch (reason) {
-          // an add that failed this way would leave its key in the store with no row to show for it
-          if (!stored(chosen)) await credentials.unset(refFor(chosen)).catch(() => {});
-          throw reason;
-        }
+        setTests((current) => ({ ...current, [chosen]: result.message }));
+        await setEnabled(chosen, true, models);
+        await saveProviderIds([...new Set([...ids, chosen])]);
+        await preferences.set("generalAiModels", { ...(ui.generalAiModels ?? {}), [chosen]: models });
+        setKey(""); setModel(""); setSelected(""); setAdding(false);
       });
       const addModel = (id) => perform(`model:${id}`, async () => {
         const value = (await ask(`${BY_ID[id].name} model ID`, ""))?.trim();
@@ -155,13 +149,15 @@ window.__ModuleLoader__.load({
         if (models.some((entry) => entry.id === value)) throw new Error(`${value} is already connected`);
         await saveModels(id, [...models, { id: value }]);
       });
-      const removeModel = (id, modelId) => perform(`model:${id}`, () =>
-        saveModels(id, modelsFor(id).filter((entry) => entry.id !== modelId)));
+      const removeModel = (id, modelId) => perform(`model:${id}`, () => {
+        if (modelsFor(id).length <= 1) throw new Error("A connection needs at least one model");
+        return saveModels(id, modelsFor(id).filter((entry) => entry.id !== modelId));
+      });
       const replaceKey = (id) => perform(`key:${id}`, async () => {
         const value = await ask(`${BY_ID[id].name} API key`, "", "password");
         if (!value) return;
+        const result = await testProvider(id, modelsFor(id)[0]?.id, value);
         await saveKey(id, value);
-        const result = await testProvider(id, modelsFor(id)[0]?.id);
         setTests((current) => ({ ...current, [id]: result.message }));
       });
       const test = (id) => perform(`test:${id}`, async () => {

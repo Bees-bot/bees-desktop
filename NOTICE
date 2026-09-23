@@ -43,7 +43,7 @@ This product includes software developed by third parties:
   https://github.com/lovell/sharp
   Licensed under the Apache License, Version 2.0
 
-  libvips and its dependencies, shipped inside @img/sharp-libvips-darwin-arm64 1.3.3
+  libvips and its dependencies, shipped inside a platform-matched @img/sharp-libvips-* package, version 1.3.3
   https://github.com/lovell/sharp-libvips
   Resizes and converts images. The application loads these binaries without
   modifying them, so they stay separate libraries.

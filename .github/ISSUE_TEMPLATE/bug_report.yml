@@ -10,23 +10,14 @@ body:
     id: version
     attributes:
       label: Bees version
-      description: Settings, then About. Or the file name of the installer you ran.
-    validations:
-      required: true
-  - type: dropdown
-    id: chip
-    attributes:
-      label: Mac
-      options:
-        - Apple Silicon (M1 or later)
-        - Intel
+      description: Right-click Bees in Applications, choose Get Info, and check Version. Or the file name of the installer you ran.
     validations:
       required: true
   - type: input
-    id: macos
+    id: os
     attributes:
-      label: macOS version
-      description: Apple menu, About This Mac.
+      label: Operating system
+      description: e.g. macOS 14 Apple Silicon, macOS 13 Intel, Windows 11, Ubuntu 22.04
     validations:
       required: true
   - type: textarea
@@ -40,6 +31,6 @@ body:
     id: log
     attributes:
       label: Log lines
-      description: The app writes a log beside its data folder. Paste the lines around the failure and remove any keys, tokens or personal file paths first.
+      description: The app writes runtime.log and startup.log to a dsh-state folder inside its data folder (Settings → Removing Bees names that folder). Paste the lines around the failure and remove any keys, tokens or personal file paths first.
     validations:
       required: false

@@ -1,6 +1,6 @@
-.PHONY: bees prod dev server build
+.PHONY: bees dev server build
 
-bees prod:
+bees:
 	BEES_ACCOUNT_API_URL=https://app.bees.bot npm run tauri:dev
 
 dev:

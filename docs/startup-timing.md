@@ -8,6 +8,8 @@ On macOS:
 tail -f "$HOME/Library/Application Support/bot.bees.desktop/dsh-state/startup.log"
 ```
 
+A dev run (`npm run tauri:dev`) writes under `bot.bees.desktop.dev` instead.
+
 The previous native launch is kept in `startup.log.1`. Development preparation
 (`build.frontend`, `build.dsh.install`, `build.dsh.plugins`,
 `build.bundled-runtimes`) is timed in the launch terminal, before the native app
