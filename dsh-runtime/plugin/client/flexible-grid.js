@@ -86,10 +86,12 @@ export function GridStackPage({ layoutId, defaults, panels, preference, preferen
           await preferences.set("pageLayouts", { ...layouts, [layoutId]: [] });
         }
       } }, "Reset") : null,
-      h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) }, editing ? "Done" : "Edit layout")));
+      h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) }, editing ? "Done" : "Customize")));
     return () => setPageActions(null);
   }, [editing, layoutId, layouts, preferences, setPageActions, pageActions]);
   return h("div", { className: "bees-flex-page" },
+    pageActions && typeof pageActions !== "string" && !pageActions.type && Array.isArray(pageActions) ? null : null,
+    panels.beforeGrid || null,
     h(FlexibleGrid, { layout, editing, resizeAlways, onLayout: save, panels, className: `bees-page-grid ${className}`.trim() })
   );
 }
