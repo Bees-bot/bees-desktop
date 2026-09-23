@@ -127,10 +127,13 @@ export function ProcessMcpForm({ ctx, process, servers, tools, catalog, onServer
     await act({ action: "set_process_mcp", processId: process.id,
       mcpAccess: String(form.get("mcpAccess") ?? "none"), mcpServers: form.getAll("mcpServers").map(String) });
   });
-  return h("form", { className: "bees-box bees-form", onSubmit },
-    h("p", { className: "bees-muted" }, "Every agent in this process inherits these MCPs in addition to its own."),
+  return h("form", { className: "bees-form", onSubmit, style: { paddingTop: "8px" } },
+    h("p", { className: "bees-muted", style: { marginBottom: "16px" } }, "Every agent in this process inherits these MCPs in addition to its own."),
     h(McpAccess, { ctx, servers, tools, catalog, onServerAction, access: process.mcpAccess, chosen: process.mcpServers, scope: "process", showAll }),
-    h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Saving…" : "Save process MCPs"));
+    h("div", { style: { display: "flex", justifyContent: "flex-end", marginTop: "16px" } },
+      h("button", { className: "bees-btn", disabled: busy, type: "submit" }, busy ? "Saving…" : "Save process MCPs")
+    )
+  );
 }
 
 
