@@ -60,7 +60,7 @@ export function ActivityPage({ data, route, workspaceIds, openWorkItem, openProc
 
 export function KnowledgePage({ data, route, workspaceId, teamId }) {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState([]);
+  const [results, setResults] = useState(null);
   const [searchError, setSearchError] = useState("");
   const [viewer, setViewer] = useState(null);
   if (route === "artifacts") {
@@ -82,11 +82,12 @@ export function KnowledgePage({ data, route, workspaceId, teamId }) {
     event.preventDefault();
     setSearchError("");
     try { setResults((await request(`/bees-api/search?q=${encodeURIComponent(query)}&workspaceId=${encodeURIComponent(workspaceId)}`)).results ?? []); }
-    catch (error) { setResults([]); setSearchError(error instanceof Error ? error.message : String(error)); }
+    catch (error) { setResults(null); setSearchError(error instanceof Error ? error.message : String(error)); }
   } },
     h("input", { className: "bees-input bees-grow", value: query, onChange: (event) => setQuery(event.target.value), disabled: !workspaceId, placeholder: "Search work and approved files", "aria-label": "Search" }), h("button", { className: "bees-btn", disabled: !workspaceId }, "Search")),
     searchError ? h("p", { className: "bees-error" }, searchError) : null,
-    ...results.map((result) => {
+    results?.length === 0 ? h(Empty, null, "Nothing matched that search") : null,
+    ...(results ?? []).map((result) => {
       const source = [result.authority ? `Authority: ${result.authority}` : "",
         result.modifiedAt ? `Updated ${new Date(result.modifiedAt).toLocaleString()}` : ""].filter(Boolean).join(" · ");
       return h("div", { className: "bees-row", key: result.id }, h("div", { className: "bees-row-main" },

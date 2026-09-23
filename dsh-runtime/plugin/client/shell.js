@@ -227,6 +227,9 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   }, () => h("p", { className: "bees-muted", role: "status", style: { padding: "16px" } },
     "Use Continue work below to start a managed run."))), [ctx, data]);
   useEffect(() => { void load(); const timer = setInterval(() => void load(), 30_000); return () => clearInterval(timer); }, []);
+  const content = useRef(null);
+  // a new page starts at the top, not where the last page was scrolled to
+  useEffect(() => { content.current?.scrollTo(0, 0); }, [route, processId, workItemId]);
   useEffect(() => {
     if (typeof window.EventSource !== "function") return undefined;
     const source = new window.EventSource("/bees-api/events");
@@ -458,7 +461,8 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     return [];
   };
   const aiKey = onboardingAiKey(data, parts.workspaceId, modelConfig);
-  const aiReady = aiTest === aiKey;
+  // the passed test is saved too, so a restart does not send the tester back to step 2
+  const aiReady = aiKey === (aiTest ?? onboarding.aiTested);
   const saveAgentModel = async (agent, model) => {
     // Every other agent, CEO and the rest included, runs on the system default. Left unset they fall
     // back to a provider nobody signed in to, so a delegated peer dies on "Connection error".
@@ -491,11 +495,17 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
         const saved = await saveAgentModel(reviewer, { model: planner?.model || null, reasoningEffort: planner?.reasoningEffort || null });
         testedData = { ...data, assignments: data.assignments.map((agent) => agent.id === saved.id ? saved : agent) };
       }
-      setAiTest(onboardingAiKey(testedData, parts.workspaceId, modelConfig));
+      const tested = onboardingAiKey(testedData, parts.workspaceId, modelConfig);
+      setAiTest(tested);
+      void updateOnboarding({ aiTested: tested });
       setAiStatus(result.fallback
         ? `Reviewer AI was unavailable. Both agents now use ${result.plannerModel}. Ready for your first task.`
         : "Your selected AI responded successfully. Ready for your first task.");
-    } catch (reason) { setAiStatus(`Connection test failed: ${reason.message || reason}`); }
+    } catch (reason) {
+      setAiTest("");
+      void updateOnboarding({ aiTested: "" });
+      setAiStatus(`Connection test failed: ${reason.message || reason}`);
+    }
     finally { setupLock.current = false; setSetupBusy(false); }
   };
   const goSetup = (step, focus) => {
@@ -511,12 +521,12 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   };
   const startFirstTask = async (prompt) => {
     if (setupLock.current || !aiReady || !parts.workspaceId || !prompt.trim()) return;
-    if (onboarding.workItemId && data.items.some(({ id }) => id === onboarding.workItemId)) return openStarter(onboarding.workItemId);
+    if (data.items.some(({ id, runtimePhase }) => id === onboarding.workItemId && runtimePhase !== "cancelled")) return openStarter(onboarding.workItemId);
     setupLock.current = true; setSetupBusy(true);
     try {
-      const result = await act({ action: "create_goal", workspaceId: parts.workspaceId,
-        title: prompt.trim().split("\n")[0].slice(0, 120), description: starterDescription(prompt, onboarding.filesChoice),
-        inputLocationIds: (onboarding.inputLocationIds || []).filter((id) => data.locations.some((row) => row.id === id && row.teamId === parts.teamId && row.mapped && !row.archivedAt)) });
+      const inputLocationIds = (onboarding.inputLocationIds || []).filter((id) => data.locations.some((row) => row.id === id && row.teamId === parts.teamId && row.mapped && !row.archivedAt));
+      const result = await act({ action: "create_goal", workspaceId: parts.workspaceId, inputLocationIds,
+        title: prompt.trim().split("\n")[0].slice(0, 120), description: starterDescription(prompt, onboarding.filesChoice, inputLocationIds.length) });
       if (!result?.id) return;
       await updateOnboarding({ workItemId: result.id, teamId: parts.teamId, connectionId, step: 3 });
       openWorkItem(result.id);
@@ -529,7 +539,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     rowsForRoute, preference, preferences, setPageActions, setPageHeader, createWork, createProcess, createRun, createAgent
   })
     : route === "getting-started" ? h(GettingStarted, { ctx, data, parts, state: onboarding, update: updateOnboarding, saveAgentModel: savePlanningAi,
-        aiReady, aiStatus: aiReady ? aiStatus : setupBusy ? aiStatus : aiStatus.startsWith("Connection test failed") ? aiStatus : "Choose your AI and test the selected model before starting.", testAi, busy: setupBusy, ensureTeam: async () => {
+        aiReady, aiStatus: setupBusy ? aiStatus : aiReady ? (aiTest ? aiStatus : "Your selected AI passed its test. Ready for your first task.") : aiStatus.startsWith("Connection test failed") ? aiStatus : "Choose your AI and test the selected model before starting.", testAi, busy: setupBusy, ensureTeam: async () => {
           if (setupLock.current) return;
           setupLock.current = true; setSetupBusy(true);
           try { await finishOrganization(parts.organizationId, connectionId); }
@@ -609,7 +619,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
         h("span", { style: { flex: 1, minWidth: 0, overflowWrap: "anywhere" } }, error),
         h(Button, { onClick: () => setError(""), "aria-label": "Dismiss error" }, "Dismiss")) : null,
       notice ? h("div", { className: "bees-notice", role: "status" }, h("strong", null, "Learned change"), h("pre", null, notice)) : null,
-      h("main", { className: "bees-content" }, h("div", { className: `bees-panel ${route === "home" || section.id === "work" && workItemId ? "bees-panel-wide" : ""} ${section.id === "work" && workItemId ? "bees-panel-full-height" : ""}` }, page))
+      h("main", { className: "bees-content", ref: content }, h("div", { className: `bees-panel ${route === "home" || section.id === "work" && workItemId ? "bees-panel-wide" : ""} ${section.id === "work" && workItemId ? "bees-panel-full-height" : ""}` }, page))
     )
   ));
 }

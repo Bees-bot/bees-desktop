@@ -70,7 +70,7 @@ export function conversationMessages(history, runs, assignments, children = []) 
     messages.set(id, { id, text, timestamp: timestamp(message.metadata?.timestamp),
       role: seat ? "assistant" : tool && !said ? "tool" : message.role,
       pending: Boolean(tool) && tool.state === "input-available",
-      label: seat ? seatName(seat[1]) : agentName(currentRun) });
+      label: seat ? seatName(seat[1]) : message.role === "user" ? null : agentName(currentRun) });
   }
   for (const run of runs) {
     if (!run.resultSummary) continue;

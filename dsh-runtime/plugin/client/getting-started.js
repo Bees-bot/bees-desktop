@@ -25,12 +25,13 @@ export function onboardingProgress(data, teamId, state, aiReady) {
     Boolean(item && item.runtimePhase !== "cancelled" && (item.completed || item.runtimePhase === "completed") && output)];
 }
 
-export function starterDescription(prompt, filesChoice) {
+// starter tasks say "from the brief", so they get the sample unless files were attached as the brief
+const usesSampleBrief = (text, filesChoice, inputs) => filesChoice === "sample" ||
+  (!inputs && STARTER_TASKS.some((task) => task.prompt === text));
+
+export function starterDescription(prompt, filesChoice, inputs) {
   const text = prompt.trim();
-  // The sample brief is there for the starter tasks, which say "from the brief". Gluing it onto
-  // someone's own first prompt hands the run two unrelated jobs.
-  const sample = filesChoice === "sample" || (!filesChoice && STARTER_TASKS.some((task) => task.prompt === text));
-  return `${text}\n\n${sample ? `Sample brief (fictional):\n${SAMPLE_BRIEF}\n\n` : ""}In Work, discuss the approach with the seated planning partner, reconcile their critique, then execute and write the final result to outputs/first-result.md. Review checks the finished result in a fresh session. Use the files explicitly attached to this task, or the brief above. Do not invent missing facts; list open questions. Do not contact people, publish anything, or purchase anything.`;
+  return `${text}\n\n${usesSampleBrief(text, filesChoice, inputs) ? `Sample brief (fictional):\n${SAMPLE_BRIEF}\n\n` : ""}In Work, discuss the approach with the seated planning partner, reconcile their critique, then execute and write the final result to outputs/first-result.md. Review checks the finished result in a fresh session. Use the files explicitly attached to this task, or the brief above. Do not invent missing facts; list open questions. Do not contact people, publish anything, or purchase anything.`;
 }
 
 export function planningAgents(data, workspaceId) {
@@ -41,8 +42,11 @@ export function planningAgents(data, workspaceId) {
 }
 
 export function onboardingAiKey(data, workspaceId, config) {
-  return JSON.stringify({ workspaceId, selection: data.systemDefaultModel, config,
-    agents: planningAgents(data, workspaceId).map(({ id, model, reasoningEffort, enabled }) => ({ id, model, reasoningEffort, enabled })) });
+  const agents = planningAgents(data, workspaceId).map(({ id, model, reasoningEffort, enabled }) => ({ id, model, reasoningEffort, enabled }));
+  // only providers in use count, and a local model counts by id since each start gives it a new port
+  const used = [data.systemDefaultModel?.provider, ...agents.map(({ model }) => String(model ?? "").split("/")[0])].filter(Boolean);
+  return JSON.stringify({ workspaceId, selection: data.systemDefaultModel, agents,
+    providers: [...new Set(used)].map((id) => id.startsWith("local-openai-") ? id : config?.providers?.[id] ?? null) });
 }
 
 export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiStatus, testAi, busy, saveAgentModel,
@@ -53,6 +57,11 @@ export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiSta
   const step = Math.min(3, Math.max(0, state.step || 0));
   const titles = ["Make space for your work", "Choose your AI", "Give Bees something to work with", "Create your first result"];
   const agents = planningAgents(data, parts.workspaceId);
+  const teamLocations = data.locations.filter((row) => row.teamId === parts.teamId && row.mapped && !row.archivedAt);
+  const inputs = teamLocations.filter((row) => (state.inputLocationIds || []).includes(row.id)).length;
+  // a cancelled first task gives the form back so the person can start again
+  const firstItem = data.items.find(({ id, runtimePhase }) => id === state.workItemId && runtimePhase !== "cancelled");
+  const failed = firstItem?.runtimePhase === "failed";
   // Step 1 names its own next move, so the footer button beside it was a second copy of the same
   // click under a vaguer label. Hide it only when the panel really does have that button.
   const stepOneHasItsOwnButton = done[0] || (!parts.team && parts.organizationId);
@@ -111,9 +120,9 @@ export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiSta
         h("p", { className: "bees-muted" }, "File mappings make those locations available to this team. Select the inputs for your first task below. Cloud AI may receive selected content; local AI processes it on this computer."),
         h("details", null, h("summary", null, "Preview the sample brief"), h("pre", { style: { whiteSpace: "pre-wrap" } }, SAMPLE_BRIEF))) : null,
       step === 3 ? h("div", { className: "bees-stack" },
-        state.workItemId && data.items.some(({ id }) => id === state.workItemId)
-          ? h("div", { className: "bees-callout" }, h("h3", null, done[3] ? "Your first result is ready" : "Your first task is underway"),
-            h("p", null, "Open the task to follow the discussion, answer questions, and preview the result under Files."),
+        firstItem
+          ? h("div", { className: "bees-callout" }, h("h3", null, done[3] ? "Your first result is ready" : failed ? "Your first task stopped" : "Your first task is underway"),
+            h("p", null, failed ? "Open the task to see why it stopped, then press Retry." : "Open the task to follow the discussion, answer questions, and preview the result under Files."),
             h(Button, { className: "primary", onClick: () => openWorkItem(state.workItemId) }, done[3] ? "View your result" : "Open first task"))
           : h("form", { className: "bees-form", onSubmit: (event) => { event.preventDefault(); void start(prompt); } },
             h("label", null, "Choose an outcome", h("select", { className: "bees-select", value: task, onChange: (event) => {
@@ -122,8 +131,8 @@ export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiSta
             } }, ...STARTER_TASKS.map((row) => h("option", { value: row.id, key: row.id }, row.title)), h("option", { value: "custom" }, "Write my own task"))),
             h("label", null, "What should Bees create?", h("textarea", { className: "bees-textarea", value: prompt, required: true,
               onChange: (event) => { setPrompt(event.target.value); update({ prompt: event.target.value }); } })),
-            (state.filesChoice === "sample" || (!state.filesChoice && STARTER_TASKS.some((row) => row.prompt === prompt.trim()))) ? h("p", { className: "bees-muted" }, "Using the fictional repair café brief. No personal files are needed.") : null,
-            ...data.locations.filter((row) => row.teamId === parts.teamId && row.mapped && !row.archivedAt).map((row) =>
+            usesSampleBrief(prompt.trim(), state.filesChoice, inputs) ? h("p", { className: "bees-muted" }, "Using the fictional repair café brief. No personal files are needed.") : null,
+            ...teamLocations.map((row) =>
               h("label", { key: row.id }, h("input", { type: "checkbox", checked: (state.inputLocationIds || []).includes(row.id),
                 onChange: (event) => update({ inputLocationIds: event.target.checked ? [...(state.inputLocationIds || []), row.id] : (state.inputLocationIds || []).filter((id) => id !== row.id) }) }), ` ${row.name}`)),
             h("p", { className: "bees-muted" }, "Work (plan together, then execute) → Review → Done. The lead creates first-result.md, then a fresh reviewer session checks it. Planning uses additional AI calls. If the planning partner cannot run, the lead performs a self-review and shows the fallback."),
