@@ -461,11 +461,11 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
       h("button", { type: "button", role: "tab", id: "bees-tab-details", className: `bees-clean-tab ${activeTab === "details" ? "active" : ""}`, "aria-selected": activeTab === "details", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("details") }, "Details"),
       !plan && process ? h("button", { type: "button", role: "tab", id: "bees-tab-tools", className: `bees-clean-tab ${activeTab === "tools" ? "active" : ""}`, "aria-selected": activeTab === "tools", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("tools") }, "Tools") : null,
       h("button", { type: "button", role: "tab", id: "bees-tab-chat", className: `bees-clean-tab ${activeTab === "chat" ? "active" : ""}`, "aria-selected": activeTab === "chat", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("chat") }, "Chat"),
-      h("button", { type: "button", role: "tab", id: "bees-tab-runs", className: `bees-clean-tab ${activeTab === "runs" ? "active" : ""}`, "aria-selected": activeTab === "runs", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("runs") }, "Executions"),
-      schedulable && !item.parentId ? h("button", { type: "button", role: "tab", id: "bees-tab-recurring", className: `bees-clean-tab ${activeTab === "recurring" ? "active" : ""}`, "aria-selected": activeTab === "recurring", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("recurring") }, `Schedules${recurringWork.length ? ` (${recurringWork.length})` : ""}`) : null,
-      plan ? null : h("button", { type: "button", role: "tab", id: "bees-tab-context", className: `bees-clean-tab ${activeTab === "context" ? "active" : ""}`, "aria-selected": activeTab === "context", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("context") }, "Context"),
-      plan ? null : h("button", { type: "button", role: "tab", id: "bees-tab-discussion", className: `bees-clean-tab ${activeTab === "discussion" ? "active" : ""}`, "aria-selected": activeTab === "discussion", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("discussion") }, "Discussion"),
-      h("button", { type: "button", role: "tab", id: "bees-tab-audit", className: `bees-clean-tab ${activeTab === "audit" ? "active" : ""}`, "aria-selected": activeTab === "audit", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("audit") }, "Traces")
+      itemRuns.length ? h("button", { type: "button", role: "tab", id: "bees-tab-runs", className: `bees-clean-tab ${activeTab === "runs" ? "active" : ""}`, "aria-selected": activeTab === "runs", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("runs") }, "Executions") : null,
+      schedulable && !item.parentId && recurringWork.length ? h("button", { type: "button", role: "tab", id: "bees-tab-recurring", className: `bees-clean-tab ${activeTab === "recurring" ? "active" : ""}`, "aria-selected": activeTab === "recurring", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("recurring") }, `Schedules (${recurringWork.length})`) : null,
+      !plan && itemRuns.length ? h("button", { type: "button", role: "tab", id: "bees-tab-context", className: `bees-clean-tab ${activeTab === "context" ? "active" : ""}`, "aria-selected": activeTab === "context", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("context") }, "Context") : null,
+      !plan && itemRuns.length ? h("button", { type: "button", role: "tab", id: "bees-tab-discussion", className: `bees-clean-tab ${activeTab === "discussion" ? "active" : ""}`, "aria-selected": activeTab === "discussion", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("discussion") }, "Discussion") : null,
+      itemRuns.length ? h("button", { type: "button", role: "tab", id: "bees-tab-audit", className: `bees-clean-tab ${activeTab === "audit" ? "active" : ""}`, "aria-selected": activeTab === "audit", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("audit") }, "Traces") : null
     ),
 
     // tab content
@@ -476,7 +476,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
       activeTab === "discussion" ? h(WorkDiscussion, { key: item.id, item, onOpenWork: (id) => { onOpenWork?.(id); setActiveTab("files"); } }) : activeTab === "context" ? h(SharedWorkContext, { key: item.id, item, executionId: run?.id }) : activeTab === "details" ? h(React.Fragment, null,
         plan ? null : h("div", { className: "bees-detail-actions", style: { marginTop: 0 } },
           h("button", { className: "bees-btn-secondary", onClick: edit }, h("span", { className: "bees-btn-icon" }, "✎"), "Edit item"),
-          h("button", { className: "bees-btn-secondary", onClick: addSubitem }, h("span", { className: "bees-btn-icon" }, "⑆"), "Delegate work")),
+          h("button", { className: "bees-btn-secondary", onClick: addSubitem }, h("span", { className: "bees-btn-icon" }, "⑆"), "Delegate work"),
+          !item.archivedAt && schedulable ? h("button", { className: "bees-btn-secondary", onClick: () => onEditSchedule(true) }, h("span", { className: "bees-btn-icon" }, "🕒"), "Schedule") : null),
         // Description
         h("div", { className: "bees-card-section" },
           h("div", { className: "bees-card-section-head" }, "Description"),
@@ -614,7 +615,6 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onScheduleCre
     setPageActions && setPageActions(
       h(React.Fragment, null,
         editing ? h(Button, { onClick: () => preferences.set("workItemLayout", []) }, "Reset") : null,
-        !root.archivedAt && schedulable ? h(Button, { onClick: () => setScheduleEditor(true) }, h("span", {className: "bees-btn-icon"}, "🕒"), "Schedule") : null,
         h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) }, editing ? "Done" : "Customize"),
         !editing && !root.archivedAt && !isScheduleDefinition(root) && root.kind !== "plan" ? h(Button, { className: "primary", onClick: () => setAddingWork(true) }, "Add work item") : null
       )
