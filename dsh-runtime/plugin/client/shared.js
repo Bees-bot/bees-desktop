@@ -553,7 +553,7 @@ body, html { overflow-x: hidden !important; }
 .bees-clean-tab.active::after {
   content: '' !important;
   position: absolute !important;
-  bottom: -1px !important;
+  bottom: 0 !important;
   left: 0 !important;
   right: 0 !important;
   height: 2px !important;
