@@ -1,0 +1,18 @@
+name: Feature request
+description: Something Bees should do that it doesn't do yet
+labels: ["feature request"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you were trying to do
+      description: The job you had and where Bees got in the way. The problem helps us more than a proposed fix.
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: How you get it done today
+      description: A workaround, another tool, or not at all.
+    validations:
+      required: false
