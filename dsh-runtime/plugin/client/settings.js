@@ -174,7 +174,7 @@ export function AccountsPage({ reload }) {
             await run("sign_out", { accountUserId: account.userId });
           }
         } }, "Remove"))) : [h(Empty, { key: "empty" }, "No accounts signed in")])
-    ),
+      )),
     h("section", null,
       h("h3", { style: { marginBottom: "8px" } }, "Add an account"),
       h("p", { className: "bees-muted", style: { marginBottom: "20px" } }, "Sign in with another account to switch between them or connect additional organizations."),
