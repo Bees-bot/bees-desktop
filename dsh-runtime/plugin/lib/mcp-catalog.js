@@ -11,7 +11,7 @@ const googleSignIn = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REFRES
 const ENTRIES = [
   {
     id: "filesystem",
-    serverName: "filesystem",
+    serverName: "filesystem", icon: "📁",
     label: "Files",
     publisher: "Model Context Protocol (official)",
     homepage: "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem",
@@ -28,7 +28,7 @@ const ENTRIES = [
   },
   {
     id: "memory",
-    serverName: "memory",
+    serverName: "memory", icon: "🧠",
     label: "Memory",
     publisher: "Model Context Protocol (official)",
     homepage: "https://github.com/modelcontextprotocol/servers/tree/main/src/memory",
@@ -42,7 +42,7 @@ const ENTRIES = [
   },
   {
     id: "sequential-thinking",
-    serverName: "thinking",
+    serverName: "thinking", icon: "💭",
     label: "Sequential thinking",
     publisher: "Model Context Protocol (official)",
     homepage: "https://github.com/modelcontextprotocol/servers/tree/main/src/sequentialthinking",
@@ -56,7 +56,7 @@ const ENTRIES = [
   },
   {
     id: "git",
-    serverName: "git",
+    serverName: "git", icon: "🐙",
     label: "Git",
     publisher: "Model Context Protocol (official)",
     homepage: "https://github.com/modelcontextprotocol/servers/tree/main/src/git",
@@ -73,7 +73,7 @@ const ENTRIES = [
   },
   {
     id: "fetch",
-    serverName: "fetch",
+    serverName: "fetch", icon: "🌐",
     label: "Web fetch",
     publisher: "Model Context Protocol (official)",
     homepage: "https://github.com/modelcontextprotocol/servers/tree/main/src/fetch",
@@ -88,7 +88,7 @@ const ENTRIES = [
   },
   {
     id: "time",
-    serverName: "time",
+    serverName: "time", icon: "⏰",
     label: "Time and time zones",
     publisher: "Model Context Protocol (official)",
     homepage: "https://github.com/modelcontextprotocol/servers/tree/main/src/time",
@@ -103,7 +103,7 @@ const ENTRIES = [
   },
   {
     id: "playwright",
-    serverName: "browser",
+    serverName: "browser", icon: "🌍",
     label: "Browser",
     publisher: "Microsoft",
     homepage: "https://github.com/microsoft/playwright-mcp",
@@ -120,7 +120,7 @@ const ENTRIES = [
   },
   {
     id: "context7",
-    serverName: "context7",
+    serverName: "context7", icon: "📚",
     label: "Library documentation",
     publisher: "Upstash",
     homepage: "https://github.com/upstash/context7",
@@ -134,7 +134,7 @@ const ENTRIES = [
   },
   {
     id: "github",
-    serverName: "github",
+    serverName: "github", icon: "🐙",
     label: "GitHub",
     publisher: "GitHub (official remote server)",
     homepage: "https://github.com/github/github-mcp-server",
@@ -154,7 +154,7 @@ const ENTRIES = [
   },
   {
     id: "gmail",
-    serverName: "gmail",
+    serverName: "gmail", icon: "📧",
     label: "Gmail",
     publisher: "Bees",
     homepage: "https://github.com/Bees-bot/bees-desktop/blob/main/dsh-runtime/plugin/lib/gmail-mcp.js",
@@ -171,7 +171,7 @@ const ENTRIES = [
   },
   {
     id: "google-calendar",
-    serverName: "calendar",
+    serverName: "calendar", icon: "📅",
     label: "Google Calendar",
     publisher: "Bees",
     homepage: "https://github.com/Bees-bot/bees-desktop/blob/main/dsh-runtime/plugin/lib/google-calendar-mcp.js",
@@ -193,7 +193,7 @@ const ENTRIES = [
   },
   {
     id: "google-drive",
-    serverName: "drive",
+    serverName: "drive", icon: "☁️",
     label: "Google Drive",
     publisher: "Bees",
     homepage: "https://github.com/Bees-bot/bees-desktop/blob/main/dsh-runtime/plugin/lib/google-drive-mcp.js",
@@ -214,7 +214,7 @@ const ENTRIES = [
   },
   {
     id: "firecrawl",
-    serverName: "firecrawl",
+    serverName: "firecrawl", icon: "🔥",
     label: "Web scraping",
     publisher: "Firecrawl",
     homepage: "https://github.com/firecrawl/firecrawl-mcp-server",
@@ -232,7 +232,7 @@ const ENTRIES = [
   },
   {
     id: "chrome-devtools",
-    serverName: "devtools",
+    serverName: "devtools", icon: "🔧",
     label: "Chrome DevTools",
     publisher: "Google Chrome",
     homepage: "https://github.com/ChromeDevTools/chrome-devtools-mcp",
@@ -252,7 +252,7 @@ const ENTRIES = [
     serverName: "api",
     // Every API added from this entry would otherwise be api, api-2, api-3, and that prefix is what
     // the model sees on each tool. Name it after the host instead.
-    nameFrom: "apiBaseUrl",
+    nameFrom: "apiBaseUrl", icon: "🔌",
     label: "Any REST API (OpenAPI bridge)",
     publisher: "Bees",
     homepage: "https://github.com/Bees-bot/bees-desktop/blob/main/dsh-runtime/plugin/lib/openapi-mcp.js",
@@ -288,7 +288,7 @@ const ENTRIES = [
 
 /** Every entry carries the same keys, so nothing downstream has to guess at a missing one. */
 export const MCP_CATALOG = ENTRIES.map((entry) => ({
-  command: "", args: [], url: "", env: [], headers: [], inputs: [],
+  command: "", icon: "", args: [], url: "", env: [], headers: [], inputs: [],
   requiresDirectory: false, directoryLabel: "", prerequisite: "", ...entry
 }));
 
