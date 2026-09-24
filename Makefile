@@ -1,7 +1,7 @@
 .PHONY: bees dev server build
 
 bees:
-	BEES_ACCOUNT_API_URL=https://app.bees.bot npm run tauri:dev
+	BEES_ACCOUNT_API_URL=https://app.bees.bot npx tauri dev
 
 dev:
 	BEES_ACCOUNT_API_URL=http://localhost:3000 npm run tauri:dev
