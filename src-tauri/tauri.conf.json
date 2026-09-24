@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Bees Desktop",
+  "productName": "Bees",
   "version": "0.2.0",
   "identifier": "bot.bees.desktop",
   "build": {
@@ -11,7 +11,7 @@
   "app": {
     "withGlobalTauri": true,
     "windows": [{
-      "title": "Bees Desktop",
+      "title": "",
       "width": 1180,
       "height": 760,
       "minWidth": 820,

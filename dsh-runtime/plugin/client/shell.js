@@ -388,7 +388,12 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   const localAi = h(LocalAiController, { modelSettings, preferences, onError: setError });
   const freeAi = h(FreeAiController, { modelSettings, onError: setError });
   if (!data) return h(React.Fragment, null, localAi, freeAi,
-    h("div", { className: "bees-app bees-loading" }, error || "Opening Bees…"));
+    h("div", { className: "bees-app bees-loading", style: { display: "flex", flexDirection: "column", gap: "16px", background: "#111315" } }, 
+      error || h(React.Fragment, null, 
+        h("style", null, `@keyframes hover { 50% { transform: translateY(-6px); } }`),
+        h("img", { src: brandMark, style: { width: "46px", height: "46px", borderRadius: "14px", objectFit: "cover", animation: "hover 1.8s ease-in-out infinite" } }),
+        h("strong", { style: { fontSize: "20px", color: "#f5f5f5" } }, "Opening Bees")
+      )));
   const dashboards = dashboardsFrom(preference.dashboards);
   const activeDashboard = dashboards.find(({ id }) => id === preference.activeDashboardId) ?? dashboards[0];
   const createDashboard = async () => {
