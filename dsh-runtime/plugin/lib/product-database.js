@@ -976,7 +976,8 @@ export function initializeProductDatabase(database) {
   refreshFolderRoots(database);
   database.function("resolved", (path, workspaceId) => path && resolveStored(workspaceId, path));
   if (database.prepare("SELECT 1 FROM users LIMIT 1").get()) {
-    database.prepare("INSERT OR IGNORE INTO devices VALUES (?1, ?2, ?3, ?3)").run(deviceId(), hostname(), iso());
+    database.prepare("INSERT OR IGNORE INTO devices VALUES (@id, @name, @at, @at)")
+      .run({ id: deviceId(), name: hostname(), at: iso() });
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';
       UPDATE teams SET name = 'Team1' WHERE personal = 1 AND name = 'Personal';
