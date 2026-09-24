@@ -2,7 +2,7 @@
 
 Run agentic teams from your own computer while your agents, files, browser sessions, cookies, and passwords stay local.
 
-Bees runs a team of AI agents on your computer instead of one assistant in a single chat window. Describe an outcome in plain language, and Bees turns it into stages: agents work through them on a shared board, and a separate reviewer checks each result before it moves on. It works with agents you may already run, such as Codex or Claude Code from the command line, a hosted model, or a local model, and it reaches outside tools through MCP servers (a standard way to plug tools into an agent), the same way OpenClaw or n8n do. Actions that leave your computer wait for your approval.
+Bees runs a team of AI agents on your computer instead of one assistant in a single chat window. Describe an outcome in plain language, and Bees turns it into stages: agents work through them on a shared board, and a separate reviewer checks each result before it moves on. It works with agents you may already run, such as Codex or Claude Code from the command line, a hosted model, or a local model, and it reaches outside tools through MCP servers (a standard way to plug tools into an agent), the same way OpenClaw or n8n do. You can mark a stage to need your approval, and its agent then cannot send, post, delete or pay through an MCP tool until you approve.
 
 ## Install
 
@@ -36,11 +36,11 @@ Select **Run using defaults**. Bees starts the work with your team's agents and 
 - Local knowledge search (Company Brain) over folders and Google Drive locations you map yourself.
 - Long-term memory: Bees runs its own local memory service so agents recall past work without sending it to a cloud memory provider.
 - Scheduling: turn a request into a recurring process, like a weekly report.
-- Human in the loop: questions, approvals, and failures surface under **Needs your attention**, and external actions wait for your sign-off.
+- Human in the loop: questions, approvals, and failures surface under **Needs your attention**. Approval is off by default and set per stage.
 
 ## Architecture
 
-Bees is a [Tauri](https://tauri.app) app: Tauri owns the native lifecycle (the window, the installer, the update mechanism) and launches DSH plus a bundled `llama.cpp` server for local model inference alongside it.
+Bees is a [Tauri](https://tauri.app) app: Tauri owns the native lifecycle (the window and the installer) and launches DSH plus a bundled `llama.cpp` server for local model inference alongside it.
 
 DSH is [DeepSeek Harness](https://github.com/deepseek-ai/DeepSeek-Harness), the open-source agent runtime Bees is built on. It supplies models and providers, credentials, sessions, agents, tools, skills, the MCP client, and approvals, as an internal runtime. Bees owns the visible UI and product settings on top of it.
 
