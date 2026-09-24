@@ -25,6 +25,7 @@ export class ProcessRuntime {
     this.abortAgent = options.abortAgent;
     this.notify = options.notify ?? (() => {});
     this.claimWatchers = new Map();
+    this.scheduledLeases = new Map();
     this.needsRecovery = options.needsRecovery ?? (() => false);
     this.pendingInteraction = options.pendingInteraction ?? (() => null);
     this.canStart = options.canStart ?? (() => ({ ready: true }));
@@ -334,7 +335,7 @@ export class ProcessRuntime {
         )
       : { local: true };
     if (!claim) return null;
-    return transaction(this.database, () => {
+    const work = transaction(this.database, () => {
       if (recurring.status !== "active") throw new Error("Recurring work is paused");
       const source = this.database.prepare(`
         SELECT process_id AS processId, title, description, owner,
@@ -364,6 +365,12 @@ export class ProcessRuntime {
       `).run(id, recurring.sourceWorkItemId);
       return this.input(id);
     });
+    // only the lease holder runs it; refused or unreachable, the run waits and a later sync starts it wherever the lease goes
+    const lease = await this.claims?.acquire("work_item", work.workItemId, recurring.teamId, "", accountUserId)
+      .catch(() => null);
+    if (lease === null) return null;
+    if (lease) this.scheduledLeases.set(work.workItemId, lease);
+    return work;
   }
 
   async close() {
@@ -448,11 +455,14 @@ export class ProcessRuntime {
     if (this.claimWatchers.has(claimKey)) {
       return { automatic: true, workflowId: processWorkflowId(workItemId), claimed: true };
     }
-    const claim = this.claims
+    const scheduled = this.scheduledLeases.get(workItemId);
+    this.scheduledLeases.delete(workItemId);
+    // a parked lease may have lapsed while this waited, so confirm it is still ours before running
+    const claim = scheduled ? await this.claims.renew(scheduled) : (this.claims
       ? await this.claims.acquire(
           "work_item", workItemId, this.item(workItemId).teamId, "", input.accountUserId ?? ""
         )
-      : { local: true };
+      : { local: true });
     if (!claim) return { automatic: true, claimed: false };
     let handle;
     try {
@@ -697,6 +707,12 @@ export class ProcessRuntime {
       `).run(state.workItemId, state.executionId);
       else this.database.prepare("DELETE FROM bees_stage_waits WHERE work_item_id = ?").run(state.workItemId);
     });
+    // a scheduled run's first projection means its workflow exists, so its lease can be renewed from here on
+    const lease = this.scheduledLeases.get(state.workItemId);
+    if (lease) {
+      this.scheduledLeases.delete(state.workItemId);
+      this.watchClaim(`work-item:${state.workItemId}`, lease, this.client.workflow.getHandle(processWorkflowId(state.workItemId)));
+    }
     this.notify({
       type: "work-item-changed", workItemId: state.workItemId,
       executionId: state.executionId ?? null, phase: state.phase
