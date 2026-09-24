@@ -1,5 +1,5 @@
 import { createPortal, h, NativeUi, React, useEffect, useState } from "./runtime.js";
-import { loadRunFile } from "./run-file-preview.js";
+import { loadLocationFile, loadRunFile } from "./run-file-preview.js";
 
 const listeners = new Set();
 let embedding = { target: null, debug: false };
@@ -68,6 +68,7 @@ export function DshRunPanels({ ctx, run, item = {}, activeTab }) {
 /** Read through the native file API without selecting a conversation or opening DSH. */
 export function NativeRunFilePreview({ target, onClose, inline, Preview }) {
   const { ctx } = React.useContext(NativeUi);
-  const loadFile = React.useCallback((value, signal) => loadRunFile(ctx, value, signal), [ctx]);
+  const loadFile = React.useCallback((value, signal) => value.executionId
+    ? loadRunFile(ctx, value, signal) : loadLocationFile(value, signal), [ctx]);
   return h(Preview, { target, onClose, inline, loadFile });
 }
