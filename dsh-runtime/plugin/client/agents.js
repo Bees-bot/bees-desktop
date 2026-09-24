@@ -3,7 +3,7 @@ import { ask, confirmAction, Button, Empty, McpCard, request, useSubmit, PageHea
 import { GridStackPage } from "./flexible-grid.js";
 import { inheritedInputs, ResourceFields } from "./location-fields.js";
 import { CatalogReview } from "./skills.js";
-
+import { ArrowLeftIcon } from "./icons.js";
 const AGENTS_LAYOUT = [
   { kind: "agents", x: 0, y: 0, w: 7, h: 7 },
   { kind: "presets", x: 7, y: 0, w: 5, h: 7 }
@@ -128,7 +128,7 @@ export function SystemDefaultSettings({ ctx, modelSettings, systemDefault, reloa
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Which MCP servers this agent may use. Shared by the create and edit forms. */
-export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access, chosen, onServerAction, onChange, scope = "agent", showAll = false }) {
+export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access, chosen, onServerAction, onChange, scope = "agent", showAll = true }) {
   const [mode, setMode] = useState(access ?? "all");
   const [picked, setPicked] = useState(chosen ?? []);
   const [query, setQuery] = useState("");
@@ -167,7 +167,7 @@ export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access,
         onChange: (event) => setQuery(event.target.value) }),
       missing.length ? h("div", { className: "bees-mcp-grid" }, ...missing.map((name) => {
         const item = catalog.find((one) => one.serverName === name && !one.installedAs);
-        return h(McpCard, { name: item?.label ?? name, status: "Unavailable", tone: "warning", key: `missing:${name}` },
+        return h(McpCard, { name: item?.label ?? name, status: "Unavailable", tone: "warning", key: `missing:${name}`, icon: item?.icon },
           h("div", { className: "bees-muted" }, item
             ? `${item.summary} · runs here fail until it is added`
             : UUID.test(name)
@@ -181,7 +181,9 @@ export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access,
         ...matching.map((server) => {
           const added = server.enabled && (mode === "all" || mode === "listed" && picked.includes(server.serverName));
           const serverTools = tools.filter(({ serverName }) => serverName === server.serverName);
+          const catEntry = server.catalogId ? catalog.find(c => c.id === server.catalogId) : null;
           return h(McpCard, { name: server.label, status: added ? "Added" : server.enabled ? "Available" : "Turned off",
+            icon: catEntry?.icon,
             meta: `${server.toolCount ?? serverTools.length} tool${(server.toolCount ?? serverTools.length) === 1 ? "" : "s"}`,
             tone: added ? "added" : server.enabled ? "" : "warning", key: server.id },
             h("div", { className: "bees-muted" }, `${server.toolCount ?? serverTools.length} tool${(server.toolCount ?? serverTools.length) === 1 ? "" : "s"}${server.enabled ? "" : " · turned off"}`),
@@ -195,7 +197,7 @@ export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access,
               }) }, "Turn on")));
         }),
         ...available.map((item) => h(McpCard, { name: item.label, status: "Not added", key: `catalog:${item.id}`,
-          onOpen: () => setReviewing(item.id) })),
+          icon: item.icon, onOpen: () => setReviewing(item.id) })),
       matching.length || available.length || missing.length ? null : h("div", { className: "bees-empty" }, "No MCP or tool matches that search"))) : null);
 }
 
@@ -296,7 +298,7 @@ export function AgentCreateForm({ ctx, data, servers, tools, catalog, onServerAc
   const form = h("form", { className: "bees-box bees-form bees-agent-form", onSubmit },
     inline || dialog
       ? h("div", { className: "bees-page-head" }, h("h2", null, "New agent"))
-      : h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Agents"),
+      : h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, h(ArrowLeftIcon), " Back"),
         h("h2", null, "New agent")),
     h("div", { className: "bees-agent-fields" },
       h("label", null, "Name", h("input", { className: "bees-input", name: "name", required: true, autoFocus: true, placeholder: "Research agent" })),
@@ -318,7 +320,7 @@ export function AgentCreateForm({ ctx, data, servers, tools, catalog, onServerAc
   return dialog ? h(AgentDialog, { onClose: onCancel }, form) : form;
 }
 
-export function AgentEditForm({ ctx, data, servers, tools, catalog, onServerAction, selected, act, onCancel, onSaved, cancelLabel = "← Agents", dialog = false, processId = null }) {
+export function AgentEditForm({ ctx, data, servers, tools, catalog, onServerAction, selected, act, onCancel, onSaved, cancelLabel = h(React.Fragment, null, h(ArrowLeftIcon), " Back"), dialog = false, processId = null, setPageHeader }) {
   const [inputLocationIds, setInputLocationIds] = useState(() =>
     data.agentAttachments.filter(({ agentAssignmentId }) => agentAssignmentId === selected.id).map(({ locationId }) => locationId));
   const teamId = data.workspaces.find(({ id }) => id === selected.workspaceId)?.teamId;
@@ -343,7 +345,8 @@ export function AgentEditForm({ ctx, data, servers, tools, catalog, onServerActi
     });
     if (saved) onSaved();
   } },
-    h("div", { className: "bees-row" }, dialog ? null : h(Button, { onClick: onCancel }, cancelLabel), h("h2", null, selected.name), h("div", { className: "bees-grow" }), selected.systemRole ? h("span", { className: "bees-badge" }, `Bees ${selected.systemRole}`) : null),
+    dialog ? h("div", { className: "bees-row" }, h("h2", null, selected.name), h("div", { className: "bees-grow" }), selected.systemRole ? h("span", { className: "bees-badge" }, `Bees ${selected.systemRole}`) : null) :
+      h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, cancelLabel), h("div", null, h("h2", null, selected.name), selected.systemRole ? h("span", { className: "bees-badge" }, `Bees ${selected.systemRole}`) : null)),
     h("div", { className: "bees-agent-fields" },
       h("label", null, "Name", h("input", { className: "bees-input", name: "name", defaultValue: selected.name, disabled: Boolean(selected.systemRole) })),
       h("label", null, "Preset",
@@ -388,15 +391,18 @@ export function AgentListActions({ agent, act }) {
     error ? h("p", { className: "bees-error", role: "alert" }, error) : null);
 }
 
-export function AgentsPage({ ctx, data, servers = [], tools = [], catalog = [], onServerAction, workspaceIds, workspaceId, creating, setCreating, act, openDshSettings, preference, preferences, setPageActions }) {
+export function AgentsPage({ ctx, data, servers = [], tools = [], catalog = [], onServerAction, workspaceIds, workspaceId, creating, setCreating, act, openDshSettings, preference, preferences, setPageActions, setPageHeader }) {
   const [agentStatus, setAgentStatus] = useState("active");
   const assignments = data.assignments.filter((row) => workspaceIds.includes(row.workspaceId) && Boolean(row.archivedAt) === (agentStatus === "archived"));
   const [selectedId, setSelectedId] = useState("");
   const selected = data.assignments.find((row) => row.id === selectedId && !row.archivedAt && workspaceIds.includes(row.workspaceId));
-  const editor = creating === "agent" ? h(AgentCreateForm, { ctx, data, servers, tools, catalog, onServerAction, workspaceId, act, dialog: true,
-    onCancel: () => setCreating(""), onCreated: (id) => { setCreating(""); setSelectedId(id); } })
-    : selected ? h(AgentEditForm, { ctx, data, servers, tools, catalog, onServerAction, selected, act, dialog: true,
-      onCancel: () => setSelectedId(""), onSaved: () => setSelectedId("") }) : null;
+
+  if (creating === "agent") return h(AgentCreateForm, { ctx, data, servers, tools, catalog, onServerAction, workspaceId, act, dialog: false, setPageHeader,
+    onCancel: () => setCreating(""), onCreated: (id) => { setCreating(""); setSelectedId(id); } });
+
+  if (selected) return h(AgentEditForm, { ctx, data, servers, tools, catalog, onServerAction, selected, act, dialog: false, setPageHeader,
+    onCancel: () => setSelectedId(""), onSaved: () => setSelectedId("") });
+
   const agents = h("div", null,
       ...(assignments.length ? assignments.map((agent) => h("div", { className: "bees-row", key: agent.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, agent.name), h("div", { className: "bees-muted" }, `${agent.enabled ? agent.presetId : "Unavailable"}${agent.model ? ` · ${agent.model}` : " · default model"}${agent.reasoningEffort ? ` · ${agent.reasoningEffort} effort` : ""}${agent.capabilities?.length ? ` · ${agent.capabilities.join(", ")}` : ""} · ${agent.description || "Agent preset assignment"}`)), agent.systemRole ? h("span", { className: "bees-badge" }, `Bees ${agent.systemRole}`) : null, agent.archivedAt ? null : h(Button, { onClick: () => setSelectedId(agent.id) }, "Configure"), h(AgentListActions, { agent, act }))) : [h(Empty, { key: "empty" }, agentStatus === "archived" ? "No archived agents" : "No agents assigned to this scope") ]));
   const presets = h("div", null,
@@ -417,5 +423,5 @@ export function AgentsPage({ ctx, data, servers = [], tools = [], catalog = [], 
         agents: { label: "Agents", minW: 4, minH: 4, content: agents },
         presets: { label: "Agent presets", minW: 4, minH: 3, content: presets }
       }
-    }), editor);
+    }));
 }
