@@ -459,7 +459,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
     h("div", { className: "bees-clean-tabs", role: "tablist", "aria-label": "Work item details" },
       h("button", { type: "button", role: "tab", id: "bees-tab-files", className: `bees-clean-tab ${activeTab === "files" ? "active" : ""}`, "aria-selected": activeTab === "files", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("files") }, "Files", unreadFiles ? h("span", { className: "bees-count", "aria-label": `${unreadFiles} new files`, title: `${unreadFiles} new files` }, unreadFiles) : null),
       h("button", { type: "button", role: "tab", id: "bees-tab-details", className: `bees-clean-tab ${activeTab === "details" ? "active" : ""}`, "aria-selected": activeTab === "details", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("details") }, "Details"),
-      !plan && process ? h("button", { type: "button", role: "tab", id: "bees-tab-tools", className: `bees-clean-tab ${activeTab === "tools" ? "active" : ""}`, "aria-selected": activeTab === "tools", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("tools") }, "Tools") : null,
+      !plan && process ? h("button", { type: "button", role: "tab", id: "bees-tab-tools", className: `bees-clean-tab ${activeTab === "tools" ? "active" : ""}`, "aria-selected": activeTab === "tools", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("tools") }, "MCPs") : null,
       h("button", { type: "button", role: "tab", id: "bees-tab-chat", className: `bees-clean-tab ${activeTab === "chat" ? "active" : ""}`, "aria-selected": activeTab === "chat", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("chat") }, "Chat"),
       itemRuns.length ? h("button", { type: "button", role: "tab", id: "bees-tab-runs", className: `bees-clean-tab ${activeTab === "runs" ? "active" : ""}`, "aria-selected": activeTab === "runs", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("runs") }, "Executions") : null,
       schedulable && !item.parentId && recurringWork.length ? h("button", { type: "button", role: "tab", id: "bees-tab-recurring", className: `bees-clean-tab ${activeTab === "recurring" ? "active" : ""}`, "aria-selected": activeTab === "recurring", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("recurring") }, `Schedules (${recurringWork.length})`) : null,
@@ -469,7 +469,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
     ),
 
     // tab content
-    h("div", { className: "bees-tab-panel", role: "tabpanel", id: "bees-detail-panel", "aria-labelledby": `bees-tab-${activeTab}` },
+    h("div", { className: `bees-tab-panel${activeTab === "tools" ? " bees-mcp-tab-panel" : ""}`, role: "tabpanel", id: "bees-detail-panel", "aria-labelledby": `bees-tab-${activeTab}` },
       // DSH's own Chat screen stays mounted here regardless of activeTab; only its CSS
       // visibility follows it, because unmounting it would drop DSH's portal and session state.
       h(DshRunPanels, { key: item.id, ctx, run, item, activeTab }),
@@ -686,12 +686,6 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, parent, 
       inputLocationIds, outputLocationId
     };
     if (!await guardRun(goal ? initialProcess?.id : processId)) return;
-    if (process && !parent) {
-      const mcpAccess = String(form.get("mcpAccess") ?? "none");
-      const mcpServers = form.getAll("mcpServers").map(String);
-      if (mcpAccess !== (process.mcpAccess ?? "none") || JSON.stringify(mcpServers) !== JSON.stringify(process.mcpServers ?? []))
-        if (!await act({ action: "set_process_mcp", processId: process.id, mcpAccess, mcpServers })) return;
-    }
     const created = await act(command); if (created?.id) onCreated(created.id);
   });
   if (!goal && !processes.length) return h("div", { className: "bees-stack" },
@@ -722,11 +716,12 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, parent, 
       outputId: outputLocationId, onOutputId: setOutputLocationId, inherited,
       defaultOutputId, defaultOutputName: data.locations.find(({ id }) => id === defaultOutputId)?.name ?? "" }),
     process && !parent ? h("div", { style: { display: "grid", gap: "5px" } },
-      h("p", { className: "bees-muted", style: { margin: 0 } }, "Process MCPs are shared with every agent and future work in this process. Changes save when you start."),
+      h("p", { className: "bees-muted", style: { margin: 0 } }, "Process MCPs are shared with every agent and future work in this process. Changes save automatically."),
       h(McpAccess, { key: process.id, ctx, servers: capabilities?.data?.servers ?? [],
         tools: capabilities?.data?.tools ?? [], catalog: capabilities?.data?.catalog ?? [],
         onServerAction: capabilities?.act, access: process.mcpAccess, chosen: process.mcpServers,
-        scope: "process", showAll: true })) : null,
+        scope: "process", showAll: true, onChange: ({ mcpAccess, mcpServers }) =>
+          act({ action: "set_process_mcp", processId: process.id, mcpAccess, mcpServers }) })) : null,
     h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Creating…" : parent ? "Add work item" : goal ? "Create goal" : "Start process run"),
       h(Button, { onClick: onCancel }, "Cancel"))
   ));

@@ -121,18 +121,11 @@ function ProcessForm({ ctx, data, servers, tools, catalog, onServerAction, kind,
 }
 
 export function ProcessMcpForm({ ctx, process, servers, tools, catalog, onServerAction, act, showAll = false, compact = false }) {
-  const [busy, onSubmit] = useSubmit(async (event) => {
-    const form = new FormData(event.currentTarget);
-    await act({ action: "set_process_mcp", processId: process.id,
-      mcpAccess: String(form.get("mcpAccess") ?? "none"), mcpServers: form.getAll("mcpServers").map(String) });
-  });
-  return h("form", { className: "bees-form", onSubmit, style: { paddingTop: "8px" } },
+  return h("div", { className: "bees-form bees-process-mcp-form", style: { paddingTop: "8px" } },
     compact ? null : h("p", { className: "bees-muted", style: { marginBottom: "16px" } }, "Every agent in this process inherits these MCPs in addition to its own."),
-    h(McpAccess, { ctx, servers, tools, catalog, onServerAction, access: process.mcpAccess, chosen: process.mcpServers, scope: "process", showAll }),
-    h("div", { style: { display: "flex", justifyContent: "flex-end", marginTop: "16px" } },
-      h("button", { className: "bees-btn", disabled: busy, type: "submit" }, busy ? "Saving…" : "Save process MCPs")
-    )
-  );
+    h(McpAccess, { ctx, servers, tools, catalog, onServerAction, access: process.mcpAccess, chosen: process.mcpServers,
+      scope: "process", showAll, onChange: ({ mcpAccess, mcpServers }) =>
+        act({ action: "set_process_mcp", processId: process.id, mcpAccess, mcpServers }) }));
 }
 
 

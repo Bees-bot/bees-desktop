@@ -1,7 +1,6 @@
-import { h, React, useEffect, useState } from "./runtime.js";
-import { Button, confirmAction, Empty, openExternal, request, useSubmit, PageHead} from "./shared.js";
+import { h, React, useEffect, useRef, useState } from "./runtime.js";
+import { Button, confirmAction, Empty, McpCard, openExternal, request, useSubmit } from "./shared.js";
 
-const STATUS_CLASS = { connected: "bees-running", "per run": "bees-running", failed: "bees-failed", starting: "", off: "" };
 const STATUS_LABEL = {
   connected: "Connected", "per run": "Per run", failed: "Not running", starting: "Starting…", off: "Turned off"
 };
@@ -189,6 +188,7 @@ export function SkillsPage({ capabilities, onAddTools }) {
  * inputs have all been shown once, because installing runs someone else's program on this machine.
  */
 export function CatalogReview({ ctx, entry, onCancel, onDone }) {
+  const dialog = useRef(null);
   const [directory, setDirectory] = useState("");
   const [error, setError] = useState("");
   const [secrets, setSecrets] = useState({});
@@ -197,41 +197,38 @@ export function CatalogReview({ ctx, entry, onCancel, onDone }) {
   // a sign-in fills the secrets, so there is nothing to paste
   const secretFields = entry.scopes ? [] : entry.secrets ?? [];
   const blank = (bag) => ({ name, optional }) => !optional && !String(bag[name] ?? "").trim();
-  const ready = !busy && (!entry.requiresDirectory || directory)
-    && !secretFields.some(blank(secrets)) && !(entry.inputs ?? []).some(blank(inputs));
+  const incomplete = entry.requiresDirectory && !directory
+    || secretFields.some(blank(secrets)) || (entry.inputs ?? []).some(blank(inputs));
+  const ready = !busy && !incomplete;
+  const runtime = entry.scopes ? "Connects through Google in your browser."
+    : entry.transport === "stdio" ? `Runs locally: ${entry.command} ${(entry.args ?? []).join(" ")}`.trim()
+    : `Connects to ${entry.url}`;
   const pick = async () => {
     const path = await ctx.uiWorkspace.pickDirectory();
     if (path) setDirectory(path);
   };
-  return h("section", { className: "bees-box" },
-    h("div", { className: "bees-page-head" },
-      h(Button, { onClick: onCancel }, "← Catalog"),
-      h("div", null, h("h2", null, `Add ${entry.label}`),
-        h("div", { className: "bees-muted" }, entry.summary))),
-    h("div", { className: "bees-callout" },
-      h("h3", null, "What this server can reach"),
+  useEffect(() => { if (dialog.current && !dialog.current.open) dialog.current.showModal(); }, []);
+  return h("dialog", { ref: dialog, className: "bees-mcp-dialog bees-mcp-connect-dialog",
+    "aria-label": `Connect ${entry.label}`, onCancel: (event) => { event.preventDefault(); onCancel(); } },
+    h("div", { className: "bees-mcp-dialog-head" },
+      h("div", { className: "bees-grow" }, h("h3", null, `Connect ${entry.label}`),
+        h("div", { className: "bees-muted" }, entry.summary)),
+      h(Button, { onClick: onCancel, "aria-label": "Close connection setup" }, "×")),
+    h("div", { className: "bees-mcp-dialog-body" },
+    h("div", { className: "bees-mcp-access-note" },
+      h("h3", null, "Access"),
       h("div", null, entry.access)),
-    h("div", { className: "bees-row" },
-      h("div", { className: "bees-row-main" },
-        h("div", { className: "bees-row-title" }, "Published by"),
-        h("div", { className: "bees-muted" }, entry.publisher)),
-      h(Button, { onClick: () => openExternal(entry.homepage) }, "Open source page")),
-    h("div", { className: "bees-row" },
-      h("div", { className: "bees-row-main" },
-        h("div", { className: "bees-row-title" }, "How it runs"),
-        h("div", { className: "bees-muted" }, entry.scopes
-          ? `Bees runs this server on this machine. Connect with Google opens your browser: allow access there and ${entry.label} shows up on this page.`
-          : entry.transport === "stdio"
-          ? `Bees starts \`${entry.command} ${(entry.args ?? []).join(" ")}\` on this machine.`
-          : `Bees calls ${entry.url} over the internet.`),
-        entry.prerequisite ? h("div", { className: "bees-muted" }, entry.prerequisite) : null)),
+    h("div", { className: "bees-mcp-dialog-meta" },
+      h("div", null, h("strong", null, `Published by ${entry.publisher}`), h("span", { className: "bees-muted" }, runtime)),
+      h(Button, { onClick: () => openExternal(entry.homepage) }, "View source")),
+    entry.prerequisite ? h("div", { className: "bees-mcp-dialog-message" }, entry.prerequisite) : null,
     entry.requiresDirectory ? h("div", { className: "bees-row" },
       h("div", { className: "bees-row-main" },
         h("div", { className: "bees-row-title" }, entry.directoryLabel ?? "Folder"),
         h("div", { className: "bees-muted" }, directory || "No folder chosen yet")),
       h(Button, { onClick: pick }, directory ? "Change" : "Choose folder")) : null,
     ...(entry.inputs ?? []).map((field) => h("label", { className: "bees-form", key: field.name },
-      h("span", null, field.label),
+      h("span", null, `${field.label}${field.optional ? " (optional)" : ""}`),
       h(field.textarea ? "textarea" : "input", {
         className: field.textarea ? "bees-textarea" : "bees-input",
         value: inputs[field.name] ?? "",
@@ -240,16 +237,18 @@ export function CatalogReview({ ctx, entry, onCancel, onDone }) {
       }),
       field.help ? h("span", { className: "bees-muted" }, field.help) : null)),
     ...secretFields.map((secret) => h("label", { className: "bees-form", key: secret.name },
-      h("span", null, secret.label),
+      h("span", null, `${secret.label}${secret.optional ? " (optional)" : ""}`),
       h("input", {
         className: "bees-input", type: "password", autoComplete: "off", value: secrets[secret.name] ?? "",
         onChange: (event) => setSecrets({ ...secrets, [secret.name]: event.target.value })
       }),
       secret.help ? h("span", { className: "bees-muted" }, secret.help) : null)),
-    secretFields.length ? h("p", { className: "bees-muted" },
-      "Secrets are kept in your local credential store, not in the Bees database.") : null,
-    error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
-    h("div", { className: "bees-detail-actions" },
+    secretFields.length ? h("div", { className: "bees-mcp-dialog-message" },
+      "Keys stay in your local credential store.") : null,
+    incomplete ? h("div", { className: "bees-mcp-dialog-message", role: "status" }, "Complete the required fields to connect.") : null,
+    error ? h("div", { className: "bees-mcp-dialog-message error", role: "alert" }, error) : null,
+    h("div", { className: "bees-mcp-dialog-actions" },
+      h(Button, { onClick: onCancel }, "Cancel"),
       h(Button, {
         className: "primary", disabled: !ready, onClick: async () => {
           setBusy(true); setError("");
@@ -261,14 +260,16 @@ export function CatalogReview({ ctx, entry, onCancel, onDone }) {
             onDone(done);
           } catch (reason) { setError(reason.message); } finally { setBusy(false); }
         }
-      }, entry.scopes ? (busy ? "Opening Google…" : "Connect with Google") : busy ? "Adding…" : "Add and turn on"),
-      h(Button, { onClick: onCancel }, "Cancel")));
+      }, entry.scopes ? (busy ? "Opening Google…" : "Connect with Google") : busy ? "Connecting…" : "Connect"))));
 }
 
 // initial is a registry result when the owner added one from the search
-function ManualServerForm({ onCancel, act, setPageHeader, initial }) {
-  const [transport, setTransport] = useState("stdio");
+function ManualServerForm({ onCancel, act, initial }) {
+  const dialog = useRef(null);
+  const [transport, setTransport] = useState(initial.url ? "streamable-http" : "stdio");
+  const [error, setError] = useState("");
   const [busy, onSubmit] = useSubmit(async (event) => {
+      setError("");
       const form = new FormData(event.currentTarget);
       const secrets = {};
       for (const line of String(form.get("secrets") ?? "").split("\n")) {
@@ -282,11 +283,16 @@ function ManualServerForm({ onCancel, act, setPageHeader, initial }) {
         url: String(form.get("url") ?? ""), secrets
       });
       if (created?.id) onCancel();
+      else setError("Could not connect this server. Check the details and try again.");
   });
-  return h("form", { className: "bees-box bees-form", onSubmit },
-    h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← MCP servers"),
-      h("div", null, h("h2", null, "Add a server by hand"),
-        h("div", { className: "bees-muted" }, "Only add a server you trust. Its tools go straight to your agents."))),
+  useEffect(() => { if (dialog.current && !dialog.current.open) dialog.current.showModal(); }, []);
+  return h("dialog", { ref: dialog, className: "bees-mcp-dialog bees-mcp-connect-dialog",
+    "aria-label": "Connect a custom MCP server", onCancel: (event) => { event.preventDefault(); onCancel(); } },
+    h("div", { className: "bees-mcp-dialog-head" },
+      h("div", { className: "bees-grow" }, h("h3", null, "Connect a custom server"),
+        h("div", { className: "bees-muted" }, "Only connect a server you trust. Its tools go straight to your agents.")),
+      h(Button, { onClick: onCancel, "aria-label": "Close connection setup" }, "×")),
+    h("form", { className: "bees-mcp-dialog-body bees-form", onSubmit },
     h("label", null, "Short name", h("input", {
       className: "bees-input", name: "serverName", required: true, autoFocus: true, placeholder: "linear", defaultValue: initial.serverName,
       pattern: "[A-Za-z0-9_-]{1,32}", title: "Letters, digits, dash and underscore, up to 32 characters"
@@ -306,15 +312,16 @@ function ManualServerForm({ onCancel, act, setPageHeader, initial }) {
       })))
       : h(React.Fragment, null,
         h("label", null, "Server URL", h("input", {
-          className: "bees-input", name: "url", required: true, type: "url", placeholder: "https://example.com/mcp"
+          className: "bees-input", name: "url", required: true, type: "url", placeholder: "https://example.com/mcp", defaultValue: initial.url
         })),
         h("label", null, "Headers, one Name=value per line", h("textarea", {
           className: "bees-textarea", name: "secrets", placeholder: "Authorization=Bearer …"
         }))),
-    h("p", { className: "bees-muted" }, "Values on those last lines are stored in your local credential store."),
-    h("div", { className: "bees-detail-actions" },
-      h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Adding…" : "Add and turn on"),
-      h(Button, { onClick: onCancel }, "Cancel")));
+    h("div", { className: "bees-mcp-dialog-message" }, "Keys and headers stay in your local credential store."),
+    error ? h("div", { className: "bees-mcp-dialog-message error", role: "alert" }, error) : null,
+    h("div", { className: "bees-mcp-dialog-actions" },
+      h(Button, { onClick: onCancel }, "Cancel"),
+      h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Connecting…" : "Connect"))));
 }
 
 export function McpPage({ ctx, capabilities }) {
@@ -331,70 +338,68 @@ export function McpPage({ ctx, capabilities }) {
   if (error && !data) return h(Empty, null, error);
   if (!data) return h(Empty, null, "Reading connected servers…");
   const entry = data.catalog.find(({ id }) => id === reviewing);
-  if (manual) return h(ManualServerForm, { onCancel: () => setManual(false), act, initial: manual });
-  if (entry) return h(CatalogReview, {
-    ctx, entry, onCancel: () => setReviewing(""),
-    onDone: () => { setReviewing(""); void reload({ quiet: true }); }
-  });
   const needle = query.trim().toLocaleLowerCase();
-  const catalog = data.catalog.filter((row) => matches(needle, row.label, row.summary, row.publisher));
+  const catalog = data.catalog.filter((row) => !row.installedAs && matches(needle, row.label, row.summary, row.publisher));
+  const serverCards = data.servers.map((server) => h(McpCard, {
+    name: server.label, status: STATUS_LABEL[server.status] ?? server.status,
+    meta: `${server.toolCount} tool${server.toolCount === 1 ? "" : "s"}`,
+    tone: ["connected", "per run"].includes(server.status) ? "connected" : server.status === "failed" ? "warning" : "",
+    key: server.id
+  },
+    h("div", { className: "bees-muted" }, [
+      // The browser mounts per run, so a tool count and a command line would only mislead here.
+      ...(server.perRun ? ["one headless Chrome per run, signed in through the shared cookie file"] : [
+        `${server.toolCount} tool${server.toolCount === 1 ? "" : "s"}`,
+        server.transport === "stdio" ? `${server.command} ${server.args.join(" ")}`.trim() : server.url]),
+      server.source === "catalog" ? "from the catalog" : "custom connection"
+    ].filter(Boolean).join(" · ")),
+    server.error ? h("div", { className: "bees-muted" }, server.error) : null,
+    // The folder this server may reach, which each computer picks for itself.
+    server.folder === null ? null : h("div", { className: "bees-detail-actions" },
+      h("span", { className: "bees-muted" }, server.folder || "No folder chosen on this computer yet"),
+      h(Button, {
+        onClick: async () => {
+          const picked = await ctx.uiWorkspace.pickDirectory();
+          if (picked) await act({ action: "set_mcp_server_folder", serverId: server.id, directory: picked });
+        }
+      }, server.folder ? "Change folder" : "Choose folder")),
+    h("div", { className: "bees-detail-actions" },
+      server.catalogId ? h(Button, { onClick: () => setReviewing(server.catalogId) }, "Connect another") : null,
+      h(Button, {
+        onClick: () => act({ action: "set_mcp_server_enabled", serverId: server.id, enabled: !server.enabled })
+      }, server.enabled ? "Turn off" : "Turn on"),
+      h(Button, {
+        className: "danger",
+        onClick: async () => (await confirmAction(`Remove ${server.label}? Its tools disappear from every agent.`))
+          && act({ action: "remove_mcp_server", serverId: server.id })
+      }, "Remove"))));
   return h("div", { className: "bees-stack" },
+    manual ? h(ManualServerForm, { onCancel: () => setManual(false), act, initial: manual }) : null,
+    entry ? h(CatalogReview, {
+      ctx, entry, onCancel: () => setReviewing(""),
+      onDone: () => { setReviewing(""); void reload({ quiet: true }); }
+    }) : null,
     error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
-    h("div", { className: "bees-callout" },
-      h("h3", null, "MCP servers give your agents new tools"),
-      h("div", null, "An MCP server is a small program Bees runs, or a URL it calls, that publishes "
-        + "tools. Bees does not turn any on for you: pick one below, read what it can reach, and add "
-        + "it. Everything it publishes then shows up under Skills & tools.")),
-    h("section", { className: "bees-box" },
-      h("div", { className: "bees-row" },
-        h("div", { className: "bees-row-main" }, h("h3", null, "Connected servers"),
-          h("div", { className: "bees-muted" }, "Turning one off stops its program and removes its tools.")),
-        h(Button, { onClick: () => setManual(true) }, "Add by hand")),
-      ...(data.servers.length ? data.servers.map((server) => h("div", { className: "bees-row", key: server.id },
-        h("div", { className: "bees-row-main" },
-          h("div", { className: "bees-row-title" }, server.label),
-          h("div", { className: "bees-muted" }, [
-            // The browser mounts per run, so a tool count and a command line would only mislead here.
-            ...(server.perRun ? ["one headless Chrome per run, signed in through the shared cookie file"] : [
-              `${server.toolCount} tool${server.toolCount === 1 ? "" : "s"}`,
-              server.transport === "stdio" ? `${server.command} ${server.args.join(" ")}`.trim() : server.url]),
-            server.source === "catalog" ? "from the catalog" : "added by hand"
-          ].filter(Boolean).join(" · ")),
-          server.error ? h("div", { className: "bees-muted" }, server.error) : null,
-          // The folder this server may reach, which each computer picks for itself.
-          server.folder === null ? null : h("div", { className: "bees-detail-actions" },
-            h("span", { className: "bees-muted" }, server.folder || "No folder chosen on this computer yet"),
-            h(Button, {
-              onClick: async () => {
-                const picked = await ctx.uiWorkspace.pickDirectory();
-                if (picked) await act({ action: "set_mcp_server_folder", serverId: server.id, directory: picked });
-              }
-            }, server.folder ? "Change folder" : "Choose folder"))),
-        h("span", { className: `bees-status ${STATUS_CLASS[server.status] ?? ""}` }, STATUS_LABEL[server.status] ?? server.status),
-        h(Button, {
-          onClick: () => act({ action: "set_mcp_server_enabled", serverId: server.id, enabled: !server.enabled })
-        }, server.enabled ? "Turn off" : "Turn on"),
-        h(Button, {
-          className: "danger",
-          onClick: async () => (await confirmAction(`Remove ${server.label}? Its tools disappear from every agent.`))
-            && act({ action: "remove_mcp_server", serverId: server.id })
-        }, "Remove")))
-        : [h(Empty, { key: "empty" }, "No MCP servers connected yet")])),
-    h("h3", { className: "bees-section-title" }, "Add a popular server"),
-    h(Filter, { value: query, onChange: setQuery, placeholder: "Filter the catalog" }),
-    h("div", { className: "bees-grid" }, ...catalog.map((row) => h("section", { className: "bees-box", key: row.id },
-      h("h3", null, row.label),
-      h("p", { className: "bees-muted" }, row.summary),
-      h("p", { className: "bees-muted" }, row.publisher),
-      h("div", { className: "bees-detail-actions" },
-        h(Button, {
-          className: row.installedAs ? "" : "primary",
-          onClick: () => setReviewing(row.id)
-        }, row.installedAs ? "Add another" : "Review and add"))))),
-    catalog.length ? null : h(Empty, null, "No catalog entry matches that"),
-    h("h3", { className: "bees-section-title" }, "Search the public MCP registry"),
-    h("p", { className: "bees-muted" }, "Everything the community has published. These are not "
-      + "reviewed by Bees, so read what a server does before you add it."),
+    h("p", { className: "bees-mcp-intro" }, "Connect MCP servers to give your agents tools from other apps and services."),
+    h("section", { className: "bees-box bees-mcp-section" },
+      h("div", { className: "bees-mcp-section-head" },
+        h("div", null, h("h3", null, "Connected MCPs"),
+          h("div", { className: "bees-muted" }, `${data.servers.filter(({ enabled }) => enabled).length} on · ${data.servers.filter(({ enabled }) => !enabled).length} off`)),
+        h(Button, { onClick: () => setManual({}) }, "Connect custom server")),
+      data.servers.length ? h("div", { className: "bees-mcp-grid bees-mcp-page-grid" }, ...serverCards)
+        : h(Empty, null, "No MCP servers connected yet")),
+    h("section", { className: "bees-box bees-mcp-section" },
+      h("div", { className: "bees-mcp-section-head" },
+        h("div", null, h("h3", null, "Available MCPs"),
+          h("div", { className: "bees-muted" }, "Curated servers you can connect"))),
+      h(Filter, { value: query, onChange: setQuery, placeholder: "Search available MCP servers" }),
+      catalog.length ? h("div", { className: "bees-mcp-grid bees-mcp-page-grid" }, ...catalog.map((row) => h(McpCard, {
+        name: row.label, status: "Available", meta: "Tool count shown after connection", key: row.id, onOpen: () => setReviewing(row.id)
+      }))) : h(Empty, null, "No available MCP matches that search")),
+    h("section", { className: "bees-box bees-mcp-section bees-mcp-community" },
+    h("div", { className: "bees-mcp-section-head" }, h("div", null,
+      h("h3", null, "Community registry"),
+      h("div", { className: "bees-muted" }, "Search unreviewed public MCP servers when the curated list does not have what you need."))),
     h("form", {
       className: "bees-search",
       onSubmit: (event) => { event.preventDefault(); void searchRegistry(new FormData(event.currentTarget).get("q")); }
@@ -402,19 +407,14 @@ export function McpPage({ ctx, capabilities }) {
       h("input", { className: "bees-input bees-grow", name: "q", defaultValue: registry.query, placeholder: "Search the registry", "aria-label": "Search the MCP registry" }),
       h("button", { className: "bees-btn" }, "Search")),
     registry.note ? h("p", { className: "bees-muted" }, registry.note) : null,
-    ...(registry.results ?? []).map((row) => h("div", { className: "bees-row", key: row.name },
-      h("div", { className: "bees-row-main" },
-        h("div", { className: "bees-row-title" }, row.title),
+    registry.results?.length ? h("div", { className: "bees-mcp-grid bees-mcp-page-grid" }, ...registry.results.map((row) => h(McpCard, {
+      name: row.title, status: "Not added", key: row.name
+    },
         h("div", { className: "bees-muted" }, row.description || row.name),
-        h("div", { className: "bees-muted" }, row.url ?? row.command)),
-      h(Button, {
-        onClick: async () => !row.url ? setManual(row) : (await confirmAction(`Add ${row.title}? Bees will call ${row.url} and hand its tools to your agents.`))
-          && act({
-            action: "add_mcp_server", transport: "streamable-http",
-            serverName: row.serverName, label: row.title, url: row.url
-          })
-      }, "Add"))),
+        h("div", { className: "bees-muted" }, row.url ?? row.command),
+        h("div", { className: "bees-detail-actions" },
+          h(Button, { className: "primary", onClick: () => setManual(row) }, "Review and connect"))))) : null,
     registry.results && !registry.results.length
-      ? h(Empty, null, "The registry returned no server for that") : null
+      ? h(Empty, null, "The registry returned no server for that") : null)
   );
 }
