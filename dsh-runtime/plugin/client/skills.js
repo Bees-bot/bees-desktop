@@ -48,9 +48,7 @@ function matches(needle, ...fields) {
   return fields.some((field) => String(field ?? "").toLocaleLowerCase().includes(needle));
 }
 
-/** Browse one public collection and install a single skill from it. */
-/** The three suggestions are a starting point, not the limit: any public repository laid
- *  out as Agent Skills can be browsed and installed from. */
+/** Add an optional public repository to the curated collections. */
 function AddRepo({ act }) {
   const [repo, setRepo] = useState("");
   const [added, setAdded] = useState([]);
@@ -61,34 +59,37 @@ function AddRepo({ act }) {
     setAdded([{ repo: name, label: name, note: "Added by you" }, ...added]);
     setRepo("");
   };
-  return h(React.Fragment, null,
-    h("form", { className: "bees-box", onSubmit: submit },
-      h("div", { className: "bees-row" },
-        h("div", { className: "bees-row-main" },
-          h("div", { className: "bees-row-title" }, "Browse another collection"),
-          h("input", {
-            className: "bees-input", value: repo, placeholder: "owner/name",
-            "aria-label": "GitHub repository", onChange: (event) => setRepo(event.target.value)
-          })),
-        h(Button, { className: "primary", type: "submit", disabled: !repo.trim() }, "Browse"))),
+  return h("details", { className: "bees-capability-custom" },
+    h("summary", null, "Advanced: install from another GitHub repository"),
+    h("p", { className: "bees-muted" },
+      "Enter a public repository containing Agent Skills. Nothing installs until you choose a skill."),
+    h("form", { className: "bees-row", onSubmit: submit },
+      h("input", {
+        className: "bees-input bees-grow", value: repo, placeholder: "owner/repository",
+        "aria-label": "Public GitHub repository", onChange: (event) => setRepo(event.target.value)
+      }),
+      h(Button, { className: "primary", type: "submit", disabled: !repo.trim() }, "Add collection")),
     ...added.map((pack) => h(SkillPack, { pack, act, key: pack.repo })));
 }
 
 function SkillPack({ pack, act }) {
-  const [state, setState] = useState({ open: false, skills: null, note: "" });
-  const open = async () => {
-    setState({ open: true, skills: null, note: "Reading what this collection publishes…" });
+  const [state, setState] = useState({ skills: null, note: "" });
+  const load = async () => {
+    if (state.skills !== null || state.note) return;
+    setState({ skills: null, note: "Loading available skills…" });
     const found = await act({ action: "list_skill_pack", repo: pack.repo });
-    setState({ open: true, skills: found?.skills ?? [], note: found ? "" : "Could not read that collection." });
+    setState({ skills: found?.skills ?? null, note: found ? "" : "Could not load this collection. Close it and try again." });
   };
-  return h("section", { className: "bees-box" },
-    h("div", { className: "bees-row" },
-      h("div", { className: "bees-row-main" },
+  return h("details", { className: "bees-capability-group", onToggle: (event) => {
+    if (event.currentTarget.open) void load();
+    else if (state.skills === null) setState({ skills: null, note: "" });
+  } },
+    h("summary", null,
+      h("span", { className: "bees-row-main" },
         h("div", { className: "bees-row-title" }, pack.label),
         h("div", { className: "bees-muted" }, `${pack.note} · github.com/${pack.repo}`)),
-      h(Button, { onClick: () => state.open ? setState({ open: false, skills: null, note: "" }) : open() },
-        state.open ? "Close" : "Browse")),
-    state.note ? h("p", { className: "bees-muted" }, state.note) : null,
+      h("span", { className: "bees-muted" }, "View skills")),
+    state.note ? h("p", { className: "bees-muted bees-capability-note", role: "status" }, state.note) : null,
     ...(state.skills ?? []).map((skill) => h("div", { className: "bees-row", key: skill.path },
       h("div", { className: "bees-row-main" },
         h("div", { className: "bees-row-title" }, skill.name),
@@ -97,11 +98,11 @@ function SkillPack({ pack, act }) {
         onClick: async () => (await confirmAction(`Install ${skill.name} from ${pack.repo}? It becomes instructions any agent can open.`))
           && act({ action: "install_skill", repo: pack.repo, directory: skill.directory })
       }, skill.installed ? "Reinstall" : "Install"))),
-    state.open && state.skills && !state.skills.length
+    state.skills && !state.skills.length
       ? h(Empty, null, "This collection publishes no skills right now") : null);
 }
 
-export function SkillsPage({ capabilities, onAddTools }) {
+export function SkillsPage({ capabilities }) {
   const { data, error, act } = capabilities;
   const [query, setQuery] = useState("");
   if (error && !data) return h(Empty, null, error);
@@ -111,31 +112,19 @@ export function SkillsPage({ capabilities, onAddTools }) {
   const tools = data.tools.filter((tool) => matches(needle, tool.name, tool.description, tool.serverLabel));
   const builtIn = tools.filter(({ serverName }) => !serverName);
   const fromServers = tools.filter(({ serverName }) => serverName);
+  const mcpGroups = [...new Map(fromServers.map((tool) => [tool.serverName, tool.serverLabel])).entries()];
   return h("div", { className: "bees-stack" },
     error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
-    h("div", { className: "bees-callout" },
-      h("h3", null, "What your agents can actually do"),
-      h("div", null, "A skill is a written instruction sheet an agent can open when it needs one. A tool "
-        + "is something an agent can run. Both are live here: what this page lists is what a run can "
-        + "reach right now. Add more tools by connecting an MCP server.")),
-    h(Filter, { value: query, onChange: setQuery, placeholder: "Filter skills and tools" }),
-    h("section", { className: "bees-box" }, h("div", { className: "bees-row" },
-      h("div", { className: "bees-row-main" }, h("h3", null, "Give your agents a new tool"),
-        h("div", { className: "bees-muted" }, "Tools come from MCP servers. Pick one from the catalog, "
-          + "or point Bees at any REST API.")),
-      h(Button, { className: "primary", onClick: onAddTools }, "Add an MCP server"))),
+    h(Filter, { value: query, onChange: setQuery, placeholder: "Search skills and tools" }),
     h("section", { className: "bees-box" },
       h("h3", null, `Skills (${skills.length})`),
       data.skillsComplete ? null : h("p", { className: "bees-muted" },
         "No preset could be read, so this list may be short."),
-      h("p", { className: "bees-muted" }, "Skills come from your skill folders. Drop a folder containing "
-        + "SKILL.md into one of them and it appears here without restarting Bees."),
-      ...(skills.length ? skills.map((skill) => h("div", { className: "bees-row", key: skill.name },
+      ...(skills.length ? skills.map((skill) => h("div", { className: "bees-row bees-capability-row", key: skill.name },
         h("div", { className: "bees-row-main" },
           h("div", { className: "bees-row-title" }, skill.name),
-          h("div", { className: "bees-muted" }, skill.description || "No description"),
-          skill.whenToUse ? h("div", { className: "bees-muted" }, `When to use: ${skill.whenToUse}`) : null,
-          skill.presets?.length ? h("div", { className: "bees-muted" }, `Available to: ${skill.presets.join(", ")}`) : null),
+          h("div", { className: "bees-muted bees-capability-description", title: skill.description },
+            skill.description || "No description")),
         skill.provider ? h("span", { className: "bees-badge" }, skill.provider) : null,
         skill.removable ? h(Button, {
           className: "danger",
@@ -143,43 +132,38 @@ export function SkillsPage({ capabilities, onAddTools }) {
             && act({ action: "remove_skill", name: skill.name })
         }, "Remove") : null))
         : [h(Empty, { key: "empty" }, needle ? "No skill matches that" : "No skills installed yet")])),
-    h("h3", { className: "bees-section-title" }, "Install skills from a public collection"),
-    h("p", { className: "bees-muted" }, `Installed skills land in ${data.skillsRoot} and show up above `
-      + "straight away. A skill is written instructions, so read what it tells an agent to do before "
-      + "you install one."),
-    ...(data.skillPacks ?? []).map((pack) => h(SkillPack, { pack, act, key: pack.repo })),
-    h(AddRepo, { act, key: "add-repo" }),
+    h("details", { className: "bees-box bees-capability-manage" },
+      h("summary", null, "Install more skills"),
+      h("p", { className: "bees-muted" },
+        "Expand a collection to see its available skills. Review a skill before installing it."),
+      ...(data.skillPacks ?? []).map((pack) => h(SkillPack, { pack, act, key: pack.repo })),
+      h(AddRepo, { act, key: "add-repo" })),
     h("section", { className: "bees-box" },
-      h("h3", null, `Tools from MCP servers (${fromServers.length})`),
-      ...(fromServers.length ? fromServers.map((tool) => h("div", { className: "bees-row", key: tool.name },
-        h("div", { className: "bees-row-main" },
-          h("div", { className: "bees-row-title" }, tool.name),
-          h("div", { className: "bees-muted" }, tool.description || "No description")),
-        h("span", { className: "bees-badge" }, tool.serverLabel)))
-        : [h("div", { className: "bees-row", key: "empty" },
+      h("h3", null, `Tools (${tools.length})`),
+      ...mcpGroups.map(([serverName, serverLabel]) => {
+        const own = fromServers.filter((tool) => tool.serverName === serverName);
+        return h("details", {
+          className: "bees-capability-group", open: needle ? true : undefined, key: serverName
+        },
+          h("summary", null, h("span", null, serverLabel),
+            h("span", { className: "bees-muted" }, `${own.length} tool${own.length === 1 ? "" : "s"}`)),
+          ...own.map((tool) => h("div", { className: "bees-row bees-capability-row", key: tool.name },
             h("div", { className: "bees-row-main" },
-              h("div", { className: "bees-muted" }, "No MCP server is connected, so there are no extra tools yet.")),
-            h(Button, { onClick: onAddTools }, "Add one"))])),
-    ...(data.presets ?? []).map((preset) => {
-      const own = preset.tools.filter((tool) => matches(needle, tool.name, tool.description));
-      return h("section", { className: "bees-box", key: preset.id },
-        h("h3", null, `${preset.name} preset · ${own.length} tools`),
-        preset.broken
-          ? h("p", { className: "bees-muted" }, preset.broken)
-          : h("p", { className: "bees-muted" }, "What an agent on this preset can run. Which preset an "
-            + "agent uses is set on the agent; what a preset contains is edited in runtime settings."),
-        ...(own.length ? own.map((tool) => h("div", { className: "bees-row", key: tool.name },
+              h("div", { className: "bees-row-title" }, tool.name.replace(`mcp__${serverName}__`, "")),
+              h("div", { className: "bees-muted bees-capability-description", title: tool.description },
+                tool.description || "No description")))));
+      }),
+      builtIn.length ? h("details", {
+        className: "bees-capability-group", open: needle ? true : undefined
+      },
+        h("summary", null, h("span", null, "Built-in tools"),
+          h("span", { className: "bees-muted" }, `${builtIn.length} tool${builtIn.length === 1 ? "" : "s"}`)),
+        ...builtIn.map((tool) => h("div", { className: "bees-row bees-capability-row", key: tool.name },
           h("div", { className: "bees-row-main" },
             h("div", { className: "bees-row-title" }, tool.name),
-            h("div", { className: "bees-muted" }, tool.description || "No description"))))
-          : [h(Empty, { key: "empty" }, needle ? "No tool matches that" : "This preset gives an agent no tools")]));
-    }),
-    builtIn.length ? h("section", { className: "bees-box" },
-      h("h3", null, `Registered outside any preset (${builtIn.length})`),
-      ...builtIn.map((tool) => h("div", { className: "bees-row", key: tool.name },
-        h("div", { className: "bees-row-main" },
-          h("div", { className: "bees-row-title" }, tool.name),
-          h("div", { className: "bees-muted" }, tool.description || "No description"))))) : null
+            h("div", { className: "bees-muted bees-capability-description", title: tool.description },
+              tool.description || "No description"))))) : null,
+      !tools.length ? h(Empty, null, needle ? "No tool matches that" : "No tools are available") : null)
   );
 }
 
@@ -340,39 +324,51 @@ export function McpPage({ ctx, capabilities }) {
   const entry = data.catalog.find(({ id }) => id === reviewing);
   const needle = query.trim().toLocaleLowerCase();
   const catalog = data.catalog.filter((row) => !row.installedAs && matches(needle, row.label, row.summary, row.publisher));
-  const serverCards = data.servers.map((server) => h(McpCard, {
-    name: server.label, status: STATUS_LABEL[server.status] ?? server.status,
-    meta: `${server.toolCount} tool${server.toolCount === 1 ? "" : "s"}`,
-    tone: ["connected", "per run"].includes(server.status) ? "connected" : server.status === "failed" ? "warning" : "",
-    key: server.id
-  },
-    h("div", { className: "bees-muted" }, [
-      // The browser mounts per run, so a tool count and a command line would only mislead here.
-      ...(server.perRun ? ["one headless Chrome per run, signed in through the shared cookie file"] : [
-        `${server.toolCount} tool${server.toolCount === 1 ? "" : "s"}`,
-        server.transport === "stdio" ? `${server.command} ${server.args.join(" ")}`.trim() : server.url]),
-      server.source === "catalog" ? "from the catalog" : "custom connection"
-    ].filter(Boolean).join(" · ")),
-    server.error ? h("div", { className: "bees-muted" }, server.error) : null,
-    // The folder this server may reach, which each computer picks for itself.
-    server.folder === null ? null : h("div", { className: "bees-detail-actions" },
-      h("span", { className: "bees-muted" }, server.folder || "No folder chosen on this computer yet"),
-      h(Button, {
-        onClick: async () => {
-          const picked = await ctx.uiWorkspace.pickDirectory();
-          if (picked) await act({ action: "set_mcp_server_folder", serverId: server.id, directory: picked });
-        }
-      }, server.folder ? "Change folder" : "Choose folder")),
-    h("div", { className: "bees-detail-actions" },
-      server.catalogId ? h(Button, { onClick: () => setReviewing(server.catalogId) }, "Connect another") : null,
-      h(Button, {
-        onClick: () => act({ action: "set_mcp_server_enabled", serverId: server.id, enabled: !server.enabled })
-      }, server.enabled ? "Turn off" : "Turn on"),
-      h(Button, {
-        className: "danger",
-        onClick: async () => (await confirmAction(`Remove ${server.label}? Its tools disappear from every agent.`))
-          && act({ action: "remove_mcp_server", serverId: server.id })
-      }, "Remove"))));
+  const serverCards = data.servers.map((server) => {
+    const catEntry = server.catalogId ? data.catalog.find(c => c.id === server.catalogId) : null;
+    return h(McpCard, {
+      name: server.label, status: STATUS_LABEL[server.status] ?? server.status,
+      icon: catEntry?.icon,
+      meta: `${server.toolCount} tool${server.toolCount === 1 ? "" : "s"}`,
+      tone: ["connected", "per run"].includes(server.status) ? "connected" : server.status === "failed" ? "warning" : "",
+      key: server.id
+    },
+      h("div", { className: "bees-muted" }, [
+        // The browser mounts per run, so a tool count and a command line would only mislead here.
+        ...(server.perRun ? ["one headless Chrome per run, signed in through the shared cookie file"] : [
+          `${server.toolCount} tool${server.toolCount === 1 ? "" : "s"}`,
+          server.transport === "stdio" ? `${server.command} ${server.args.join(" ")}`.trim() : server.url]),
+        server.source === "catalog" ? "from the catalog" : "custom connection"
+      ].filter(Boolean).join(" · ")),
+      server.error ? h("div", { className: "bees-muted" }, server.error) : null,
+      // The folder this server may reach, which each computer picks for itself.
+      server.folder === null ? null : h("div", { className: "bees-detail-actions" },
+        h("span", { className: "bees-muted" }, server.folder || "No folder chosen on this computer yet"),
+        h(Button, {
+          onClick: async () => {
+            const picked = await ctx.uiWorkspace.pickDirectory();
+            if (picked) await act({ action: "set_mcp_server_folder", serverId: server.id, directory: picked });
+          }
+        }, server.folder ? "Change folder" : "Choose folder")),
+      h("div", { className: "bees-detail-actions" },
+        server.catalogId ? h(Button, { onClick: () => setReviewing(server.catalogId) }, "Connect another") : null,
+        h(Button, {
+          onClick: () => act({ action: "set_mcp_server_enabled", serverId: server.id, enabled: !server.enabled })
+        }, server.enabled ? "Turn off" : "Turn on"),
+        h(Button, {
+          className: "danger",
+          onClick: async () => (await confirmAction(`Remove ${server.label}? Its tools disappear from every agent.`))
+            && act({ action: "remove_mcp_server", serverId: server.id })
+        }, "Remove")));
+  });
+
+  const renderCatalog = () => {
+    if (!catalog.length) return h(Empty, null, "No available MCP matches that search");
+    return h("div", { className: "bees-mcp-grid bees-mcp-page-grid" }, ...catalog.map((row) => h(McpCard, {
+      name: row.label, status: "Available", meta: row.summary, icon: row.icon, key: row.id, onOpen: () => setReviewing(row.id)
+    })));
+  };
+
   return h("div", { className: "bees-stack" },
     manual ? h(ManualServerForm, { onCancel: () => setManual(false), act, initial: manual }) : null,
     entry ? h(CatalogReview, {
@@ -381,11 +377,12 @@ export function McpPage({ ctx, capabilities }) {
     }) : null,
     error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
     h("p", { className: "bees-mcp-intro" }, "Connect MCP servers to give your agents tools from other apps and services."),
+    h("div", { className: "bees-detail-actions", style: { justifyContent: "flex-end", marginTop: 0 } },
+      h(Button, { className: "primary", onClick: () => setManual({}) }, "Add MCP Server")),
     h("section", { className: "bees-box bees-mcp-section" },
       h("div", { className: "bees-mcp-section-head" },
         h("div", null, h("h3", null, "Connected MCPs"),
-          h("div", { className: "bees-muted" }, `${data.servers.filter(({ enabled }) => enabled).length} on · ${data.servers.filter(({ enabled }) => !enabled).length} off`)),
-        h(Button, { onClick: () => setManual({}) }, "Connect custom server")),
+          h("div", { className: "bees-muted" }, `${data.servers.filter(({ enabled }) => enabled).length} on · ${data.servers.filter(({ enabled }) => !enabled).length} off`))),
       data.servers.length ? h("div", { className: "bees-mcp-grid bees-mcp-page-grid" }, ...serverCards)
         : h(Empty, null, "No MCP servers connected yet")),
     h("section", { className: "bees-box bees-mcp-section" },
@@ -393,9 +390,7 @@ export function McpPage({ ctx, capabilities }) {
         h("div", null, h("h3", null, "Available MCPs"),
           h("div", { className: "bees-muted" }, "Curated servers you can connect"))),
       h(Filter, { value: query, onChange: setQuery, placeholder: "Search available MCP servers" }),
-      catalog.length ? h("div", { className: "bees-mcp-grid bees-mcp-page-grid" }, ...catalog.map((row) => h(McpCard, {
-        name: row.label, status: "Available", meta: "Tool count shown after connection", key: row.id, onOpen: () => setReviewing(row.id)
-      }))) : h(Empty, null, "No available MCP matches that search")),
+      renderCatalog()),
     h("section", { className: "bees-box bees-mcp-section bees-mcp-community" },
     h("div", { className: "bees-mcp-section-head" }, h("div", null,
       h("h3", null, "Community registry"),

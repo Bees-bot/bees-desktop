@@ -8,7 +8,7 @@ import { AgentListActions, useMcpPreflight } from "./agents.js";
 import { AskBeesSetup, workFromOutcome } from "./ask-bees.js";
 import { EditIcon } from "./icons.js";
 
-export function OutcomeWidget({ ctx, data, workspaceId, outcome, setOutcome, configureGoal, act, openWorkItem, capabilities }) {
+export function OutcomeWidget({ ctx, data, workspaceId, outcome, setOutcome, configuration, configureGoal, clearConfiguration, act, openWorkItem, capabilities }) {
   const [error, setError] = useState("");
   const role = data.teams.find(({ id }) => id === data.workspaces.find((row) => row.id === workspaceId)?.teamId)?.role;
   const allowed = ["admin", "member"].includes(role);
@@ -16,10 +16,15 @@ export function OutcomeWidget({ ctx, data, workspaceId, outcome, setOutcome, con
   const [busy, submit] = useSubmit(async () => {
     if (!allowed || !workspaceId || !outcome.trim()) return;
     setError("");
-    if (!await guardRun(data.processes.find((row) => row.workspaceId === workspaceId && row.kind === "goals")?.id)) return;
+    const process = data.processes.find((row) => row.id === configuration?.processId)
+      ?? data.processes.find((row) => row.workspaceId === workspaceId && row.kind === "goals");
+    if (!await guardRun(process?.id)) return;
     try {
-      const result = await act(workFromOutcome(outcome, { workspaceId }));
-      if (result?.id) { setOutcome(""); openWorkItem(result.id); }
+      const target = process?.kind === "goals" || !process ? { workspaceId } : { processId: process.id };
+      const result = await act(workFromOutcome(outcome, target, configuration ? {
+        inputLocationIds: configuration.inputLocationIds, outputLocationId: configuration.outputLocationId
+      } : {}));
+      if (result?.id) { setOutcome(""); clearConfiguration(); openWorkItem(result.id); }
       else setError("Could not start this work. Please try again.");
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   });
@@ -43,14 +48,15 @@ export function OutcomeWidget({ ctx, data, workspaceId, outcome, setOutcome, con
     error ? h("p", { className: "bees-error", role: "alert" }, error) : null,
     h("div", { className: "bees-composer-foot", style: { flexWrap: "wrap" } },
       h("span", { className: "bees-composer-hint" }, "Runs as a goal with the team's agents · ⌘ / Ctrl + Enter"),
-      h("div", { className: "bees-detail-actions" },
+      h("div", { className: "bees-detail-actions", style: { gap: "14px" } },
+        h("button", { type: "button", disabled: busy || !allowed || !workspaceId, onClick: configureGoal,
+          style: { border: 0, padding: 0, color: "var(--bees-accent)", background: "transparent", font: "inherit", fontWeight: 650, cursor: "pointer", textDecoration: "none" } }, "Configure"),
         h("button", { type: "submit", className: "bees-btn primary", disabled: busy || !allowed || !workspaceId || !outcome.trim() },
-          busy ? "Starting…" : "Run using defaults"),
-        h(Button, { disabled: busy || !allowed || !workspaceId || !outcome.trim(), onClick: configureGoal }, "Configure advanced")))
+          busy ? "Starting…" : "Run")))
   ));
 }
 
-function TemplatesWidget({ data, workspaceId, act, openWorkItem }) {
+function TemplatesWidget({ ctx, data, workspaceId, act, openWorkItem }) {
   const [showAllTemplates, setShowAllTemplates] = useState(false);
   // creating a process is a real write, so a double click must not make two
   const [starting, setStarting] = useState("");
@@ -68,7 +74,7 @@ function TemplatesWidget({ data, workspaceId, act, openWorkItem }) {
         setStarting(card.id);
         try {
           if (card.isTemplate) {
-            const p = await act({ action: "create_process", workspaceId, name: `New from ${card.name}`, templateId: card.id });
+            const p = await act({ action: "create_process", workspaceId, name: `New from ${card.name}`, templateId: card.id, accountUserId: ctx.account?.userId });
             if (p?.id) openWorkItem(null, p.id);
           } else {
             openWorkItem(null, card.id);
@@ -79,7 +85,7 @@ function TemplatesWidget({ data, workspaceId, act, openWorkItem }) {
     },
       h("div", { className: "bees-template-card-title" }, card.name),
       h("div", { className: "bees-template-card-meta" }, card.description || "Process template"))),
-    cards.length > 10 && !showAllTemplates ? h(Button, { onClick: () => setShowAllTemplates(true) }, `Show all ${cards.length} process templates`) : null
+    cards.length > 10 && !showAllTemplates ? h("button", { type: "button", className: "bees-dashboard-view-all", onClick: () => setShowAllTemplates(true) }, `Show all ${cards.length} process templates`) : null
   );
 }
 
@@ -95,7 +101,7 @@ function ListWidget({ definition, rowsForRoute, navigate, data, act, openWorkIte
       return process || agent ? h("div", { className: "bees-row", key: row.id, style: { flexWrap: "wrap" } },
         h("div", { className: "bees-row-main" }, link), process ? h(ProcessListActions, { process, act, openWorkItem }) : h(AgentListActions, { agent, act })) : link;
     }) : h(Empty, null, definition.empty ?? "Nothing here yet."),
-    h(Button, { className: "bees-dashboard-view-all", onClick: () => navigate(definition.route) }, "View all")
+    h("button", { type: "button", className: "bees-dashboard-view-all", onClick: () => navigate(definition.route) }, "View more")
   );
 }
 
@@ -174,6 +180,8 @@ function DashboardGrid({ dashboard, editing, onLayout, onRemove, widgetProps }) 
 export function Home({ ctx, data, workspaceId, act, openWorkItem, navigate, rowsForRoute, preference, preferences, setPageActions, createWork, createProcess, createRun, createAgent, capabilities }) {
   const [outcome, setOutcome] = useState("");
   const [setup, setSetup] = useState(false);
+  const [outcomeConfiguration, setOutcomeConfiguration] = useState(null);
+  useEffect(() => { setSetup(false); setOutcomeConfiguration(null); }, [workspaceId]);
   const dashboards = dashboardsFrom(preference.dashboards);
   const activeId = dashboards.some(({ id }) => id === preference.activeDashboardId) ? preference.activeDashboardId : "home";
   const dashboard = dashboards.find(({ id }) => id === activeId) ?? dashboards[0];
@@ -199,10 +207,10 @@ export function Home({ ctx, data, workspaceId, act, openWorkItem, navigate, rows
   const queue = useNeedsYouQueue(ctx, data, (data.workspaces ?? []).map(({ id }) => id), "", false);
   const widgetProps = { ctx, data, workspaceId, act, openWorkItem, navigate, rowsForRoute, queue, capabilities,
     records: needsYouRows(queue, data, rowsForRoute), createWork, createProcess, createRun, createAgent,
-    outcome, setOutcome, configureGoal: () => setSetup(true) };
+    outcome, setOutcome, configuration: outcomeConfiguration, configureGoal: () => setSetup(true),
+    clearConfiguration: () => setOutcomeConfiguration(null) };
 
   useEffect(() => {
-    if (setup) { setPageActions(null); return; }
     setPageActions(h("div", { className: "bees-page-actions" },
       editing ? h("details", { className: "bees-dashboard-add" },
         h("summary", { className: "bees-btn" }, "Add widget"),
@@ -217,14 +225,14 @@ export function Home({ ctx, data, workspaceId, act, openWorkItem, navigate, rows
       h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) },
         editing ? "Done" : "Customize")));
     return () => setPageActions(null);
-  }, [setup, editing, preference.activeDashboardId, preference.dashboards, setPageActions]);
+  }, [editing, preference.activeDashboardId, preference.dashboards, setPageActions]);
 
   return h("div", null,
-    setup ? h("div", null, h(AskBeesSetup, {
-      key: workspaceId, ctx, data, workspaceId, outcome, onOutcome: setOutcome, act, capabilities,
-      onBack: () => setSetup(false), onStarted: (id) => { setSetup(false); setOutcome(""); openWorkItem(id); }
-    })) : null,
-    h("div", { className: "bees-dashboard", hidden: setup },
+    setup ? h(AskBeesSetup, {
+      key: workspaceId, ctx, data, workspaceId, initial: outcomeConfiguration, act, capabilities,
+      onCancel: () => setSetup(false), onSave: (configuration) => { setOutcomeConfiguration(configuration); setSetup(false); }
+    }) : null,
+    h("div", { className: "bees-dashboard" },
     h(ProposalsWidget, { data, workspaceIds: [workspaceId], act }),
     dashboard.widgets.length ? h(DashboardGrid, {
       dashboard,

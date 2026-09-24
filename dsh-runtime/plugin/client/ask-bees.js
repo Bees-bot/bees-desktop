@@ -1,6 +1,6 @@
 import { h, useEffect, useRef, useState } from "./runtime.js";
-import { Button, useSubmit } from "./shared.js";
-import { AgentCreateForm, AgentEditForm, runAgents, useMcpPreflight } from "./agents.js";
+import { Button } from "./shared.js";
+import { AgentCreateForm, AgentEditForm, runAgents } from "./agents.js";
 import { ProcessRoutingBoard } from "./processes.js";
 import { inheritedInputs, ResourceFields } from "./location-fields.js";
 
@@ -10,14 +10,13 @@ export function workFromOutcome(outcome, target, resources = {}) {
     title: description.split("\n")[0], description, ...resources };
 }
 
-export function AskBeesSetup({ ctx, data, workspaceId, outcome, onOutcome, act, onBack, onStarted,
-  capabilities }) {
+export function AskBeesSetup({ ctx, data, workspaceId, initial, act, onCancel, onSave, capabilities }) {
   const [error, setError] = useState("");
-  const [processId, setProcessId] = useState("");
+  const [processId, setProcessId] = useState(initial?.processId ?? "");
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [creatingStageId, setCreatingStageId] = useState("");
-  const [inputLocationIds, setInputLocationIds] = useState([]);
-  const [outputLocationId, setOutputLocationId] = useState("");
+  const [inputLocationIds, setInputLocationIds] = useState(initial?.inputLocationIds ?? []);
+  const [outputLocationId, setOutputLocationId] = useState(initial?.outputLocationId ?? "");
   const heading = useRef(null);
   const teamId = data.workspaces.find(({ id }) => id === workspaceId)?.teamId;
   const team = data.teams.find(({ id }) => id === teamId);
@@ -33,32 +32,17 @@ export function AskBeesSetup({ ctx, data, workspaceId, outcome, onOutcome, act, 
   const catalog = capabilities.data?.catalog ?? [];
   const defaultOutput = data.locations.find(({ id }) => id === process?.outputLocationId);
   const agentInputs = runAgents(stages, agents).flatMap(({ id }) => inheritedInputs(data, null, id));
-  const [guardRun, preflight] = useMcpPreflight({ ctx, data, workspaceId, capabilities, act });
 
   useEffect(() => heading.current?.focus(), []);
 
-  const [busy, submit] = useSubmit(async () => {
-    if (!allowed || !process || selectedAgent || creatingStage || !outcome.trim()) return;
-    setError("");
-    if (!await guardRun(process.id)) return;
-    try {
-      const target = process.kind === "goals" ? { workspaceId } : { processId: process.id };
-      const result = await act(workFromOutcome(outcome, target, { inputLocationIds, outputLocationId }));
-      if (result?.id) onStarted(result.id);
-      else setError("Could not start this work. Please try again.");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
-  });
-
-  return h("div", { className: "bees-ask-setup" },
-    preflight,
-    h("div", null,
-      h(Button, { onClick: onBack, disabled: busy }, "← Back to Home"),
+  return h("div", { className: "bees-modal-backdrop", role: "presentation" },
+    h("div", { className: "bees-box bees-modal bees-ask-setup", role: "dialog", "aria-modal": "true", "aria-labelledby": "bees-ask-configure-title", style: { width: "min(960px, 100%)" } },
       h("header", { className: "bees-ask-heading" },
         h("span", { className: "bees-muted" }, `ASK BEES · ${team?.name ?? "Choose a team"}`),
-        h("h1", { ref: heading, tabIndex: -1 }, "Configure advanced"),
+        h("h1", { id: "bees-ask-configure-title", ref: heading, tabIndex: -1 }, "Configure"),
         h("p", { className: "bees-muted" }, "Choose a process, review its agents, and add files.")),
-      h("fieldset", { disabled: busy || !allowed, className: "bees-stack", style: { padding: 0, border: "none", margin: 0, minWidth: 0 } },
-        h("form", { id: "bees-ask-run", className: "bees-box bees-form", onSubmit: submit },
+      h("fieldset", { disabled: !allowed, className: "bees-stack", style: { padding: 0, border: "none", margin: 0, minWidth: 0 } },
+        h("div", { className: "bees-box bees-form" },
           h("span", { className: "bees-ask-step" }, "1 · Process"),
           h("label", null, "Process",
             h("select", { className: "bees-select", name: "processId", required: true, value: process?.id ?? "",
@@ -89,7 +73,7 @@ export function AskBeesSetup({ ctx, data, workspaceId, outcome, onOutcome, act, 
             defaultOutputId: process?.outputLocationId, defaultOutputName: defaultOutput?.name })),
         error ? h("p", { className: "bees-error", role: "alert" }, error) : null,
         h("div", { className: "bees-detail-actions" },
-          h("button", { type: "submit", form: "bees-ask-run", className: "bees-btn primary",
-            disabled: busy || !process || !outcome.trim() || Boolean(selectedAgent || creatingStage) }, busy ? "Starting…" : "Run process")),
-        selectedAgent || creatingStage ? h("p", { className: "bees-muted" }, "Save or close the agent settings before starting.") : null)));
+          h(Button, { onClick: onCancel }, "Cancel"),
+          h(Button, { className: "primary", disabled: !process || Boolean(selectedAgent || creatingStage), onClick: () => onSave({ processId: process.id, inputLocationIds, outputLocationId }) }, "Save")),
+        selectedAgent || creatingStage ? h("p", { className: "bees-muted" }, "Save or close the agent settings before saving this configuration.") : null)));
 }

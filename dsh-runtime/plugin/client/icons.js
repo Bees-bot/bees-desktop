@@ -54,3 +54,4 @@ export const BookIcon = () => h(Icon, { d: ["M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v
 export const AccountIcon = () => h(Icon, { circle: { cx: "12", cy: "8", r: "4" }, d: "M4 22a8 8 0 0 1 16 0" });
 export const FolderOpenIcon = () => h(Icon, { d: ["M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6", "M15 3h6v6"], polyline: "10 14 21 3", size: 16 });
 export const ChevronDownIcon = (props) => h(Icon, { d: "m6 9 6 6 6-6", ...props });
+export const ArrowLeftIcon = (props) => h(Icon, { d: ["m12 19-7-7 7-7", "M19 12H5"], ...props });

@@ -696,9 +696,11 @@ export async function executeProductCommand(action, input) {
       const id = randomUUID();
       const stages = processStages(input.stages, "process template");
       this.database.prepare(`
-        INSERT INTO process_templates VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
+        INSERT INTO process_templates
+          (id, workspace_id, name, description, stages_json, account_user_id, archived_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
       `).run(id, workspace.id, required(input.name, "Template name"), String(input.description ?? ""),
-        JSON.stringify(stages), at, at);
+        JSON.stringify(stages), input.accountUserId || null, at, at);
       return { id };
     });
     if (action === "copy_process") return transaction(this.database, () => {
@@ -747,7 +749,7 @@ export async function executeProductCommand(action, input) {
 
       // Duplicate the process
       const newProcessId = randomUUID();
-      this.database.prepare(`INSERT INTO processes (id, workspace_id, kind, name, description, output_location_id, mcp_access, mcp_servers_json, archived_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`).run(newProcessId, workspaceId, "standard", name, process.description, process.outputLocationId, process.mcpAccess, JSON.stringify(process.mcpServers), at, at);
+      this.database.prepare(`INSERT INTO processes (id, workspace_id, kind, name, description, output_location_id, mcp_access, mcp_servers_json, account_user_id, archived_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`).run(newProcessId, workspaceId, "standard", name, process.description, process.outputLocationId, process.mcpAccess, JSON.stringify(process.mcpServers), input.accountUserId || null, at, at);
       this.database.prepare(`INSERT INTO process_locations (process_id, location_id, relative_path) SELECT ?, location_id, relative_path FROM process_locations WHERE process_id = ?`).run(newProcessId, processId);
 
       // Duplicate the stages and routes
@@ -778,9 +780,11 @@ export async function executeProductCommand(action, input) {
       `).all(process.id).map((stage) => ({ ...stage, requiresHumanApproval: Boolean(stage.requiresHumanApproval) }));
       const id = randomUUID();
       this.database.prepare(`
-        INSERT INTO process_templates VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
+        INSERT INTO process_templates
+          (id, workspace_id, name, description, stages_json, account_user_id, archived_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
       `).run(id, process.workspaceId, required(input.name || source.name, "Template name"),
-        source.description, JSON.stringify(stages), at, at);
+        source.description, JSON.stringify(stages), input.accountUserId || null, at, at);
       return { id };
     });
     if (["restore_process", "restore_process_template"].includes(action)) return transaction(this.database, () => {

@@ -7,7 +7,10 @@ import { currentIdentity, required, workItemLineage, workRunItems } from "./prod
 
 export const TEXT_EXTENSIONS = new Set([
   ".txt", ".md", ".markdown", ".csv", ".tsv", ".json", ".yaml", ".yml",
-  ".html", ".css", ".js", ".ts", ".py", ".rs", ".toml"
+  ".html", ".htm", ".css", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx",
+  ".py", ".rb", ".go", ".rs", ".java", ".kt", ".kts", ".swift", ".php",
+  ".c", ".h", ".cpp", ".hpp", ".cs", ".sh", ".bash", ".zsh", ".sql",
+  ".xml", ".toml", ".ini", ".conf", ".properties", ".log"
 ]);
 
 export function mappedLocation(database, locationId) {
@@ -194,6 +197,17 @@ export function previewFiles(runDirectory) {
     try {
       const root = realpathSync(resolve(runDirectory, rootName));
       files.push(...walk(root, 200 - files.length, text).map((path) => `${rootName}/${relative(root, path)}`));
+    } catch { /* a run may not have created this directory yet */ }
+  }
+  return files.sort();
+}
+
+export function runFiles(runDirectory) {
+  const files = [];
+  for (const rootName of ["inputs", "outputs"]) {
+    try {
+      const root = realpathSync(resolve(runDirectory, rootName));
+      files.push(...walk(root, 200 - files.length).map((path) => `${rootName}/${relative(root, path)}`));
     } catch { /* a run may not have created this directory yet */ }
   }
   return files.sort();

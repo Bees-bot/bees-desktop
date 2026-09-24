@@ -10,7 +10,7 @@ import {
   normalizeRunSettings, processStages, required, requireTeam, workspaceContext
 } from "./product-database.js";
 import {
-  inputManifest, logicalRelativePath, outputFiles, outputLocation, previewFiles, stageInputs,
+  inputManifest, logicalRelativePath, outputFiles, outputLocation, runFiles, stageInputs,
   mappedLocation, stagedLocation, stageLocation, TEXT_EXTENSIONS
 } from "./product-files.js";
 import { fileReferences, leadingAgentInvocation, preserveReferences, referenceContext, referenceRows, referenceSlug, referenceText, resolveReference, resolveReferences, typedReferences } from "./product-references.js";
@@ -401,15 +401,18 @@ export class BeesProduct {
       WHERE workspace_id IN (SELECT value FROM json_each(?)) AND archived_at IS NULL ORDER BY created_at
     `).all(JSON.stringify(workspaceIds)).map(({ mcpServers, ...row }) => ({ ...row, mcpServers: JSON.parse(mcpServers) })) : [];
     const archivedProcessTemplates = workspaceIds.length ? this.database.prepare(`
-      SELECT id, workspace_id AS workspaceId, name, description, archived_at AS archivedAt, 'process' AS sourceKind
+      SELECT id, workspace_id AS workspaceId, name, description, account_user_id AS accountUserId,
+             archived_at AS archivedAt, 'process' AS sourceKind
       FROM processes WHERE workspace_id IN (SELECT value FROM json_each(?)) AND archived_at IS NOT NULL
       UNION ALL
-      SELECT id, workspace_id AS workspaceId, name, description, archived_at AS archivedAt, 'template' AS sourceKind
+      SELECT id, workspace_id AS workspaceId, name, description, account_user_id AS accountUserId,
+             archived_at AS archivedAt, 'template' AS sourceKind
       FROM process_templates WHERE workspace_id IN (SELECT value FROM json_each(?)) AND archived_at IS NOT NULL
       ORDER BY archivedAt DESC
     `).all(JSON.stringify(workspaceIds), JSON.stringify(workspaceIds)) : [];
     const templates = workspaceIds.length ? this.database.prepare(`
-      SELECT id, workspace_id AS workspaceId, name, description, stages_json AS stages
+      SELECT id, workspace_id AS workspaceId, name, description, stages_json AS stages,
+             account_user_id AS accountUserId
       FROM process_templates
       WHERE workspace_id IN (SELECT value FROM json_each(?)) AND archived_at IS NULL
       ORDER BY created_at
@@ -569,7 +572,7 @@ export class BeesProduct {
         outputs: outputFiles(runDirectory),
         outputsPath: existsSync(outputsDir) ? outputsDir : null,
         files: ["waiting_for_input", "waiting_for_approval"].includes(run.status)
-          ? previewFiles(runDirectory) : []
+          ? runFiles(runDirectory) : []
       };
     }) : [];
     // Runs from another device: no local session, no run directory, so no transcript and no files.
@@ -705,7 +708,7 @@ export class BeesProduct {
     return this.agents.history(id);
   }
 
-  locationFile(locationId, filePath = "") {
+  locationFile(locationId, filePath = "", native = false) {
     const location = mappedLocation(this.database, required(locationId, "Location"));
     if (!location) throw new Error("Location is unavailable");
     requireTeam(this.database, location.teamId, ["admin", "member", "viewer"]);
@@ -724,9 +727,11 @@ export class BeesProduct {
     }
     const path = selected.localPath;
     const extension = extname(path).toLowerCase();
-    if (!TEXT_EXTENSIONS.has(extension)) throw new Error("This file type cannot be previewed as text");
     const stat = lstatSync(path);
     if (!stat.isFile()) throw new Error("The file is unavailable");
+    if (native) return { nativePath: path, name: basename(path), path: logical || basename(path), size: stat.size };
+    if (!TEXT_EXTENSIONS.has(extension))
+      return { name: basename(path), path: logical || basename(path), format: "binary", content: null, size: stat.size, truncated: false };
     return textPreview(path, logical || basename(path));
   }
 
@@ -744,7 +749,6 @@ export class BeesProduct {
     const logical = logicalRelativePath(required(filePath, "File"));
     const [rootName] = logical.split("/");
     if (!["inputs", "outputs"].includes(rootName)) throw new Error("Only run inputs and outputs can be previewed");
-    if (!native && !TEXT_EXTENSIONS.has(extname(logical).toLowerCase())) throw new Error("This file type cannot be previewed as text");
     // the stored folder is always below this workspace's root, so only a link placed by hand could leave it
     const runDirectory = realpathSync(row.runDirectory);
     const root = realpathSync(resolve(runDirectory, rootName));
@@ -753,7 +757,10 @@ export class BeesProduct {
     if (path !== root && !path.startsWith(`${root}${sep}`)) throw new Error("The file escaped its run directory");
     const stat = lstatSync(path);
     if (!stat.isFile()) throw new Error("The run file is unavailable");
-    return native ? { sessionId: row.sessionId, status: row.status, path: logical } : textPreview(path, logical);
+    if (native) return { sessionId: row.sessionId, status: row.status, path: logical };
+    if (!TEXT_EXTENSIONS.has(extname(logical).toLowerCase()))
+      return { name: basename(path), path: logical, format: "binary", content: null, size: stat.size, truncated: false };
+    return textPreview(path, logical);
   }
 
   async planningBrief(workspaceId, outcome) {

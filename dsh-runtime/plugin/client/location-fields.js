@@ -88,7 +88,8 @@ export function ResourceFields({
               ].filter(Boolean).join(" · ")))),
           h(Button, { disabled: !location?.mapped || Boolean(location?.archivedAt),
             title: `${viewing ? "Hide" : "View"} ${label}`, "aria-label": `${viewing ? "Hide" : "View"} ${label}`,
-            onClick: () => setViewer(viewing ? null : { locationId: row.locationId, path: row.relativePath, placement: "input" }) }, viewing ? "Hide" : "View")),
+            onClick: () => setViewer(viewing ? null : { locationId: row.locationId, path: row.relativePath,
+              name: location?.name, placement: "input" }) }, viewing ? "Hide" : "View")),
         viewing ? h("div", { className: "bees-resource-inline-preview" },
           h(FilePreview, { target: viewer, inline: true, onClose: () => setViewer(null) })) : null);
     })) : h("p", { className: "bees-muted" }, compact ? "No input files selected." : "No inputs selected."),
@@ -211,7 +212,7 @@ export function LocationEntry({ locationId, path, name, kind, disabled, title, v
       if (!current) return;
       setFile(value);
       // A reference into a folder can point at a file rather than a subfolder.
-      if (!value.entries) { setExpanded(false); onOpen?.({ locationId, path }); }
+      if (!value.entries) { setExpanded(false); onOpen?.({ locationId, path, name }); }
     }).catch((reason) => {
       if (current) setError(reason instanceof Error ? reason.message : String(reason));
     });
@@ -221,7 +222,7 @@ export function LocationEntry({ locationId, path, name, kind, disabled, title, v
   if (disabled || kind === "file" || (file && !file.entries)) {
     const fileBtn = h(Button, {
       className: `bees-directory-file${selected ? " active" : ""}`, disabled, title,
-      "aria-pressed": selected, onClick: () => onOpen?.(selected ? null : { locationId, path })
+      "aria-pressed": selected, onClick: () => onOpen?.(selected ? null : { locationId, path, name })
     }, h(kind === "folder" ? FilesIcon : FileIcon), kind === "folder" ? name : truncateFileName(name));
     const row = action ? h("div", { className: "bees-location-file-row" }, fileBtn, action) : fileBtn;
     if (!selected) return row;
@@ -335,10 +336,9 @@ const languageOf = (name) => CODE_LANGUAGES[String(name ?? "").split(".").pop().
 const formatSize = (bytes) => bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`;
 const HIGHLIGHT_LIMIT = 64 * 1024; // shiki freezes the page past this size
 export function FilePreview({ target, onClose, inline }) {
-  if (target.executionId) return h(NativeRunFilePreview, {
-    key: JSON.stringify([target.executionId, target.path]), target, onClose, inline, Preview: FileContents
+  return h(NativeRunFilePreview, {
+    key: JSON.stringify([target.executionId, target.locationId, target.path]), target, onClose, inline, Preview: FileContents
   });
-  return h(FileContents, { key: JSON.stringify({ executionId: target.executionId, locationId: target.locationId, path: target.path }), target, onClose, inline });
 }
 
 function FileContents({ target, onClose, inline, loadFile }) {
@@ -378,8 +378,10 @@ function FileContents({ target, onClose, inline, loadFile }) {
           : h(React.Fragment, null,
             file.truncated ? h("div", { className: "bees-muted" }, `Showing the first part of a ${formatSize(file.size)} file.`) : null,
             file.format === "image" ? h("img", { className: "bees-file-preview-image", src: file.url, alt: title })
+              : file.format === "audio" ? h("audio", { className: "bees-file-preview-media", src: file.url, controls: true })
+              : file.format === "video" ? h("video", { className: "bees-file-preview-media", src: file.url, controls: true })
               : file.format === "html" ? h("iframe", { className: "bees-file-preview-document", src: file.url, title,
-                sandbox: "allow-scripts", referrerPolicy: "no-referrer" })
+                sandbox: "", referrerPolicy: "no-referrer" })
               : file.format === "pdf" ? h("object", { className: "bees-file-preview-document", data: file.url, type: "application/pdf", "aria-label": title },
                 h("a", { href: file.url, download: file.name }, "Download PDF"))
               : file.content == null ? h("p", { className: "bees-muted" }, `No preview for this ${formatSize(file.size)} file.`)
