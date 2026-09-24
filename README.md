@@ -99,7 +99,7 @@ See [Known limitations](docs/limitations.md) for everything else that is deliber
 
 ## Contributing
 
-Bees is built by two people, so a real fix is genuinely useful. Read [CONTRIBUTING.md](CONTRIBUTING.md) before you start: what needs an issue first, what we usually say yes and no to, and how pull requests get reviewed. Everyone participating is covered by the [Code of Conduct](CODE_OF_CONDUCT.md).
+We take feature requests and bug reports, not code. Only the Bees team can open pull requests here. [Ask for a feature](https://github.com/Bees-bot/bees-desktop/issues/new?template=feature_request.yml) or [report a bug](https://github.com/Bees-bot/bees-desktop/issues/new?template=bug_report.yml) instead, and see [CONTRIBUTING.md](CONTRIBUTING.md) for why. Everyone taking part is covered by the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Security
 
@@ -115,7 +115,7 @@ Bees Desktop also ships third-party software under its own terms, including LGPL
 
 ## Development
 
-Requires Node 24 (pinned in `.nvmrc`), npm 10+, Rust 1.84+, and a native desktop toolchain. The app bundles its own Node 24 runtime; native modules built under an older Node break the free AI option on a fresh install. Codespaces and dev containers work for the API and the website, but not for this app: Tauri needs a real machine.
+Requires Node 24 (pinned in `.nvmrc`), npm 10+, Rust 1.84+, and a native desktop toolchain. On macOS the first build compiles `llama-server`, so it also needs CMake (`brew install cmake`). The app bundles its own Node 24 runtime; native modules built under an older Node break the free AI option on a fresh install. Codespaces and dev containers work for the API and the website, but not for this app: Tauri needs a real machine.
 
 ```sh
 npm ci

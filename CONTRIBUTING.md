@@ -1,89 +1,24 @@
 # Contributing
 
-Thanks for looking. We're two people, so anything you fix is genuinely useful.
+We take feature requests and bug reports. We don't take code.
 
-## Before you start
+Bees is built by two people. Reviewing an outside pull request properly takes us longer than
+making the change ourselves, and we'd have to maintain whatever we merge. So only the Bees team
+can open pull requests here. The license still lets you fork Bees and change anything you like.
 
-Open an issue first if it's more than a small fix. Saves you writing something we
-were about to change anyway.
+## Ask for a feature
 
-Issues tagged `good first issue` should take under an hour. If one takes longer than
-that, tell us, because the label is wrong.
+Open a [feature request](https://github.com/Bees-bot/bees-desktop/issues/new?template=feature_request.yml).
+Tell us what you were trying to get done and where Bees got in the way. The problem helps us
+more than a proposed fix.
 
-## Getting it running
+## Report a bug
 
-Bees is three repositories. This one is the desktop app:
+Open a [bug report](https://github.com/Bees-bot/bees-desktop/issues/new?template=bug_report.yml)
+with your Bees version, your operating system, and the log lines around the failure.
 
-- `bees-desktop`, here, the Tauri app
-- `bees-server`, the API and PostgreSQL
-- `bees-website`, the marketing site
+## Security
 
-Stage 1 desktop development is local and needs one terminal:
+Don't open a public issue for a vulnerability. See [SECURITY.md](SECURITY.md).
 
-```sh
-npm ci
-npm run tauri:dev
-```
-
-Checks before you open a PR:
-
-```sh
-npm run check                                    # typecheck, build
-npm run prepare:dsh                              # the Rust build needs the staged runtimes
-cargo check --manifest-path src-tauri/Cargo.toml
-```
-
-You'll need Node 24, npm 10+, Rust 1.84+, and the native toolchain for your platform. Use
-Node 24 and not an older one: the app runs Node 24 itself, and native modules built under an
-older Node break the free AI option on a fresh install.
-The desktop bundles neither PostgreSQL nor Python, and local memory provisions its own Python
-at first run. It does bundle `llama-server`; the first macOS build compiles it and therefore
-also needs CMake (`brew install cmake`).
-
-**One heads up.** This is Tauri, so it needs a native toolchain. Codespaces and dev
-containers are fine for the API and the website, but **not** for the desktop app. You
-need a real machine. We'd rather tell you now than have you find out an hour in.
-
-There is no separate frontend dev server to start. `tauri dev` runs a `vite build`
-through `scripts/prepare-desktop.mjs`, and the app serves that bundle.
-
-## What we're likely to say yes to
-
-- Bug fixes, especially install and first-run problems on Windows and Linux
-- Better error messages
-- Docs, particularly troubleshooting for errors you actually hit
-- New starter agents that do something genuinely useful
-
-## What we're likely to say no to
-
-- Forking or patching the agent runtime instead of extending [DeepSeek Harness](https://github.com/deepseek-ai/DeepSeek-Harness) through its plugin contracts.
-- Anything that uploads document contents anywhere
-- Big refactors without an issue first
-- New dependencies where a few lines would do
-
-We'd rather say no clearly than leave your PR sitting for six months.
-
-## How we work
-
-- Include user-facing changes in `CHANGELOG.md` under `## Unreleased`; see
-  [the release guide](docs/releases.md) for versioning and publication.
-
-- Branch off `main`, open a PR
-- CI has to pass
-- A change that touches more than one repository wants the same branch name in each,
-  and a note in each PR saying which others go with it
-- We'll reply within 3 working days. If we haven't, chase us, we've dropped it.
-- Small PRs get merged faster, because they're easier to read
-- Contributors get named in the release notes. There's no separate thank-you ritual,
-  because that's the thing that quietly stops happening in a busy week
-- Office hours every second week, not every week. Weekly is the promise everyone breaks,
-  and a missed public promise costs more than one never made
-
-## Code style
-
-Match what's around it. TypeScript for business logic, Rust only where Tauri needs it.
-There's no style guide beyond that and we're not going to invent one.
-
-## Reporting security problems
-
-Don't open a public issue. See [SECURITY.md](SECURITY.md).
+Everyone taking part is covered by the [Code of Conduct](CODE_OF_CONDUCT.md).

@@ -2,7 +2,7 @@
 # to find out that a change does not compile.
 #
 # Actions are pinned to commit SHAs. A tag can be moved by whoever owns the
-# action, a SHA cannot, and strangers will be opening PRs here.
+# action, a SHA cannot.
 
 name: CI
 
