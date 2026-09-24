@@ -282,8 +282,17 @@ export function insertProcess(
 }
 
 /** Stages describe process structure. Agent guidance belongs to agents and specialists. */
-export function processStages(value, label = "process") {
-  const entries = Array.isArray(value) ? value : [];
+export function processStages(value, label = "process", current = []) {
+  // forms send names only, so a name that is already a stage keeps that stage's driver and approval gate
+  const entries = (Array.isArray(value) ? value : []).map((entry, position, list) => {
+    const stage = typeof entry === "string"
+      && current.find((row) => row?.name?.toLocaleLowerCase() === entry.trim().toLocaleLowerCase());
+    if (!stage) return entry;
+    // closing depends on position, so a closing stage moved up, or a closing name moved last, goes back to its name
+    const named = stageDriver(entry, position, list.length);
+    return { name: entry, requiresHumanApproval: stage.requiresHumanApproval,
+      driver: named === "terminal" || (stage.driver === "terminal" && position < list.length - 1) ? named : stage.driver };
+  });
   // The limit counts the caller's own stages. The closing Done below is ours and does not use one up.
   if (entries.length < 2 || entries.length > 12) throw new Error(`A ${label} needs 2 to 12 stages`);
   const stages = entries.map((entry, position) => ({

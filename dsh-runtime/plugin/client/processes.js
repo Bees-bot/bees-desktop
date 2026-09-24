@@ -90,7 +90,7 @@ function ProcessForm({ ctx, data, servers, tools, catalog, onServerAction, kind,
     const created = await act({
       action: template ? "create_process_template" : "create_process", workspaceId,
       name: String(form.get("name") ?? ""), description: String(form.get("description") ?? ""), stages,
-      inputLocationIds, outputLocationId,
+      inputLocationIds, outputLocationId, templateId: draft?.id,
       mcpAccess: String(form.get("mcpAccess") ?? "none"), mcpServers: form.getAll("mcpServers").map(String)
     });
     if (created?.id) onCreated(created.id);
