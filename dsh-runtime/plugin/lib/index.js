@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { createReadStream } from "node:fs";
 import { LOCAL_MEMORY_URL, LocalMemory } from "./local-memory.js";
 import { timingSafeEqual } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
@@ -126,6 +127,17 @@ function reply(res, status, value, headers = {}) {
     ...headers
   });
   res.end(body);
+}
+
+function replyFile(res, file) {
+  res.writeHead(200, {
+    "content-type": "application/octet-stream",
+    "cache-control": "no-store",
+    "content-length": file.size,
+    "x-bees-file-name": encodeURIComponent(file.name),
+    "x-bees-file-path": encodeURIComponent(file.path)
+  });
+  createReadStream(file.nativePath).on("error", () => res.destroy()).pipe(res);
 }
 
 function replyPage(res, ok, detail = "") {
@@ -466,7 +478,8 @@ export async function apply(ctx, config = {}, internals = {}) {
   register(ctx, { kind: "exact", path: "/bees-api/location-file", handler: (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
-      reply(res, 200, product.locationFile(url.searchParams.get("locationId") ?? "", url.searchParams.get("path") ?? ""));
+      const file = product.locationFile(url.searchParams.get("locationId") ?? "", url.searchParams.get("path") ?? "", url.searchParams.get("native") === "1");
+      url.searchParams.get("native") === "1" ? replyFile(res, file) : reply(res, 200, file);
     } catch (error) { reply(res, 409, { error: userMessage(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/run-file", handler: (req, res) => {
