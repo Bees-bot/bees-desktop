@@ -4,17 +4,21 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="dark light">
-    <title>Bees</title>
+    <title>Bees Desktop</title>
     <style>
       body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #111315; color: #f5f5f5; font: 15px system-ui; }
       main { text-align: center; }
-      .mark { margin: 0 auto 18px; width: 46px; height: 46px; display: block; border-radius: 14px; object-fit: cover; }
-      p { color: #a8abb0; }
+      .mark { margin: 0 auto 18px; width: 46px; height: 46px; display: block; border-radius: 14px; object-fit: cover; animation: hover 1.8s ease-in-out infinite; }
+      strong { display: block; font-size: 20px; }
+      p { max-width: 420px; color: #a8abb0; }
+      p:empty { display: none; }
       button { margin-top: 14px; padding: 7px 14px; border: 1px solid #3a3d42; border-radius: 8px; color: inherit; background: #1c1f23; font: inherit; cursor: pointer; }
+      @keyframes hover { 50% { transform: translateY(-6px); } }
+      @media (prefers-reduced-motion: reduce) { .mark { animation: none; } }
     </style>
     <script type="module" src="/src/entry.ts"></script>
   </head>
   <body>
-    <main><img class="mark" src="/src/brand-mark.png" alt=""><strong>Opening Bees</strong><p id="status">Starting the local runtime…</p><button id="retry" type="button" hidden>Try again</button></main>
+    <main><img class="mark" src="/src/brand-mark.png" alt=""><strong>Bees Desktop</strong><p id="status" aria-live="polite"></p><button id="retry" type="button" hidden>Try again</button></main>
   </body>
 </html>
