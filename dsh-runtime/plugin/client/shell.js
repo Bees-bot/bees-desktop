@@ -392,7 +392,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
       error || h(React.Fragment, null, 
         h("style", null, `@keyframes hover { 50% { transform: translateY(-6px); } }`),
         h("img", { src: brandMark, style: { width: "46px", height: "46px", borderRadius: "14px", objectFit: "cover", animation: "hover 1.8s ease-in-out infinite" } }),
-        h("strong", { style: { fontSize: "20px", color: "#f5f5f5" } }, "Opening Bees")
+        h("strong", { style: { fontSize: "20px", color: "#f5f5f5" } }, "Bees Desktop")
       )));
   const dashboards = dashboardsFrom(preference.dashboards);
   const activeDashboard = dashboards.find(({ id }) => id === preference.activeDashboardId) ?? dashboards[0];

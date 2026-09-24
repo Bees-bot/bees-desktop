@@ -52,7 +52,7 @@ function scheduleSummary(recurring) {
   return `Daily at ${time} · ${recurring.timezone}`;
 }
 
-function ScheduleForm({ item, items = [], recurring, act, onClose, onCreated, inline, setPageHeader }) {
+function ScheduleForm({ item, items = [], recurring, act, onClose, onCreated }) {
   const [itemId, setItemId] = useState(item?.id ?? items[0]?.id ?? "");
   const selectedItem = item ?? items.find(({ id }) => id === itemId);
   const current = recurring?.schedule ?? {};
@@ -83,10 +83,8 @@ function ScheduleForm({ item, items = [], recurring, act, onClose, onCreated, in
     } catch (reason) { setBusy(false); setError(reason instanceof Error ? reason.message : String(reason)); }
   };
   
-  const formContent = h("form", { className: `bees-form bees-process-form${inline ? "" : " bees-modal"}`, role: inline ? "form" : "dialog", "aria-modal": inline ? undefined : "true", "aria-label": recurring ? "Edit recurring work" : "Schedule work", onSubmit: submit },
-    inline ? h(PageHead, { setPageHeader }, h(Button, { onClick: onClose }, h(ArrowLeftIcon), " Back"),
-      h("div", null, h("h2", null, "New Schedule"))) : null,
-    inline ? null : h("div", { className: "bees-row" }, h("div", null,
+  const formContent = h("form", { className: "bees-form bees-process-form bees-modal", role: "dialog", "aria-modal": "true", "aria-label": recurring ? "Edit recurring work" : "Schedule work", onSubmit: submit },
+    h("div", { className: "bees-row" }, h("div", null,
       h("h2", { style: { display: "flex", alignItems: "center" } }, (recurring ? "Edit recurring work" : "Schedule this work"), h("span", { style: { flex: 1 } }), h(HelpTooltip, { text: "Schedules automatically create new process runs for this work on a regular basis. You can use this for any repeatable task.", examples: ["A daily schedule to run an 'Inbox Triage' process at 9 AM", "A weekly schedule for 'Prepare Status Report'", "An advanced cron schedule to trigger 'System Backup'"] })))),
       item ? null : h("label", { className: "bees-process-name" }, "Process run to repeat", h("select", { className: "bees-select", value: itemId, onChange: (event) => {
         setItemId(event.target.value);
@@ -118,7 +116,7 @@ function ScheduleForm({ item, items = [], recurring, act, onClose, onCreated, in
       h("div", { className: "bees-detail-actions bees-process-actions", style: { justifyContent: "flex-end" } }, h(Button, { onClick: onClose, disabled: busy }, "Cancel"),
         h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Saving…" : recurring ? "Save changes" : "Create schedule")));
         
-  return inline ? formContent : h("div", { className: "bees-modal-backdrop", role: "presentation" }, formContent);
+  return h("div", { className: "bees-modal-backdrop", role: "presentation" }, formContent);
 }
 
 function RecurringWorkPanel({ data, item, recurringWork, act, onEdit }) {
@@ -1213,10 +1211,6 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
       stages.every(({ driver }) => ["agent", "discussion", "review", "terminal"].includes(driver));
   });
   
-  if (creating === "schedule") return h("div", { className: "bees-flex-page bees-stack" },
-    h(ScheduleForm, { items: schedulableItems, act, inline: true, onClose: () => setCreating(""),
-      onCreated: (id) => { setCreating(""); setWorkItemId(id); }, setPageHeader })
-  );
   if (["work", "run", "goal"].includes(creating)) return h(WorkItemForm, {
     ctx, data, kind: creating, workspaceId, defaultProcessId, act, capabilities, onCancel: () => setCreating(""),
     onCreated: (id) => { setCreating(""); setWorkItemId(id); }, setPageHeader
@@ -1318,7 +1312,7 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
         ...owners.map(({ id, label }) => h("option", { value: id, key: id }, label))),
       route === "schedules" ? h(Button, { className: "primary", disabled: !schedulableItems.length,
         title: schedulableItems.length ? "Schedule an existing process run" : "Start a process run before scheduling it",
-        onClick: () => setCreating("schedule") }, "New Schedule") : h(Button, { className: "primary", disabled: !workspaceId, onClick: () => {
+        onClick: () => setNewSchedule(true) }, "New Schedule") : h(Button, { className: "primary", disabled: !workspaceId, onClick: () => {
         setWorkProcessId?.(""); setCreating("run");
       } }, "New Process Run")),
     h(GridStackPage, {
@@ -1327,6 +1321,8 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
         "active-work": { label: route === "schedules" ? "Schedules" : "Active process runs", minW: 6, minH: 3, content: renderRows(rows.filter((item) => !isDone(item)), route === "schedules" ? "No schedules yet" : "No active process runs match these filters", true, false, plans.filter((run) => !planDone(run))), helpText: route === "schedules" ? "Recurring schedules automatically start process runs at specific times or intervals." : "Process runs and process items that are currently active.", helpExamples: route === "schedules" ? ["A daily schedule to run an 'Inbox Triage' process at 9 AM", "An hourly schedule to check for new GitHub issues"] : [] },
         "finished-work": { label: "Completed, archived & stopped", minW: 6, minH: 3, content: renderRows(rows.filter(isDone), route === "schedules" ? "No completed, archived, or stopped schedules match these filters" : "No completed, archived, or stopped process runs match these filters", true, true, plans.filter(planDone)) }
       }
-    })
+    }),
+    newSchedule ? h(ScheduleForm, { items: schedulableItems, act, onClose: () => setNewSchedule(false),
+      onCreated: (id) => setWorkItemId(id) }) : null
   );
 }

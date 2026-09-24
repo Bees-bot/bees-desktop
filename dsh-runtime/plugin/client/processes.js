@@ -114,7 +114,7 @@ function ProcessForm({ ctx, data, servers, tools, catalog, onServerAction, kind,
     template ? null : h("div", { className: "bees-process-files" }, h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds,
       onInputIds: setInputLocationIds, outputId: outputLocationId, onOutputId: setOutputLocationId, compact: true })),
     template ? null : h("div", { className: "bees-process-mcps" },
-      h(McpAccess, { ctx, servers, tools, catalog, onServerAction, access: "none", scope: "process" })),
+      h(McpAccess, { ctx, servers, tools, catalog, onServerAction, access: "all", scope: "process" })),
     h("div", { className: "bees-detail-actions bees-process-actions", style: { justifyContent: "flex-end" } },
       h(Button, { onClick: onCancel }, "Cancel"),
       h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Creating…" : template ? "Create template" : "Create process template"))
@@ -239,18 +239,15 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
         onCreateAgent: (id) => { setSelectedAgentId(""); setCreatingStageId(id); }
       });
 
-      const agentForm = creatingStage ? h("div", null,
-          
-          h(AgentCreateForm, { ctx, data, servers, tools, catalog, onServerAction, workspaceId: process.workspaceId, act, dialog: true, processId: process.id,
+      if (creatingStage) return h("div", { className: "bees-flex-page bees-stack" }, h(AgentCreateForm, { ctx, data, servers, tools, catalog, onServerAction, workspaceId: process.workspaceId, act, dialog: false, setPageHeader, processId: process.id,
             onCancel: () => setCreatingStageId(""), onCreated: async (id) => {
               await act({ action: "set_stage_route", stageId: creatingStage.id,
                 agentIds: [...(creatingStage.agentIds ?? []), id], requiredCapabilities: creatingStage.requiredCapabilities });
               setCreatingStageId(""); setSelectedAgentId(id);
-            } }))
-        : selectedAgent ? h("div", null,
-          
-          h(AgentEditForm, { ctx, data, servers, tools, catalog, onServerAction, selected: selectedAgent, act, dialog: true, processId: process.id,
-            onCancel: () => setSelectedAgentId(""), onSaved: () => setSelectedAgentId("") })) : null;
+            } }));
+
+      if (selectedAgent) return h("div", { className: "bees-flex-page bees-stack" }, h(AgentEditForm, { ctx, data, servers, tools, catalog, onServerAction, selected: selectedAgent, act, dialog: false, setPageHeader, processId: process.id,
+            onCancel: () => setSelectedAgentId(""), onSaved: () => setSelectedAgentId("") }));
 
       const processActions = h("div", { className: "bees-detail-actions", style: { justifyContent: "flex-end", margin: "0 0 16px" }, role: "group", "aria-label": "Process template actions" },
           h(Button, { onClick: editProcess }, "Edit"),
@@ -282,8 +279,7 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
             files: { label: "Files", minW: 4, minH: 3, content: filesPanel },
             mcp: { label: "Process MCPs", minW: 4, minH: 3, content: mcpPanel }
           }
-        }),
-        agentForm
+        })
       );
     }
   }

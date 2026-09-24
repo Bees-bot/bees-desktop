@@ -73,7 +73,7 @@ export function AskBeesSetup({ ctx, data, workspaceId, initial, act, onCancel, o
             defaultOutputId: process?.outputLocationId, defaultOutputName: defaultOutput?.name })),
         error ? h("p", { className: "bees-error", role: "alert" }, error) : null,
         h("div", { className: "bees-detail-actions" },
-          h(Button, { className: "primary", disabled: !process || Boolean(selectedAgent || creatingStage), onClick: () => onSave({ processId: process.id, inputLocationIds, outputLocationId }) }, "Save"),
-          h(Button, { onClick: onCancel }, "Cancel")),
+          h(Button, { onClick: onCancel }, "Cancel"),
+          h(Button, { className: "primary", disabled: !process || Boolean(selectedAgent || creatingStage), onClick: () => onSave({ processId: process.id, inputLocationIds, outputLocationId }) }, "Save")),
         selectedAgent || creatingStage ? h("p", { className: "bees-muted" }, "Save or close the agent settings before saving this configuration.") : null)));
 }
