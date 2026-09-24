@@ -14,8 +14,8 @@ export function FilesPage({ ctx, data, teamId, act }) {
     : ask(`Absolute path for ${location.name} on this device`, location.localPath ?? "");
   return h("div", null,
     h("div", { className: "bees-row" }, h("div", { className: "bees-grow" }),
-      h(Button, { disabled: !teamId || !["admin", "member"].includes(team?.role), onClick: () => addLocationFromDevice(ctx, act, teamId, "file") }, "Add file"),
-      h(Button, { className: "primary", disabled: !teamId || !["admin", "member"].includes(team?.role), onClick: () => addLocationFromDevice(ctx, act, teamId, "folder") }, "Add folder")),
+      h(Button, { disabled: !teamId || !["admin", "member"].includes(team?.role), onClick: () => addLocationFromDevice(ctx, act, teamId, "file") }, "Choose file"),
+      h(Button, { className: "primary", disabled: !teamId || !["admin", "member"].includes(team?.role), onClick: () => addLocationFromDevice(ctx, act, teamId, "folder") }, "Choose folder")),
     ...(locations.length ? locations.map((location) => h("div", { className: "bees-row", key: location.id },
       h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, location.name),
         h("div", { className: "bees-muted" }, `${location.kind} · ${location.localPath || "Not mapped on this device"}`),

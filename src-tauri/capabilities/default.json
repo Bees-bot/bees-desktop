@@ -6,5 +6,5 @@
   "remote": {
     "urls": ["http://127.0.0.1:*"]
   },
-  "permissions": ["allow-bees-ui", "core:default"]
+  "permissions": ["allow-bees-ui", "core:default", "dialog:allow-open"]
 }

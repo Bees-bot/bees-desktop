@@ -1,5 +1,5 @@
 import { h, React, useEffect, useRef, useState } from "./runtime.js";
-import { ask, confirmAction, Button, Empty, request, useSubmit, PageHead, usePreference } from "./shared.js";
+import { ask, confirmAction, Button, Empty, McpCard, request, useSubmit, PageHead, usePreference } from "./shared.js";
 import { GridStackPage } from "./flexible-grid.js";
 import { inheritedInputs, ResourceFields } from "./location-fields.js";
 import { CatalogReview } from "./skills.js";
@@ -128,7 +128,7 @@ export function SystemDefaultSettings({ ctx, modelSettings, systemDefault, reloa
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Which MCP servers this agent may use. Shared by the create and edit forms. */
-export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access, chosen, onServerAction, scope = "agent", showAll = false }) {
+export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access, chosen, onServerAction, onChange, scope = "agent", showAll = false }) {
   const [mode, setMode] = useState(access ?? "all");
   const [picked, setPicked] = useState(chosen ?? []);
   const [query, setQuery] = useState("");
@@ -146,58 +146,57 @@ export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access,
   const entry = catalog.find(({ id }) => id === reviewing);
   // Grants travel between computers; a name this one never installed is shown so it can be added here.
   const missing = picked.filter((name) => !servers.some((server) => server.serverName === name));
+  const change = (nextMode, nextPicked = picked) => {
+    setMode(nextMode); setPicked(nextPicked);
+    void onChange?.({ mcpAccess: nextMode, mcpServers: nextMode === "listed" ? nextPicked : [] });
+  };
 
   return h("section", { className: "bees-mcp-access", "data-mcp-mode": mode },
     h("label", null, "MCP access",
       h("select", { className: "bees-select", name: "mcpAccess", value: mode,
-        onChange: (event) => setMode(event.target.value) },
+        onChange: (event) => change(event.target.value) },
         h("option", { value: "all" }, "All connected MCPs"),
         h("option", { value: "none" }, scope === "process" ? "No process MCPs" : "No MCP access"),
         h("option", { value: "listed" }, "Only selected MCPs"))),
     mode === "all" ? h("div", { className: "bees-mcp-count" }, `${connected.length} MCP${connected.length === 1 ? "" : "s"} connected`) : null,
     (mode === "listed" || showAll) && entry ? h(CatalogReview, { ctx, entry, onCancel: () => setReviewing(""),
       // a Google sign-in lands later, so that server shows up to add once it is connected
-      onDone: ({ serverName }) => { if (serverName && !picked.includes(serverName)) { setPicked([...picked, serverName]); if (mode === "none") setMode("listed"); } setReviewing(""); } }) : mode === "listed" || showAll ? h(React.Fragment, null,
+      onDone: ({ serverName }) => { if (serverName && !picked.includes(serverName)) change(mode === "none" ? "listed" : mode, [...picked, serverName]); setReviewing(""); } }) : mode === "listed" || showAll ? h(React.Fragment, null,
       ...(mode === "listed" ? picked : []).map((name) => h("input", { key: name, type: "hidden", name: "mcpServers", value: name })),
       h("input", { className: "bees-input", value: query, placeholder: "Search MCPs or tools", "aria-label": "Search MCPs or tools",
         onChange: (event) => setQuery(event.target.value) }),
       missing.length ? h("div", { className: "bees-mcp-grid" }, ...missing.map((name) => {
         const item = catalog.find((one) => one.serverName === name && !one.installedAs);
-        return h("article", { className: "bees-mcp-card missing", key: `missing:${name}` },
-          h("div", { className: "bees-mcp-card-head" },
-            h("strong", null, item?.label ?? name),
-            h("span", { className: "bees-badge" }, "Not on this computer"),
-            item ? h(Button, { className: "primary", disabled: !onServerAction, onClick: () => setReviewing(item.id) }, "Add") : null,
-            h(Button, { onClick: () => setPicked(picked.filter((one) => one !== name)) }, "Remove")),
+        return h(McpCard, { name: item?.label ?? name, status: "Unavailable", tone: "warning", key: `missing:${name}` },
           h("div", { className: "bees-muted" }, item
             ? `${item.summary} · runs here fail until it is added`
             : UUID.test(name)
               ? `This MCP server was set up on another computer. Take it off and pick the one this ${scope} should use.`
-              : `${name} is set up on another computer. Add it under MCP servers, or remove it from this ${scope}.`));
+              : `${name} is set up on another computer. Add it under MCP servers, or remove it from this ${scope}.`),
+          h("div", { className: "bees-detail-actions" },
+            item ? h(Button, { className: "primary", disabled: !onServerAction, onClick: () => setReviewing(item.id) }, "Add") : null,
+            h(Button, { onClick: () => change(mode, picked.filter((one) => one !== name)) }, "Remove")));
       })) : null,
       h("div", { className: "bees-mcp-grid" },
         ...matching.map((server) => {
           const added = server.enabled && (mode === "all" || mode === "listed" && picked.includes(server.serverName));
           const serverTools = tools.filter(({ serverName }) => serverName === server.serverName);
-          return h("article", { className: `bees-mcp-card${added ? " added" : ""}`, key: server.id },
-            h("div", { className: "bees-mcp-card-head" },
-              h("strong", null, server.label),
-              added ? h("span", { className: "bees-badge" }, "Added") : null,
-              added && mode === "listed" ? h(Button, { onClick: () => setPicked(picked.filter((name) => name !== server.serverName)) }, "Remove")
-                : !added && server.enabled ? h(Button, { className: "primary", onClick: () => { setPicked([...picked, server.serverName]); if (mode === "none") setMode("listed"); } }, "Add") : null,
+          return h(McpCard, { name: server.label, status: added ? "Added" : server.enabled ? "Available" : "Turned off",
+            meta: `${server.toolCount ?? serverTools.length} tool${(server.toolCount ?? serverTools.length) === 1 ? "" : "s"}`,
+            tone: added ? "added" : server.enabled ? "" : "warning", key: server.id },
+            h("div", { className: "bees-muted" }, `${server.toolCount ?? serverTools.length} tool${(server.toolCount ?? serverTools.length) === 1 ? "" : "s"}${server.enabled ? "" : " · turned off"}`),
+            serverTools.length ? h("div", { className: "bees-mcp-tools" }, ...serverTools.map((tool) =>
+              h("span", { key: tool.name }, tool.name.replace(`mcp__${server.serverName}__`, "")))) : null,
+            h("div", { className: "bees-detail-actions" },
+              added && mode === "listed" ? h(Button, { onClick: () => change(mode, picked.filter((name) => name !== server.serverName)) }, "Remove")
+                : !added && server.enabled ? h(Button, { className: "primary", onClick: () => change(mode === "none" ? "listed" : mode, [...picked, server.serverName]) }, "Add") : null,
               server.enabled ? null : h(Button, { disabled: !onServerAction, onClick: () => onServerAction?.({
                 action: "set_mcp_server_enabled", serverId: server.id, enabled: true
-              }) }, "Enable")),
-            h("div", { className: "bees-muted" }, `${server.toolCount ?? serverTools.length} tool${(server.toolCount ?? serverTools.length) === 1 ? "" : "s"}${server.enabled ? "" : " · Off"}`),
-            serverTools.length ? h("div", { className: "bees-mcp-tools" }, ...serverTools.map((tool) =>
-              h("span", { key: tool.name }, tool.name.replace(`mcp__${server.serverName}__`, "")))) : null);
+              }) }, "Turn on")));
         }),
-        ...available.map((item) => h("article", { className: "bees-mcp-card catalog", key: `catalog:${item.id}` },
-          h("div", { className: "bees-mcp-card-head" }, h("strong", null, item.label),
-            h("span", { className: "bees-badge" }, "Catalog"),
-            h(Button, { className: "primary", disabled: !onServerAction, onClick: () => setReviewing(item.id) }, "Add")),
-          h("div", { className: "bees-muted" }, item.summary)))),
-      matching.length || available.length || missing.length ? null : h("div", { className: "bees-empty" }, "No MCP or tool matches that search")) : null);
+        ...available.map((item) => h(McpCard, { name: item.label, status: "Not added", key: `catalog:${item.id}`,
+          onOpen: () => setReviewing(item.id) })),
+      matching.length || available.length || missing.length ? null : h("div", { className: "bees-empty" }, "No MCP or tool matches that search"))) : null);
 }
 
 function AgentDialog({ onClose, children }) {
@@ -354,7 +353,8 @@ export function AgentEditForm({ ctx, data, servers, tools, catalog, onServerActi
       h("label", null, "Concurrent runs", h("input", { className: "bees-input", name: "maxConcurrency", type: "number", min: 0, max: 1000, defaultValue: selected.maxConcurrency, title: "0 means unlimited" })),
       h("label", null, "Capabilities", h("input", { className: "bees-input", name: "capabilities", defaultValue: (selected.capabilities ?? []).join(", "), placeholder: "research, writing" })),
       h("label", { className: "bees-agent-toggle" }, h("input", { name: "enabled", type: "checkbox", defaultChecked: selected.enabled }), "Available for routing")),
-    h(McpAccess, { ctx, servers, tools, catalog, onServerAction, access: selected.mcpAccess, chosen: selected.mcpServers }),
+    h(McpAccess, { ctx, servers, tools, catalog, onServerAction, access: selected.mcpAccess, chosen: selected.mcpServers,
+      onChange: ({ mcpAccess, mcpServers }) => act({ action: "edit_agent_assignment", agentAssignmentId: selected.id, mcpAccess, mcpServers }) }),
     h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds,
       onInputIds: setInputLocationIds, allowOutput: false, inherited: inheritedInputs(data, processId) }),
     h("label", null, "Instructions", h("textarea", { className: "bees-textarea", name: "instructions", defaultValue: selected.instructions, placeholder: selected.systemRole === "reviewer" ? "How this team should review work" : "How this agent should complete work" })),
