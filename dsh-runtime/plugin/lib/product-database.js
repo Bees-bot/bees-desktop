@@ -934,8 +934,8 @@ export function initializeProductDatabase(database) {
       cpSync(was, join(dataDirectory(), "api-specs"), { recursive: true });
       rmSync(was, { recursive: true, force: true });
     }
-    database.prepare("UPDATE mcp_servers SET args_json = replace(args_json, ?1, '{data}/api-specs') WHERE instr(args_json, ?1)")
-      .run(was);
+    database.prepare("UPDATE mcp_servers SET args_json = replace(args_json, @was, '{data}/api-specs') WHERE instr(args_json, @was)")
+      .run({ was });
     database.exec("PRAGMA user_version = 31");
   });
   if (version < 32) transaction(database, () => {
