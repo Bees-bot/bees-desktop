@@ -534,7 +534,7 @@ export class ConnectedAccount {
           appProcessId: claim.appProcessId, teamWorkItem: claim.teamWorkItem }
       });
     };
-    return { acquire, renew, release };
+    return { acquire, renew, release, publish: () => this.syncCoordination() };
   }
 
   processQuestionAccount(teamId) {

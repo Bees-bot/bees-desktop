@@ -10,7 +10,8 @@ const stageChangedSignal = defineSignal("stageChanged");
 const runFailedSignal = defineSignal("runFailed");
 
 const { projectWorkItem, createRecurringWorkItem } = proxyActivities({
-  startToCloseTimeout: "10 seconds",
+  // a new scheduled run is pushed to the team server before it is leased
+  startToCloseTimeout: "1 minute",
   retry: { maximumAttempts: 5 }
 });
 

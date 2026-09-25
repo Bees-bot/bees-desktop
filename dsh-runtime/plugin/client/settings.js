@@ -177,7 +177,7 @@ export function AccountsPage({ reload }) {
       )),
     h("section", null,
       h("h3", { style: { marginBottom: "8px" } }, "Add an account"),
-      h("p", { className: "bees-muted", style: { marginBottom: "20px" } }, "Sign in with another account to switch between them or connect additional organizations."),
+      h("p", { className: "bees-muted", style: { marginBottom: "20px" } }, data.accounts?.length ? "Sign in with another account to switch between them or connect additional organizations." : "Sign in to an account to connect it to Bees."),
       h(AccountSignInButtons, { disabled: busy, onStart: browserAuth }),
       error ? h("div", { className: "bees-error", role: "alert", style: { marginTop: "16px" } }, error) : null)
   );

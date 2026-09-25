@@ -7,16 +7,15 @@ import { hideAgentBrowser, navigateAgentBrowser, showAgentBrowser } from "./agen
 import { existsSync, mkdirSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import {
-  agentCapabilities, agentIds as normalizeAgentIds, assertMcpAccess, assignment, capabilities, currentIdentity, DEFAULT_WORKSPACE_NAME, insertDefaultWorkspace, insertProcess, iso,
-  itemContext, mcpGrantFor, normalizeRunSettings, optionalModelRoute, optionalReasoningEffort,
+  agentIds as normalizeAgentIds, assertMcpAccess, assignment, capabilities, currentIdentity, DEFAULT_WORKSPACE_NAME, insertDefaultWorkspace, insertProcess, iso,
+  itemContext, normalizeRunSettings, optionalModelRoute, optionalReasoningEffort,
   parentFor, processContext, processStages,
   message, requireTeam, required, stableUuid, transaction, workspaceContext, workRunItems
 } from "./product-database.js";
 import {
-  canonicalMapping, inputManifest, logicalRelativePath, mappedLocation, outputLocation, stageInputs, stageInputLocations
+  canonicalMapping, inputManifest, logicalRelativePath, mappedLocation, outputLocation, stageInputLocations
 } from "./product-files.js";
 import { authorizeReferences, leadingAgentInvocation, referenceInputs, resolveReference, resolveReferences } from "./product-references.js";
-import { resolveStageAgent } from "./product-routing.js";
 
 /** The three the UI offers. Anything else is a typo or a client that has drifted. */
 function priorityOf(value) {
@@ -220,6 +219,13 @@ function timezoneOf(value) {
   return timezone;
 }
 
+function scheduleName(database, workspaceId, value, id = "") {
+  const name = required(value, "Recurring work name").slice(0, 120);
+  if (database.prepare("SELECT 1 FROM recurring_work WHERE workspace_id = ? AND name = ? AND id != ?").get(workspaceId, name, id))
+    throw new Error(`A schedule named "${name}" already exists; pick another name`);
+  return name;
+}
+
 export function recurringSchedule(input) {
   if (!input.frequency && input.cronExpression && input.everyMinutes) throw new Error("Give cronExpression or everyMinutes, not both");
   const frequency = String(input.frequency ?? (input.cronExpression ? "advanced" : input.everyMinutes ? "hourly"
@@ -231,7 +237,8 @@ export function recurringSchedule(input) {
     const anchorUtc = new Date(input.anchorUtc || Date.now()).toISOString();
     return { kind: "interval", timezone: null, value: { everyMinutes, anchorUtc } };
   }
-  const timezone = timezoneOf(input.timezone || "UTC");
+  // an agent writing "every weekday at 8am" means this device's 8am, not UTC's
+  const timezone = timezoneOf(input.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
   if (frequency === "advanced") {
     const expression = required(input.cronExpression, "Cron expression");
     const fields = expression.split(/\s+/);
@@ -512,10 +519,6 @@ export async function executeProductCommand(action, input) {
         this.database.prepare("INSERT OR IGNORE INTO work_item_locations VALUES (?, ?, ?)").run(item.id, location.id, location.relativePath);
       return {};
     });
-    if (action === "move_item") {
-      const item = itemContext(this.database, input.itemId, ["admin", "member"]);
-      return this.processes.move(item.id, required(input.stageId, "Stage"));
-    }
     if (action === "archive_item") {
       const item = itemContext(this.database, input.itemId, ["admin", "member"]);
       return this.processes.archive(item.id, Boolean(input.restore));
@@ -523,9 +526,11 @@ export async function executeProductCommand(action, input) {
     if (action === "create_recurring_work") {
       const item = itemContext(this.database, input.itemId, ["admin", "member"]);
       if (item.parentId) throw new Error("Delegated child work cannot be scheduled; schedule its primary work item instead");
+      // a scheduled run keeps the "every weekday" wording, so scheduling it again would copy the schedule every run
+      if (item.recurringWorkId) throw new Error("This run was started by its schedule, which already exists; do the work now");
       if (!this.processes.isAutomatic(item.processId))
         throw new Error("Recurring work requires an automatic process");
-      const name = required(input.name, "Recurring work name").slice(0, 120);
+      const name = scheduleName(this.database, item.workspaceId, input.name);
       const schedule = recurringSchedule(input);
       const id = randomUUID();
       const sourceWorkItemId = randomUUID();
@@ -579,7 +584,7 @@ export async function executeProductCommand(action, input) {
       if (!current) throw new Error("Recurring work not found");
       workspaceContext(this.database, current.workspaceId, ["admin", "member"]);
       const schedule = recurringSchedule(input);
-      const name = required(input.name, "Recurring work name").slice(0, 120);
+      const name = scheduleName(this.database, current.workspaceId, input.name, id);
       transaction(this.database, () => {
         this.database.prepare(`
           UPDATE recurring_work SET name = ?, schedule_kind = ?, schedule_json = ?, timezone = ?, updated_at = ?
@@ -771,22 +776,6 @@ export async function executeProductCommand(action, input) {
       }
 
       return { id: newProcessId };
-    });
-    if (action === "save_process_template") return transaction(this.database, () => {
-      const process = processContext(this.database, input.processId, ["admin", "member"]);
-      const source = this.database.prepare("SELECT name, description FROM processes WHERE id = ?").get(process.id);
-      const stages = this.database.prepare(`
-        SELECT name, driver, requires_human_approval AS requiresHumanApproval
-        FROM stages WHERE process_id = ? AND archived_at IS NULL ORDER BY position
-      `).all(process.id).map((stage) => ({ ...stage, requiresHumanApproval: Boolean(stage.requiresHumanApproval) }));
-      const id = randomUUID();
-      this.database.prepare(`
-        INSERT INTO process_templates
-          (id, workspace_id, name, description, stages_json, account_user_id, archived_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
-      `).run(id, process.workspaceId, required(input.name || source.name, "Template name"),
-        source.description, JSON.stringify(stages), input.accountUserId || null, at, at);
-      return { id };
     });
     if (["restore_process", "restore_process_template"].includes(action)) return transaction(this.database, () => {
       const template = action === "restore_process_template";
@@ -1264,6 +1253,20 @@ export async function executeProductCommand(action, input) {
         ORDER BY w.updated_at DESC LIMIT 200
       `).all(workspace.id);
     }
+    if (action === "list_processes") {
+      const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);
+      return this.database.prepare(`
+        SELECT p.id, p.name, (SELECT name FROM team_locations WHERE id = p.output_location_id) AS outputFolder,
+          (SELECT json_group_array(json_object('name', s.name, 'driver', s.driver, 'agents', (
+            SELECT json_group_array(a.name) FROM stage_routes r, json_each(r.agent_ids_json) j
+            JOIN agent_assignments a ON a.id = j.value WHERE r.stage_id = s.id)))
+            FROM (SELECT * FROM stages WHERE process_id = p.id AND archived_at IS NULL ORDER BY position) s) AS stages,
+          (SELECT json_group_array(json_object('id', r.id, 'name', r.name, 'status', r.status, 'workItemId', r.origin_work_item_id,
+            'schedule', json(r.schedule_json), 'timezone', r.timezone, 'nextRunAt', r.next_run_at))
+            FROM recurring_work r WHERE r.process_id = p.id) AS schedules
+        FROM processes p WHERE p.workspace_id = ? AND p.archived_at IS NULL ORDER BY p.updated_at DESC
+      `).all(workspace.id).map((row) => ({ ...row, stages: JSON.parse(row.stages), schedules: JSON.parse(row.schedules) }));
+    }
     if (action === "ask_bees") {
       const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);
       const executionId = randomUUID();
@@ -1300,53 +1303,6 @@ export async function executeProductCommand(action, input) {
         }
       });
       return { executionId, sessionId: queued.sessionId, status: queued.status };
-    }
-    if (action === "run_item") {
-      const item = itemContext(this.database, input.itemId, ["admin", "member"]);
-      if (this.processes.isAutomatic(item.processId))
-        throw new Error("Temporal runs this process automatically");
-      this.agents?.apps?.requireInstalledApp(item.processId);
-      const executionId = randomUUID();
-      if (this.database.prepare("SELECT 1 FROM execution_links WHERE execution_id = ?").get(executionId))
-        return { executionId };
-      const stage = this.database.prepare(`SELECT driver FROM stages WHERE id = ? AND process_id = ?`)
-        .get(item.stageId, item.processId);
-      const stagePurpose = stage?.driver === "review" ? "reviewer" : "worker";
-      const reasoningEffort = optionalReasoningEffort(input.reasoningEffort);
-      const assignment = resolveStageAgent(this.database, {
-        executionId, item, stageId: item.stageId, purpose: stagePurpose,
-        // Without this the reviewer could be the same agent that produced the work.
-        candidateExecutionId: stagePurpose === "reviewer" ? this.database.prepare(`
-          SELECT execution_id AS executionId FROM agent_dispatches
-          WHERE work_item_id = ? ORDER BY created_at DESC LIMIT 1
-        `).get(item.id)?.executionId : null
-      });
-      const runDirectory = this.workContext.directory(item.id);
-      const manifest = inputManifest(stageInputs(this.database, item.id, runDirectory, assignment.id));
-      const root = this.workContext.lineage(item.id)[0];
-      this.workContext.pin(executionId, item, { instructions: assignment.instructions, stageName: stagePurpose,
-        systemInstructions: this.agents.settings?.get?.()?.systemInstructions ?? "" });
-      try {
-        await this.workContext.recallMemories(executionId, () => this.memory.recall(root.workspaceId, root.title + "\n" + root.description));
-      } catch { /* The shared local context remains available without Hindsight. */ }
-      const reviewing = stagePurpose === "reviewer";
-      const grants = reviewing ? [] : [outputLocation(this.database, item.id)].filter(Boolean);
-      const queued = await this.agents.dispatch("bees-run", executionId, {
-        idempotencyKey: `start:${executionId}`, workspace: runDirectory,
-        body: `${reviewing ? "Independently review the candidate work against what was asked." : "Complete this work item."}\n\nTitle: ${item.title}\n\n${item.description}${manifest ? `\n\n${manifest}` : ""}\n\n${this.workContext.prompt(executionId)}`,
-        initialData: {
-          version: 1, mode: reviewing ? "review" : "work", executionId, workItemId: item.id,
-          agentId: assignment.id, agentName: assignment.name,
-          purpose: item.title, model: input.model || assignment?.model || null,
-          reasoningEffort: reasoningEffort || assignment?.reasoningEffort || null,
-          instructions: assignment?.instructions || "",
-          capabilities: agentCapabilities(assignment),
-          workspaceId: item.workspaceId, agentPresetId: assignment?.presetId || this.agents.ctx.agentPresets.defaultId,
-          ...mcpGrantFor(this.database, assignment?.id, item.runSettings, item.processId),
-          grants
-        }
-      });
-      return { executionId, status: queued.status };
     }
     if (action === "open_agent_browser") {
       const executionId = required(input.executionId, "Execution");
@@ -1400,16 +1356,6 @@ export async function executeProductCommand(action, input) {
       const staged = stageInputLocations([location], run.runDirectory, true);
       if (item) await this.execute("attach_location", { itemId: item.id, locationId: location.id });
       return { manifest: inputManifest(staged) };
-    }
-    if (action === "recover_run") {
-      const executionId = required(input.executionId, "Execution");
-      const { data, item } = runContext(this.database, executionId);
-      return this.agents.admit("bees-run", executionId, {
-        idempotencyKey: `recover:${executionId}:${Date.now()}`,
-        body: item
-          ? `Resume this work item from the last safe checkpoint.\n\nTitle: ${item.title}\n\n${item.description}`
-          : `Resume this ${data.mode === "planning" ? "Bees planning run" : "run"} from the last safe checkpoint.`
-      });
     }
     if (action === "continue_run") {
       const executionId = required(input.executionId, "Execution");

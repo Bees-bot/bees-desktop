@@ -169,6 +169,9 @@ function RecurringWorkPanel({ data, item, recurringWork, act, onEdit }) {
 
 function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWork, onArchived, onScheduleCreated, board, layout, editing, onLayout, onEditSchedule, setPageHeader, preference, preferences }) {
   const plan = item.kind === "plan";
+  // ask bees titles a goal with the prompt's first line, so show only what follows it
+  const bodyDescription = item.description === item.title ? ""
+    : item.description?.startsWith(`${item.title}\n`) ? item.description.slice(item.title.length).trim() : item.description;
   const process = data.processes.find(({ id }) => id === item.processId);
   const stage = data.stages.find(({ id }) => id === item.stageId);
   const assignments = data.assignments.filter(({ workspaceId }) => workspaceId === process?.workspaceId);
@@ -479,10 +482,10 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
           h("button", { className: "bees-btn-secondary", onClick: addSubitem }, h("span", { className: "bees-btn-icon" }, "⑆"), "Delegate work"),
           !item.archivedAt && schedulable ? h("button", { className: "bees-btn-secondary", onClick: () => onEditSchedule(true) }, h("span", { className: "bees-btn-icon" }, "🕒"), "Schedule") : null),
         // Description
-        h("div", { className: "bees-card-section" },
+        bodyDescription || !item.description ? h("div", { className: "bees-card-section" },
           h("div", { className: "bees-card-section-head" }, "Description"),
-          item.description ? h(MarkdownText, { text: item.description }) : h("p", { className: "bees-muted", style: { margin: 0 } }, "No description provided.")
-        ),
+          bodyDescription ? h(MarkdownText, { text: bodyDescription }) : h("p", { className: "bees-muted", style: { margin: 0 } }, "No description provided.")
+        ) : null,
 
         process?.description ? h("div", { className: "bees-card-section" },
           h("div", { className: "bees-card-section-head" }, "Process Description"),

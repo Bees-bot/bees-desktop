@@ -21,7 +21,6 @@ export declare class ProcessRuntime {
   createRecurring(recurringWorkId: string): Promise<any>;
   updateRecurring(recurringWorkId: string): Promise<any>;
   setRecurringPaused(recurringWorkId: string, paused: boolean): Promise<void>;
-  deleteRecurring(recurringWorkId: string): Promise<void>;
   createRecurringWorkItem(recurringWorkId: string, occurrenceAt?: string, accountUserId?: string): Promise<any>;
   close(): Promise<void>;
   reconcile(): Promise<void>;
@@ -30,7 +29,6 @@ export declare class ProcessRuntime {
   reviseItem(workItemId: string, feedback: string, requestId: string, signal?: AbortSignal): Promise<{ id: string }>;
   resolveFailedItem(workItemId: string, reason: string, requestId: string, replacementWorkItemId?: string | null, signal?: AbortSignal): Promise<{ id: string; action: string; replacementWorkItemId: string | null }>;
   signal(workItemId: string, type: "pause" | "resume" | "retry" | "cancel"): Promise<any>;
-  move(workItemId: string, targetStageId: string): any;
   archive(workItemId: string, restore?: boolean): Promise<any>;
   project(state: any): any;
 }

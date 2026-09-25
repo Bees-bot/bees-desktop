@@ -1436,7 +1436,7 @@ export function ProposalCard({ proposal, onApply, onDismiss }) {
 export const accountLabel = (data, accountUserId) => accountUserId
   ? (data.connections?.find((c) => c.accountUserId === accountUserId)?.accountName
     ?? data.directory?.find((d) => d.accountUserId === accountUserId)?.email
-    ?? accountUserId)
+    ?? "Former member")
   : null;
 
 export const isDone = (item) => item.completed || item.archivedAt || ["completed", "cancelled"].includes(item.runtimePhase);

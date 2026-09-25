@@ -15,7 +15,8 @@ export declare function authorizeReferences(database: unknown, workspaceId: stri
 export declare function copyOutputs(
   workspace: string,
   location: { id: string; name: string; localPath: string },
-  executionId: string
+  executionId: string,
+  paths?: string[]
 ): { files: number; bytes: number; destination: string; existing: boolean };
 
 export declare class AgentRuntime {
