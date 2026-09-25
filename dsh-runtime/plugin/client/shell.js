@@ -184,6 +184,29 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     ...(preferences.getSnapshot().value?.onboarding ?? {}), ...patch
   });
   const [data, setData] = useState(null);
+  // Approval/question waterfalls need a retained session even when its Chat tab is closed.
+  const interactionSessions = useRef(new Map());
+  useEffect(() => {
+    const wanted = new Set((data?.runs ?? []).filter((run) => !run.ranElsewhere && run.sessionId &&
+      ["running", "waiting_for_input", "waiting_for_approval"].includes(run.status)).map((run) => run.sessionId));
+    for (const id of wanted) {
+      if (interactionSessions.current.has(id)) continue;
+      const reference = ctx.sessions.retain(id, { source: "bees" });
+      interactionSessions.current.set(id, reference);
+      reference.ready.catch((reason) => {
+        if (interactionSessions.current.get(id) !== reference) return;
+        interactionSessions.current.delete(id); reference.release();
+        setError(`Could not load the agent's request: ${reason instanceof Error ? reason.message : String(reason)}`);
+      });
+    }
+    for (const [id, reference] of interactionSessions.current) if (!wanted.has(id)) {
+      reference.release(); interactionSessions.current.delete(id);
+    }
+  }, [ctx, data]);
+  useEffect(() => () => {
+    for (const reference of interactionSessions.current.values()) reference.release();
+    interactionSessions.current.clear();
+  }, [ctx]);
   const startupRendered = useRef(false);
   useEffect(() => {
     void globalThis.fetch?.("/bees-api/startup?phase=ui.shell-mounted", { method: "POST" }).catch(() => {});

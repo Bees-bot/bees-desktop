@@ -1383,6 +1383,20 @@ export async function executeProductCommand(action, input) {
       this.agents.track(hideAgentBrowser());
       return { stopped };
     }
+    if (action === "provide_run_input") {
+      const executionId = required(input.executionId, "Execution");
+      const { data, item, status } = runContext(this.database, executionId);
+      if (!["waiting_for_input", "waiting_for_approval"].includes(status))
+        throw new Error("This run is no longer waiting for input");
+      const workspace = workspaceContext(this.database, data.workspaceId, ["admin", "member"]);
+      const location = mappedLocation(this.database, required(input.locationId, "Location"));
+      if (!location || location.teamId !== workspace.teamId) throw new Error("Location is unavailable to this team");
+      const run = this.agents.run(executionId);
+      if (!run?.runDirectory) throw new Error("This run is unavailable on this device");
+      const staged = stageInputLocations([location], run.runDirectory, true);
+      if (item) await this.execute("attach_location", { itemId: item.id, locationId: location.id });
+      return { manifest: inputManifest(staged) };
+    }
     if (action === "recover_run") {
       const executionId = required(input.executionId, "Execution");
       const { data, item } = runContext(this.database, executionId);

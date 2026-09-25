@@ -38,7 +38,7 @@ const RUN_STALL_MS = Number(process.env.BEES_RUN_STALL_MS ?? 15 * 60_000);
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
-For ordinary runs read inputs from inputs/ and write requested file deliverables under outputs/, as relative paths like outputs/report.md with no leading slash. Anything outside this run is the person's, so ask for it with bees_request_work_review, naming its full path, before you read or write it. The summary is the plain-language, user-facing verdict: say what happened, what the person can use, where any files are, and what is needed next. Keep technical evidence in the evidence record or files instead of making it the summary. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; Bees will ask the user for approval. Request approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result. When the task needs something you do not have, such as information, a file, an MCP server to connect or a sign-in, ask the owner for it with ask_user_question, one entry per missing thing, and continue from the answer; submit blocked only when the owner cannot supply it. When the task requires external information, use available tools to obtain relevant evidence and follow its stated source restrictions. If the evidence is insufficient, use another relevant source or ask the owner for missing information. Once the evidence is sufficient for the requested scope, complete and submit the work. For authenticated services, prefer an authorized MCP that supports the operation. Otherwise, when the task supplies API credentials, use the supported API over HTTP; never ask a person to sign in for it. Use the browser for authenticated pages only when no available MCP or API supports the operation. Do not use unauthenticated fetch for a page that requires a signed-in session. If the browser then lands on a login wall, ask the owner with ask_user_question, which offers them the browser to sign in. Neither a robots refusal nor a login wall is a reason to finish the run blocked. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means calling bees_control; a document that describes one does not complete that stage. When the request only asks to schedule future work, create the schedule and do not also perform that work now unless the owner asks for an immediate run. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. Use bees_delegate_work for analysis, discussion and execution. Use bees_share_update for questions and decisions. There is one peer lifecycle; peers finish with bees_submit_stage_result.`;
+For ordinary runs read inputs from inputs/ and write requested file deliverables under outputs/, as relative paths like outputs/report.md with no leading slash. Anything outside this run is the person's, so ask for it with bees_request_work_review, naming its full path, before you read or write it. The summary is the plain-language, user-facing verdict: say what happened, what the person can use, where any files are, and what is needed next. Keep technical evidence in the evidence record or files instead of making it the summary. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; Bees will ask the user for approval. Request approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result. Take ownership of resolving dependencies: inspect existing inputs, context and available tools, try relevant alternatives, and use bees_control to set up missing capabilities within the task permissions. A missing MCP, file, account connection or detail is a next step to resolve, not a finished result. Ask for only the next concrete dependency with ask_user_question, explain exactly what the person should connect or provide and why, then verify their answer with tools and continue automatically. Never request secrets in chat; direct credentials to the connection settings. Work through remaining dependencies one at a time, preserve completed work, and do not repeat an ineffective attempt or an already answered question. Use bees_request_work_review for real approvals so there is an actionable approval control; never merely say you are waiting for approval. Stop only when the owner explicitly stops the work or denies a required permission. When the task requires external information, use available tools to obtain relevant evidence and follow its stated source restrictions. If the evidence is insufficient, use another relevant source or ask the owner for missing information. Once the evidence is sufficient for the requested scope, complete and submit the work. For authenticated services, prefer an authorized MCP that supports the operation. Otherwise, when the task supplies API credentials, use the supported API over HTTP; never ask a person to sign in for it. Use the browser for authenticated pages only when no available MCP or API supports the operation. Do not use unauthenticated fetch for a page that requires a signed-in session. If the browser then lands on a login wall, ask the owner with ask_user_question, which offers them the browser to sign in. Neither a robots refusal nor a login wall is a reason to finish the run blocked. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means calling bees_control; a document that describes one does not complete that stage. When the request only asks to schedule future work, create the schedule and do not also perform that work now unless the owner asks for an immediate run. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. Use bees_delegate_work for analysis, discussion and execution. Use bees_share_update for questions and decisions. There is one peer lifecycle; peers finish with bees_submit_stage_result.`;
 
 const DELEGATION_PROTOCOL = `Delegation scheduling: Honor the user's requested delegation count and parallel or sequential execution order, even when saved agent instructions give a different default. For parallel work, put independent assignments together in the items_json array of one bees_delegate_work call, up to the tool's batch limit; use background:true for discussion so you can answer peers while they work. A waiting call may return early for a shared message; inspect statuses rather than assuming the batch finished. Separate blocking calls serialize work. Give each parallel peer distinct output paths. When sequential execution is requested or a task depends on an earlier result, delegate one at a time and inspect the result before launching the next. Otherwise default to running independent assignments together. Inspect every returned result before completing the combined work.`;
 
@@ -750,7 +750,37 @@ export class AgentRuntime {
 
   pendingQuestion(executionId) {
     const pending = this.pendingInteraction(executionId);
-    return ["question", "work-review"].includes(pending?.kind) ? pending : null;
+    return ["question", "work-review", "dependency"].includes(pending?.kind) ? pending : null;
+  }
+
+  async resolveDependency(executionId, args, exec) {
+    // A blocked result is terminal. Get a concrete human decision before recording it.
+    if (this.database.prepare("SELECT 1 FROM dsh_audit_events WHERE execution_id = ? AND event_type = 'dependency-stop-requested' LIMIT 1").get(executionId)) return true;
+    const permission = this.database.prepare(`SELECT metadata_json AS metadata FROM dsh_audit_events
+      WHERE execution_id = ? AND event_type IN ('approval-approved', 'approval-rejected') ORDER BY rowid DESC LIMIT 1`).get(executionId);
+    if (permission && JSON.parse(permission.metadata).outcome === "rejected") return true;
+    const question = String(args.next_step ?? "").trim();
+    if (!question || question.length > 1200)
+      throw new Error("Before ending blocked, provide next_step: one concrete question that resolves the first unmet dependency. Name the connection, file or information needed and the steps to provide it. Use available tools to investigate first. Do not list multiple issues or ask for secrets.");
+    const questions = [{ id: "dependency", header: "Next step", question,
+      options: [{ label: "I've made the change", description: "Bees will check it and continue." },
+        { label: "Stop here", description: "Leave this stage unfinished." }] }];
+    const sessionId = String(exec.agent.session.id);
+    const pending = { kind: "dependency", callId: String(exec.callId), questions: JSON.stringify({ questions }) };
+    this.setStatus(executionId, "waiting_for_input");
+    this.database.prepare(`UPDATE work_items SET runtime_phase = 'waiting', updated_at = ?
+      WHERE id = (SELECT work_item_id FROM execution_links WHERE execution_id = ?) AND runtime_phase = 'running'`)
+      .run(new Date().toISOString(), executionId);
+    this.checkpoint(executionId, sessionId, "waiting_for_input", { pendingInteraction: pending });
+    this.audit("dependency-requested", executionId, sessionId, pending);
+    const answer = await this.ctx.userQuestions.ask({ agent: exec.agent, signal: exec.signal, questions });
+    const response = answer.answers.find(({ id }) => id === "dependency");
+    if (response?.selected?.includes("Stop here")) {
+      this.audit("dependency-stop-requested", executionId, sessionId);
+      return true;
+    }
+    return { outcome: "continue", summary: "The stage remains open. User response: " + JSON.stringify(response ?? {}) +
+      " Verify the supplied change using tools, continue from completed work, and ask for the next unresolved dependency only if needed. A reply is not evidence the dependency is fixed. Do not conclude this turn with a blocker report." };
   }
 
   /** A run's own agent and every peer it seats get the run's policies. The set covers this process,
@@ -853,7 +883,7 @@ export class AgentRuntime {
     if (event.type === "tool/result") {
       const callId = resultCallId(event.data);
       const pending = this.pendingInteraction(executionId);
-      if (["question", "work-review"].includes(pending?.kind) && pending.callId === callId) {
+      if (["question", "work-review", "dependency"].includes(pending?.kind) && pending.callId === callId) {
         const answered = !event.data.message.isError;
         const at = new Date().toISOString();
         this.setStatus(executionId, "running", at);
@@ -1415,13 +1445,17 @@ export class AgentRuntime {
     }));
     if (data.stagePurpose) agentCtx.tools.register(defineTool({
       name: "bees_submit_stage_result",
-      description: "Finish this automatic process stage. Workers submit candidate when complete, blocked only after asking the person with ask_user_question for what is missing and they cannot supply it, or skipped when this item needs nothing more (nothing new, a duplicate, it does not qualify, or a limit is reached), which ends the item without the later stages; reviewers submit pass or revise. The first submitted result is immutable.",
+      timeoutMs: 2_147_483_647,
+      description: "Finish this automatic process stage. Workers submit candidate when complete, blocked only after resolving dependencies with the owner one at a time; a blocked submission asks next_step and resumes unless the owner chooses Stop here, or skipped when this item needs nothing more (nothing new, a duplicate, it does not qualify, or a limit is reached), which ends the item without the later stages; reviewers submit pass or revise. The first submitted result is immutable.",
       parameters: {
         outcome: {
           type: "string", required: true,
           enum: data.stagePurpose === "reviewer" ? ["pass", "revise"] : ["candidate", "blocked", "skipped"],
           description: "The allowed result for this stage."
         },
+        ...(data.stagePurpose !== "reviewer" ? {
+          next_step: { type: "string", description: "Required for blocked: one actionable question to resolve the first dependency, with exact connection/file/setup instructions. Never ask for secrets." }
+        } : {}),
         ...(data.stagePurpose === "worker" ? {
           acceptance_criteria_met: {
             type: "boolean", required: true,
@@ -1487,13 +1521,6 @@ export class AgentRuntime {
         if (data.stagePurpose === "worker" && args.outcome === "candidate" &&
             (args.acceptance_criteria_met !== true || admitsIncompleteCandidate(result.summary)))
           throw new Error("A candidate can be submitted only after every acceptance criterion is met");
-        // giving up without asking fails the run over something the person could often fix in a minute.
-        // a scheduled run is exempt: a question nobody sees would hold its schedule forever
-        if (data.stagePurpose === "worker" && args.outcome === "blocked" &&
-            !this.workContext.lineage(data.workItemId)[0].recurringWorkId && !this.database.prepare(`SELECT 1 FROM dsh_audit_events
-          WHERE execution_id = ? AND event_type IN ('question-answered', 'work-review-answered', 'team-question-answered',
-            'approval-rejected', 'human-work-rejected') LIMIT 1`).get(executionId))
-          throw new Error(`Before giving up, ask the person with ask_user_question for what is missing, one entry per missing thing: a file to add, an MCP server to connect, a sign-in or a fact. Continue from the answers, and submit blocked only if they cannot supply it. Your reason was: ${result.summary.slice(0, 600)}`);
         const pinned = this.workContext.run(executionId);
         // a reviewer or a person asked for changes, so ending the item here would skip that review
         if (args.outcome === "skipped" && pinned?.scope.reviewFeedback)
@@ -1507,6 +1534,10 @@ export class AgentRuntime {
             (rejected || lastReview?.type === "human-work-rejected" ||
               data.requiresHumanApproval && lastReview?.type !== "human-work-approved"))
           throw new Error("This stage requires human approval through bees_request_work_review before it can finish; resolve the rejection feedback and request review again");
+        if (args.outcome === "blocked") {
+          const resolution = await this.resolveDependency(executionId, args, exec);
+          if (resolution !== true) return resolution;
+        }
         if (args.outcome !== "blocked") assertPeersSettled(this, data);
         const evidence = pinned ? this.workContext.resultEvidence(executionId, data, workspace, result, findings) : null;
         transaction(this.database, () => {
@@ -2050,9 +2081,15 @@ export class AgentRuntime {
       const answer = await this.ctx.userQuestions.ask({
         agent: handle.agent, signal: approvalAbort.signal, questions: review ? reviewQuestions(args.summary) : args.questions
       });
+      if (pending.kind === "dependency" && answer.answers.some(({ id, selected }) => id === "dependency" && selected?.includes("Stop here")))
+        this.audit("dependency-stop-requested", executionId, sessionId);
       const response = review ? answer.answers.find(({ id }) => id === "work-review") : null;
       const approved = Boolean(response?.selected?.includes("Approve"));
       if (review) this.audit(approved ? "human-work-approved" : "human-work-rejected", executionId, sessionId, { summary: args.summary, feedback: response?.custom ?? "" });
+      this.setStatus(executionId, "running");
+      this.database.prepare(`UPDATE work_items SET runtime_phase = 'running', updated_at = ?
+        WHERE id = (SELECT work_item_id FROM execution_links WHERE execution_id = ?) AND runtime_phase = 'waiting'`)
+        .run(new Date().toISOString(), executionId);
       this.checkpoint(executionId, sessionId, "running", { pendingInteraction: null, idempotencyKey: `${pending.kind}-answered:${sessionId}:${pending.callId}` });
       this.audit("stage-wait-resolved", executionId, sessionId);
       const outcome = review
@@ -2227,7 +2264,7 @@ export class AgentRuntime {
         initialData: undefined,
         uid: this.run(executionId).instanceUid,
         idempotencyKey: `${submission.submissionId}:submit`,
-        body: "You ended without a successful bees_submit_stage_result. Inspect the existing outputs and submit the result of the work already done; do not regenerate finished documents or repeat completed external actions." +
+        body: "You ended without a successful bees_submit_stage_result. Inspect existing outputs and continue from completed work. If dependencies remain, investigate fixes and ask the owner for the next concrete connection, file or answer with ask_user_question, then verify it and keep working. For required approvals call bees_request_work_review. Submit candidate only when finished; do not regenerate finished documents or repeat completed external actions." +
           (submissionError() ? " Your last submission failed: " + submissionError() : "")
       });
       delivery = await this.waitForDelivery(executionId, submission.submissionId, signal, payload.durableWaits);
