@@ -2139,7 +2139,7 @@ export class AgentRuntime {
 
   async untilIdle(executionId, handle) {
     while (!this.closing) {
-      const idle = await Promise.race([handle.agent.whenIdle().then(() => true), delay(5_000).then(() => false)]);
+      const idle = await Promise.race([handle.agent.whenIdle().then(() => true, () => true), delay(5_000).then(() => false)]);
       if (idle) {
         // Completion delivery may have opened another turn after whenIdle resolved.
         await delay(0);
