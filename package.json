@@ -13,9 +13,11 @@
     "build": "vite build",
     "build:dsh-client": "node scripts/build-dsh-client.mjs",
     "check:schedules": "node scripts/check-schedules.mjs",
+    "check:process-interactions": "node scripts/check-process-interactions.mjs",
+    "check:page-fetch": "node scripts/check-page-fetch.mjs",
     "release:prepare": "node scripts/release.mjs version",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm run check:schedules && npm run build",
+    "check": "npm run typecheck && npm run check:schedules && npm run check:page-fetch && npm run check:process-interactions && npm run build",
     "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "tauri:build": "tauri build"
   },

@@ -4,6 +4,7 @@ Notable changes, newest first. Dates are release dates.
 
 ## Unreleased
 
+- File previews now support images, PDFs, HTML, audio, video, and more text/code formats across run files and mapped files.
 - Node 24 is required, and the app runtime, the native modules and the workflow builds all use it.
   Built under an older Node, the free AI option failed on a fresh install.
 - Fixed an issue where the same output folder could not be selected multiple times by returning the existing mapped folder.

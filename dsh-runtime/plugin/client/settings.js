@@ -101,12 +101,12 @@ function SystemInstructionsSettings({ preferences, instructions }) {
 }
 
 export function AccountSignInButtons({ disabled = false, onStart }) {
-  return h("div", { className: "bees-account-auth" },
-    h(Button, { disabled,
-      onClick: () => onStart("social_start", { provider: "google" }) }, "Sign up/in with Google"),
-    h(Button, { disabled,
-      onClick: () => onStart("social_start", { provider: "github" }) }, "Sign up/in with GitHub"),
-    h(Button, { disabled, onClick: async () => {
+  return h("div", { className: "bees-account-auth", style: { display: "flex", flexDirection: "column", gap: "12px" } },
+    h(Button, { disabled, style: { justifyContent: "center", padding: "10px", background: "var(--dsw-alias-bg-base)", border: "1px solid var(--dsw-alias-border-l2)", borderRadius: "8px" },
+      onClick: () => onStart("social_start", { provider: "google" }) }, "Continue with Google"),
+    h(Button, { disabled, style: { justifyContent: "center", padding: "10px", background: "var(--dsw-alias-bg-base)", border: "1px solid var(--dsw-alias-border-l2)", borderRadius: "8px" },
+      onClick: () => onStart("social_start", { provider: "github" }) }, "Continue with GitHub"),
+    h(Button, { disabled, style: { justifyContent: "center", padding: "10px", background: "var(--dsw-alias-bg-base)", border: "1px solid var(--dsw-alias-border-l2)", borderRadius: "8px" }, onClick: async () => {
       const email = await ask("Work email for company SSO", "");
       if (email) await onStart("sso_start", { email });
     } }, "Continue with Company SSO"));
@@ -146,26 +146,41 @@ export function AccountsPage({ reload }) {
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setBusy(false); }
   };
-  return h("div", { className: "bees-stack" },
-    h("section", { className: "bees-box bees-accounts" },
-      ...((data.accounts ?? []).length ? data.accounts.map((account) => h("div", {
-        className: "bees-row", key: account.userId
-      }, h("div", { className: "bees-row-main bees-row-title" }, account.email),
-      h("label", { className: "bees-account-toggle" },
-        h("input", { type: "checkbox", role: "switch", checked: account.enabled !== false,
-          disabled: busy, "aria-label": `Turn ${account.email} ${account.enabled === false ? "on" : "off"}`,
-          onChange: (event) => run("set_account_enabled", {
-            accountUserId: account.userId, enabled: event.target.checked
-          }) }),
-        h("span", { "aria-hidden": "true" })),
-      h(Button, { className: "danger", disabled: busy, onClick: async () => {
-        if (await confirmAction(`Delete ${account.email} from this device?`)) {
-          await run("sign_out", { accountUserId: account.userId });
-        }
-      } }, "Delete"))) : [h(Empty, { key: "empty" }, "No accounts signed in")]),
-      h("hr"),
+  return h("div", { className: "bees-stack", style: { maxWidth: "800px", margin: "0 auto", padding: "32px 24px" } },
+    h("section", { style: { marginBottom: "32px" } },
+      h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" } },
+        h("h3", { style: { margin: 0 } }, "Signed in accounts"),
+        h("span", { className: "bees-badge", style: { padding: "4px 8px" } }, `${(data.accounts ?? []).length} accounts`)
+      ),
+      h("div", { style: { display: "flex", flexDirection: "column", gap: "8px" } },
+        ...((data.accounts ?? []).length ? data.accounts.map((account) => h("div", {
+          className: "bees-row", key: account.userId, style: { background: "var(--dsw-alias-bg-base)", padding: "12px 16px", borderRadius: "8px", border: "1px solid var(--dsw-alias-border-l2)", display: "flex", alignItems: "center" }
+        },
+        h("div", { 
+          style: { width: "36px", height: "36px", borderRadius: "50%", background: "var(--dsw-alias-border-l2)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "600", fontSize: "14px", marginRight: "12px", color: "var(--dsw-alias-label-primary)" }
+        }, account.email.charAt(0).toUpperCase()),
+        h("div", { className: "bees-row-main" }, 
+          h("div", { className: "bees-row-title", style: { fontWeight: "500" } }, account.email),
+          h("div", { className: "bees-muted", style: { fontSize: "13px" } }, account.enabled === false ? "Inactive" : "Active")),
+        h("label", { className: "bees-account-toggle", style: { marginRight: "12px", display: "flex", alignItems: "center" } },
+          h("input", { type: "checkbox", role: "switch", checked: account.enabled !== false,
+            disabled: busy, "aria-label": `Turn ${account.email} ${account.enabled === false ? "on" : "off"}`,
+            onChange: (event) => run("set_account_enabled", {
+              accountUserId: account.userId, enabled: event.target.checked
+            }) }),
+          h("span", { "aria-hidden": "true" })),
+        h(Button, { className: "danger", style: { padding: "6px 12px", fontSize: "13px" }, disabled: busy, onClick: async () => {
+          if (await confirmAction(`Remove ${account.email} from this device?`)) {
+            await run("sign_out", { accountUserId: account.userId });
+          }
+        } }, "Remove"))) : [h(Empty, { key: "empty" }, "No accounts signed in")])
+      )),
+    h("section", null,
+      h("h3", { style: { marginBottom: "8px" } }, "Add an account"),
+      h("p", { className: "bees-muted", style: { marginBottom: "20px" } }, "Sign in with another account to switch between them or connect additional organizations."),
       h(AccountSignInButtons, { disabled: busy, onStart: browserAuth }),
-      error ? h("div", { className: "bees-error", role: "alert" }, error) : null));
+      error ? h("div", { className: "bees-error", role: "alert", style: { marginTop: "16px" } }, error) : null)
+  );
 }
 
 function OrganizationsSettings() {

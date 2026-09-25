@@ -697,9 +697,11 @@ export async function executeProductCommand(action, input) {
       const id = randomUUID();
       const stages = processStages(input.stages, "process template");
       this.database.prepare(`
-        INSERT INTO process_templates VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
+        INSERT INTO process_templates
+          (id, workspace_id, name, description, stages_json, account_user_id, archived_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
       `).run(id, workspace.id, required(input.name, "Template name"), String(input.description ?? ""),
-        JSON.stringify(stages), at, at);
+        JSON.stringify(stages), input.accountUserId || null, at, at);
       return { id };
     });
     if (action === "copy_process") return transaction(this.database, () => {
@@ -748,7 +750,7 @@ export async function executeProductCommand(action, input) {
 
       // Duplicate the process
       const newProcessId = randomUUID();
-      this.database.prepare(`INSERT INTO processes (id, workspace_id, kind, name, description, output_location_id, mcp_access, mcp_servers_json, archived_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`).run(newProcessId, workspaceId, "standard", name, process.description, process.outputLocationId, process.mcpAccess, JSON.stringify(process.mcpServers), at, at);
+      this.database.prepare(`INSERT INTO processes (id, workspace_id, kind, name, description, output_location_id, mcp_access, mcp_servers_json, account_user_id, archived_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`).run(newProcessId, workspaceId, "standard", name, process.description, process.outputLocationId, process.mcpAccess, JSON.stringify(process.mcpServers), input.accountUserId || null, at, at);
       this.database.prepare(`INSERT INTO process_locations (process_id, location_id, relative_path) SELECT ?, location_id, relative_path FROM process_locations WHERE process_id = ?`).run(newProcessId, processId);
 
       // Duplicate the stages and routes
@@ -779,9 +781,11 @@ export async function executeProductCommand(action, input) {
       `).all(process.id).map((stage) => ({ ...stage, requiresHumanApproval: Boolean(stage.requiresHumanApproval) }));
       const id = randomUUID();
       this.database.prepare(`
-        INSERT INTO process_templates VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
+        INSERT INTO process_templates
+          (id, workspace_id, name, description, stages_json, account_user_id, archived_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
       `).run(id, process.workspaceId, required(input.name || source.name, "Template name"),
-        source.description, JSON.stringify(stages), at, at);
+        source.description, JSON.stringify(stages), input.accountUserId || null, at, at);
       return { id };
     });
     if (["restore_process", "restore_process_template"].includes(action)) return transaction(this.database, () => {
@@ -1382,6 +1386,20 @@ export async function executeProductCommand(action, input) {
       // Nothing is waiting on a sign-in any more, so the window it raised has no reason to stay up.
       this.agents.track(hideAgentBrowser());
       return { stopped };
+    }
+    if (action === "provide_run_input") {
+      const executionId = required(input.executionId, "Execution");
+      const { data, item, status } = runContext(this.database, executionId);
+      if (!["waiting_for_input", "waiting_for_approval"].includes(status))
+        throw new Error("This run is no longer waiting for input");
+      const workspace = workspaceContext(this.database, data.workspaceId, ["admin", "member"]);
+      const location = mappedLocation(this.database, required(input.locationId, "Location"));
+      if (!location || location.teamId !== workspace.teamId) throw new Error("Location is unavailable to this team");
+      const run = this.agents.run(executionId);
+      if (!run?.runDirectory) throw new Error("This run is unavailable on this device");
+      const staged = stageInputLocations([location], run.runDirectory, true);
+      if (item) await this.execute("attach_location", { itemId: item.id, locationId: location.id });
+      return { manifest: inputManifest(staged) };
     }
     if (action === "recover_run") {
       const executionId = required(input.executionId, "Execution");

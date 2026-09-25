@@ -104,11 +104,13 @@ function teamRecords(database, organizationId, connectionId = "", includeAppDefi
 
   for (const row of database.prepare(`
     SELECT pt.id, w.team_id AS teamId, pt.name, pt.description, pt.stages_json AS stages,
+           pt.account_user_id AS accountUserId,
            pt.archived_at AS archivedAt, pt.created_at AS createdAt, pt.updated_at AS updatedAt
     FROM process_templates pt JOIN workspaces w ON w.id = pt.workspace_id
     JOIN teams t ON t.id = w.team_id WHERE t.organization_id = ?
   `).all(organizationId)) records.push(record("process_template", row, {
     teamId: row.teamId, name: row.name, description: row.description, stages: json(row.stages),
+    accountUserId: row.accountUserId,
     archivedAt: timestamp(row.archivedAt), createdAt: timestamp(row.createdAt),
     updatedAt: timestamp(row.updatedAt)
   }));
@@ -399,12 +401,15 @@ function applyTemplate(database, record) {
   const p = record.payload;
   const workspaceId = workspaceFor(database, p.teamId, p.createdAt);
   database.prepare(`
-    INSERT INTO process_templates VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO process_templates
+      (id, workspace_id, name, description, stages_json, account_user_id, archived_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description,
-      stages_json = excluded.stages_json, archived_at = excluded.archived_at,
+      stages_json = excluded.stages_json, account_user_id = excluded.account_user_id,
+      archived_at = excluded.archived_at,
       updated_at = excluded.updated_at
   `).run(record.recordId, workspaceId, p.name, p.description, JSON.stringify(p.stages),
-    p.archivedAt, p.createdAt, p.updatedAt);
+    p.accountUserId ?? null, p.archivedAt, p.createdAt, p.updatedAt);
 }
 
 function applyRecurring(database, record) {

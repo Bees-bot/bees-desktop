@@ -1,5 +1,5 @@
 import {
-  h, MarkdownText, React, useEffect, useState
+  h, MarkdownText, NativeUi, React, useEffect, useState
 } from "./runtime.js";
 import { SharedWorkContext, WorkDiscussion } from "./collaboration.js";
 import Cron, { HEADER } from "react-cron-generator";
@@ -13,6 +13,7 @@ import { addLocationFromDevice, FilePreview, inheritedInputs, ResourceFields, Wo
 import { McpAccess, useMcpPreflight } from "./agents.js";
 import { ProcessMcpForm } from "./processes.js";
 import { generatedFileKeys, watchFilesViewed } from "./file-notifications.js";
+import { ArrowLeftIcon } from "./icons.js";
 import { agentMentionOptions, conversationMessages, mentionedRecipient, OUTCOME_LABELS, pollConversation } from "./conversation-model.js";
 import { DshRunPanels } from "./native-conversation.js";
 
@@ -51,11 +52,13 @@ function scheduleSummary(recurring) {
   return `Daily at ${time} · ${recurring.timezone}`;
 }
 
-function ScheduleForm({ item, recurring, act, onClose, onCreated }) {
+function ScheduleForm({ item, items = [], recurring, act, onClose, onCreated }) {
+  const [itemId, setItemId] = useState(item?.id ?? items[0]?.id ?? "");
+  const selectedItem = item ?? items.find(({ id }) => id === itemId);
   const current = recurring?.schedule ?? {};
   const currentFrequency = recurring?.scheduleKind === "cron" ? "advanced"
     : recurring?.scheduleKind === "interval" ? "hourly" : current.frequency || "daily";
-  const [name, setName] = useState(recurring?.name ?? `Daily ${item.title}`.slice(0, 120));
+  const [name, setName] = useState(recurring?.name ?? `Daily ${selectedItem?.title ?? "process"}`.slice(0, 120));
   const [frequency, setFrequency] = useState(currentFrequency);
   const [time, setTime] = useState(`${String(current.hour ?? 9).padStart(2, "0")}:${String(current.minute ?? 0).padStart(2, "0")}`);
   const [dayOfWeek, setDayOfWeek] = useState(current.dayOfWeek ?? "MONDAY");
@@ -70,7 +73,7 @@ function ScheduleForm({ item, recurring, act, onClose, onCreated }) {
     try {
       const result = await act({
         action: recurring ? "edit_recurring_work" : "create_recurring_work",
-        ...(recurring ? { recurringWorkId: recurring.id } : { itemId: item.id }),
+        ...(recurring ? { recurringWorkId: recurring.id } : { itemId: selectedItem.id }),
         name, frequency, hour, minute, dayOfWeek, dayOfMonth: Number(dayOfMonth), timezone,
         cronExpression, everyMinutes: 60, anchorUtc: current.anchorUtc || new Date().toISOString()
       });
@@ -79,13 +82,17 @@ function ScheduleForm({ item, recurring, act, onClose, onCreated }) {
       if (!recurring && result.sourceWorkItemId) onCreated?.(result.sourceWorkItemId);
     } catch (reason) { setBusy(false); setError(reason instanceof Error ? reason.message : String(reason)); }
   };
-  return h("div", { className: "bees-modal-backdrop", role: "presentation" },
-    h("form", { className: "bees-box bees-form bees-modal", role: "dialog", "aria-modal": "true", "aria-label": recurring ? "Edit recurring work" : "Schedule work", onSubmit: submit },
-      h("div", { className: "bees-row" }, h("div", null,
-        h("h2", { style: { display: "flex", alignItems: "center" } }, (recurring ? "Edit recurring work" : "Schedule this work"), h("span", { style: { flex: 1 } }), h(HelpTooltip, { text: "Schedules automatically create new process runs for this work on a regular basis. You can use this for any repeatable task.", examples: ["A daily schedule to run an 'Inbox Triage' process at 9 AM", "A weekly schedule for 'Prepare Status Report'", "An advanced cron schedule to trigger 'System Backup'"] })),
-        h("p", { className: "bees-muted" }, "Bees creates a new primary work item at the process's starting stage. Delegated child work is not copied. Each scheduled occurrence is fresh, and learning stays inside this named recurring work."))),
-      h("label", null, "Name", h("input", { className: "bees-input", value: name, maxLength: 120, required: true, autoFocus: true, onChange: (event) => setName(event.target.value) })),
-      h("label", null, "Frequency", h("select", { className: "bees-select", value: frequency, onChange: (event) => setFrequency(event.target.value) },
+  
+  const formContent = h("form", { className: "bees-form bees-process-form bees-modal", role: "dialog", "aria-modal": "true", "aria-label": recurring ? "Edit recurring work" : "Schedule work", onSubmit: submit },
+    h("div", { className: "bees-row" }, h("div", null,
+      h("h2", { style: { display: "flex", alignItems: "center" } }, (recurring ? "Edit recurring work" : "Schedule this work"), h("span", { style: { flex: 1 } }), h(HelpTooltip, { text: "Schedules automatically create new process runs for this work on a regular basis. You can use this for any repeatable task.", examples: ["A daily schedule to run an 'Inbox Triage' process at 9 AM", "A weekly schedule for 'Prepare Status Report'", "An advanced cron schedule to trigger 'System Backup'"] })))),
+      item ? null : h("label", { className: "bees-process-name" }, "Process run to repeat", h("select", { className: "bees-select", value: itemId, onChange: (event) => {
+        setItemId(event.target.value);
+        const next = items.find(({ id }) => id === event.target.value);
+        setName(`Daily ${next?.title ?? "process"}`.slice(0, 120));
+      } }, ...items.map((option) => h("option", { value: option.id, key: option.id }, option.title)))),
+      h("label", { className: "bees-process-name" }, "Name", h("input", { className: "bees-input", value: name, maxLength: 120, required: true, autoFocus: true, onChange: (event) => setName(event.target.value) })),
+      h("label", { className: "bees-process-name" }, "Frequency", h("select", { className: "bees-select", value: frequency, onChange: (event) => setFrequency(event.target.value) },
         h("option", { value: "hourly" }, "Hourly"), h("option", { value: "daily" }, "Daily"),
         h("option", { value: "weekly" }, "Weekly"), h("option", { value: "monthly" }, "Monthly"),
         h("option", { value: "advanced" }, "Advanced (cron)"))),
@@ -98,16 +105,18 @@ function ScheduleForm({ item, recurring, act, onClose, onCreated }) {
           })),
           h("p", { className: "bees-muted" }, "Advanced uses a five-field Unix cron expression. Temporal validates it again before saving.")) :
           h(React.Fragment, null,
-            frequency === "weekly" ? h("label", null, "Day", h("select", { className: "bees-select", value: dayOfWeek, onChange: (event) => setDayOfWeek(event.target.value) },
+            frequency === "weekly" ? h("label", { className: "bees-process-name" }, "Day", h("select", { className: "bees-select", value: dayOfWeek, onChange: (event) => setDayOfWeek(event.target.value) },
               ...WEEKDAYS.map((day) => h("option", { value: day, key: day }, day[0] + day.slice(1).toLowerCase())))) : null,
-            frequency === "monthly" ? h("label", null, "Day of month", h("input", { className: "bees-input", type: "number", min: 1, max: 31, value: dayOfMonth, onChange: (event) => setDayOfMonth(event.target.value) })) : null,
-            h("label", null, "Local time", h("input", { className: "bees-input", type: "time", value: time, required: true, onChange: (event) => setTime(event.target.value) }))),
-      frequency !== "hourly" ? h("label", null, "Timezone", h("input", { className: "bees-input", value: timezone, required: true, onChange: (event) => setTimezone(event.target.value), placeholder: "America/Los_Angeles" })) : null,
+            frequency === "monthly" ? h("label", { className: "bees-process-name" }, "Day of month", h("input", { className: "bees-input", type: "number", min: 1, max: 31, value: dayOfMonth, onChange: (event) => setDayOfMonth(event.target.value) })) : null,
+            h("label", { className: "bees-process-name" }, "Local time", h("input", { className: "bees-input", type: "time", value: time, required: true, onChange: (event) => setTime(event.target.value) }))),
+      frequency !== "hourly" ? h("label", { className: "bees-process-name" }, "Timezone", h("input", { className: "bees-input", value: timezone, required: true, onChange: (event) => setTimezone(event.target.value), placeholder: "America/Los_Angeles" })) : null,
       h("p", { className: "bees-muted" }, "Calendar schedules keep the chosen local clock time and IANA timezone; Temporal computes each UTC run time."),
       h("div", { className: "bees-callout" }, "Runs execute on this device. Bees must be open and the device must be available; missed runs older than one minute are not replayed automatically."),
       error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
-      h("div", { className: "bees-detail-actions" }, h(Button, { onClick: onClose, disabled: busy }, "Cancel"),
-        h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Saving…" : recurring ? "Save changes" : "Create schedule"))));
+      h("div", { className: "bees-detail-actions bees-process-actions", style: { justifyContent: "flex-end" } }, h(Button, { onClick: onClose, disabled: busy }, "Cancel"),
+        h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Saving…" : recurring ? "Save changes" : "Create schedule")));
+        
+  return h("div", { className: "bees-modal-backdrop", role: "presentation" }, formContent);
 }
 
 function RecurringWorkPanel({ data, item, recurringWork, act, onEdit }) {
@@ -319,7 +328,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
   const convoItems = [h(GoalMessage, { item, key: "start" })];
   for (const message of messages) {
     if (message.role === "user") convoItems.push(h(UserMessage, { key: message.id, label: message.label }, message.text));
-    else if (message.role === "tool") convoItems.push(h("div", { className: "bees-convo-msg system", key: message.id,
+    else if (message.role === "tool") convoItems.push(h("div", { className: "bees-convo-msg system bees-convo-log", key: message.id,
       style: { fontFamily: "ui-monospace, monospace", fontSize: "12px", opacity: 0.75 } }, message.text));
     else convoItems.push(h("div", { className: "bees-agent-turn", key: message.id },
       h("div", { className: "bees-agent-avatar", "aria-hidden": "true" }, "B"),
@@ -329,7 +338,9 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
         h("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, message.text))));
   }
   if (run?.ranElsewhere) convoItems.push(h("div", { className: "bees-convo-msg system", key: "elsewhere" },
-    "This ran on another device. Its result is above; the full transcript and any files it wrote stayed there."));
+    ["waiting_for_input", "waiting_for_approval"].includes(run.status)
+      ? "This run is waiting for an answer on the device that ran it. Open Bees there to answer; this device cannot."
+      : "This ran on another device. Its result is above; the full transcript and any files it wrote stayed there."));
   else if (run && !visibleHistory && !historyError) convoItems.push(h("div", { className: "bees-convo-msg system", key: "loading" }, "Loading conversation…"));
   if (processExecution) {
     const runner = data.directory?.find((row) => row.accountUserId === processExecution.userId)?.email
@@ -344,8 +355,6 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
       pendingRun ? h("button", { type: "button", className: "bees-btn-secondary", style: { marginLeft: "auto" }, onClick: () => setShowSteps((value) => !value) },
         showSteps ? "Hide agent steps" : `Show agent steps (${messages.length})`) : null),
     ...teamQuestions.map((question) => h(TeamQuestionCard, { key: question.id, question, data, act })),
-    pendingRun ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" },
-      h(AgentInteractionPanel, { run: pendingRun, item, interaction, handled, onAnswered: answered, act, data })) : null,
     // a waiting question goes first and the agent's steps fold away, so nobody scrolls to find it
     pendingRun && !showSteps ? null : h("div", {
       className: "bees-convo-history", ref: convoRef,
@@ -432,7 +441,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
       ),
       h("div", { className: "bees-tab-actions" },
         schedulable && item.runtimePhase === "ready" && !isScheduleDefinition(item) ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "start_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "▶"), "Start") : null,
-        !plan && item.runtimePhase === "failed" ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "retry_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "↻"), "Retry") : null,
+        !plan && item.runtimePhase === "failed" ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "retry_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "↻"), latestResult?.resultOutcome === "blocked" ? "Resolve and continue" : "Retry") : null,
         run && item.runtimePhase === "paused" ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "resume_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "▶"), "Resume") : null,
         run && !plan && item.runtimePhase === "running" ? h("button", { className: "bees-btn-secondary", onClick: () => act({ action: "pause_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "⏸"), "Pause") : null,
         run && (plan ? LIVE_RUN.includes(run.status) : item.runtimePhase === "running") ? h("button", { className: "bees-btn-danger-ghost",
@@ -450,12 +459,12 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
     h("div", { className: "bees-clean-tabs", role: "tablist", "aria-label": "Work item details" },
       h("button", { type: "button", role: "tab", id: "bees-tab-files", className: `bees-clean-tab ${activeTab === "files" ? "active" : ""}`, "aria-selected": activeTab === "files", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("files") }, "Files", unreadFiles ? h("span", { className: "bees-count", "aria-label": `${unreadFiles} new files`, title: `${unreadFiles} new files` }, unreadFiles) : null),
       h("button", { type: "button", role: "tab", id: "bees-tab-details", className: `bees-clean-tab ${activeTab === "details" ? "active" : ""}`, "aria-selected": activeTab === "details", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("details") }, "Details"),
-      !plan && process ? h("button", { type: "button", role: "tab", id: "bees-tab-tools", className: `bees-clean-tab ${activeTab === "tools" ? "active" : ""}`, "aria-selected": activeTab === "tools", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("tools") }, "MCPs") : null,
+      h("button", { type: "button", role: "tab", id: "bees-tab-tools", className: `bees-clean-tab ${activeTab === "tools" ? "active" : ""}`, "aria-selected": activeTab === "tools", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("tools") }, "MCPs"),
+      h("button", { type: "button", role: "tab", id: "bees-tab-recurring", className: `bees-clean-tab ${activeTab === "recurring" ? "active" : ""}`, "aria-selected": activeTab === "recurring", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("recurring") }, `Schedules (${recurringWork.length})`),
       h("button", { type: "button", role: "tab", id: "bees-tab-chat", className: `bees-clean-tab ${activeTab === "chat" ? "active" : ""}`, "aria-selected": activeTab === "chat", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("chat") }, "Chat"),
-      itemRuns.length ? h("button", { type: "button", role: "tab", id: "bees-tab-runs", className: `bees-clean-tab ${activeTab === "runs" ? "active" : ""}`, "aria-selected": activeTab === "runs", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("runs") }, "Executions") : null,
-      schedulable && !item.parentId && recurringWork.length ? h("button", { type: "button", role: "tab", id: "bees-tab-recurring", className: `bees-clean-tab ${activeTab === "recurring" ? "active" : ""}`, "aria-selected": activeTab === "recurring", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("recurring") }, `Schedules (${recurringWork.length})`) : null,
       !plan && itemRuns.length ? h("button", { type: "button", role: "tab", id: "bees-tab-context", className: `bees-clean-tab ${activeTab === "context" ? "active" : ""}`, "aria-selected": activeTab === "context", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("context") }, "Context") : null,
       !plan && itemRuns.length ? h("button", { type: "button", role: "tab", id: "bees-tab-discussion", className: `bees-clean-tab ${activeTab === "discussion" ? "active" : ""}`, "aria-selected": activeTab === "discussion", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("discussion") }, "Discussion") : null,
+      itemRuns.length ? h("button", { type: "button", role: "tab", id: "bees-tab-runs", className: `bees-clean-tab ${activeTab === "runs" ? "active" : ""}`, "aria-selected": activeTab === "runs", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("runs") }, "Executions") : null,
       itemRuns.length ? h("button", { type: "button", role: "tab", id: "bees-tab-audit", className: `bees-clean-tab ${activeTab === "audit" ? "active" : ""}`, "aria-selected": activeTab === "audit", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("audit") }, "Traces") : null
     ),
 
@@ -482,11 +491,11 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
 
         plan ? null : h(WorkLocations, { key: item.id, data, references: inputReferences, inherited,
           outputId: item.outputLocationId ?? "", defaultOutputId: process?.outputLocationId, act })
-      ) : activeTab === "tools" && process ? h(ProcessMcpForm, {
+      ) : activeTab === "tools" ? process ? h(ProcessMcpForm, {
         key: `${process.id}:${process.mcpAccess}:${JSON.stringify(process.mcpServers)}`, ctx, process,
         servers: capabilities.data?.servers ?? [], tools: capabilities.data?.tools ?? [],
         catalog: capabilities.data?.catalog ?? [], onServerAction: capabilities.act, act, showAll: true
-      }) : activeTab === "files" ? h(React.Fragment, null,
+      }) : h(Empty, null, "This work has no process MCP settings.") : activeTab === "files" ? h(React.Fragment, null,
         h(WorkFiles, { key: processRunId, runs: fileRuns, filesRef, act })
       ) : activeTab === "runs" ? h(React.Fragment, null,
         h("h3", { className: "bees-section-title" }, "Executions"),
@@ -500,7 +509,10 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
     )
   );
 
-  return h(FlexibleGrid, {
+  return h(React.Fragment, null,
+    pendingRun ? h(AgentInteractionPanel, { run: pendingRun, item, interaction, handled,
+      onAnswered: answered, act, data, onOpenTools: process ? () => setActiveTab("tools") : undefined }) : null,
+    h(FlexibleGrid, {
     layout, editing, onLayout,
     className: "bees-work-item-grid",
     panels: {
@@ -509,7 +521,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
       conversation: { label: "Conversation", hideHeader: true, minW: 3, minH: 4, content: conversation },
       details: { label: "Details", hideHeader: true, minW: 3, minH: 4, content: details }
     }
-  });
+  }));
 }
 
 function RunTraces({ run }) {
@@ -539,9 +551,9 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onScheduleCre
   const [selectedId, setSelectedId] = useState(rootId);
   const [editing, setEditing] = useState(false);
   const [scheduleEditor, setScheduleEditor] = useState(false);
-  const [addingWork, setAddingWork] = useState(false);
+  const [creatingRun, setCreatingRun] = useState(false);
   useEffect(() => setSelectedId(rootId), [rootId]);
-  useEffect(() => { setEditing(false); setScheduleEditor(false); setAddingWork(false); }, [rootId]);
+  useEffect(() => { setEditing(false); setScheduleEditor(false); setCreatingRun(false); }, [rootId]);
   const visibleIds = new Set([processRunId]);
   for (let added = true; added;) {
     added = false;
@@ -593,10 +605,10 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onScheduleCre
       }) : [h(Empty, { key: "empty" }, "No work in this stage")])));
   }));
   useEffect(() => {
-    if (addingWork) return;
+    if (creatingRun) return;
     setPageHeader && setPageHeader(
       h(React.Fragment, null,
-        h(Button, { onClick: onBack }, "← Process Runs"),
+        h(Button, { onClick: onBack }, h(ArrowLeftIcon), " Back"),
         h("div", { style: { display: "flex", flexDirection: "column", marginLeft: 12, minWidth: 0 } },
           h("div", { className: "bees-title", title: root.title, style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, root.title.length > 60 ? root.title.slice(0, 60).trim() + "…" : root.title),
           h("div", { className: "bees-context", style: { marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, `${process?.name ?? "Process"} · ${completed} of ${total} work items complete`)
@@ -604,22 +616,22 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onScheduleCre
       )
     );
     setPageActions && setPageActions(
-      h(React.Fragment, null,
+      h("div", { className: "bees-page-actions" },
         editing ? h(Button, { onClick: () => preferences.set("workItemLayout", []) }, "Reset") : null,
-        h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) }, editing ? "Done" : "Customize"),
-        !editing && !root.archivedAt && !isScheduleDefinition(root) && root.kind !== "plan" ? h(Button, { className: "primary", onClick: () => setAddingWork(true) }, "Add work item") : null
+        !editing && !root.archivedAt && !isScheduleDefinition(root) && root.kind !== "plan" && schedulable ? h(Button, { onClick: () => setScheduleEditor(true) }, "Schedule") : null,
+        !editing && !root.archivedAt && !isScheduleDefinition(root) && root.kind !== "plan" ? h(Button, { className: "primary", onClick: () => setCreatingRun(true) }, "New Process Run") : null,
+        h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) }, editing ? "Done" : "Customize")
       )
     );
     return () => {
       setPageHeader && setPageHeader(null);
       setPageActions && setPageActions(null);
     };
-  }, [root.title, root.processId, root.archivedAt, root.recurringWorkId, root.kind, schedulable, process?.name, completed, total, editing, addingWork, onBack, setPageHeader, setPageActions]);
+  }, [root.title, root.processId, root.archivedAt, root.recurringWorkId, root.kind, schedulable, process?.name, completed, total, editing, creatingRun, onBack, setPageHeader, setPageActions]);
 
-  if (addingWork) return h(WorkItemForm, {
-    ctx, data, parent: root, workspaceId: process.workspaceId, act, setPageHeader, capabilities,
-    onCancel: () => setAddingWork(false),
-    onCreated: (id) => { setSelectedId(id); setAddingWork(false); }
+  if (creatingRun) return h(WorkItemForm, {
+    ctx, data, workspaceId: process.workspaceId, defaultProcessId: process.id, act, setPageHeader, capabilities,
+    onCancel: () => setCreatingRun(false), onCreated: onScheduleCreated
   });
 
   return h("div", { style: { display: "flex", flexDirection: "column" } },
@@ -641,7 +653,7 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, parent, 
   const goal = kind === "goal";
   const processRun = !goal && !parent;
   const heading = parent ? "Add work item" : goal ? "New goal" : "Start process run";
-  const backLabel = parent ? "← Process run" : "← Process Runs";
+  const backLabel = h(React.Fragment, null, h(ArrowLeftIcon), " Back");
   const initialProcess = goal ? processes.find(({ kind }) => kind === "goals")
     : processes.find(({ id }) => id === (parent?.processId ?? defaultProcessId)) ?? processes[0];
   const [processId, setProcessId] = useState(initialProcess?.id ?? "");
@@ -682,39 +694,45 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, parent, 
   if (!goal && !processes.length) return h("div", { className: "bees-stack" },
     h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, backLabel), h("h2", null, heading)),
     h(Empty, null, "Create a process template first. Work always follows a process template so Bees knows its stages."));
-  return h(React.Fragment, null, preflight, h("form", { className: "bees-form", onSubmit, style: { gap: "24px", paddingTop: "8px" } },
+  return h(React.Fragment, null, preflight, h("form", { className: "bees-form bees-process-form", onSubmit },
     h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, backLabel),
       h("div", null, h("h2", null, heading), parent || goal ?
         h("div", { className: "bees-muted" }, parent
           ? `Add to “${parent.title}” with its existing context, files and discussion.`
           : "Describe the outcome. Bees will plan and execute the work needed to reach it.") : null)),
-    !goal && !parent ? h("label", null, "Process template", h("select", { className: "bees-select", name: "processId", required: true,
+    !goal && !parent ? h("label", { className: "bees-process-name" }, "Process template", h("select", { className: "bees-select", name: "processId", required: true,
       value: processId, onChange: (event) => {
         setProcessId(event.target.value); setOutputLocationId("");
       } },
       ...processes.map((process) => h("option", { value: process.id, key: process.id }, process.name)))) : null,
-    h("label", null, goal ? "Goal" : processRun ? "Run name" : "Title", h("input", { className: "bees-input", name: "title", required: true, autoFocus: true,
+    h("label", { className: "bees-process-name" }, goal ? "Goal" : processRun ? "Run name" : "Title", h("input", { className: "bees-input", name: "title", required: true, autoFocus: true,
       placeholder: goal ? "Launch the product successfully" : "Draft the launch announcement" })),
-    h("label", null, "What does success look like?", h("textarea", { className: "bees-textarea", name: "description",
-      placeholder: "$ceo $cmo $cso discuss the strategy, constraints, and evidence." }),
-      h("span", { className: "bees-muted" }, mentionableAgents.length
-        ? `Start with agent mentions to choose participants; multiple mentions start a discussion: ${mentionableAgents.slice(0, 4).map(({ name }) => `$${name.toLocaleLowerCase().replace(/[^\p{Letter}\p{Number}]+/gu, "-").replace(/^-|-$/g, "")}`).join(" ")}`
-        : "Create an agent before using $mentions.")),
-    h("div", { className: "bees-form-row" },
+    h("label", { className: "bees-process-name" },
+      h("span", { style: { display: "flex", alignItems: "center", gap: "6px" } },
+        "What does success look like?",
+        h(HelpTooltip, { icon: "!", text: mentionableAgents.length
+          ? `Type $ to assign agents to this work. Mentioning multiple agents (e.g. ${mentionableAgents.slice(0, 4).map(({ name }) => `$${name.toLocaleLowerCase().replace(/[^\\p{Letter}\\p{Number}]+/gu, "-").replace(/^-|-$/g, "")}`).join(" ")}) will start a discussion between them.`
+          : "Create an agent before using $mentions." })
+      ),
+      h("textarea", { className: "bees-textarea", name: "description",
+        placeholder: "Describe the expected outcome (e.g. $CEO and $CMO discuss the strategy...)" })),
+    h("div", { className: "bees-form-row bees-process-name" },
       h("label", null, "Priority", h("select", { className: "bees-select", name: "priority", defaultValue: "normal" },
         h("option", { value: "low" }, "Low"), h("option", { value: "normal" }, "Normal"), h("option", { value: "high" }, "High")))),
-    h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds, onInputIds: setInputLocationIds,
-      outputId: outputLocationId, onOutputId: setOutputLocationId, inherited,
-      defaultOutputId, defaultOutputName: data.locations.find(({ id }) => id === defaultOutputId)?.name ?? "" }),
-    process && !parent ? h("div", { style: { display: "grid", gap: "5px" } },
-      h("p", { className: "bees-muted", style: { margin: 0 } }, "Process MCPs are shared with every agent and future work in this process. Changes save automatically."),
+    h("div", { className: "bees-process-files" },
+      h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds, onInputIds: setInputLocationIds,
+        outputId: outputLocationId, onOutputId: setOutputLocationId, inherited,
+        defaultOutputId, defaultOutputName: data.locations.find(({ id }) => id === defaultOutputId)?.name ?? "", compact: true })),
+    process && !parent ? h("div", { className: "bees-process-mcps" },
+      h("p", { className: "bees-muted", style: { margin: 0, marginBottom: "8px" } }, "Process MCPs are shared with every agent and future work in this process. Changes save automatically."),
       h(McpAccess, { key: process.id, ctx, servers: capabilities?.data?.servers ?? [],
         tools: capabilities?.data?.tools ?? [], catalog: capabilities?.data?.catalog ?? [],
         onServerAction: capabilities?.act, access: process.mcpAccess, chosen: process.mcpServers,
         scope: "process", showAll: true, onChange: ({ mcpAccess, mcpServers }) =>
           act({ action: "set_process_mcp", processId: process.id, mcpAccess, mcpServers }) })) : null,
-    h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Creating…" : parent ? "Add work item" : goal ? "Create goal" : "Start process run"),
-      h(Button, { onClick: onCancel }, "Cancel"))
+    h("div", { className: "bees-detail-actions bees-process-actions", style: { justifyContent: "flex-end" } },
+      h(Button, { onClick: onCancel }, "Cancel"),
+      h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Creating…" : parent ? "Add work item" : goal ? "Create goal" : "Start process run"))
   ));
 }
 
@@ -852,17 +870,30 @@ function TeamQuestionCard({ question, data, act }) {
     error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
 }
 
-export function QuestionPanel({ wait, onAnswered, act, executionId, browser }) {
+export function QuestionPanel({ wait, onAnswered, act, executionId, browser, data, workspaceId, onOpenTools }) {
   const pending = wait;
   const questions = pending.questions ?? [];
-  return h(GenericQuestionPanel, { pending, questions, wait, onAnswered, act, executionId, browser });
+  return h(GenericQuestionPanel, { pending, questions, wait, onAnswered, act, executionId, browser, data, workspaceId, onOpenTools });
 }
 
-function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, executionId, browser }) {
+function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, executionId, browser, data, workspaceId, onOpenTools }) {
   const [index, setIndex] = useState(0);
   const [drafts, setDrafts] = useState(() => questions.map(() => ({ selected: [], custom: "", skipped: false })));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const { ctx } = React.useContext(NativeUi);
+  const teamId = data?.workspaces.find(({ id }) => id === workspaceId)?.teamId;
+  const provideFile = async () => {
+    setBusy(true); setError("");
+    try {
+      const location = await addLocationFromDevice(ctx, act, teamId, "file");
+      if (!location?.id) return;
+      const result = await act({ action: "provide_run_input", executionId, locationId: location.id });
+      if (!result?.manifest) throw new Error("The file could not be attached to this run.");
+      setDraft((current) => ({ ...current, skipped: false, custom: [current.custom, result.manifest].filter(Boolean).join("\n") }));
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
+  };
   const question = questions[index];
   if (!question) return h(Empty, null, "The agent sent an empty question request.");
   const draft = drafts[index];
@@ -948,6 +979,8 @@ function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, execu
     h("div", { className: "bees-answer-actions" },
       index > 0 ? h(Button, { disabled: busy, onClick: () => { setIndex((current) => current - 1); setError(""); } }, "Back") : null,
       signInQuestion ? null : h(Button, { disabled: busy, onClick: skip }, "Skip"), h("div", { className: "bees-grow" }),
+      teamId && act && executionId ? h(Button, { disabled: busy, onClick: provideFile }, "Provide a file") : null,
+      onOpenTools ? h(Button, { disabled: busy, onClick: onOpenTools }, "Connect MCP") : null,
       browser && act && executionId ? h(Button, {
         disabled: busy, title: "Open the browser profile this agent uses, so you can sign in on its behalf",
         onClick: openBrowser
@@ -989,7 +1022,7 @@ function WorkItemControls({ item, act, onDone, showUnavailable = false, data, al
   const [busy, setBusy] = useState("");
   if (!item || !act || item.kind === "plan") return null;
   const canRetry = item.runtimePhase === "failed";
-  const canStop = ["running", "waiting", "paused", "failed"].includes(item.runtimePhase);
+  const canStop = ["running", "waiting", "paused"].includes(item.runtimePhase);
   const invoke = async (action, payload = {}) => {
     setBusy(action);
     try {
@@ -1042,7 +1075,7 @@ function WorkItemControls({ item, act, onDone, showUnavailable = false, data, al
       busy === "archive_item" ? "Archiving…" : "Archive"));
 }
 
-function AgentInteractionPanel({ run, item, title, summary, interaction, handled, onAnswered, onOpen, openLabel, act, onControlled, data }) {
+function AgentInteractionPanel({ run, item, title, summary, interaction, handled, onAnswered, onOpen, openLabel, act, onControlled, data, onOpenTools }) {
   const files = [...new Set(run.files ?? (run.outputs ?? []).map((path) => `outputs/${path}`))];
   const [viewer, setViewer] = useState(files.length ? { executionId: run.id, path: files[0] } : null);
   const fileKey = files.join("|");
@@ -1059,7 +1092,7 @@ function AgentInteractionPanel({ run, item, title, summary, interaction, handled
       onOpen ? h(Button, { onClick: onOpen }, openLabel) : null,
       h(WorkItemControls, { item, act, onDone: onControlled }))),
     workReview ? h(WorkReviewPanel, { key: interaction.key, wait: interaction, onAnswered, act, executionId: run?.id, item, data })
-      : interaction?.kind === "question" ? h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered, act, executionId: run?.id, browser: data?.browserEnabled })
+      : interaction?.kind === "question" ? h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered, act, executionId: run?.id, browser: data?.browserEnabled, data, workspaceId: run.workspaceId, onOpenTools })
       : interaction?.kind === "approval" ? h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered })
         : h(Empty, null, handled.size
           ? "Answer sent. Waiting for the agent…" : "Loading the agent's request…"),
@@ -1147,6 +1180,7 @@ export function NeedsYouWidget({ data, act, queue, records, limit = 8 }) {
           h(AgentInteractionPanel, {
             run: selected.run, item: selected.item, title: runTitle(data, selected.run), summary: selected.session, data,
             interaction: queue.interaction, handled: queue.handled,
+            onOpen: record.open, openLabel: "Open work",
             onAnswered: (key) => queue.answered(key, visibleRecords.map(r => r.live)), act,
             onControlled: () => queue.answered(`control:${selected.run.id}`, visibleRecords.map(r => r.live))
           })) : null
@@ -1166,22 +1200,19 @@ const planView = (data, run) => ({ ...data,
   runs: data.runs.map((row) => row.id === run.id ? { ...row, workItemId: run.id } : row) });
 
 export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId, setWorkProcessId, act, preference, preferences, setPageActions, setPageHeader, capabilities }) {
+  const [newSchedule, setNewSchedule] = useState(false);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState(route === "completed" ? "completed" : "all");
   const [processFilter, setProcessFilter] = useState("all");
   const [itemScope, setItemScope] = useState("primary");
   const [owner, setOwner] = useState("all");
   useEffect(() => { setStatus(route === "completed" ? "completed" : "all"); }, [route]);
-  useEffect(() => { setQuery(""); setProcessFilter("all"); setItemScope("primary"); setOwner("all"); }, [route, workspaceIds.join(",")]);
+  useEffect(() => { setQuery(""); setProcessFilter("all"); setItemScope("primary"); setOwner("all"); setNewSchedule(false); }, [route, workspaceIds.join(",")]);
   const plan = data.runs.find((run) => run.id === workItemId && !run.workItemId);
   if (workItemId) return h(WorkItemCockpit, {
     ctx, data: plan ? planView(data, plan) : data, rootId: workItemId, teamId, act, preference, preferences, capabilities, onBack: () => setWorkItemId(""),
     onScheduleCreated: (id) => setWorkItemId(id),
     setPageActions, setPageHeader
-  });
-  if (["work", "run", "goal"].includes(creating)) return h(WorkItemForm, {
-    ctx, data, kind: creating, workspaceId, defaultProcessId, act, capabilities, onCancel: () => setCreating(""),
-    onCreated: (id) => { setCreating(""); setWorkItemId(id); }, setPageHeader
   });
   const items = data.items.filter((item) => {
     const process = data.processes.find(({ id }) => id === item.processId);
@@ -1191,6 +1222,18 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
   });
   const processes = data.processes.filter((process) => workspaceIds.includes(process.workspaceId))
     .sort((left, right) => left.name.localeCompare(right.name));
+  const schedulableItems = data.items.filter((item) => {
+    if (item.parentId || item.archivedAt || isScheduleDefinition(item)) return false;
+    const process = processes.find(({ id }) => id === item.processId);
+    const stages = data.stages.filter(({ processId }) => processId === item.processId);
+    return process && stages.length >= 2 && stages.at(-1)?.driver === "terminal" &&
+      stages.every(({ driver }) => ["agent", "discussion", "review", "terminal"].includes(driver));
+  });
+  
+  if (["work", "run", "goal"].includes(creating)) return h(WorkItemForm, {
+    ctx, data, kind: creating, workspaceId, defaultProcessId, act, capabilities, onCancel: () => setCreating(""),
+    onCreated: (id) => { setCreating(""); setWorkItemId(id); }, setPageHeader
+  });
   const ownerId = (item) => {
     if (item.accountUserId) return item.accountUserId;
     const process = data.processes.find(({ id }) => id === item.processId);
@@ -1231,7 +1274,7 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
         item.title, process?.name ?? "Process", scheduleSummary(recurring),
         recurring.nextRunAt ? `Next ${new Date(recurring.nextRunAt).toLocaleString()}` : "Next run pending"
       ].join(" · ") : [
-        item.kind === "run" ? item.recurringWorkId ? "scheduled run" : "process run" : item.kind,
+        item.kind === "run" ? item.recurringWorkId ? "scheduled run" : "process run" : item.kind === "work" ? "process item" : item.kind,
         process?.name ?? "Process",
         stage?.name ?? "Stage",
         initiator && !showColumns ? `by ${initiator}` : null
@@ -1242,47 +1285,63 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
       const open = { type: "button", className: "bees-row bees-work-item-row", onClick: () => setWorkItemId(item.id) };
       return showColumns ? h("tr", { key: item.id },
         h("td", null, h("button", { ...open, title: item.title }, title)),
-        h("td", null, recurring ? "Schedule" : item.kind === "run" ? "Process" : "Work item"),
+        h("td", null, recurring ? "Schedule" : item.kind === "run" ? "Process run" : "Process item"),
         h("td", null, h("span", { className: "bees-work-owner", title: initiator || "Unknown owner" }, initiator || "Unknown owner")),
         h("td", null, status),
           h("td", null, h("div", { className: "bees-answer-controls", role: "group", "aria-label": `Actions for ${item.title}` },
+            recurring ? h(Button, { className: "bees-btn-secondary", onClick: () => act({ action: recurring.status === "paused" ? "resume_recurring_work" : "pause_recurring_work", recurringWorkId: recurring.id }) }, recurring.status === "paused" ? "Resume" : "Pause") : null,
             h(WorkItemControls, { item, act, showUnavailable: false, data, allowReRun: includeReRun }))))
         : h("button", { ...open, key: item.id }, title, status);
     });
-    return showColumns ? h("table", { className: "bees-work-table", "aria-label": route === "schedules" ? "Schedules" : "Active work" },
-      h("thead", null, h("tr", null, ...["Work", "Type", "Owner", "Status", "Actions"].map((label) => h("th", { key: label, scope: "col" }, label)))),
-      h("tbody", null, ...planRows.map((run) => h("tr", { key: run.id },
-        h("td", null, h("button", { type: "button", className: "bees-row bees-work-item-row", onClick: () => setWorkItemId(run.id) },
-          h("span", { className: "bees-row-main" }, h("span", { className: "bees-row-title" }, runTitle(data, run))))),
-        h("td", null, "Plan"), h("td"),
-        h("td", null, h("span", { className: `bees-status bees-${run.status}` }, LIVE_RUN.includes(run.status) || planDone(run) ? run.status.replaceAll("_", " ") : "ready to apply")),
-        h("td"))), ...rendered)) : rendered;
+    return showColumns ? h("table", { className: "bees-work-table", "aria-label": route === "schedules" ? "Schedules" : "Active process runs" },
+      h("thead", null, h("tr", null, ...[route === "schedules" ? "Schedule" : "Process", "Type", "Owner", "Status", "Actions"].map((label) => h("th", { key: label, scope: "col" }, label)))),
+      h("tbody", null, ...planRows.map((run) => {
+        let runInitiatorId = run.userId;
+        if (!runInitiatorId) {
+          const workspace = data.workspaces?.find(({ id }) => id === run.workspaceId);
+          const team = data.teams?.find(({ id }) => id === workspace?.teamId);
+          const organization = data.organizations?.find(({ id }) => id === team?.organizationId);
+          runInitiatorId = organization?.personal ? "local" : "";
+        }
+        const runInitiator = runInitiatorId ? ownerLabel(runInitiatorId) : null;
+        return h("tr", { key: run.id },
+          h("td", null, h("button", { type: "button", className: "bees-row bees-work-item-row", onClick: () => setWorkItemId(run.id) },
+            h("span", { className: "bees-row-main" }, h("span", { className: "bees-row-title" }, runTitle(data, run))))),
+          h("td", null, "Plan"),
+          h("td", null, h("span", { className: "bees-work-owner", title: runInitiator || "Unknown owner" }, runInitiator || "Unknown owner")),
+          h("td", null, h("span", { className: `bees-status bees-${run.status}` }, LIVE_RUN.includes(run.status) || planDone(run) ? run.status.replaceAll("_", " ") : "ready to apply")),
+          h("td"));
+      }), ...rendered)) : rendered;
   };
   return h("div", { className: "bees-flex-page bees-stack" },
     h("div", { className: "bees-search" },
       h("input", { className: "bees-input bees-grow", value: query, onChange: (event) => setQuery(event.target.value),
-        placeholder: "Search by task name", "aria-label": "Search work items by task name" }),
+        placeholder: route === "schedules" ? "Search schedules" : "Search process runs", "aria-label": route === "schedules" ? "Search schedules by name" : "Search process runs by name" }),
       h("select", { className: "bees-select", value: status, onChange: (event) => setStatus(event.target.value), "aria-label": "Filter by status" },
         h("option", { value: "all" }, "All statuses"),
         ...statuses.map((value) => h("option", { value, key: value }, value))),
       h("select", { className: "bees-select", value: processFilter, onChange: (event) => setProcessFilter(event.target.value), "aria-label": "Filter by process template" },
         h("option", { value: "all" }, "All process templates"),
         ...processes.map((process) => h("option", { value: process.id, key: process.id }, process.name))),
-      h("select", { className: "bees-select", value: itemScope, onChange: (event) => setItemScope(event.target.value), "aria-label": "Filter by work item scope" },
+      h("select", { className: "bees-select", value: itemScope, onChange: (event) => setItemScope(event.target.value), "aria-label": route === "schedules" ? "Filter by schedule scope" : "Filter by process scope" },
         h("option", { value: "primary" }, "Primary only"),
-        h("option", { value: "all" }, "All work items")),
+        h("option", { value: "all" }, route === "schedules" ? "All schedules" : "All process items")),
       h("select", { className: "bees-select bees-owner-filter", value: owner, onChange: (event) => setOwner(event.target.value), "aria-label": "Filter by owner" },
         h("option", { value: "all" }, "All owners"),
         ...owners.map(({ id, label }) => h("option", { value: id, key: id }, label))),
-      route !== "schedules" ? h(Button, { className: "primary", disabled: !workspaceId, onClick: () => {
+      route === "schedules" ? h(Button, { className: "primary", disabled: !schedulableItems.length,
+        title: schedulableItems.length ? "Schedule an existing process run" : "Start a process run before scheduling it",
+        onClick: () => setNewSchedule(true) }, "New Schedule") : h(Button, { className: "primary", disabled: !workspaceId, onClick: () => {
         setWorkProcessId?.(""); setCreating("run");
-      } }, "New work") : null),
+      } }, "New Process Run")),
     h(GridStackPage, {
       layoutId: "work", defaults: WORK_PAGE_LAYOUT, preference, preferences, setPageActions, setPageHeader,
       panels: {
-        "active-work": { label: route === "schedules" ? "Schedules" : "Active work", minW: 6, minH: 3, content: renderRows(rows.filter((item) => !isDone(item)), route === "schedules" ? "No schedules yet" : "No active work matches these filters", route !== "schedules", false, plans.filter((run) => !planDone(run))), helpText: route === "schedules" ? "Recurring schedules automatically start process runs at specific times or intervals." : "Process runs and work items that are currently active.", helpExamples: route === "schedules" ? ["A daily schedule to run an 'Inbox Triage' process at 9 AM", "An hourly schedule to check for new GitHub issues"] : [] },
-        "finished-work": { label: "Completed, archived & stopped", minW: 6, minH: 3, content: renderRows(rows.filter(isDone), "No completed, archived, or stopped work matches these filters", true, true, plans.filter(planDone)) }
+        "active-work": { label: route === "schedules" ? "Schedules" : "Active process runs", minW: 6, minH: 3, content: renderRows(rows.filter((item) => !isDone(item)), route === "schedules" ? "No schedules yet" : "No active process runs match these filters", true, false, plans.filter((run) => !planDone(run))), helpText: route === "schedules" ? "Recurring schedules automatically start process runs at specific times or intervals." : "Process runs and process items that are currently active.", helpExamples: route === "schedules" ? ["A daily schedule to run an 'Inbox Triage' process at 9 AM", "An hourly schedule to check for new GitHub issues"] : [] },
+        "finished-work": { label: "Completed, archived & stopped", minW: 6, minH: 3, content: renderRows(rows.filter(isDone), route === "schedules" ? "No completed, archived, or stopped schedules match these filters" : "No completed, archived, or stopped process runs match these filters", true, true, plans.filter(planDone)) }
       }
-    })
+    }),
+    newSchedule ? h(ScheduleForm, { items: schedulableItems, act, onClose: () => setNewSchedule(false),
+      onCreated: (id) => setWorkItemId(id) }) : null
   );
 }

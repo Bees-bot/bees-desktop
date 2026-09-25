@@ -5,7 +5,7 @@ import {
   ask, askWithCheckbox, choose, collaboration, confirmAction, connectionIdForScope, defaultOrgColor, headerEmitter, NAVIGATION, request, scopeParts, runTitle, sectionFor, Button, Empty, openExternal,
   THEME_PRESETS, ThemeToggle, usePreference, workItemsFor
 } from "./shared.js";
-import { AccountIcon, BookIcon, EditIcon, SettingsIcon } from "./icons.js";
+import { AccountIcon, BookIcon, EditIcon, KnowledgeIcon, SettingsIcon } from "./icons.js";
 import { Home, GuidePage } from "./home.js";
 import { GettingStarted, GettingStartedBar, onboardingAiKey, planningAgents, starterDescription } from "./getting-started.js";
 import { BasicsPage } from "./basics.js";
@@ -184,6 +184,29 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     ...(preferences.getSnapshot().value?.onboarding ?? {}), ...patch
   });
   const [data, setData] = useState(null);
+  // Approval/question waterfalls need a retained session even when its Chat tab is closed.
+  const interactionSessions = useRef(new Map());
+  useEffect(() => {
+    const wanted = new Set((data?.runs ?? []).filter((run) => !run.ranElsewhere && run.sessionId &&
+      ["running", "waiting_for_input", "waiting_for_approval"].includes(run.status)).map((run) => run.sessionId));
+    for (const id of wanted) {
+      if (interactionSessions.current.has(id)) continue;
+      const reference = ctx.sessions.retain(id, { source: "bees" });
+      interactionSessions.current.set(id, reference);
+      reference.ready.catch((reason) => {
+        if (interactionSessions.current.get(id) !== reference) return;
+        interactionSessions.current.delete(id); reference.release();
+        setError(`Could not load the agent's request: ${reason instanceof Error ? reason.message : String(reason)}`);
+      });
+    }
+    for (const [id, reference] of interactionSessions.current) if (!wanted.has(id)) {
+      reference.release(); interactionSessions.current.delete(id);
+    }
+  }, [ctx, data]);
+  useEffect(() => () => {
+    for (const reference of interactionSessions.current.values()) reference.release();
+    interactionSessions.current.clear();
+  }, [ctx]);
   const startupRendered = useRef(false);
   useEffect(() => {
     void globalThis.fetch?.("/bees-api/startup?phase=ui.shell-mounted", { method: "POST" }).catch(() => {});
@@ -388,7 +411,12 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   const localAi = h(LocalAiController, { modelSettings, preferences, onError: setError });
   const freeAi = h(FreeAiController, { modelSettings, onError: setError });
   if (!data) return h(React.Fragment, null, localAi, freeAi,
-    h("div", { className: "bees-app bees-loading" }, error || "Opening Bees…"));
+    h("div", { className: "bees-app bees-loading", style: { display: "flex", flexDirection: "column", gap: "16px", background: "#111315" } }, 
+      error || h(React.Fragment, null, 
+        h("style", null, `@keyframes hover { 50% { transform: translateY(-6px); } }`),
+        h("img", { src: brandMark, style: { width: "46px", height: "46px", borderRadius: "14px", objectFit: "cover", animation: "hover 1.8s ease-in-out infinite" } }),
+        h("strong", { style: { fontSize: "20px", color: "#f5f5f5" } }, "Bees Desktop")
+      )));
   const dashboards = dashboardsFrom(preference.dashboards);
   const activeDashboard = dashboards.find(({ id }) => id === preference.activeDashboardId) ?? dashboards[0];
   const createDashboard = async () => {
@@ -556,9 +584,9 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     : route === "apps" ? h(AppsPage, { key: `${parts.workspaceId}:${connectionId}`, workspaceId: parts.workspaceId, connectionId, openWorkItem })
     : section.id === "work" ? h(WorkPage, { ctx, data: viewData, route, workspaceIds: scopeFor(route), workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, setWorkProcessId, act, capabilities, preference, preferences, setPageActions, setPageHeader })
       : section.id === "processes" ? h(ProcessesPage, { ctx, data: viewData, servers: capabilities.data?.servers ?? [], tools: capabilities.data?.tools ?? [], catalog: capabilities.data?.catalog ?? [], onServerAction: capabilities.act, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act, preference, preferences, setPageActions, setPageHeader })
-        : route === "skills" ? h(SkillsPage, { capabilities, onAddTools: () => navigate("mcp") })
+        : route === "skills" ? h(SkillsPage, { capabilities })
         : route === "mcp" ? h(McpPage, { ctx, capabilities })
-        : section.id === "agents" ? h(AgentsPage, { ctx, data: viewData, servers: capabilities.data?.servers ?? [], tools: capabilities.data?.tools ?? [], catalog: capabilities.data?.catalog ?? [], onServerAction: capabilities.act, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings"), preference, preferences, setPageActions })
+        : section.id === "agents" ? h(AgentsPage, { ctx, data: viewData, servers: capabilities.data?.servers ?? [], tools: capabilities.data?.tools ?? [], catalog: capabilities.data?.catalog ?? [], onServerAction: capabilities.act, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings"), preference, preferences, setPageActions, setPageHeader })
           : section.id === "files" ? h(FilesPage, { ctx, data: viewData, teamId: parts.teamId, act })
             : section.id === "activity" ? h(ActivityPage, { data: viewData, route, workspaceIds, openWorkItem, openProcess })
               : section.id === "knowledge" ? h(KnowledgePage, { data: viewData, route, workspaceId: parts.workspaceId, teamId: parts.teamId, openWorkItem })
@@ -607,13 +635,27 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
         onDeleteDashboard: deleteDashboard,
         organizationColors: preference.organizationColors ?? {} }),
       h("div", { className: "bees-sidebar-foot" },
-        h("button", { className: `bees-nav-link ${route === "getting-started" ? "active" : ""}`, "aria-current": route === "getting-started" ? "page" : null, onClick: () => { void updateOnboarding({ active: true }); navigate("getting-started"); } }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(BookIcon)), h("span", null, "Getting started")),
-        h("button", { className: `bees-nav-link ${route === "basics" ? "active" : ""}`, "aria-current": route === "basics" ? "page" : null, onClick: () => navigate("basics") }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(BookIcon)), h("span", null, "Bees basics")),
-        h("button", { className: `bees-nav-link ${route === "accounts" ? "active" : ""}`, "aria-current": route === "accounts" ? "page" : null, onClick: () => navigate("accounts") }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(AccountIcon)), h("span", null, "Accounts"))
+        h("button", { className: `bees-nav-link bees-utility-link ${route === "getting-started" ? "active" : ""}`, "aria-current": route === "getting-started" ? "page" : null, onClick: () => { void updateOnboarding({ active: true }); navigate("getting-started"); } }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(BookIcon)), h("span", null, "Getting started")),
+        h("button", { className: `bees-nav-link bees-utility-link ${route === "basics" ? "active" : ""}`, "aria-current": route === "basics" ? "page" : null, onClick: () => navigate("basics") }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(KnowledgeIcon)), h("span", null, "Bees basics")),
+        h("button", { className: `bees-nav-link bees-utility-link bees-accounts-link ${route === "accounts" ? "active" : ""}`, "aria-current": route === "accounts" ? "page" : null, onClick: () => navigate("accounts") },
+          (() => {
+            const accounts = Array.from(new Map((data.connections ?? []).filter((c) => c.email || c.accountName).map((c) => [c.accountUserId || c.email, c.accountName || c.email])).values());
+            if (accounts.length === 0) return h(React.Fragment, null, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(AccountIcon)), h("span", null, "Accounts"));
+            return h(React.Fragment, null,
+              h("span", { style: { display: "flex", color: "var(--dsw-alias-label-secondary)" } },
+                h("div", { className: "bees-account-avatars" },
+                  ...accounts.slice(0, 3).map((name, i) => h("div", { className: "bees-account-avatar", key: i }, name.charAt(0).toUpperCase())),
+                  accounts.length > 3 ? h("div", { className: "bees-account-avatar" }, `+${accounts.length - 3}`) : null
+                )
+              ),
+              h("span", null, "Accounts")
+            );
+          })()
+        )
       )
     ),
     h("section", { className: "bees-main" },
-      h(AppHeader, { route, routeLabel, parts, ctx, preferences }),
+      h(AppHeader, { routeLabel, parts, ctx, preferences }),
       onboarding.active && route !== "getting-started" ? h(GettingStartedBar, { state: onboarding, update: updateOnboarding, navigate, aiStatus: aiReady ? "AI ready" : "AI setup can continue while you explore.", data, openWorkItem: openStarter }) : null,
       error ? h("div", { className: "bees-error", role: "alert", style: { display: "flex", alignItems: "center", gap: "12px" } },
         h("span", { style: { flex: 1, minWidth: 0, overflowWrap: "anywhere" } }, error),
@@ -624,9 +666,10 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   ));
 }
 
-function AppHeader({ route, routeLabel, parts, ctx, preferences }) {
+function AppHeader({ routeLabel, parts, ctx, preferences }) {
   const [header, setHeader] = useState(null);
   const [actions, setActions] = useState(null);
+  const scopeName = parts.team?.name ?? parts.organization?.name ?? "";
   useEffect(() => {
     const update = () => { setHeader(headerEmitter.header); setActions(headerEmitter.actions); };
     headerEmitter.listeners.add(update);
@@ -635,9 +678,9 @@ function AppHeader({ route, routeLabel, parts, ctx, preferences }) {
   }, []);
 
   return h("header", { className: "bees-top" },
-    header ? header : h(React.Fragment, null,
+    header ? header : h("div", { style: { minWidth: 0 } },
       h("div", { className: "bees-title" }, routeLabel),
-      route !== "home" ? h("div", { className: "bees-context" }, parts.team?.name ?? parts.organization?.name ?? "") : null
+      scopeName ? h("div", { className: "bees-context" }, scopeName) : null
     ),
     h("div", { className: "bees-grow" }),
     actions,

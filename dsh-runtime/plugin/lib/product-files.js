@@ -7,7 +7,10 @@ import { currentIdentity, required, workItemLineage, workRunItems } from "./prod
 
 export const TEXT_EXTENSIONS = new Set([
   ".txt", ".md", ".markdown", ".csv", ".tsv", ".json", ".yaml", ".yml",
-  ".html", ".css", ".js", ".ts", ".py", ".rs", ".toml"
+  ".html", ".htm", ".css", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx",
+  ".py", ".rb", ".go", ".rs", ".java", ".kt", ".kts", ".swift", ".php",
+  ".c", ".h", ".cpp", ".hpp", ".cs", ".sh", ".bash", ".zsh", ".sql",
+  ".xml", ".toml", ".ini", ".conf", ".properties", ".log"
 ]);
 
 export function mappedLocation(database, locationId) {
@@ -38,6 +41,9 @@ export function logicalRelativePath(value) {
   return parts.join("/");
 }
 
+// a mac folder with a custom icon holds a hidden "Icon\r"; a path trimmed anywhere later loses the \r and fails
+export const controlName = (name) => /[\x00-\x1f\x7f]/.test(name);
+
 export function walkLocation(location, onFile) {
   const root = realpathSync(location.localPath);
   const rootStat = lstatSync(root);
@@ -51,7 +57,7 @@ export function walkLocation(location, onFile) {
   while (stack.length) {
     const directory = stack.pop();
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      if (entry.name.startsWith(".") || entry.isSymbolicLink()) continue;
+      if (entry.name.startsWith(".") || controlName(entry.name) || entry.isSymbolicLink()) continue;
       const path = resolve(directory, entry.name);
       if (entry.isDirectory()) stack.push(path);
       else if (entry.isFile() && onFile(path, relative(root, path)) === false) return;
@@ -168,7 +174,7 @@ function walk(root, limit, keep = () => true) {
     let entries;
     try { entries = readdirSync(directory, { withFileTypes: true }); } catch { continue; }
     for (const entry of entries) {
-      if (entry.isSymbolicLink()) continue;
+      if (entry.isSymbolicLink() || controlName(entry.name)) continue;
       const path = resolve(directory, entry.name);
       if (entry.isDirectory()) stack.push(path);
       else if (entry.isFile() && keep(path)) files.push(path);
@@ -194,6 +200,17 @@ export function previewFiles(runDirectory) {
     try {
       const root = realpathSync(resolve(runDirectory, rootName));
       files.push(...walk(root, 200 - files.length, text).map((path) => `${rootName}/${relative(root, path)}`));
+    } catch { /* a run may not have created this directory yet */ }
+  }
+  return files.sort();
+}
+
+export function runFiles(runDirectory) {
+  const files = [];
+  for (const rootName of ["inputs", "outputs"]) {
+    try {
+      const root = realpathSync(resolve(runDirectory, rootName));
+      files.push(...walk(root, 200 - files.length).map((path) => `${rootName}/${relative(root, path)}`));
     } catch { /* a run may not have created this directory yet */ }
   }
   return files.sort();

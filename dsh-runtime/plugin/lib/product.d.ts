@@ -11,10 +11,11 @@ export class BeesProduct {
   readKnowledge(resultId: string, workspaceId: string): any;
   audit(): any[];
   runHistory(executionId: string): Promise<any>;
-  locationFile(locationId: string, filePath?: string): any;
+  locationFile(locationId: string, filePath: string | undefined, native: true): { nativePath: string; name: string; path: string; size: number };
+  locationFile(locationId: string, filePath?: string, native?: false): any;
   runFile(executionId: string, filePath: string, native: true): { sessionId: string; status: string; path: string };
   runFile(executionId: string, filePath: string, native?: false): {
-    name: string; path: string; format: "markdown" | "text"; content: string; size: number; truncated: boolean;
+    name: string; path: string; format: "binary" | "markdown" | "text"; content: string | null; size: number; truncated: boolean;
   };
   storeProposal(input: Record<string, any>): any;
   createSubitems(input: { parentId: string; executionId?: string; items: Array<{ title: string; description?: string; agentAssignmentId?: string }> }): Promise<any[]>;

@@ -3,7 +3,7 @@ import { ask, confirmAction, Button, Empty, McpCard, request, useSubmit, PageHea
 import { GridStackPage } from "./flexible-grid.js";
 import { inheritedInputs, ResourceFields } from "./location-fields.js";
 import { CatalogReview } from "./skills.js";
-
+import { ArrowLeftIcon } from "./icons.js";
 const AGENTS_LAYOUT = [
   { kind: "agents", x: 0, y: 0, w: 7, h: 7 },
   { kind: "presets", x: 7, y: 0, w: 5, h: 7 }
@@ -65,7 +65,7 @@ export function AgentModelSelect({ ctx, value = "", effort = "", systemDefault, 
     ? `System default — ${systemDefault.provider}/${systemDefault.model}${systemDefault.reasoningEffort ? ` · ${systemDefault.reasoningEffort} effort` : ""}`
     : "System default (auto-updates)";
   return h(React.Fragment, null,
-    h("label", null, "Model",
+    h("label", { className: "bees-process-name", style: { display: "grid", gap: "5px" } }, "Model",
     h("select", { className: "bees-select", name: "model", value: route, required: !allowSystemDefault, onChange: (event) => {
       setRoute(event.target.value); setReasoningEffort("");
     } },
@@ -82,7 +82,7 @@ export function AgentModelSelect({ ctx, value = "", effort = "", systemDefault, 
     catalog.error ? h("span", { className: "bees-muted", role: "status" }, `Could not load available models: ${catalog.error}`)
       : catalog.failures.length ? h("span", { className: "bees-muted", role: "status" },
         `Some providers could not load: ${catalog.failures.map(({ name }) => name).join(", ")}`) : null),
-    h("label", null, "Reasoning effort",
+    h("label", { className: "bees-process-name", style: { display: "grid", gap: "5px" } }, "Reasoning effort",
       h("select", { className: "bees-select", name: "reasoningEffort", value: reasoningEffort,
         disabled: !selectedModel?.reasoning && !reasoningEffort,
         onChange: (event) => setReasoningEffort(event.target.value) },
@@ -128,12 +128,12 @@ export function SystemDefaultSettings({ ctx, modelSettings, systemDefault, reloa
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Which MCP servers this agent may use. Shared by the create and edit forms. */
-export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access, chosen, onServerAction, onChange, scope = "agent", showAll = false }) {
-  const [mode, setMode] = useState(access ?? "all");
-  const [picked, setPicked] = useState(chosen ?? []);
+export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access, chosen, onServerAction, onChange, scope = "agent", showAll = true }) {
+  const [picked, setPicked] = useState(() => (access ?? "all") === "all"
+    ? servers.filter(({ enabled }) => enabled).map(({ serverName }) => serverName)
+    : chosen ?? []);
   const [query, setQuery] = useState("");
   const [reviewing, setReviewing] = useState("");
-  const connected = servers.filter(({ enabled }) => enabled);
   // ponytail: linear scans keep this picker small; index tools by server if catalogs grow large.
   const needle = query.trim().toLocaleLowerCase();
   const matching = servers.filter((server) => {
@@ -146,28 +146,22 @@ export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access,
   const entry = catalog.find(({ id }) => id === reviewing);
   // Grants travel between computers; a name this one never installed is shown so it can be added here.
   const missing = picked.filter((name) => !servers.some((server) => server.serverName === name));
-  const change = (nextMode, nextPicked = picked) => {
-    setMode(nextMode); setPicked(nextPicked);
-    void onChange?.({ mcpAccess: nextMode, mcpServers: nextMode === "listed" ? nextPicked : [] });
+  const change = (nextPicked) => {
+    setPicked(nextPicked);
+    void onChange?.({ mcpAccess: "listed", mcpServers: nextPicked });
   };
 
-  return h("section", { className: "bees-mcp-access", "data-mcp-mode": mode },
-    h("label", null, "MCP access",
-      h("select", { className: "bees-select", name: "mcpAccess", value: mode,
-        onChange: (event) => change(event.target.value) },
-        h("option", { value: "all" }, "All connected MCPs"),
-        h("option", { value: "none" }, scope === "process" ? "No process MCPs" : "No MCP access"),
-        h("option", { value: "listed" }, "Only selected MCPs"))),
-    mode === "all" ? h("div", { className: "bees-mcp-count" }, `${connected.length} MCP${connected.length === 1 ? "" : "s"} connected`) : null,
-    (mode === "listed" || showAll) && entry ? h(CatalogReview, { ctx, entry, onCancel: () => setReviewing(""),
+  return h("section", { className: "bees-mcp-access" },
+    h("input", { type: "hidden", name: "mcpAccess", value: "listed" }),
+    entry ? h(CatalogReview, { ctx, entry, onCancel: () => setReviewing(""),
       // a Google sign-in lands later, so that server shows up to add once it is connected
-      onDone: ({ serverName }) => { if (serverName && !picked.includes(serverName)) change(mode === "none" ? "listed" : mode, [...picked, serverName]); setReviewing(""); } }) : mode === "listed" || showAll ? h(React.Fragment, null,
-      ...(mode === "listed" ? picked : []).map((name) => h("input", { key: name, type: "hidden", name: "mcpServers", value: name })),
+      onDone: ({ serverName }) => { if (serverName && !picked.includes(serverName)) change([...picked, serverName]); setReviewing(""); } }) : h(React.Fragment, null,
+      ...picked.map((name) => h("input", { key: name, type: "hidden", name: "mcpServers", value: name })),
       h("input", { className: "bees-input", value: query, placeholder: "Search MCPs or tools", "aria-label": "Search MCPs or tools",
         onChange: (event) => setQuery(event.target.value) }),
       missing.length ? h("div", { className: "bees-mcp-grid" }, ...missing.map((name) => {
         const item = catalog.find((one) => one.serverName === name && !one.installedAs);
-        return h(McpCard, { name: item?.label ?? name, status: "Unavailable", tone: "warning", key: `missing:${name}` },
+        return h(McpCard, { name: item?.label ?? name, status: "Unavailable", tone: "warning", key: `missing:${name}`, icon: item?.icon },
           h("div", { className: "bees-muted" }, item
             ? `${item.summary} · runs here fail until it is added`
             : UUID.test(name)
@@ -175,28 +169,30 @@ export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access,
               : `${name} is set up on another computer. Add it under MCP servers, or remove it from this ${scope}.`),
           h("div", { className: "bees-detail-actions" },
             item ? h(Button, { className: "primary", disabled: !onServerAction, onClick: () => setReviewing(item.id) }, "Add") : null,
-            h(Button, { onClick: () => change(mode, picked.filter((one) => one !== name)) }, "Remove")));
+            h(Button, { onClick: () => change(picked.filter((one) => one !== name)) }, "Remove")));
       })) : null,
       h("div", { className: "bees-mcp-grid" },
         ...matching.map((server) => {
-          const added = server.enabled && (mode === "all" || mode === "listed" && picked.includes(server.serverName));
+          const added = server.enabled && picked.includes(server.serverName);
           const serverTools = tools.filter(({ serverName }) => serverName === server.serverName);
+          const catEntry = server.catalogId ? catalog.find(c => c.id === server.catalogId) : null;
           return h(McpCard, { name: server.label, status: added ? "Added" : server.enabled ? "Available" : "Turned off",
+            icon: catEntry?.icon,
             meta: `${server.toolCount ?? serverTools.length} tool${(server.toolCount ?? serverTools.length) === 1 ? "" : "s"}`,
-            tone: added ? "added" : server.enabled ? "" : "warning", key: server.id },
-            h("div", { className: "bees-muted" }, `${server.toolCount ?? serverTools.length} tool${(server.toolCount ?? serverTools.length) === 1 ? "" : "s"}${server.enabled ? "" : " · turned off"}`),
-            serverTools.length ? h("div", { className: "bees-mcp-tools" }, ...serverTools.map((tool) =>
-              h("span", { key: tool.name }, tool.name.replace(`mcp__${server.serverName}__`, "")))) : null,
-            h("div", { className: "bees-detail-actions" },
-              added && mode === "listed" ? h(Button, { onClick: () => change(mode, picked.filter((name) => name !== server.serverName)) }, "Remove")
-                : !added && server.enabled ? h(Button, { className: "primary", onClick: () => change(mode === "none" ? "listed" : mode, [...picked, server.serverName]) }, "Add") : null,
-              server.enabled ? null : h(Button, { disabled: !onServerAction, onClick: () => onServerAction?.({
-                action: "set_mcp_server_enabled", serverId: server.id, enabled: true
-              }) }, "Turn on")));
+            tone: added ? "added" : server.enabled ? "" : "warning", key: server.id,
+            actionLabel: added ? `Unselect ${server.label}` : server.enabled ? `Select ${server.label}` : `Turn on and select ${server.label}`,
+            actionIcon: added ? "✓" : "+",
+            onOpen: async () => {
+              if (!server.enabled) {
+                if (!onServerAction) return;
+                await onServerAction({ action: "set_mcp_server_enabled", serverId: server.id, enabled: true });
+              }
+              change(added ? picked.filter((name) => name !== server.serverName) : [...picked, server.serverName]);
+            } });
         }),
         ...available.map((item) => h(McpCard, { name: item.label, status: "Not added", key: `catalog:${item.id}`,
-          onOpen: () => setReviewing(item.id) })),
-      matching.length || available.length || missing.length ? null : h("div", { className: "bees-empty" }, "No MCP or tool matches that search"))) : null);
+          icon: item.icon, onOpen: () => setReviewing(item.id) })),
+      matching.length || available.length || missing.length ? null : h("div", { className: "bees-empty" }, "No MCP or tool matches that search"))));
 }
 
 function AgentDialog({ onClose, children }) {
@@ -293,32 +289,32 @@ export function AgentCreateForm({ ctx, data, servers, tools, catalog, onServerAc
     });
     if (created?.id) await onCreated(created.id);
   });
-  const form = h("form", { className: "bees-box bees-form bees-agent-form", onSubmit },
+  const form = h("form", { className: `bees-form bees-process-form${dialog ? " bees-modal" : ""}`, onSubmit },
     inline || dialog
       ? h("div", { className: "bees-page-head" }, h("h2", null, "New agent"))
-      : h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, "← Agents"),
-        h("h2", null, "New agent")),
-    h("div", { className: "bees-agent-fields" },
-      h("label", null, "Name", h("input", { className: "bees-input", name: "name", required: true, autoFocus: true, placeholder: "Research agent" })),
-      h("label", null, "Preset",
-        h("select", { className: "bees-select", name: "presetId", required: true,
-          defaultValue: presets.find(({ id }) => id === "standard")?.id ?? presets[0]?.id },
-          ...presets.map((preset) => h("option", { value: preset.id, key: preset.id }, preset.name)))),
-      h(AgentModelSelect, { ctx, systemDefault: data.systemDefaultModel }),
-      h("label", null, "Concurrent runs", h("input", { className: "bees-input", name: "maxConcurrency", type: "number", min: 0, max: 1000, defaultValue: 0, title: "0 means unlimited" })),
-      h("label", null, "Capabilities", h("input", { className: "bees-input", name: "capabilities", placeholder: "research, writing" })),
-      h("label", { className: "bees-agent-toggle" }, h("input", { name: "enabled", type: "checkbox", defaultChecked: true }), "Available for routing")),
-    h(McpAccess, { ctx, servers, tools, catalog, onServerAction }),
-    h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds,
-      onInputIds: setInputLocationIds, allowOutput: false, inherited: inheritedInputs(data, processId) }),
-    h("label", null, "Instructions", h("textarea", { className: "bees-textarea", name: "instructions", placeholder: "How should this agent complete work?" })),
-    h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary", disabled: busy || !presets.length }, busy ? "Creating…" : "Create agent"),
-      h(Button, { onClick: onCancel }, "Cancel"))
+      : h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, h(ArrowLeftIcon), " Back"),
+        h("div", null, h("h2", null, "New agent"), h("p", { className: "bees-muted" }, "Create a specialized AI agent to handle specific tasks."))),
+    h("label", { className: "bees-process-name" }, "Name", h("input", { className: "bees-input", name: "name", required: true, autoFocus: true, placeholder: "Research agent" })),
+    h("label", { className: "bees-process-name" }, "Preset",
+      h("select", { className: "bees-select", name: "presetId", required: true,
+        defaultValue: presets.find(({ id }) => id === "standard")?.id ?? presets[0]?.id },
+        ...presets.map((preset) => h("option", { value: preset.id, key: preset.id }, preset.name)))),
+    h(AgentModelSelect, { ctx, systemDefault: data.systemDefaultModel }),
+    h("label", { className: "bees-process-name" }, "Concurrent runs", h("input", { className: "bees-input", name: "maxConcurrency", type: "number", min: 0, max: 1000, defaultValue: 0, title: "0 means unlimited" })),
+    h("label", { className: "bees-process-name" }, "Capabilities", h("input", { className: "bees-input", name: "capabilities", placeholder: "research, writing" })),
+    h("label", { className: "bees-process-name bees-agent-toggle", style: { display: "flex", alignItems: "center", gap: "10px" } }, h("input", { name: "enabled", type: "checkbox", defaultChecked: true }), "Available for routing"),
+    h("div", { className: "bees-process-name" }, h(McpAccess, { ctx, servers, tools, catalog, onServerAction })),
+    h("div", { className: "bees-process-name" }, h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds,
+      onInputIds: setInputLocationIds, allowOutput: false, inherited: inheritedInputs(data, processId) })),
+    h("label", { className: "bees-process-name bees-process-description" }, "Instructions", h("textarea", { className: "bees-textarea", name: "instructions", placeholder: "How should this agent complete work?" })),
+    h("div", { className: "bees-detail-actions bees-process-actions", style: { justifyContent: "flex-end" } },
+      h(Button, { onClick: onCancel }, "Cancel"),
+      h("button", { className: "bees-btn primary", disabled: busy || !presets.length }, busy ? "Creating…" : "Create agent"))
   );
   return dialog ? h(AgentDialog, { onClose: onCancel }, form) : form;
 }
 
-export function AgentEditForm({ ctx, data, servers, tools, catalog, onServerAction, selected, act, onCancel, onSaved, cancelLabel = "← Agents", dialog = false, processId = null }) {
+export function AgentEditForm({ ctx, data, servers, tools, catalog, onServerAction, selected, act, onCancel, onSaved, cancelLabel = h(React.Fragment, null, h(ArrowLeftIcon), " Back"), dialog = false, processId = null, setPageHeader }) {
   const [inputLocationIds, setInputLocationIds] = useState(() =>
     data.agentAttachments.filter(({ agentAssignmentId }) => agentAssignmentId === selected.id).map(({ locationId }) => locationId));
   const teamId = data.workspaces.find(({ id }) => id === selected.workspaceId)?.teamId;
@@ -329,7 +325,7 @@ export function AgentEditForm({ ctx, data, servers, tools, catalog, onServerActi
   // keyed on what the model select seeds itself from, or an editor left open keeps showing the
   // old model and saving it back over whoever changed it.
   const key = `${selected.id}:${selected.model ?? ""}:${selected.reasoningEffort ?? ""}`;
-  const form = h("form", { className: "bees-box bees-form bees-agent-form", key, onSubmit: async (event) => {
+  const form = h("form", { className: `bees-form bees-process-form${dialog ? " bees-modal" : ""}`, key, onSubmit: async (event) => {
     event.preventDefault(); const form = new FormData(event.currentTarget);
     const saved = await act({
       action: "edit_agent_assignment", agentAssignmentId: selected.id,
@@ -343,23 +339,24 @@ export function AgentEditForm({ ctx, data, servers, tools, catalog, onServerActi
     });
     if (saved) onSaved();
   } },
-    h("div", { className: "bees-row" }, dialog ? null : h(Button, { onClick: onCancel }, cancelLabel), h("h2", null, selected.name), h("div", { className: "bees-grow" }), selected.systemRole ? h("span", { className: "bees-badge" }, `Bees ${selected.systemRole}`) : null),
-    h("div", { className: "bees-agent-fields" },
-      h("label", null, "Name", h("input", { className: "bees-input", name: "name", defaultValue: selected.name, disabled: Boolean(selected.systemRole) })),
-      h("label", null, "Preset",
-        h("select", { className: "bees-select", name: "presetId", defaultValue: selected.presetId },
-          ...data.presets.filter(({ broken }) => !broken).map((preset) => h("option", { value: preset.id, key: preset.id }, preset.name)))),
-      h(AgentModelSelect, { ctx, value: selected.model ?? "", effort: selected.reasoningEffort ?? "", systemDefault: data.systemDefaultModel }),
-      h("label", null, "Concurrent runs", h("input", { className: "bees-input", name: "maxConcurrency", type: "number", min: 0, max: 1000, defaultValue: selected.maxConcurrency, title: "0 means unlimited" })),
-      h("label", null, "Capabilities", h("input", { className: "bees-input", name: "capabilities", defaultValue: (selected.capabilities ?? []).join(", "), placeholder: "research, writing" })),
-      h("label", { className: "bees-agent-toggle" }, h("input", { name: "enabled", type: "checkbox", defaultChecked: selected.enabled }), "Available for routing")),
-    h(McpAccess, { ctx, servers, tools, catalog, onServerAction, access: selected.mcpAccess, chosen: selected.mcpServers,
-      onChange: ({ mcpAccess, mcpServers }) => act({ action: "edit_agent_assignment", agentAssignmentId: selected.id, mcpAccess, mcpServers }) }),
-    h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds,
-      onInputIds: setInputLocationIds, allowOutput: false, inherited: inheritedInputs(data, processId) }),
-    h("label", null, "Instructions", h("textarea", { className: "bees-textarea", name: "instructions", defaultValue: selected.instructions, placeholder: selected.systemRole === "reviewer" ? "How this team should review work" : "How this agent should complete work" })),
-    h("div", { className: "bees-detail-actions" }, h("button", { className: "bees-btn primary" }, "Save agent"),
-      dialog ? h(Button, { onClick: onCancel }, "Cancel") : null)
+    dialog ? h("div", { className: "bees-row" }, h("h2", null, selected.name), h("div", { className: "bees-grow" }), selected.systemRole ? h("span", { className: "bees-badge" }, `Bees ${selected.systemRole}`) : null) :
+      h(PageHead, { setPageHeader }, h(Button, { onClick: onCancel }, cancelLabel), h("div", null, h("h2", null, selected.name), selected.systemRole ? h("span", { className: "bees-badge" }, `Bees ${selected.systemRole}`) : null)),
+    h("label", { className: "bees-process-name" }, "Name", h("input", { className: "bees-input", name: "name", defaultValue: selected.name, disabled: Boolean(selected.systemRole) })),
+    h("label", { className: "bees-process-name" }, "Preset",
+      h("select", { className: "bees-select", name: "presetId", defaultValue: selected.presetId },
+        ...data.presets.filter(({ broken }) => !broken).map((preset) => h("option", { value: preset.id, key: preset.id }, preset.name)))),
+    h(AgentModelSelect, { ctx, value: selected.model ?? "", effort: selected.reasoningEffort ?? "", systemDefault: data.systemDefaultModel }),
+    h("label", { className: "bees-process-name" }, "Concurrent runs", h("input", { className: "bees-input", name: "maxConcurrency", type: "number", min: 0, max: 1000, defaultValue: selected.maxConcurrency, title: "0 means unlimited" })),
+    h("label", { className: "bees-process-name" }, "Capabilities", h("input", { className: "bees-input", name: "capabilities", defaultValue: (selected.capabilities ?? []).join(", "), placeholder: "research, writing" })),
+    h("label", { className: "bees-process-name bees-agent-toggle", style: { display: "flex", alignItems: "center", gap: "10px" } }, h("input", { name: "enabled", type: "checkbox", defaultChecked: selected.enabled }), "Available for routing"),
+    h("div", { className: "bees-process-name" }, h(McpAccess, { ctx, servers, tools, catalog, onServerAction, access: selected.mcpAccess, chosen: selected.mcpServers,
+      onChange: ({ mcpAccess, mcpServers }) => act({ action: "edit_agent_assignment", agentAssignmentId: selected.id, mcpAccess, mcpServers }) })),
+    h("div", { className: "bees-process-name" }, h(ResourceFields, { ctx, data, teamId, act, inputIds: inputLocationIds,
+      onInputIds: setInputLocationIds, allowOutput: false, inherited: inheritedInputs(data, processId) })),
+    h("label", { className: "bees-process-name bees-process-description" }, "Instructions", h("textarea", { className: "bees-textarea", name: "instructions", defaultValue: selected.instructions, placeholder: selected.systemRole === "reviewer" ? "How this team should review work" : "How this agent should complete work" })),
+    h("div", { className: "bees-detail-actions bees-process-actions", style: { justifyContent: "flex-end" } },
+      dialog ? h(Button, { onClick: onCancel }, "Cancel") : null,
+      h("button", { className: "bees-btn primary" }, "Save agent"))
   );
   return dialog ? h(AgentDialog, { onClose: onCancel }, form) : form;
 }
@@ -388,15 +385,18 @@ export function AgentListActions({ agent, act }) {
     error ? h("p", { className: "bees-error", role: "alert" }, error) : null);
 }
 
-export function AgentsPage({ ctx, data, servers = [], tools = [], catalog = [], onServerAction, workspaceIds, workspaceId, creating, setCreating, act, openDshSettings, preference, preferences, setPageActions }) {
+export function AgentsPage({ ctx, data, servers = [], tools = [], catalog = [], onServerAction, workspaceIds, workspaceId, creating, setCreating, act, openDshSettings, preference, preferences, setPageActions, setPageHeader }) {
   const [agentStatus, setAgentStatus] = useState("active");
   const assignments = data.assignments.filter((row) => workspaceIds.includes(row.workspaceId) && Boolean(row.archivedAt) === (agentStatus === "archived"));
   const [selectedId, setSelectedId] = useState("");
   const selected = data.assignments.find((row) => row.id === selectedId && !row.archivedAt && workspaceIds.includes(row.workspaceId));
-  const editor = creating === "agent" ? h(AgentCreateForm, { ctx, data, servers, tools, catalog, onServerAction, workspaceId, act, dialog: true,
-    onCancel: () => setCreating(""), onCreated: (id) => { setCreating(""); setSelectedId(id); } })
-    : selected ? h(AgentEditForm, { ctx, data, servers, tools, catalog, onServerAction, selected, act, dialog: true,
-      onCancel: () => setSelectedId(""), onSaved: () => setSelectedId("") }) : null;
+
+  if (creating === "agent") return h("div", { className: "bees-flex-page bees-stack" }, h(AgentCreateForm, { ctx, data, servers, tools, catalog, onServerAction, workspaceId, act, dialog: false, setPageHeader,
+    onCancel: () => setCreating(""), onCreated: (id) => { setCreating(""); setSelectedId(id); } }));
+
+  if (selected) return h("div", { className: "bees-flex-page bees-stack" }, h(AgentEditForm, { ctx, data, servers, tools, catalog, onServerAction, selected, act, dialog: false, setPageHeader,
+    onCancel: () => setSelectedId(""), onSaved: () => setSelectedId("") }));
+
   const agents = h("div", null,
       ...(assignments.length ? assignments.map((agent) => h("div", { className: "bees-row", key: agent.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, agent.name), h("div", { className: "bees-muted" }, `${agent.enabled ? agent.presetId : "Unavailable"}${agent.model ? ` · ${agent.model}` : " · default model"}${agent.reasoningEffort ? ` · ${agent.reasoningEffort} effort` : ""}${agent.capabilities?.length ? ` · ${agent.capabilities.join(", ")}` : ""} · ${agent.description || "Agent preset assignment"}`)), agent.systemRole ? h("span", { className: "bees-badge" }, `Bees ${agent.systemRole}`) : null, agent.archivedAt ? null : h(Button, { onClick: () => setSelectedId(agent.id) }, "Configure"), h(AgentListActions, { agent, act }))) : [h(Empty, { key: "empty" }, agentStatus === "archived" ? "No archived agents" : "No agents assigned to this scope") ]));
   const presets = h("div", null,
@@ -417,5 +417,5 @@ export function AgentsPage({ ctx, data, servers = [], tools = [], catalog = [], 
         agents: { label: "Agents", minW: 4, minH: 4, content: agents },
         presets: { label: "Agent presets", minW: 4, minH: 3, content: presets }
       }
-    }), editor);
+    }));
 }

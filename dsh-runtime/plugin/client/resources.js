@@ -13,17 +13,34 @@ export function FilesPage({ ctx, data, teamId, act }) {
     ? pickFolder()
     : ask(`Absolute path for ${location.name} on this device`, location.localPath ?? "");
   return h("div", null,
-    h("div", { className: "bees-row" }, h("div", { className: "bees-grow" }),
+    h("div", { style: { display: "flex", justifyContent: "flex-end", gap: "8px", marginBottom: "16px", marginTop: "4px" } },
       h(Button, { disabled: !teamId || !["admin", "member"].includes(team?.role), onClick: () => addLocationFromDevice(ctx, act, teamId, "file") }, "Choose file"),
       h(Button, { className: "primary", disabled: !teamId || !["admin", "member"].includes(team?.role), onClick: () => addLocationFromDevice(ctx, act, teamId, "folder") }, "Choose folder")),
-    ...(locations.length ? locations.map((location) => h("div", { className: "bees-row", key: location.id },
-      h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, location.name),
-        h("div", { className: "bees-muted" }, `${location.kind} · ${location.localPath || "Not mapped on this device"}`),
-        h("div", { className: "bees-muted" }, `$[${location.name}] · stable logical id ${location.logicalId}`)),
-      h(Button, { onClick: async () => { const path = await pickMapping(location); if (path) await act({ action: "map_location", locationId: location.id, path }); } }, location.mapped ? "Change mapping" : "Map"),
-      location.mapped ? h(Button, { onClick: () => act({ action: "unmap_location", locationId: location.id }) }, "Remove mapping") : null,
-      h(Button, { className: "danger", disabled: !["admin", "member"].includes(team?.role), onClick: async () => (await confirmAction(`Archive “${location.name}”? This will not delete the ${location.kind} on your device.`)) && act({ action: "archive_location", locationId: location.id }) }, "Archive")
-    )) : [h(Empty, { key: "empty" }, "No shared team locations yet")])
+    h("div", { className: "bees-grid" },
+      ...(locations.length ? locations.map((location) => h("div", { className: "bees-box", key: location.id, style: { display: "flex", flexDirection: "column", gap: "10px", padding: "12px 14px" } },
+        h("div", { style: { display: "flex", alignItems: "center", gap: "10px" } },
+          h("div", { className: "bees-empty-icon", style: { width: "36px", height: "36px", flex: "none" } },
+            location.kind === "folder" 
+              ? h("svg", { width: "18", height: "18", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
+                  h("path", { d: "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" }))
+              : h("svg", { width: "18", height: "18", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
+                  h("path", { d: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" }), h("polyline", { points: "14 2 14 8 20 8" }))
+          ),
+          h("div", { className: "bees-row-main" },
+            h("div", { className: "bees-row-title" }, location.name),
+            h("div", { className: "bees-muted" }, `${location.kind} · ${location.localPath || "Not mapped on this device"}`)
+          )
+        ),
+        h("div", { className: "bees-card-actions", style: { marginTop: "auto", borderTop: "1px solid var(--dsw-alias-border-l1)", paddingTop: "10px" } },
+          h(Button, { onClick: async () => { const path = await pickMapping(location); if (path) await act({ action: "map_location", locationId: location.id, path }); } }, location.mapped ? "Change mapping" : "Map"),
+          location.mapped ? h(Button, { onClick: () => act({ action: "unmap_location", locationId: location.id }) }, "Remove mapping") : null,
+          h(Button, { className: "danger", disabled: !["admin", "member"].includes(team?.role), onClick: async () => (await confirmAction(`Archive “${location.name}”? This will not delete the ${location.kind} on your device.`)) && act({ action: "archive_location", locationId: location.id }) }, "Archive")
+        )
+      )) : [h(Empty, { key: "empty", action: h("div", { style: { display: "flex", gap: "8px", justifyContent: "center" } },
+        h(Button, { disabled: !teamId || !["admin", "member"].includes(team?.role), onClick: () => addLocationFromDevice(ctx, act, teamId, "file") }, "Choose file"),
+        h(Button, { className: "primary", disabled: !teamId || !["admin", "member"].includes(team?.role), onClick: () => addLocationFromDevice(ctx, act, teamId, "folder") }, "Choose folder")
+      ) }, "No shared team locations yet")])
+    )
   );
 }
 
@@ -96,8 +113,20 @@ export function KnowledgePage({ data, route, workspaceId, teamId, openWorkItem }
         source ? h("div", { className: "bees-muted" }, source) : null,
         h("div", { className: "bees-muted" }, result.excerpt)));
     }),
-    h("section", { className: "bees-box" }, h("h3", null, "Approved sources"),
-      ...(locations.length ? locations.map((row) => h("div", { className: "bees-row", key: row.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, row.name), h("div", { className: "bees-muted" }, row.mapped ? "Available for bounded on-demand indexing" : "Map on this device to search")))) : [h(Empty, { key: "empty" }, "No approved sources in this team")])),
-    h("p", { className: "bees-muted" }, "Creation and modification dates travel with exported Google documents. Recency helps rank freshness; it does not by itself make a document authoritative."),
-    h("p", { className: "bees-muted" }, "Execution transcripts are available from Activity → Executions."));
+    h("h3", { className: "bees-section-title", style: { marginTop: "24px" } }, "Approved sources"),
+    h("div", { className: "bees-grid" },
+      ...(locations.length ? locations.map((row) => 
+        h("div", { className: "bees-box", key: row.id, style: { padding: "12px 14px", display: "flex", alignItems: "center", gap: "12px" } },
+          h("div", { className: "bees-empty-icon", style: { width: "36px", height: "36px", flex: "none" } },
+            h("svg", { width: "18", height: "18", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
+              h("path", { d: "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" })
+            )
+          ),
+          h("div", { className: "bees-row-main" },
+            h("div", { className: "bees-row-title" }, row.name),
+            h("div", { className: "bees-muted" }, row.mapped ? "Available for bounded on-demand indexing" : "Map on this device to search")
+          )
+        )
+      ) : [h(Empty, { key: "empty" }, "No approved sources in this team")])
+    ));
 }

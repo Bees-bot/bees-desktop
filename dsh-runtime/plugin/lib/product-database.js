@@ -356,7 +356,11 @@ function insertWorkspaceDefaults(database, workspaceId, at = iso()) {
   insertProcess(database, workspaceId, "Goals", GOALS_DESCRIPTION,
     processStages(["Work", "Review"]), "goals", stableUuid(`${workspaceId}:goals`), at);
   for (const [name, description, stages] of STARTER_TEMPLATES)
-    database.prepare("INSERT INTO process_templates VALUES (?, ?, ?, ?, ?, NULL, ?, ?)")
+    database.prepare(`
+      INSERT INTO process_templates
+        (id, workspace_id, name, description, stages_json, account_user_id, archived_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+    `)
       .run(stableUuid(`${workspaceId}:template:${name}`), workspaceId, name, description,
         JSON.stringify(processStages(stages, "starter template")), at, at);
   ensureAgentDefaults(database, workspaceId, at);
@@ -533,6 +537,7 @@ export function initializeProductDatabase(database) {
     CREATE TABLE IF NOT EXISTS process_templates (
       id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
       name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', stages_json TEXT NOT NULL,
+      account_user_id TEXT,
       archived_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     ) STRICT;
     CREATE TABLE IF NOT EXISTS stages (
@@ -701,6 +706,10 @@ export function initializeProductDatabase(database) {
   );
   if (!processColumns.has("mcp_access")) database.exec("ALTER TABLE processes ADD COLUMN mcp_access TEXT NOT NULL DEFAULT 'none'");
   if (!processColumns.has("mcp_servers_json")) database.exec("ALTER TABLE processes ADD COLUMN mcp_servers_json TEXT NOT NULL DEFAULT '[]'");
+  const templateColumns = new Set(database.prepare("PRAGMA table_info(process_templates)").all().map(({ name }) => name));
+  if (!templateColumns.has("account_user_id")) database.exec(
+    "ALTER TABLE process_templates ADD COLUMN account_user_id TEXT"
+  );
   const itemColumns = new Set(database.prepare("PRAGMA table_info(work_items)").all().map(({ name }) => name));
   if (!itemColumns.has("agent_ids_json")) database.exec(
     "ALTER TABLE work_items ADD COLUMN agent_ids_json TEXT NOT NULL DEFAULT '[]'"
