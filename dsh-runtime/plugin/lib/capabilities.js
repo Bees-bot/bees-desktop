@@ -13,7 +13,8 @@ import { iso, message, required, transaction } from "./product-database.js";
 import { catalogEntry, isBrowserCatalog, MCP_CATALOG } from "./mcp-catalog.js";
 import { googleConsent } from "./google-consent.js";
 import { installSkill, listPack, removeSkill, SKILL_CATALOG, skillsRoot } from "./skill-packs.js";
-import { discoverApi } from "./api-discovery.js";
+import { parse as parseYaml } from "yaml";
+import { discoverApi, privateAddress } from "./api-discovery.js";
 import { namePreset } from "./preset-names.js";
 import { specFromCurl } from "./spec-from-curl.js";
 import { startStep } from "./startup.js";
@@ -49,6 +50,14 @@ const PLACEHOLDER = /^(?:[Bb]earer\s+)?(?:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+|\$\{?\w+
 // rows keep placeholders so one server definition works wherever Bees and its state directory live
 const placed = (value) => value === "{node}" ? process.execPath : value === "{browserState}" ? browserStatePath()
   : value.replace("{lib}", () => dirname(fileURLToPath(import.meta.url))).replace("{data}", dataDirectory);
+// a bridge's spec is a saved file or, when the person gave one, a url
+const readSpec = async (source) => {
+  const text = /^https?:/.test(source)
+    ? await fetch(source, { signal: AbortSignal.timeout(8000) }).then((response) => response.text())
+    : await readFile(placed(source), "utf8");
+  // the bridge reads yaml too, so a yaml spec must not look unreadable here
+  try { return JSON.parse(text); } catch { return parseYaml(text); }
+};
 
 /** A folder-bound server takes its folder as its last argument, and that folder belongs to this computer. */
 const FOLDER = "{folder}";
@@ -181,7 +190,10 @@ export class Capabilities {
       const headers = (await Promise.all(server.headerNames.map(async (name) =>
         [name, (await this.ctx.credentials.resolve(secretRef(server, name)))?.value ?? ""])))
         .filter(([, value]) => value && !PLACEHOLDER.test(value)).map(([name, value]) => `${name}:${value}`);
-      if (headers.length) env.API_HEADERS = headers.join(",");
+      // the saved auth header and the pasted request's headers both go out, one must not replace the other,
+      // and a saved Bearer YOUR_TOKEN is dropped rather than sent next to the real key
+      if (env.API_HEADERS || headers.length) env.API_HEADERS = [...(env.API_HEADERS ?? "").split(/,(?=\s*[\w-]+\s*:)/)
+        .filter((pair) => pair.includes(":") && !PLACEHOLDER.test(pair.slice(pair.indexOf(":") + 1).trim())), ...headers].join(",");
       return {
         transport: "stdio",
         serverName: server.serverName,
@@ -487,7 +499,9 @@ export class Capabilities {
     const server = this.servers().find((row) => row.catalogId === entry.id && row.args[row.args.indexOf("--api-base-url") + 1] === found.apiBaseUrl);
     if (!server) return null;
     const at = server.args.indexOf("--openapi-spec");
-    const spec = JSON.parse(await readFile(placed(server.args[at + 1]), "utf8"));
+    // a spec that can't be read as json any more gets its own server rather than a failed install
+    const spec = await readSpec(server.args[at + 1]).catch(() => null);
+    if (!spec?.paths) return null;
     for (const [path, ops] of Object.entries(found.spec.paths))
       for (const [verb, op] of Object.entries(ops)) {
         const before = spec.paths[path]?.[verb]?.parameters ?? [];
@@ -535,40 +549,25 @@ export class Capabilities {
     return args;
   }
 
-  /** Catches a spec that names a route the API refuses, before a run dies on it. A probe sends no
-   *  credential, so it cannot create anything. Only a refused method or body type counts: APIs
-   *  answer 404 to hide a resource from a caller with no session. */
+  /** Catches a spec that names a route the API refuses, before a run dies on it. Only a GET goes out:
+   *  a replayed POST or DELETE with no credential still fires a webhook or changes an open API.
+   *  A 405 counts, a 404 does not: APIs answer 404 to hide a resource from a caller with no session. */
   async verifyEndpoints(specSource) {
-    if (!specSource) return;
-    let spec;
-    try {
-      const text = /^https?:/.test(specSource)
-        ? await fetch(specSource, { signal: AbortSignal.timeout(8000) }).then((response) => response.text())
-        : await readFile(placed(specSource), "utf8");
-      spec = JSON.parse(text);
-    } catch { return; }
-    const origin = spec.servers?.[0]?.url;
-    const paths = Object.entries(spec.paths ?? {});
-    if (!origin || paths.length > 12) return;
+    const spec = specSource ? await readSpec(specSource).catch(() => null) : null;
+    const origin = spec?.servers?.[0]?.url;
+    const paths = Object.entries(spec?.paths ?? {});
+    if (!origin || paths.length > 12 || await privateAddress(origin)) return;
     // a server url may carry a prefix like /v1, and joining it must not drop that
     const base = String(origin).replace(/\/+$/, "");
     for (const [path, operations] of paths) {
       // a templated path has no single address to probe
-      if (path.includes("{")) continue;
-      for (const [method, operation] of Object.entries(operations)) {
-        if (!/^(get|put|post|delete|options|head|patch)$/.test(method)) continue;
-        const type = Object.keys(operation?.requestBody?.content ?? {})[0];
-        let status;
-        try {
-          status = (await fetch(`${base}/${path.replace(/^\/+/, "")}`, {
-            method: method.toUpperCase(),
-            ...(type ? { headers: { "content-type": type }, body: type === "application/json" ? "{}" : "" } : {}),
-            signal: AbortSignal.timeout(5000)
-          })).status;
-        } catch { continue; }
-        if (status === 405 || status === 415)
-          throw new Error(`${origin} refuses ${method.toUpperCase()} ${path} with ${status}. Describe that endpoint the way the API really serves it, then install it again.`);
-      }
+      if (path.includes("{") || !operations?.get) continue;
+      let status;
+      try {
+        status = (await fetch(`${base}/${path.replace(/^\/+/, "")}`, { redirect: "manual", signal: AbortSignal.timeout(5000) })).status;
+      } catch { continue; }
+      if (status === 405)
+        throw new Error(`${origin} refuses GET ${path}. Describe that endpoint the way the API really serves it, then install it again.`);
     }
   }
 
@@ -589,12 +588,19 @@ export class Capabilities {
       if (value) secrets[secret.name] = value;
     }
     const given = { ...(input.inputs ?? {}) };
+    // a run could aim a bridge at this computer's own ports or the router, so only the person adds one of those
+    const personOnly = async (address) => {
+      if (input.viaAgent && await privateAddress(address)) throw new Error(`${address} is on this computer or a private network, so the person adds it on the MCP servers page`);
+    };
+    await personOnly(given.apiBaseUrl);
+    await personOnly(given.openapiSpec);
     const headerNames = entry.headers.map(({ name }) => name);
     // Nobody knows their spec URL. Ask the API, or read the working requests.
     if (entry.inputs.some(({ name }) => name === "openapiSpec") && !String(given.openapiSpec ?? "").trim()) {
       const curl = String(given.curl ?? "").trim();
       const found = curl ? this.specFromRequest(curl) : await this.discoverSpec(given.apiBaseUrl);
       if (found.kind === "from-curl") {
+        await personOnly(found.apiBaseUrl);
         Object.assign(secrets, found.headers);
         headerNames.push(...Object.keys(found.headers));
         const merged = await this.mergeIntoHost(entry, found, found.headers);

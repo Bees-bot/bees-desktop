@@ -2,7 +2,7 @@
 
 Run agentic teams from your own computer while your agents, files, browser sessions, cookies, and passwords stay local.
 
-Bees runs a team of AI agents on your computer instead of one assistant in a single chat window. Describe an outcome in plain language, and Bees turns it into stages: agents work through them on a shared board, and a separate reviewer checks each result before it moves on. It works with agents you may already run, such as Codex or Claude Code from the command line, a hosted model, or a local model, and it reaches outside tools through MCP servers (a standard way to plug tools into an agent), the same way OpenClaw or n8n do. Actions that leave your computer wait for your approval.
+Bees runs a team of AI agents on your computer instead of one assistant in a single chat window. Describe an outcome in plain language, and Bees turns it into stages: agents work through them on a shared board, and a separate reviewer checks each result before it moves on. It works with agents you may already run, such as Codex or Claude Code from the command line, a hosted model, or a local model, and it reaches outside tools through MCP servers (a standard way to plug tools into an agent), the same way OpenClaw or n8n do. You can mark a stage to need your approval, and its agent then cannot send, post, delete or pay through an MCP tool until you approve.
 
 ## Install
 
@@ -24,11 +24,11 @@ Then, on **Home**, type this into the **Ask Bees** box:
 Browse Hacker News and give me a table of the current stories, grouped by category: news, Show HN, and Ask HN.
 ```
 
-Select **Run using defaults**. Bees starts the work with your team's agents and opens it, a reviewer checks the table, and the result lands in that run. You can find it again under **Process Runs**.
+Select **Run**. Bees starts the work with your team's agents and opens it, a reviewer checks the table, and the result lands in that run. You can find it again under **Process Runs**.
 
 ## Features
 
-- Ask Bees for an outcome in plain language, and it runs with your team's agents. Choose **Configure advanced** to pick the process and the agent for each stage first.
+- Ask Bees for an outcome in plain language, and it runs with your team's agents. Choose **Configure** to pick the process, the agent for each stage, and input files first.
 - Multi-agent processes: agents work through stages on a shared board, and a separate reviewer checks each result before it moves on.
 - Bring your own AI: connect Codex, Claude Code, a hosted provider, or a local model, per agent or as the system default.
 - MCP servers and skills, scoped per agent: give one agent every tool, none, or a named few.
@@ -36,11 +36,11 @@ Select **Run using defaults**. Bees starts the work with your team's agents and 
 - Local knowledge search (Company Brain) over folders and Google Drive locations you map yourself.
 - Long-term memory: Bees runs its own local memory service so agents recall past work without sending it to a cloud memory provider.
 - Scheduling: turn a request into a recurring process, like a weekly report.
-- Human in the loop: questions, approvals, and failures surface under **Needs your attention**, and external actions wait for your sign-off.
+- Human in the loop: questions, approvals, and failures surface under **Needs your attention**. Approval is off by default and set per stage.
 
 ## Architecture
 
-Bees is a [Tauri](https://tauri.app) app: Tauri owns the native lifecycle (the window, the installer, the update mechanism) and launches DSH plus a bundled `llama.cpp` server for local model inference alongside it.
+Bees is a [Tauri](https://tauri.app) app: Tauri owns the native lifecycle (the window and the installer) and launches DSH plus a bundled `llama.cpp` server for local model inference alongside it.
 
 DSH is [DeepSeek Harness](https://github.com/deepseek-ai/DeepSeek-Harness), the open-source agent runtime Bees is built on. It supplies models and providers, credentials, sessions, agents, tools, skills, the MCP client, and approvals, as an internal runtime. Bees owns the visible UI and product settings on top of it.
 
@@ -99,7 +99,7 @@ See [Known limitations](docs/limitations.md) for everything else that is deliber
 
 ## Contributing
 
-Bees is built by two people, so a real fix is genuinely useful. Read [CONTRIBUTING.md](CONTRIBUTING.md) before you start: what needs an issue first, what we usually say yes and no to, and how pull requests get reviewed. Everyone participating is covered by the [Code of Conduct](CODE_OF_CONDUCT.md).
+We take feature requests and bug reports, not code. Only the Bees team can open pull requests here. [Ask for a feature](https://github.com/Bees-bot/bees-desktop/issues/new?template=feature_request.yml) or [report a bug](https://github.com/Bees-bot/bees-desktop/issues/new?template=bug_report.yml) instead, and see [CONTRIBUTING.md](CONTRIBUTING.md) for why. Everyone taking part is covered by the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Security
 
@@ -115,7 +115,7 @@ Bees Desktop also ships third-party software under its own terms, including LGPL
 
 ## Development
 
-Requires Node 24 (pinned in `.nvmrc`), npm 10+, Rust 1.84+, and a native desktop toolchain. The app bundles its own Node 24 runtime; native modules built under an older Node break the free AI option on a fresh install. Codespaces and dev containers work for the API and the website, but not for this app: Tauri needs a real machine.
+Requires Node 24 (pinned in `.nvmrc`), npm 10+, Rust 1.84+, and a native desktop toolchain. On macOS the first build compiles `llama-server`, so it also needs CMake (`brew install cmake`). The app bundles its own Node 24 runtime; native modules built under an older Node break the free AI option on a fresh install. Codespaces and dev containers work for the API and the website, but not for this app: Tauri needs a real machine.
 
 ```sh
 npm ci

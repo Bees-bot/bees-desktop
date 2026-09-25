@@ -10,7 +10,7 @@ import {
   normalizeRunSettings, processStages, required, requireTeam, workspaceContext
 } from "./product-database.js";
 import {
-  inputManifest, logicalRelativePath, outputFiles, outputLocation, runFiles, stageInputs,
+  controlName, inputManifest, logicalRelativePath, outputFiles, outputLocation, runFiles, stageInputs,
   mappedLocation, stagedLocation, stageLocation, TEXT_EXTENSIONS
 } from "./product-files.js";
 import { fileReferences, leadingAgentInvocation, preserveReferences, referenceContext, referenceRows, referenceSlug, referenceText, resolveReference, resolveReferences, typedReferences } from "./product-references.js";
@@ -313,7 +313,8 @@ export class BeesProduct {
       durableWaits: Boolean(stage.durableWaits),
       ...retry,
       workspace: runDirectory,
-      body: body + "\n\n" + this.workContext.prompt(executionId),
+      // the work context already reaches the model through the system prompt, a second copy here cost a local model half its window
+      body,
       initialData: {
         version: 1, mode: reviewer ? "review" : "work", stagePurpose: reviewer ? "reviewer" : "worker",
         executionId, workItemId: item.id,
@@ -606,7 +607,7 @@ export class BeesProduct {
     try {
       presets = this.agentPresets ? await Promise.all((await this.agentPresets.list()).map(async (preset) => {
         const { id, name, description } = namePreset(preset);
-        return { id, name, description, broken: preset.broken || await this.presetGap(id).catch(message) };
+        return { id, name, description, broken: preset.broken ? "Unavailable" : await this.presetGap(id).catch(() => "Unavailable") };
       })) : [];
     } catch { /* the Agents page reports the empty roster honestly */ }
     return {
@@ -631,7 +632,7 @@ export class BeesProduct {
     await using scope = await this.agentPresets.acquireScope(presetId);
     const names = new Set(this.tools.schemas(scope.key).map(({ name }) => name));
     const missing = ["write", "ask_user_question"].filter((name) => !names.has(name));
-    return missing.length ? `Has no ${missing.join(" or ")} tool, so it cannot run a stage` : null;
+    return missing.length ? `Can't run work: it has no way to ${missing.map((name) => name === "write" ? "save files" : "ask you a question").join(" or ")}` : null;
   }
 
   async references(query, workspaceId) {
@@ -719,7 +720,7 @@ export class BeesProduct {
     const selected = stagedLocation(location, logical);
     if (selected.kind === "folder") {
       const entries = readdirSync(selected.localPath, { withFileTypes: true })
-        .filter((entry) => !entry.name.startsWith(".") && !entry.isSymbolicLink() && (entry.isFile() || entry.isDirectory()))
+        .filter((entry) => !entry.name.startsWith(".") && !controlName(entry.name) && !entry.isSymbolicLink() && (entry.isFile() || entry.isDirectory()))
         .sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name));
       return { name: location.name, path: logical, truncated: entries.length > 200,
         entries: entries.slice(0, 200).map((entry) => ({ name: entry.name,
@@ -982,11 +983,6 @@ export class BeesProduct {
 
   async startWork({ workspaceId, process, title, description, idempotencyKey }) {
     const key = required(idempotencyKey, "Idempotency key");
-    const prior = this.database.prepare(`
-      SELECT work_item_id AS id FROM bees_work_receipts
-      WHERE workspace_id = ? AND idempotency_key = ?
-    `).get(workspaceId, key);
-    if (prior) return { ...prior, status: "existing" };
     workspaceContext(this.database, workspaceId, ["admin", "member"]);
     const selected = this.database.prepare(`
       SELECT id FROM processes WHERE workspace_id = ? AND archived_at IS NULL
@@ -994,14 +990,12 @@ export class BeesProduct {
       ORDER BY id = ? DESC LIMIT 1
     `).get(workspaceId, process, process, process);
     if (!selected) throw new Error("Process not found in this team");
+    // the receipt is checked and written in the same transaction as the item, so a retried call can't make two
     const created = await this.command({
-      action: "create_item", processId: selected.id,
+      action: "create_item", processId: selected.id, idempotencyKey: key,
       title: required(title, "Title"), description: String(description ?? "")
     });
-    this.database.prepare(`
-      INSERT INTO bees_work_receipts VALUES (?, ?, ?, ?)
-    `).run(workspaceId, key, created.id, iso());
-    return { id: created.id, status: created.executionId ? "started" : "created" };
+    return { id: created.id, status: created.reused ? "existing" : created.executionId ? "started" : "created" };
   }
 
   async createSubitems({ parentId, executionId, items }) {

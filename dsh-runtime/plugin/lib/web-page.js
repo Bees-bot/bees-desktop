@@ -121,10 +121,11 @@ export function mountPageFetch(agentCtx, web) {
     }
   }));
 
-  // Return fetch failures to the model so it can choose whether to try another address.
+  // Keep missing pages local to this agent; a new session can check them again.
+  const missingPages = new Map();
   agentCtx.tools.register(defineTool({
     name: "bees_fetch_page",
-    description: "Read a web page as text. Returns fetch errors so you can decide whether to try another address.",
+    description: "Read a web page as text. HTTP failures are tool errors. Do not retry a missing page (404 or 410); find a verified URL with bees_search_web or continue with other sources.",
     parameters: { url: { type: "string", required: true, description: "Full http or https address." } },
     output: {
       schema: { type: "object", additionalProperties: false, properties: { page: { type: "string", required: true } } },
@@ -133,7 +134,21 @@ export function mountPageFetch(agentCtx, web) {
     execute: async (args, exec) => {
       const url = new URL(String(args.url ?? "").trim());
       if (!/^https?:$/.test(url.protocol)) throw new Error("Give a full http or https address");
+      url.hash = "";
+      const previous = missingPages.get(url.href);
+      if (previous) throw new Error(previous);
       const page = await web.fetch({ url: url.toString() }, exec.signal);
+      if (page.statusCode >= 400) {
+        const missing = page.statusCode === 404 || page.statusCode === 410;
+        const error = `Could not read ${page.url} (HTTP ${page.statusCode}). ` + (missing
+          ? "This page does not exist or is gone. Do not fetch this URL again in this session. Use bees_search_web to find a verified URL, use another source, or report that this page is unavailable."
+          : "The server returned an error, not usable page content. Try another source; retry only if the failure is temporary.");
+        if (missing) {
+          missingPages.set(url.href, error);
+          if (missingPages.size > 64) missingPages.delete(missingPages.keys().next().value);
+        }
+        throw new Error(error);
+      }
       const items = newsItems(page.body.content);
       const text = items.length
         ? `RSS entries (${Math.min(items.length, 20)} of ${items.length}); publication times are exactly as exposed by the feed:\n${newsText(items.slice(0, 20))}`

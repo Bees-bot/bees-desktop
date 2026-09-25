@@ -275,7 +275,7 @@ export function WorkFiles({ runs, filesRef, act }) {
           h("header", { className: "bees-output-run-head" },
             h("h3", { title: new Date(run.updatedAt).toLocaleString() }, `Run ${runs.length - runs.indexOf(run)} · ${files.length} ${files.length === 1 ? "file" : "files"}`),
             h("span", { className: `bees-status bees-${run.status}` }, run.status)),
-          ...(run.outputsPath ? [h("div", { className: "bees-output-path", title: run.outputsPath }, run.outputsPath)] : []),
+          ...(run.outputsPath ? [h("div", { className: "bees-output-path", title: run.outputsPath }, run.outputsPath.replace(/^(\/(Users|home)\/(?!Shared\/)[^/]+|[A-Za-z]:\\Users\\[^\\]+)/, "~"))] : []),
           h(OutputDirectory, { files, executionId: run.id, viewer, onOpen: setViewer, act, outputsPath: run.outputsPath }));
       }))
       : h("p", { className: "bees-muted" }, "Generated files will appear here after a run creates them."),

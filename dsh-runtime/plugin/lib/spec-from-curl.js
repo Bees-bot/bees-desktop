@@ -109,6 +109,15 @@ function operationId(method, path) {
   return name.replace(/[^A-Za-z0-9]/g, "") || `${method}Resource`;
 }
 
+/** A tool name that sends or changes something outside: it holds a word like send or create and does not start with a read. */
+export function sendsOut(name) {
+  const words = String(name).replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  return !["get", "list", "search", "read", "fetch", "find", "describe", "show", "count", "view", "lookup", "query"].includes(words[0])
+    && words.some((word) => ["send", "post", "put", "patch", "submit", "delete", "remove", "trash", "place", "publish", "reply", "forward", "pay",
+      "buy", "purchase", "order", "bid", "transfer", "create", "update", "upload", "share", "invite", "push", "merge", "comment", "book", "cancel",
+      "write", "edit", "add", "insert", "apply", "approve", "archive", "move", "modify", "respond", "accept", "decline"].includes(word));
+}
+
 export function specFromCurl(command) {
   const request = parseCurl(command);
   const host = new URL(request.origin).hostname.replace(/^www\./, "");

@@ -1,5 +1,5 @@
 import {
-  h, MarkdownText, React, useEffect, useState
+  h, MarkdownText, NativeUi, React, useEffect, useState
 } from "./runtime.js";
 import { SharedWorkContext, WorkDiscussion } from "./collaboration.js";
 import Cron, { HEADER } from "react-cron-generator";
@@ -198,6 +198,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
   const recurringWork = (data.recurringWork ?? []).filter((recurring) =>
     recurring.sourceWorkItemId === item.id || recurring.originWorkItemId === item.id || recurring.id === item.recurringWorkId);
   const itemRuns = data.runs.filter(({ workItemId }) => workItemId === item.id);
+  const latestResult = itemRuns.filter((row) => row.resultSummary)
+    .sort((left, right) => new Date(right.resultCreatedAt ?? right.updatedAt) - new Date(left.resultCreatedAt ?? left.updatedAt))[0];
   const processRunId = item.processRunId ?? item.id;
   const sharedFiles = new Map();
   for (const run of data.runs) if ((run.processRunId ?? run.workItemId) === processRunId && !sharedFiles.has(run.outputsPath ?? run.id))
@@ -350,10 +352,12 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
       h("div", { className: `bees-convo-msg agent${message.role === "error" ? " error" : ""}` },
         h("strong", null, message.label),
         message.outcome ? h("span", { className: "bees-message-outcome" }, message.outcome) : null,
-        h("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, message.text))));
+        h(MarkdownText, { text: message.text }))));
   }
   if (run?.ranElsewhere) convoItems.push(h("div", { className: "bees-convo-msg system", key: "elsewhere" },
-    "This ran on another device. Its result is above; the full transcript and any files it wrote stayed there."));
+    ["waiting_for_input", "waiting_for_approval"].includes(run.status)
+      ? "This run is waiting for an answer on the device that ran it. Open Bees there to answer; this device cannot."
+      : "This ran on another device. Its result is above; the full transcript and any files it wrote stayed there."));
   else if (run && !visibleHistory && !historyError) convoItems.push(h("div", { className: "bees-convo-msg system", key: "loading" }, "Loading conversation…"));
   if (processExecution) {
     const runner = data.directory?.find((row) => row.accountUserId === processExecution.userId)?.email
@@ -379,10 +383,9 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
         showSteps ? "Hide agent steps" : `Show agent steps (${messages.length})`) : null),
     item.runtimePhase === "failed" ? h("div", { className: "bees-convo-error", role: "alert" },
       h("span", { title: item.runtimeError }, item.runtimeError || "This work failed."),
-      !plan ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "retry_item", itemId: item.id }) }, "Retry") : null) : null,
+      !plan ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "retry_item", itemId: item.id }) },
+        latestResult?.resultOutcome === "blocked" ? "Resolve and continue" : "Retry") : null) : null,
     ...teamQuestions.map((question) => h(TeamQuestionCard, { key: question.id, question, data, act })),
-    pendingRun ? h("div", { className: "bees-convo-msg agent bees-convo-msg-interactive" },
-      h(AgentInteractionPanel, { run: pendingRun, item, interaction, handled, onAnswered: answered, act, data })) : null,
     // a waiting question goes first and the agent's steps fold away, so nobody scrolls to find it
     pendingRun && !showSteps ? null : h("div", {
       className: "bees-convo-history", ref: convoRef,
@@ -516,6 +519,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
 
   return h(React.Fragment, null,
     boardActions,
+    pendingRun ? h(AgentInteractionPanel, { run: pendingRun, item, interaction, handled,
+      onAnswered: answered, act, data, onOpenTools: process ? () => setActiveTab("tools") : undefined }) : null,
     h(FlexibleGrid, {
       layout, editing, onLayout,
       className: "bees-work-item-grid",
@@ -887,17 +892,30 @@ function TeamQuestionCard({ question, data, act }) {
     error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
 }
 
-export function QuestionPanel({ wait, onAnswered, act, executionId, browser }) {
+export function QuestionPanel({ wait, onAnswered, act, executionId, browser, data, workspaceId, onOpenTools }) {
   const pending = wait;
   const questions = pending.questions ?? [];
-  return h(GenericQuestionPanel, { pending, questions, wait, onAnswered, act, executionId, browser });
+  return h(GenericQuestionPanel, { pending, questions, wait, onAnswered, act, executionId, browser, data, workspaceId, onOpenTools });
 }
 
-function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, executionId, browser }) {
+function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, executionId, browser, data, workspaceId, onOpenTools }) {
   const [index, setIndex] = useState(0);
   const [drafts, setDrafts] = useState(() => questions.map(() => ({ selected: [], custom: "", skipped: false })));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const { ctx } = React.useContext(NativeUi);
+  const teamId = data?.workspaces.find(({ id }) => id === workspaceId)?.teamId;
+  const provideFile = async () => {
+    setBusy(true); setError("");
+    try {
+      const location = await addLocationFromDevice(ctx, act, teamId, "file");
+      if (!location?.id) return;
+      const result = await act({ action: "provide_run_input", executionId, locationId: location.id });
+      if (!result?.manifest) throw new Error("The file could not be attached to this run.");
+      setDraft((current) => ({ ...current, skipped: false, custom: [current.custom, result.manifest].filter(Boolean).join("\n") }));
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
+  };
   const question = questions[index];
   if (!question) return h(Empty, null, "The agent sent an empty question request.");
   const draft = drafts[index];
@@ -983,6 +1001,8 @@ function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, execu
     h("div", { className: "bees-answer-actions" },
       index > 0 ? h(Button, { disabled: busy, onClick: () => { setIndex((current) => current - 1); setError(""); } }, "Back") : null,
       signInQuestion ? null : h(Button, { disabled: busy, onClick: skip }, "Skip"), h("div", { className: "bees-grow" }),
+      teamId && act && executionId ? h(Button, { disabled: busy, onClick: provideFile }, "Provide a file") : null,
+      onOpenTools ? h(Button, { disabled: busy, onClick: onOpenTools }, "Connect MCP") : null,
       browser && act && executionId ? h(Button, {
         disabled: busy, title: "Open the browser profile this agent uses, so you can sign in on its behalf",
         onClick: openBrowser
@@ -1087,7 +1107,7 @@ export function WorkItemControls({ item, act, onDone, showUnavailable = false, d
       busy === "archive_item" ? "Archiving…" : "Archive"));
 }
 
-function AgentInteractionPanel({ run, item, title, summary, interaction, handled, onAnswered, onOpen, openLabel, act, onControlled, data }) {
+function AgentInteractionPanel({ run, item, title, summary, interaction, handled, onAnswered, onOpen, openLabel, act, onControlled, data, onOpenTools }) {
   const files = [...new Set(run.files ?? (run.outputs ?? []).map((path) => `outputs/${path}`))];
   const [viewer, setViewer] = useState(files.length ? { executionId: run.id, path: files[0] } : null);
   const fileKey = files.join("|");
@@ -1104,7 +1124,7 @@ function AgentInteractionPanel({ run, item, title, summary, interaction, handled
       onOpen ? h(Button, { onClick: onOpen }, openLabel) : null,
       h(WorkItemControls, { item, act, onDone: onControlled }))),
     workReview ? h(WorkReviewPanel, { key: interaction.key, wait: interaction, onAnswered, act, executionId: run?.id, item, data })
-      : interaction?.kind === "question" ? h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered, act, executionId: run?.id, browser: data?.browserEnabled })
+      : interaction?.kind === "question" ? h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered, act, executionId: run?.id, browser: data?.browserEnabled, data, workspaceId: run.workspaceId, onOpenTools })
       : interaction?.kind === "approval" ? h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered })
         : h(Empty, null, handled.size
           ? "Answer sent. Waiting for the agent…" : "Loading the agent's request…"),
@@ -1196,6 +1216,7 @@ export function NeedsYouWidget({ data, act, queue, records, limit = 8 }) {
           h(AgentInteractionPanel, {
             run: selected.run, item: selected.item, title: runTitle(data, selected.run), summary: selected.session, data,
             interaction: queue.interaction, handled: queue.handled,
+            onOpen: record.open, openLabel: "Open work",
             onAnswered: (key) => queue.answered(key, visibleRecords.map(r => r.live)), act,
             onControlled: () => queue.answered(`control:${selected.run.id}`, visibleRecords.map(r => r.live))
           })) : null

@@ -286,7 +286,27 @@ function runClaude(command, model, effort, input, signal, schema, system) {
   });
 }
 
-export function claudeChunks(result) {
+// a dsh tool called by its own name has no schema behind it, so the model often sends "1" for 1 or a list as json text
+function typedArguments(args, parameters) {
+  return Object.fromEntries(Object.entries(args).map(([key, value]) => {
+    const schema = parameters?.properties?.[key];
+    // a parameter that may be empty is written as oneOf [its type, null]
+    const choices = (schema?.oneOf ?? schema?.anyOf ?? []).filter((choice) => choice.type !== "null");
+    const type = schema?.type ?? (choices.length === 1 ? choices[0].type : undefined);
+    if (typeof value !== "string") return [key, value];
+    // only text that reads back the same, so a zip like "02134" or a 19 digit id stays exact
+    if ((type === "number" || type === "integer") && /^-?\d+(\.\d+)?$/.test(value) && String(Number(value)) === value)
+      return [key, Number(value)];
+    if (type === "boolean" && (value === "true" || value === "false")) return [key, value === "true"];
+    if (type === "array" || type === "object") try {
+      const parsed = JSON.parse(value);
+      if (parsed && typeof parsed === "object" && Array.isArray(parsed) === (type === "array")) return [key, parsed];
+    } catch {}
+    return [key, value];
+  }));
+}
+
+export function claudeChunks(result, tools = []) {
   const usage = { type: "usage", usage: {
     inputTokens: Number(result.usage.input_tokens ?? 0),
     outputTokens: Number(result.usage.output_tokens ?? 0),
@@ -301,7 +321,7 @@ export function claudeChunks(result) {
     if (!args || typeof args !== "object" || Array.isArray(args))
       throw new LlmError("Claude Code returned invalid DSH tool arguments", "CLAUDE_CODE");
     const id = randomUUID();
-    const argumentsText = JSON.stringify(args);
+    const argumentsText = JSON.stringify(typedArguments(args, tools.find((tool) => tool.name === name)?.parameters));
     return [
       { type: "block-start", index: 0, blockType: "tool-call" },
       { type: "tool-call-delta", index: 0, id, name, argumentsDelta: argumentsText },
@@ -343,7 +363,7 @@ class ClaudeCodeAdapter extends LlmAdapter {
     const result = await runClaude(
       command, options.model, options.reasoningEffort, claudeInput(options, mode), options.signal, schema, options.system
     );
-    for (const chunk of claudeChunks(result)) yield chunk;
+    for (const chunk of claudeChunks(result, tools)) yield chunk;
   }
 }
 
