@@ -24,11 +24,11 @@ Then, on **Home**, type this into the **Ask Bees** box:
 Browse Hacker News and give me a table of the current stories, grouped by category: news, Show HN, and Ask HN.
 ```
 
-Select **Run using defaults**. Bees starts the work with your team's agents and opens it, a reviewer checks the table, and the result lands in that run. You can find it again under **Process Runs**.
+Select **Run**. Bees starts the work with your team's agents and opens it, a reviewer checks the table, and the result lands in that run. You can find it again under **Process Runs**.
 
 ## Features
 
-- Ask Bees for an outcome in plain language, and it runs with your team's agents. Choose **Configure advanced** to pick the process and the agent for each stage first.
+- Ask Bees for an outcome in plain language, and it runs with your team's agents. Choose **Configure** to pick the process, the agent for each stage, and input files first.
 - Multi-agent processes: agents work through stages on a shared board, and a separate reviewer checks each result before it moves on.
 - Bring your own AI: connect Codex, Claude Code, a hosted provider, or a local model, per agent or as the system default.
 - MCP servers and skills, scoped per agent: give one agent every tool, none, or a named few.
