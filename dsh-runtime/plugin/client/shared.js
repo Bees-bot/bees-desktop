@@ -314,11 +314,11 @@ export const css = `
   .bees-basics{max-width:900px;margin:0 auto;line-height:1.65}.bees-basics h1{font-size:28px;line-height:1.2;margin:10px 0}.bees-basics h2{font-size:18px;line-height:1.35}.bees-basics p{margin:10px 0}.bees-basics li{margin:5px 0}.bees-basics summary{cursor:pointer;font-weight:650}.bees-basics summary:focus-visible,.bees-basics-table:focus-visible{outline:2px solid var(--bees-accent);outline-offset:4px}.bees-basics details{margin-top:12px}.bees-basics-flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));gap:8px;padding:0;list-style-position:inside}.bees-basics-flow li{padding:10px;border-radius:8px;background:var(--bees-accent-soft);font-weight:600}.bees-basics-table{overflow-x:auto}.bees-basics table{width:100%;border-collapse:collapse;font-size:13px}.bees-basics caption{text-align:left;color:var(--dsw-alias-label-secondary);margin:4px 0 8px}.bees-basics th,.bees-basics td{text-align:left;vertical-align:top;padding:10px 8px;border-bottom:1px solid var(--dsw-alias-border-l1)}.bees-basics th[scope="row"]{width:24%}.bees-basics-actions{display:flex;flex-wrap:wrap;gap:10px;padding:8px 0 20px}
   .bees-onboarding{width:100%;max-width:960px;margin:auto}.bees-onboarding h1{font-size:28px;line-height:1.2;margin:0 0 12px}.bees-onboarding-steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}.bees-onboarding-steps button{text-align:left;color:inherit;font:inherit;cursor:pointer;display:flex;flex-direction:column;gap:12px;margin:0}.bees-onboarding-steps button.active{border-color:var(--bees-accent);background:var(--bees-accent-soft)}.bees-onboarding-steps button:focus-visible{outline:2px solid var(--bees-accent);outline-offset:2px}.bees-onboarding-bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;padding:12px 18px;border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--bees-accent-soft);flex-shrink:0}.bees-onboarding-bar .bees-muted{font-size:12px}.bees-onboarding .bees-card-actions{flex-wrap:wrap}.bees-onboarding textarea{min-height:120px}@media(max-width:800px){.bees-onboarding-bar{padding:10px}}
   .bees-main{min-width:0;min-height:0;overflow:hidden;display:flex;flex-direction:column;background:var(--dsw-alias-bg-base)}.bees-top{height:auto;min-height:54px;display:flex;align-items:center;gap:8px;padding:0 20px;padding-block:8px;border-bottom:none;box-shadow:0 1px 0 var(--dsw-alias-border-l1)}.bees-title{font-size:17px;font-weight:800;min-width:0;overflow-wrap:break-word}.bees-context{color:var(--dsw-alias-label-secondary);font-size:12px}.bees-grow{flex:1}.bees-top>.bees-btn,.bees-top>.bees-page-actions .bees-btn,.bees-theme-toggle{height:44px;min-height:44px}.bees-top>.bees-page-actions .bees-btn{padding:10px 16px;font-size:14px}.bees-top>.bees-btn:first-child{padding:6px 12px;border:0;color:var(--dsw-alias-label-secondary);background:transparent;box-shadow:none}.bees-top>.bees-btn:first-child:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}.bees-theme-toggle{display:grid;place-items:center;flex:none;width:44px;padding:0;border:0;border-radius:10px;color:var(--dsw-alias-label-secondary);background:transparent;box-shadow:none;cursor:pointer}.bees-theme-toggle:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}.bees-theme-toggle svg{width:19px;height:19px}.bees-theme-toggle:focus-visible{outline:2px solid var(--bees-accent);outline-offset:1px}.bees-content{min-height:0;flex:1;overflow:auto;padding:24px 28px;display:flex;flex-direction:column}.bees-panel{width:100%;flex:1;min-height:0;display:flex;flex-direction:column}
-  .bees-btn,.bees-select,.bees-input,.bees-textarea{border:1px solid var(--dsw-alias-border-l2);border-radius:8px;color:inherit;background:var(--dsw-alias-bg-base);font:inherit;box-shadow:0 1px 2px rgba(0,0,0,0.03);transition:border-color 0.15s, box-shadow 0.15s}.bees-btn{display:inline-flex;align-items:center;justify-content:center;padding:8px 12px;min-height:34px;cursor:pointer;vertical-align:middle}.bees-btn:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l1)}
+  .bees-btn,.bees-select,.bees-input,.bees-textarea{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;color:inherit;background:var(--dsw-alias-bg-base);font:inherit;box-shadow:0 1px 2px rgba(0,0,0,0.03);transition:border-color 0.15s, box-shadow 0.15s}.bees-btn{display:inline-flex;align-items:center;justify-content:center;padding:8px 12px;min-height:34px;cursor:pointer;vertical-align:middle}.bees-btn:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l1)}
 .bees-select:focus,.bees-input:focus,.bees-textarea:focus{border-color:var(--bees-accent);outline:none;box-shadow:0 0 0 3px var(--bees-accent-soft)}.bees-btn.danger{color:#d15353}.bees-btn:disabled{opacity:.5;cursor:not-allowed}.bees-select,.bees-input{padding:8px 12px;min-height:34px}
 .bees-select{appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20width%3D%2220%22%20height%3D%2220%22%20viewBox%3D%220%200%2020%2020%22%20fill%3D%22none%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22M5%207.5L10%2012.5L15%207.5%22%20stroke%3D%22%23888%22%20stroke-width%3D%221.5%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fsvg%3E");background-repeat:no-repeat;background-position:right 8px center;padding-right:32px}
 .bees-textarea{padding:10px 12px}input[type=file]{color:var(--dsw-alias-label-secondary);font:inherit}input[type=file]::file-selector-button{margin-right:10px;padding:6px 11px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;color:inherit;background:var(--dsw-alias-bg-base);font:inherit;cursor:pointer}.bees-input,.bees-textarea{width:100%}.bees-textarea{min-height:88px;resize:vertical}
-  .bees-row{display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--dsw-alias-border-l1);flex-wrap:wrap}.bees-work-item-row{width:100%;padding-inline:8px;border:0;border-bottom:1px solid var(--dsw-alias-border-l1);color:inherit;background:transparent;font:inherit;text-align:left;cursor:pointer}.bees-work-item-row:hover{background:var(--dsw-alias-interactive-bg-hover)}.bees-work-item-row .bees-row-title,.bees-work-item-row .bees-muted{display:block}.bees-row-main{min-width:0;flex:1}.bees-row-title{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-muted{color:var(--dsw-alias-label-secondary);font-size:12px}.bees-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:12px}.bees-box{border:1px solid var(--dsw-alias-border-l1);border-radius:12px;padding:16px;background:var(--dsw-alias-bg-base)}.bees-box h2,.bees-box h3{margin:0 0 9px}.bees-empty{border:none;padding:28px;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;min-height:120px;text-align:center;color:var(--dsw-alias-label-secondary)}.bees-error{margin:10px 18px 0;padding:9px 12px;border-radius:8px;background:#a9363622;color:#d45d5d}.bees-status{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--dsw-alias-label-secondary)}.bees-running{color:#2e9b61}.bees-failed{color:#cf5b5b}.bees-cancelled{color:#8a8a8a}
+  .bees-row{display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--dsw-alias-border-l1);flex-wrap:wrap}.bees-work-item-row{width:100%;padding-inline:8px;border:0;border-bottom:1px solid var(--dsw-alias-border-l1);color:inherit;background:transparent;font:inherit;text-align:left;cursor:pointer}.bees-work-item-row:hover{background:var(--dsw-alias-interactive-bg-hover)}.bees-work-item-row .bees-row-title,.bees-work-item-row .bees-muted{display:block}.bees-row-main{min-width:0;flex:1}.bees-row-title{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bees-muted{color:var(--dsw-alias-label-secondary);font-size:12px}.bees-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:12px}.bees-box{border:1px solid var(--dsw-alias-border-l1);border-radius:12px;padding:16px;background:var(--dsw-alias-bg-base)}.bees-box h2,.bees-box h3{margin:0 0 9px}.bees-empty{border:none;padding:28px;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;min-height:120px;text-align:center;color:var(--dsw-alias-label-secondary);grid-column:1 / -1}.bees-error{margin:10px 18px 0;padding:9px 12px;border-radius:8px;background:#a9363622;color:#d45d5d}.bees-status{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--dsw-alias-label-secondary)}.bees-running{color:#2e9b61}.bees-failed{color:#cf5b5b}.bees-cancelled{color:#8a8a8a}
   .bees-change{margin:7px 0;padding:9px;border-radius:8px;background:var(--dsw-alias-bg-base)}.bees-proposal-changes{margin:6px 0 0;padding-left:18px;font-size:12px;color:var(--dsw-alias-label-secondary)}
   .bees-board{padding-bottom:12px}.bees-column-head{display:flex;padding:12px 16px;font-weight:750;opacity:0.6;font-size:12px;text-transform:uppercase;letter-spacing:0.05em}.bees-count{margin-left:auto;color:var(--dsw-alias-label-secondary)}.bees-cards{display:grid;gap:8px;padding:8px 16px}.bees-cards .bees-empty{align-items:flex-start;justify-content:flex-start;text-align:left;padding:4px 0;min-height:0;border:none !important}.bees-cards .bees-empty .bees-empty-icon{display:none !important}.bees-card-actions{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}.bees-card-actions .bees-btn{padding:4px 7px;font-size:11px}
   .bees-routing-board{padding-bottom:4px}.bees-routing-board .bees-form,.bees-routing-board .bees-row,.bees-routing-board .bees-row-main{min-width:0}.bees-routing-board .bees-row{align-items:flex-start;flex-wrap:wrap}.bees-routing-board .bees-row-main{flex-basis:100%;overflow-wrap:anywhere}.bees-routing-board .bees-row>.bees-select{min-width:0;flex:1 1 130px}.bees-route-card,.bees-route-field{min-width:0}.bees-route-field{display:grid;gap:6px}.bees-route-control,.bees-route-agent{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:6px}.bees-route-control .bees-select{min-width:0;width:100%}.bees-route-agent{padding:4px 0}.bees-route-agent-link{min-width:0;overflow:hidden;border:0;color:inherit;background:transparent;text-align:left;text-overflow:ellipsis;white-space:nowrap;font:inherit;font-weight:650;cursor:pointer}.bees-route-agent-link:hover{text-decoration:underline}.bees-route-card>.bees-btn{width:100%}
@@ -372,17 +372,16 @@ body, html { overflow-x: hidden !important; }
   min-height: 0 !important;
   overflow: auto !important;
 }
+.bees-work-item-grid .bees-flex-widget-borderless .bees-flex-widget-body { overflow: hidden !important; }
 
 .bees-flex-grid.editing .bees-flex-widget-drag-surface { cursor: grab; }
 
-.bees-run-status-widget { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; min-height: 58px; padding: 8px 12px; box-sizing: border-box; }
-.bees-run-status-summary { display: flex; align-items: center; gap: 8px; flex: 1 1 220px; min-width: 0; overflow: hidden; white-space: nowrap; }
-.bees-run-status-summary .bees-detail-badge { flex-shrink: 0; }
-.bees-run-status-widget .bees-tab-actions { flex: 0 1 auto; margin-left: auto; align-self: center !important; }
+.bees-convo-error { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 10px; margin: 8px 10px 0; padding: 8px 10px; border: 1px solid #ef444455; border-radius: 9px; color: #f87171; background: color-mix(in srgb, var(--dsw-alias-bg-base) 92%, #ef4444 8%); box-shadow: 0 6px 18px #0004; }
+.bees-convo-error>span { min-width: 0; flex: 1; overflow-wrap: anywhere; font-size: 12px; }
 
 /* Kanban Board Top Widget */
 .bees-cockpit-board.bees-routing-board { min-height: 0 !important; flex: none; }
-.bees-cockpit-board { display: flex !important; flex-direction: row !important; overflow-x: auto !important; overflow-y: hidden !important; gap: 12px !important; align-items: stretch !important; padding: 12px 14px !important; background: transparent !important; height: auto !important; min-height: 100% !important; }
+.bees-cockpit-board { display: flex !important; flex-direction: row !important; overflow-x: auto !important; overflow-y: hidden !important; gap: 12px !important; align-items: stretch !important; padding: 12px 14px !important; background: transparent !important; height: 100% !important; min-height: 0 !important; box-sizing: border-box !important; }
 .bees-column { border-radius: 12px !important; padding: 12px 14px !important; display: flex !important; flex-direction: column !important; }
 /* .bees-work-item-grid .bees-convo-history, (dummy for test) */
 .bees-cockpit-board .bees-column {
@@ -396,6 +395,9 @@ body, html { overflow-x: hidden !important; }
   padding: 10px 12px !important;
   display: flex !important;
   flex-direction: column !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  box-sizing: border-box !important;
 }
 .bees-cockpit-board .bees-column-head {
   font-size: 11px !important;
@@ -425,6 +427,9 @@ body, html { overflow-x: hidden !important; }
 .bees-cockpit-board .bees-cards {
   display: flex !important;
   flex-direction: column !important;
+  flex: 1 !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
   gap: 6px !important;
   padding: 0 !important;
 }
@@ -459,14 +464,20 @@ body, html { overflow-x: hidden !important; }
   color: var(--dsw-alias-label-secondary) !important;
 }
 .bees-cockpit-board .bees-empty {
+  flex: 1 !important;
+  min-height: 120px !important;
+  align-items: center !important;
+  justify-content: center !important;
   padding: 12px !important;
-  border: 1px solid var(--dsw-alias-border-l1) !important;
-  border-radius: 8px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
   font-size: 12px !important;
   color: var(--dsw-alias-label-secondary) !important;
   text-align: center !important;
   margin: 0 !important;
 }
+.bees-cockpit-board .bees-empty .bees-empty-icon { display: block !important; }
+.bees-work-item-actions .bees-btn { min-height: 36px; padding: 8px 14px; font-size: 13px; }
 .bees-routing-board .bees-route-card,
 .bees-routing-board .bees-route-terminal {
   padding: 0 !important;
@@ -696,6 +707,8 @@ body, html { overflow-x: hidden !important; }
 .bees-convo-header {
   display: flex !important;
   align-items: center !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
   justify-content: space-between !important;
   padding: 10px 16px !important;
   border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.08)) !important;
@@ -940,8 +953,10 @@ body, html { overflow-x: hidden !important; }
   white-space: normal !important;
 }
 
-.bees-modal-backdrop { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px; background: rgba(0,0,0,.55); }
-.bees-modal { width: min(620px, 100%); max-height: calc(100vh - 48px); overflow: auto; box-shadow: 0 24px 80px rgba(0,0,0,.35); }
+.bees-modal { width: min(620px, 100%); max-height: calc(100vh - 48px); overflow: auto; padding: 0; border: 1px solid var(--dsw-alias-border-l2); border-radius: 14px; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-base); box-shadow: 0 24px 80px rgba(0,0,0,.35); }
+.bees-modal::backdrop { background: rgba(0,0,0,.55); }
+.bees-modal > form { padding: 24px; }
+.bees-modal.bees-ask-setup { padding: 24px; }
 .bees-playbook { margin: 12px 0; padding: 12px; overflow-wrap: anywhere; white-space: pre-wrap; border: 1px solid var(--dsw-alias-border-l1); border-radius: 8px; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-base); font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .bees-cron-generator .cron_builder { max-width: none; color: var(--dsw-alias-label-primary); border-color: var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-base); }
 .bees-cron-generator .cron_builder .cron_builder_bordering { color: var(--dsw-alias-label-primary); border-color: var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-base); }
@@ -1136,6 +1151,16 @@ function dialogValue(label, initial, confirmOnly = false, inputType = "text", op
   return new Promise((resolve) => {
     const dialog = document.createElement("dialog");
     dialog.className = "bees-prompt";
+    dialog.setAttribute("closedby", "any");
+    if (!('closedBy' in HTMLDialogElement.prototype)) {
+      dialog.addEventListener('click', (event) => {
+        if (event.target !== dialog) return;
+        const rect = dialog.getBoundingClientRect();
+        if (!(rect.top <= event.clientY && event.clientY <= rect.top + rect.height && rect.left <= event.clientX && event.clientX <= rect.left + rect.width)) {
+          dialog.close();
+        }
+      });
+    }
     const form = document.createElement("form");
     form.method = "dialog";
     const title = document.createElement("label");
@@ -1214,6 +1239,14 @@ export function McpCard({ name, status, meta, tone = "", icon, onOpen, actionLab
       h("span", { className: `bees-mcp-state ${tone}` }, status),
       h("span", { className: "bees-mcp-chevron", "aria-hidden": true }, actionIcon ?? (onOpen ? "+" : "›"))),
     open ? h("dialog", { ref: dialog, className: "bees-mcp-dialog", "aria-label": `${name} details`,
+      closedby: "any",
+      onClick: (event) => {
+        if (event.target !== dialog.current) return;
+        const rect = dialog.current.getBoundingClientRect();
+        if (!(rect.top <= event.clientY && event.clientY <= rect.top + rect.height && rect.left <= event.clientX && event.clientX <= rect.left + rect.width)) {
+          setOpen(false);
+        }
+      },
       onCancel: (event) => { event.preventDefault(); setOpen(false); }, onClose: () => setOpen(false) },
       h("div", { className: "bees-mcp-dialog-head" },
         icon ? h("span", { className: "bees-mcp-icon", "aria-hidden": true, style: { fontSize: "20px" } }, icon) : null,
@@ -1435,6 +1468,8 @@ export function ProposalCard({ proposal, onApply, onDismiss }) {
         busy === "apply" ? "Applying…" : "Apply"),
       h(Button, { disabled: Boolean(busy), onClick: once("dismiss", onDismiss) }, "Dismiss")));
 }
+
+export const activeAccounts = (data) => (data.accounts ?? []).filter(({ enabled }) => enabled !== false);
 
 /** An account id off the wire only means something once it has a person behind it. */
 export const accountLabel = (data, accountUserId) => accountUserId

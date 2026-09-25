@@ -33,10 +33,31 @@ export function AskBeesSetup({ ctx, data, workspaceId, initial, act, onCancel, o
   const defaultOutput = data.locations.find(({ id }) => id === process?.outputLocationId);
   const agentInputs = runAgents(stages, agents).flatMap(({ id }) => inheritedInputs(data, null, id));
 
-  useEffect(() => heading.current?.focus(), []);
+  const dialogRef = useRef(null);
+  useEffect(() => {
+    if (dialogRef.current && !dialogRef.current.open) dialogRef.current.showModal();
+    heading.current?.focus();
+  }, []);
 
-  return h("div", { className: "bees-modal-backdrop", role: "presentation" },
-    h("div", { className: "bees-box bees-modal bees-ask-setup", role: "dialog", "aria-modal": "true", "aria-labelledby": "bees-ask-configure-title", style: { width: "min(960px, 100%)" } },
+  return h("dialog", {
+    ref: dialogRef,
+    className: "bees-box bees-modal bees-ask-setup",
+    "aria-labelledby": "bees-ask-configure-title",
+    style: { width: "min(960px, 100%)" },
+    closedby: "any",
+    onClick: (event) => {
+      if (event.target !== dialogRef.current) return;
+      const rect = dialogRef.current.getBoundingClientRect();
+      if (!(rect.top <= event.clientY && event.clientY <= rect.top + rect.height && rect.left <= event.clientX && event.clientX <= rect.left + rect.width)) {
+        onCancel();
+      }
+    },
+    onCancel: (event) => {
+      event.preventDefault();
+      onCancel();
+    },
+    onClose: () => onCancel()
+  },
       h("header", { className: "bees-ask-heading" },
         h("span", { className: "bees-muted" }, `ASK BEES · ${team?.name ?? "Choose a team"}`),
         h("h1", { id: "bees-ask-configure-title", ref: heading, tabIndex: -1 }, "Configure"),
@@ -75,5 +96,5 @@ export function AskBeesSetup({ ctx, data, workspaceId, initial, act, onCancel, o
         h("div", { className: "bees-detail-actions" },
           h(Button, { onClick: onCancel }, "Cancel"),
           h(Button, { className: "primary", disabled: !process || Boolean(selectedAgent || creatingStage), onClick: () => onSave({ processId: process.id, inputLocationIds, outputLocationId }) }, "Save")),
-        selectedAgent || creatingStage ? h("p", { className: "bees-muted" }, "Save or close the agent settings before saving this configuration.") : null)));
+        selectedAgent || creatingStage ? h("p", { className: "bees-muted" }, "Save or close the agent settings before saving this configuration.") : null));
 }

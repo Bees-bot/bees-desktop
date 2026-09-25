@@ -616,7 +616,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
         h("button", { className: `bees-nav-link bees-utility-link ${route === "basics" ? "active" : ""}`, "aria-current": route === "basics" ? "page" : null, onClick: () => navigate("basics") }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(KnowledgeIcon)), h("span", null, "Bees basics")),
         h("button", { className: `bees-nav-link bees-utility-link bees-accounts-link ${route === "accounts" ? "active" : ""}`, "aria-current": route === "accounts" ? "page" : null, onClick: () => navigate("accounts") },
           (() => {
-            const accounts = Array.from(new Map((data.connections ?? []).filter((c) => c.email || c.accountName).map((c) => [c.accountUserId || c.email, c.accountName || c.email])).values());
+            const accounts = Array.from(new Map((data.accounts ?? []).filter((c) => c.email || c.name).map((c) => [c.userId || c.email, c.name || c.email])).values());
             if (accounts.length === 0) return h(React.Fragment, null, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(AccountIcon)), h("span", null, "Accounts"));
             return h(React.Fragment, null,
               h("span", { style: { display: "flex", color: "var(--dsw-alias-label-secondary)" } },
