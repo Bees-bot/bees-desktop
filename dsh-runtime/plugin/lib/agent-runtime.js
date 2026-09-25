@@ -749,11 +749,6 @@ export class AgentRuntime {
     catch { this.ctx.logger.warn(`bees: unreadable pending interaction on ${executionId}`); return null; }
   }
 
-  pendingApproval(executionId) {
-    const pending = this.pendingInteraction(executionId);
-    return pending?.kind === "approval" ? pending : null;
-  }
-
   pendingQuestion(executionId) {
     const pending = this.pendingInteraction(executionId);
     return ["question", "work-review", "dependency"].includes(pending?.kind) ? pending : null;
@@ -1945,7 +1940,6 @@ export class AgentRuntime {
       throw error;
     }
     const workspace = run.runDirectory;
-    const recoveryApproval = recovery ? this.pendingApproval(executionId) : null;
     const recoveryQuestion = recovery ? this.pendingQuestion(executionId) : null;
     // Each cold continuation gets a fresh writer and client binding. Native history can
     // own the previous writer or retain its disposed control stream; its log stays readable.
@@ -1968,8 +1962,7 @@ export class AgentRuntime {
     }
     const submissionId = randomUUID();
     const at = new Date().toISOString();
-    const activeStatus = recovery && ["waiting_for_input", "waiting_for_approval"].includes(previousStatus)
-      ? previousStatus : "running";
+    const activeStatus = recovery && previousStatus === "waiting_for_input" ? previousStatus : "running";
     // One unit: a crash between the delivery and the queue delete used to leave a delivery row with
     // no outcome and no queue row, and the next admit returned that row instead of starting a
     // session. The run then sat at running for ever with nothing able to clear it.
@@ -2000,15 +1993,15 @@ export class AgentRuntime {
     this.live.set(executionId, { handle, data, approvalAbort, lastEventAt: Date.now(), openTools: new Set() });
     this.checkpoint(executionId, sessionId, activeStatus === "running" ? "running" : "recovery_started", {
       inputReferences: references,
+      // an unanswered approval is dropped, the agent asks again when it retries
+      ...(recovery ? { pendingInteraction: recoveryQuestion } : {}),
       idempotencyKey: `running:${payload.idempotencyKey}`
     });
     const recoveryNotice = recovery
-      ? "\n\nRecovery note: this is a replacement runtime session seeded through the previous session's durable log. Do not repeat a tool side effect already recorded there. Re-present any unresolved human approval before continuing." + recoveryContext
+      ? "\n\nRecovery note: this is a replacement runtime session seeded through the previous session's durable log. Do not repeat a tool side effect already recorded there. An action still waiting for approval never ran, so call it again to ask again." + recoveryContext
       : "";
-    if (recoveryApproval || recoveryQuestion) {
-      this.track(recoveryApproval
-        ? this.recoverApproval(executionId, submissionId, sessionId, handle, approvalAbort, recoveryApproval, `${payload.body}${recoveryNotice}`)
-        : this.recoverQuestion(executionId, submissionId, sessionId, handle, approvalAbort, recoveryQuestion, `${payload.body}${recoveryNotice}`));
+    if (recoveryQuestion) {
+      this.track(this.recoverQuestion(executionId, submissionId, sessionId, handle, approvalAbort, recoveryQuestion, `${payload.body}${recoveryNotice}`));
       this.recovery.delete(executionId);
     } else {
       let before;
@@ -2033,61 +2026,6 @@ export class AgentRuntime {
       this.track(this.settle(executionId, submissionId, sessionId, handle, before));
     }
     return { submissionId, uid: run.instanceUid };
-  }
-
-  reissueApproval(handle, pending, signal) {
-    return new Promise((resolve, reject) => {
-      let dispose = () => {};
-      const timer = setTimeout(() => {
-        dispose();
-        reject(new Error("The recovery approval could not be re-presented"));
-      }, 30_000);
-      dispose = this.ctx.on("session/event", (session, event) => {
-        if (session !== handle.agent.session || event.type !== "turn/start") return;
-        dispose();
-        clearTimeout(timer);
-        // still inside the turn/start publication; appending the approval here makes dsh throw "cannot reenter"
-        setTimeout(() => void this.ctx.approval.request({
-          agent: handle.agent,
-          toolName: pending.toolName,
-          reason: pending.reason ?? "Resume the action from its last safe checkpoint?",
-          signal
-        }).then(resolve, reject), 0);
-      }, { global: true });
-    });
-  }
-
-  async recoverApproval(executionId, submissionId, sessionId, handle, approvalAbort, pending, body) {
-    try {
-      const approval = this.reissueApproval(handle, pending, approvalAbort.signal);
-      handle.agent.followup(createUserMessage({
-        content: [{
-          type: "text",
-          text: "Recovery checkpoint validation. Do not call tools or repeat the prior action in this turn. The prior approval is being re-presented to the user."
-        }],
-        source: { kind: "user" }
-      }));
-      const outcome = await approval;
-      await handle.agent.whenIdle();
-      if (outcome !== "allowed-once") {
-        await this.finish(executionId, submissionId, sessionId, handle, {
-          outcome: "cancelled",
-          error: { message: `Recovery approval ${outcome}` }
-        });
-        return;
-      }
-      const before = handle.agent.session.seq;
-      handle.agent.followup(createUserMessage({
-        content: [{ type: "text", text: body }],
-        source: { kind: "user" }
-      }));
-      await this.settle(executionId, submissionId, sessionId, handle, before);
-    } catch (error) {
-      await this.finish(executionId, submissionId, sessionId, handle, {
-        outcome: "failed",
-        error: { message: message(error) }
-      });
-    }
   }
 
   /** The model asked before the restart; Bees asks again itself and hands the answer to the resumed run. */
