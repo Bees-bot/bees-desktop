@@ -193,6 +193,14 @@ export function CatalogReview({ ctx, entry, onCancel, onDone }) {
   };
   useEffect(() => { if (dialog.current && !dialog.current.open) dialog.current.showModal(); }, []);
   return h("dialog", { ref: dialog, className: "bees-mcp-dialog bees-mcp-connect-dialog",
+    closedby: "any",
+    onClick: (event) => {
+      if (event.target !== dialog.current) return;
+      const rect = dialog.current.getBoundingClientRect();
+      if (!(rect.top <= event.clientY && event.clientY <= rect.top + rect.height && rect.left <= event.clientX && event.clientX <= rect.left + rect.width)) {
+        onCancel();
+      }
+    },
     "aria-label": `Connect ${entry.label}`, onCancel: (event) => { event.preventDefault(); onCancel(); } },
     h("div", { className: "bees-mcp-dialog-head" },
       h("div", { className: "bees-grow" }, h("h3", null, `Connect ${entry.label}`),
@@ -271,6 +279,14 @@ function ManualServerForm({ onCancel, act, initial }) {
   });
   useEffect(() => { if (dialog.current && !dialog.current.open) dialog.current.showModal(); }, []);
   return h("dialog", { ref: dialog, className: "bees-mcp-dialog bees-mcp-connect-dialog",
+    closedby: "any",
+    onClick: (event) => {
+      if (event.target !== dialog.current) return;
+      const rect = dialog.current.getBoundingClientRect();
+      if (!(rect.top <= event.clientY && event.clientY <= rect.top + rect.height && rect.left <= event.clientX && event.clientX <= rect.left + rect.width)) {
+        onCancel();
+      }
+    },
     "aria-label": "Connect a custom MCP server", onCancel: (event) => { event.preventDefault(); onCancel(); } },
     h("div", { className: "bees-mcp-dialog-head" },
       h("div", { className: "bees-grow" }, h("h3", null, "Connect a custom server"),

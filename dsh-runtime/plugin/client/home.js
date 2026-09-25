@@ -1,8 +1,8 @@
 import { h, React, useEffect, useState } from "./runtime.js";
-import { Button, confirmAction, Empty, HelpTooltip, openExternal, ProposalCard, useSubmit } from "./shared.js";
+import { accountLabel, Button, confirmAction, Empty, HelpTooltip, openExternal, ProposalCard, useSubmit } from "./shared.js";
 import { addDashboardWidget, applyDashboardLayout, dashboardsFrom, DEFAULT_WIDGETS } from "./dashboard-model.js";
 import { FlexibleGrid } from "./flexible-grid.js";
-import { needsYouRows, NeedsYouWidget, useNeedsYouQueue } from "./work.js";
+import { needsYouRows, NeedsYouWidget, useNeedsYouQueue, WorkItemControls } from "./work.js";
 import { ProcessListActions } from "./processes.js";
 import { AgentListActions, useMcpPreflight } from "./agents.js";
 import { AskBeesSetup, workFromOutcome } from "./ask-bees.js";
@@ -84,23 +84,34 @@ function TemplatesWidget({ ctx, data, workspaceId, act, openWorkItem }) {
       key: card.id
     },
       h("div", { className: "bees-template-card-title" }, card.name),
-      h("div", { className: "bees-template-card-meta" }, card.description || "Process template"))),
+      h("div", { className: "bees-template-card-meta" }, [card.description || "Process template",
+        accountLabel(data, card.accountUserId) ? `Created by ${accountLabel(data, card.accountUserId)}` : null].filter(Boolean).join(" · ")))),
     cards.length > 10 && !showAllTemplates ? h("button", { type: "button", className: "bees-dashboard-view-all", onClick: () => setShowAllTemplates(true) }, `Show all ${cards.length} process templates`) : null
   );
 }
 
 function ListWidget({ definition, rowsForRoute, navigate, data, act, openWorkItem }) {
   const rows = rowsForRoute(definition.route).slice(0, definition.limit ?? 20);
+  if (!rows.length) {
+    return h(Empty, { style: { height: "100%", display: "flex", flexDirection: "column", justifyContent: "center", border: "none" } }, definition.empty ?? "Nothing here yet.");
+  }
   return h("div", { className: "bees-dashboard-list" },
-    rows.length ? rows.map((row) => {
+    rows.map((row) => {
       const process = definition.route === "all-processes" ? data.processes.find(({ id }) => id === row.id) : null;
       const agent = definition.route === "all-agents" ? data.assignments.find(({ id }) => id === row.id) : null;
-      const link = h("button", {
-      className: "bees-dashboard-row", key: row.id, onClick: row.open, title: row.label
-      }, row.label);
+      const workItem = row.item;
+      const link = h("div", {
+        className: "bees-dashboard-row", key: row.id, onClick: row.open, title: row.label, style: { display: "flex", alignItems: "center", gap: "10px" }
+      }, 
+        h("span", { style: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", flex: 1 } }, row.label),
+        workItem ? h("span", { className: `bees-status bees-${workItem.runtimePhase || workItem.status || "unknown"}`, style: { flex: "0 0 130px" } }, (workItem.runtimePhase || workItem.status).replaceAll("_", " ")) : null,
+        workItem ? h("div", { className: "bees-flex-widget-actions", style: { marginLeft: 0 }, onPointerDown: (e) => e.stopPropagation(), onClick: (e) => e.stopPropagation() },
+          h(WorkItemControls, { item: workItem, act, showUnavailable: false, data, allowReRun: true })
+        ) : null
+      );
       return process || agent ? h("div", { className: "bees-row", key: row.id, style: { flexWrap: "wrap" } },
         h("div", { className: "bees-row-main" }, link), process ? h(ProcessListActions, { process, act, openWorkItem }) : h(AgentListActions, { agent, act })) : link;
-    }) : h(Empty, null, definition.empty ?? "Nothing here yet."),
+    }),
     h("button", { type: "button", className: "bees-dashboard-view-all", onClick: () => navigate(definition.route) }, "View more")
   );
 }
@@ -141,18 +152,11 @@ const WIDGETS = [
   { kind: "metrics", label: "Metrics", description: "Key team counts", w: 12, h: 3, component: MetricsWidget , helpText: "Quick overview of your team's activity and current capacity.", helpExamples: []},
   { kind: "waiting", label: "Needs your attention", description: "Blocked and waiting work", route: "waiting", limit: 8, w: 6, h: 4, component: NeedsYouWidget , helpText: "Work items that are blocked and waiting for your input, approval, or intervention.", helpExamples: ["An agent needs your approval before sending an email","A process requires you to answer a clarifying question","A task failed and needs your attention to retry"]},
   { kind: "recent-work", label: "Recent process runs", description: "Latest active process runs", route: "all-work", limit: 8, w: 6, h: 4, component: ListWidget , helpText: "The most recently active process runs in your workspace.", helpExamples: []},
-  { kind: "all-work", label: "Process runs", description: "Active process runs", route: "all-work", w: 6, h: 5, component: ListWidget , helpText: "Active process runs. These act as Kanban boards where work items move through stages.", helpExamples: ["Track the status of the 'Weekly Newsletter' process","See which agent is working on the 'Bug Triage' run"]},
   { kind: "goals", label: "Goals", description: "Current goals", route: "goals", w: 6, h: 5, component: ListWidget , helpText: "High-level outcomes you've asked Bees to achieve. Bees handles the step-by-step planning.", helpExamples: ["Migrate the database to the new server","Prepare the Q3 financial report"]},
   { kind: "completed", label: "Completed process runs", description: "Recently completed process runs", route: "completed", w: 6, h: 5, component: ListWidget , helpText: "Process runs that have finished successfully or failed.", helpExamples: []},
   { kind: "templates", label: "Process templates", description: "Reusable process definitions", w: 4, h: 5, component: TemplatesWidget , helpText: "Reusable definitions for your common processes. They define the stages and agents used for repeatable work.", helpExamples: ["Employee Onboarding process","Blog Post Publication process","Weekly Report Generation"]},
-  { kind: "processes", label: "Process templates", description: "Reusable process definitions", route: "all-processes", w: 6, h: 5, component: ListWidget , helpText: "Reusable definitions for your common processes. They define the stages and agents used for repeatable work.", helpExamples: ["Employee Onboarding process","Blog Post Publication process","Weekly Report Generation"]},
   { kind: "agents", label: "Agents", description: "Team agents", route: "all-agents", w: 6, h: 5, component: ListWidget , helpText: "The AI workers available in your team.", helpExamples: []},
-  { kind: "agent-presets", label: "Agent presets", description: "Reusable agent presets", route: "presets", w: 6, h: 5, component: ListWidget , helpText: "Reusable configurations to quickly spawn new agents with specific skills.", helpExamples: []},
-  { kind: "mcp-servers", label: "MCP servers", description: "Connected MCP servers", route: "mcp", w: 6, h: 5, component: ListWidget , helpText: "Connected Model Context Protocol servers that give your agents access to external tools and data.", helpExamples: ["A GitHub MCP server to read repositories","A Postgres MCP server to query your database","A Slack MCP server to send messages"]},
-  { kind: "files", label: "Files & folders", description: "Team locations", route: "locations", w: 6, h: 5, component: ListWidget , helpText: "Folders and files connected to your workspace.", helpExamples: []},
-  { kind: "knowledge-sources", label: "Knowledge sources", description: "Approved knowledge locations", route: "sources", w: 6, h: 5, component: ListWidget , helpText: "Approved locations where Bees indexes knowledge for your agents.", helpExamples: []},
   { kind: "runs", label: "Executions", description: "Recent agent executions", route: "runs", w: 6, h: 5, component: ListWidget , helpText: "Recent individual agent executions.", helpExamples: []},
-  { kind: "artifacts", label: "Artifacts", description: "Outputs from completed executions", route: "artifacts", w: 6, h: 5, component: ListWidget , helpText: "Outputs produced by completed agent executions.", helpExamples: []},
 ];
 
 const widgetByKind = new Map(WIDGETS.map((widget) => [widget.kind, widget]));
@@ -182,7 +186,9 @@ export function Home({ ctx, data, workspaceId, act, openWorkItem, navigate, rows
   const [setup, setSetup] = useState(false);
   const [outcomeConfiguration, setOutcomeConfiguration] = useState(null);
   useEffect(() => { setSetup(false); setOutcomeConfiguration(null); }, [workspaceId]);
-  const dashboards = dashboardsFrom(preference.dashboards);
+  const dashboards = dashboardsFrom(preference.dashboards).map((candidate) => ({
+    ...candidate, widgets: candidate.widgets.filter(({ kind }) => widgetByKind.has(kind))
+  }));
   const activeId = dashboards.some(({ id }) => id === preference.activeDashboardId) ? preference.activeDashboardId : "home";
   const dashboard = dashboards.find(({ id }) => id === activeId) ?? dashboards[0];
   const [editing, setEditing] = useState(false);

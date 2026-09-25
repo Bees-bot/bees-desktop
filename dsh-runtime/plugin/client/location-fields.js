@@ -401,6 +401,14 @@ function FileContents({ target, onClose, inline, loadFile, Document }) {
     h("section", { className: `bees-file-preview${inline ? " bees-file-preview-inline" : ""}`, "aria-label": "File contents" }, header(false),
       h("div", { className: "bees-file-preview-body", tabIndex: 0, "aria-label": "File content" }, expanded ? null : contents)),
     h("dialog", { ref: dialog, className: "bees-file-dialog", "aria-label": "Full-screen file preview",
+      closedby: "any",
+      onClick: (event) => {
+        if (event.target !== dialog.current) return;
+        const rect = dialog.current.getBoundingClientRect();
+        if (!(rect.top <= event.clientY && event.clientY <= rect.top + rect.height && rect.left <= event.clientX && event.clientX <= rect.left + rect.width)) {
+          setOpen(false);
+        }
+      },
       onKeyDown: (event) => {
         if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); dialog.current.close(); }
       },

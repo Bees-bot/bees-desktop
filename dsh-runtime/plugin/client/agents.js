@@ -199,6 +199,14 @@ function AgentDialog({ onClose, children }) {
   const ref = useRef(null);
   useEffect(() => { if (ref.current && !ref.current.open) ref.current.showModal(); }, []);
   return h("dialog", { ref, className: "bees-agent-dialog", "aria-label": "Agent configuration",
+    closedby: "any",
+    onClick: (event) => {
+      if (event.target !== ref.current) return;
+      const rect = ref.current.getBoundingClientRect();
+      if (!(rect.top <= event.clientY && event.clientY <= rect.top + rect.height && rect.left <= event.clientX && event.clientX <= rect.left + rect.width)) {
+        onClose();
+      }
+    },
     onCancel: (event) => { event.preventDefault(); onClose(); } }, children);
 }
 

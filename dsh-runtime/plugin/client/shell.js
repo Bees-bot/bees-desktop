@@ -5,7 +5,7 @@ import {
   ask, askWithCheckbox, choose, collaboration, confirmAction, connectionIdForScope, defaultOrgColor, headerEmitter, NAVIGATION, request, scopeParts, runTitle, sectionFor, Button, Empty, openExternal,
   THEME_PRESETS, ThemeToggle, usePreference, workItemsFor
 } from "./shared.js";
-import { AccountIcon, BookIcon, EditIcon, KnowledgeIcon, SettingsIcon } from "./icons.js";
+import { AccountIcon, BookIcon, ChevronDownIcon, CloseIcon, EditIcon, KnowledgeIcon, SettingsIcon } from "./icons.js";
 import { Home, GuidePage } from "./home.js";
 import { GettingStarted, GettingStartedBar, onboardingAiKey, planningAgents, starterDescription } from "./getting-started.js";
 import { BasicsPage } from "./basics.js";
@@ -71,7 +71,7 @@ function ScopeSwitcher({
         onClick: () => onChange(`organization:${row.id}`, row.connectionId)
       }, row.name.trim().charAt(0).toLocaleUpperCase() || "•")),
       h("button", { type: "button", className: "bees-org-tile bees-scope-add", title: "Add organization",
-        "aria-label": "Add organization", onClick: onCreateOrganization }, "+")),
+        "aria-label": "Add organization", onClick: onCreateOrganization }, h(CloseIcon))),
     selectedOrganization ? h("div", { className: "bees-org-summary", "aria-live": "polite" },
       h("div", { className: "bees-org-summary-title" },
         h("strong", { title: selectedOrganization.name }, selectedOrganization.name),
@@ -80,7 +80,7 @@ function ScopeSwitcher({
     h("div", { className: "bees-team-heading" },
       h("span", null, "Teams"),
       h("button", { type: "button", className: "bees-scope-add", disabled: !organizationId,
-        title: "Add team", "aria-label": "Add team", onClick: onCreateTeam }, "+")),
+        title: "Add team", "aria-label": "Add team", onClick: onCreateTeam }, h(CloseIcon))),
     h("div", { className: "bees-team-list" },
       ...teams.map((row) => {
         const active = row.id === teamId;
@@ -103,7 +103,7 @@ function ScopeSwitcher({
                 return next;
               });
             } },
-          h("span", { className: "bees-team-chevron", "aria-hidden": "true" }, expanded ? "⌄" : "›"),
+          h("span", { className: `bees-team-chevron ${expanded ? "expanded" : ""}`, "aria-hidden": "true" }, h(ChevronDownIcon)),
           h("span", { className: "bees-team-initial", "aria-hidden": "true" }, row.name.trim().charAt(0).toLocaleUpperCase() || "•"),
           h("span", { className: "bees-team-name" }, row.name)),
           h("button", { type: "button", className: "bees-team-settings", title: `${row.name} settings`,
@@ -131,7 +131,7 @@ function ScopeSwitcher({
               h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(item.icon)),
               h("span", null, item.label),
               item.id === "home" ? h("span", { className: "bees-nav-count", "aria-label": `${dashboards.length} dashboard${dashboards.length === 1 ? "" : "s"}` }, dashboards.length) : null,
-              hasChildren ? h("span", { className: "bees-nav-chevron", "aria-hidden": "true" }, menuExpanded ? "⌄" : "›") : null),
+              hasChildren ? h("span", { className: `bees-nav-chevron ${menuExpanded ? "expanded" : ""}`, "aria-hidden": "true" }, h(ChevronDownIcon)) : null),
               item.children && item.children.length > 0 && menuExpanded ? h("div", { className: "bees-nav-flyout" },
                 ...item.children.map(([child, label]) => h("div", {
                   className: `bees-nav-flyout-item ${active && route === child ? "active" : ""}`,
@@ -157,7 +157,7 @@ function ScopeSwitcher({
                 dashboard.id !== "home" ? h("button", {
                   type: "button", className: "bees-dashboard-remove bees-dashboard-action", title: `Delete ${dashboard.name}`,
                   "aria-label": `Delete ${dashboard.name}`, onClick: () => onDeleteDashboard(dashboard)
-                }, "×") : null)),
+                }, h(CloseIcon)) : null)),
               h("button", {
                 type: "button", className: "bees-nav-link bees-nav-child bees-dashboard-create",
                 disabled: dashboards.length >= 20, title: dashboards.length >= 20 ? "Dashboard limit reached" : "Create dashboard",
@@ -165,7 +165,7 @@ function ScopeSwitcher({
                   if (!active) onChange(`team:${row.id}`, connectionId);
                   onCreateDashboard();
                 }
-              }, h("span", { "aria-hidden": "true" }, "+"), h("span", null, "New dashboard"))
+              }, h("span", { className: "bees-add-icon", "aria-hidden": "true" }, h(CloseIcon)), h("span", null, "New dashboard"))
             ) : null
           ); })) : null);
       })));
@@ -275,11 +275,11 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     if (preferences.getSnapshot().status !== "ready") return;
     const theme = ctx.get?.("theme") ?? ctx.theme;
     const preset = THEME_PRESETS.find(({ id }) => id === preference.themePreset)
-      ?? THEME_PRESETS.find(({ id }) => id === "forest");
+      ?? THEME_PRESETS.find(({ id }) => id === "halloween");
     const colorMode = ["dark", "light"].includes(preference.colorMode)
       ? preference.colorMode : preset.dark ? "dark" : "light";
     if (theme.getTheme().preference !== colorMode) theme.setTheme(colorMode);
-    if (!preference.themePreset) void preferences.set("themePreset", "forest");
+    if (!preference.themePreset) void preferences.set("themePreset", "halloween");
     if (preference.colorMode !== colorMode) void preferences.set("colorMode", colorMode);
   }, [ctx, preferences, preference.colorMode, preference.themePreset]);
   useEffect(() => {
@@ -416,7 +416,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     h("div", { className: "bees-app bees-loading", style: { display: "flex", flexDirection: "column", gap: "16px", background: "#111315" } }, 
       error || h(React.Fragment, null, 
         h("style", null, `@keyframes hover { 50% { transform: translateY(-6px); } }`),
-        h("img", { src: brandMark, style: { width: "46px", height: "46px", borderRadius: "14px", objectFit: "cover", animation: "hover 1.8s ease-in-out infinite" } }),
+        h("img", { src: brandMark, style: { width: "54px", height: "54px", borderRadius: "16px", objectFit: "cover", animation: "hover 1.8s ease-in-out infinite" } }),
         h("strong", { style: { fontSize: "20px", color: "#f5f5f5" } }, "Bees Desktop")
       )));
   const dashboards = dashboardsFrom(preference.dashboards);
@@ -440,7 +440,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     if (name) await preferences.set("dashboards", dashboards.map((candidate) => candidate.id === dashboard.id ? { ...dashboard, name } : candidate));
   };
   const activeTheme = THEME_PRESETS.find(({ id }) => id === preference.themePreset)
-    ?? THEME_PRESETS.find(({ id }) => id === "forest");
+    ?? THEME_PRESETS.find(({ id }) => id === "halloween");
   const section = sectionFor(route);
   const routeLabel = route === "getting-started" ? "Getting started" : route === "basics" ? "Bees basics" : route === "guide" ? "Detailed guides" : route === "create-organization" ? "Create organization" : route === "home" ? activeDashboard.name : route === "accounts" ? "Accounts"
     : section.children.find(([id]) => id === route)?.[1] ?? section.label;
@@ -456,7 +456,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     const target = sectionFor(targetRoute);
     const openRoute = () => navigate(targetRoute);
     if (target.id === "work") return workItemsFor(viewData, targetRoute, scopeFor(targetRoute))
-      .map((item) => ({ id: item.id, label: item.title, open: () => openWorkItem(item.id) }));
+      .map((item) => ({ id: item.id, label: item.title, open: () => openWorkItem(item.id), item }));
     if (target.id === "processes") {
       if (targetRoute === "templates") return (data.templates ?? []).filter((row) => workspaceIds.includes(row.workspaceId))
         .map((row) => ({ id: row.id, label: row.name, open: openRoute }));
@@ -609,7 +609,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
       "--dsw-alias-bg-base": activeTheme.surfaceAlt,
       "--dsw-specific-sidebar-fill": activeTheme.surface,
       "--dsw-alias-label-primary": activeTheme.foreground,
-      "--dsw-alias-label-secondary": `color-mix(in srgb, ${activeTheme.foreground} 68%, transparent)`,
+      "--dsw-alias-label-secondary": `color-mix(in srgb, ${activeTheme.foreground} 88%, transparent)`,
       "--dsw-alias-border-l1": `color-mix(in srgb, ${activeTheme.foreground} 12%, transparent)`,
       "--dsw-alias-border-l2": `color-mix(in srgb, ${activeTheme.foreground} 20%, transparent)`,
       "--dsw-alias-interactive-bg-hover": `color-mix(in srgb, ${activeTheme.colors[0]} 14%, transparent)`,
@@ -641,7 +641,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
         h("button", { className: `bees-nav-link bees-utility-link ${route === "basics" ? "active" : ""}`, "aria-current": route === "basics" ? "page" : null, onClick: () => navigate("basics") }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(KnowledgeIcon)), h("span", null, "Bees basics")),
         h("button", { className: `bees-nav-link bees-utility-link bees-accounts-link ${route === "accounts" ? "active" : ""}`, "aria-current": route === "accounts" ? "page" : null, onClick: () => navigate("accounts") },
           (() => {
-            const accounts = Array.from(new Map((data.connections ?? []).filter((c) => c.email || c.accountName).map((c) => [c.accountUserId || c.email, c.accountName || c.email])).values());
+            const accounts = Array.from(new Map((data.accounts ?? []).filter((c) => c.email || c.name).map((c) => [c.userId || c.email, c.name || c.email])).values());
             if (accounts.length === 0) return h(React.Fragment, null, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(AccountIcon)), h("span", null, "Accounts"));
             return h(React.Fragment, null,
               h("span", { style: { display: "flex", color: "var(--dsw-alias-label-secondary)" } },

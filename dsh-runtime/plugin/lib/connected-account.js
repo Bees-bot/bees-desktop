@@ -713,6 +713,13 @@ export class ConnectedAccount {
     return this.organizationPeople(organizationId, connectionId);
   }
 
+  async removeOrganizationMember(organizationId, userId, connectionId) {
+    await this.request(`/api/memberships/${encodeURIComponent(userId)}`, {
+      method: "DELETE", organizationId, connectionId
+    });
+    return this.organizationPeople(organizationId, connectionId);
+  }
+
   async setOrganizationInvitationRole(organizationId, invitationId, role, connectionId) {
     await this.request(
       `/api/organizations/${encodeURIComponent(organizationId)}/invitations/${encodeURIComponent(invitationId)}/role`,
@@ -832,6 +839,8 @@ export class ConnectedAccount {
         return this.setOrganizationMemberRole(
           input.organizationId, input.userId, input.role, input.connectionId
         );
+      case "remove_organization_member":
+        return this.removeOrganizationMember(input.organizationId, input.userId, input.connectionId);
       case "set_organization_invitation_role":
         return this.setOrganizationInvitationRole(
           input.organizationId, input.invitationId, input.role, input.connectionId

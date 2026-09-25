@@ -292,7 +292,7 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
       ...(templates.length ? templates.map((template) => h("div", { className: "bees-row", key: template.id },
         h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, template.name),
           h("div", { className: "bees-muted bees-process-summary" }, [template.description, template.stages.map(({ name }) => name).join(" → "),
-            accountLabel(data, template.accountUserId) ? `by ${accountLabel(data, template.accountUserId)}` : null].filter(Boolean).join(" · "))),
+            accountLabel(data, template.accountUserId) ? `Created by ${accountLabel(data, template.accountUserId)}` : null].filter(Boolean).join(" · "))),
         h(Button, { className: "primary", disabled: template.workspaceId !== workspaceId,
           onClick: () => { setProcessDraft(template); setCreating("process"); } }, "Use template"),
         h(Button, { className: "danger", onClick: async () => (await confirmAction(`Archive template “${template.name}”?`)) &&
@@ -310,14 +310,15 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
   const processList = templateStatus === "archived" ? h("div", null,
     archived.length ? archived.map((process) => h("div", { className: "bees-row", key: process.id },
       h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, process.name),
-        h("div", { className: "bees-muted bees-process-summary" }, process.description),
+        h("div", { className: "bees-muted bees-process-summary" }, [process.description,
+          accountLabel(data, process.accountUserId) ? `Created by ${accountLabel(data, process.accountUserId)}` : null].filter(Boolean).join(" · ")),
         h("div", { className: "bees-muted" }, `Archived ${new Date(process.archivedAt).toLocaleString()}`)),
       h(ProcessListActions, { ctx, process, act, openWorkItem })))
       : h(Empty, null, "No archived process templates")) : h("div", null,
     ...(processes.length ? processes.map((process) => {
       const stages = data.stages.filter(({ processId }) => processId === process.id);
       const creator = accountLabel(data, process.accountUserId);
-      const subtitle = [process.description, stages.map(({ name }) => name).join(" → "), creator ? `by ${creator}` : null].filter(Boolean).join(" · ");
+      const subtitle = [process.description, stages.map(({ name }) => name).join(" → "), creator ? `Created by ${creator}` : null].filter(Boolean).join(" · ");
       return h("div", { className: "bees-row", key: process.id, style: { flexWrap: "wrap" } },
         h("button", { type: "button", className: "bees-row-main", style: { cursor: "pointer", textAlign: "left", font: "inherit", color: "inherit", background: "transparent", border: 0 }, onClick: () => setProcessId(process.id) },
           h("div", { className: "bees-row-title" }, process.name), h("div", { className: "bees-muted bees-process-summary" }, subtitle)),

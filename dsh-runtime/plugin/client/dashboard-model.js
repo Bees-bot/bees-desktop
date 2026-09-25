@@ -9,10 +9,10 @@ export const DEFAULT_WIDGETS = [
 ];
 
 const DEFAULT_WORK_ITEM_WIDGETS = [
-  { kind: "run-status", x: 0, y: 0, w: 12, h: 1 },
-  { kind: "conversation", x: 0, y: 1, w: 6, h: 8 },
-  { kind: "details", x: 6, y: 1, w: 6, h: 8 },
-  { kind: "kanban", x: 0, y: 9, w: 12, h: 4 }
+  { kind: "kanban", x: 0, y: 0, w: 12, h: 4 },
+  { kind: "run-status", x: 0, y: 4, w: 12, h: 1 },
+  { kind: "conversation", x: 0, y: 5, w: 6, h: 8 },
+  { kind: "details", x: 6, y: 5, w: 6, h: 8 }
 ];
 
 const number = (value, fallback, min, max) => {
@@ -113,8 +113,16 @@ export function applyFixedLayout(defaults, layout) {
 }
 
 export function workItemLayoutFrom(value) {
-  const widgets = fixedLayoutFrom(DEFAULT_WORK_ITEM_WIDGETS, value);
-  if (!Array.isArray(value) || !value.length || value.some((widget) => widget?.kind === "run-status")) return widgets;
+  const isLegacyDefault = Array.isArray(value) && value.length === 4 &&
+    value.every((w) => (
+      (w.kind === "run-status" && w.x === 0 && w.y === 0 && w.w === 12 && w.h === 1) ||
+      (w.kind === "conversation" && w.x === 0 && w.y === 1 && w.w === 6 && w.h === 8) ||
+      (w.kind === "details" && w.x === 6 && w.y === 1 && w.w === 6 && w.h === 8) ||
+      (w.kind === "kanban" && w.x === 0 && w.y === 9 && w.w === 12 && w.h === 4)
+    ));
+  const effectiveValue = isLegacyDefault ? [] : value;
+  const widgets = fixedLayoutFrom(DEFAULT_WORK_ITEM_WIDGETS, effectiveValue);
+  if (!Array.isArray(effectiveValue) || !effectiveValue.length || effectiveValue.some((widget) => widget?.kind === "run-status")) return widgets;
   const kanban = widgets.find(({ kind }) => kind === "kanban");
   const status = widgets.find(({ kind }) => kind === "run-status");
   status.y = kanban.y + kanban.h;
