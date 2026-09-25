@@ -1,7 +1,14 @@
 # DSH 0.1.7 upgrade
 
-Pinned runtime: **0.1.7-alpha.1**, from the official npm packages and lockfile.
-Release: https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.1.7-alpha.1
+Pinned runtime: **0.1.7-rc.2**, from the official npm registry. This remains a prerelease candidate, not a production-release approval.
+
+- [RC2 release notes](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.1.7-rc.2)
+- [RC1 → RC2 changes](https://github.com/deepseek-ai/deepseek-harness/compare/dsh-v0.1.7-rc.1...dsh-v0.1.7-rc.2)
+- [Current implementation and validation](dsh-0.1.7-rc2-validation.md)
+
+## Original alpha.1 migration (historical)
+
+The following describes the original alpha.1 upgrade. RC2 removes the HMR response-completion patch mentioned below; its current patch inventory and validation supersede the historical validation here.
 
 0.1.7 hands the profile's patch document to DSH's own settings layer. Every
 setting the browser writes lands in `<profile>/cordis.patch.yml`, which is the

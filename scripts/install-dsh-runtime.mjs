@@ -47,27 +47,9 @@ if (!teamSource.includes(teamNeedle) && !teamSource.includes(teamPatch)) {
 }
 await writeFile(teamEntry, teamSource.replace(teamNeedle, teamPatch));
 
-// Keep immutable bundle revisions addressable during rapid HMR churn. DSH
-// retains only one previous graph, so a browser two revisions behind gets a 404.
+// RC2 owns failed batch recovery and bounded response history. Retain only the
+// measured startup batching optimization; do not accumulate retired bundles.
 const hmrEntry = path.join(
   runtimeRoot, "node_modules", "@deepseek-ai", "dsh-client-modules", "lib", "index.js",
 );
-const hmrSource = await readFile(hmrEntry, "utf8");
-const hmrClass = "var ClientModuleRegistry = class extends Service {";
-const hmrPrevious = "\t/** One prior graph generation covers a request racing the HMR recomposition that replaced its URL. */\n\tpreviousBatchResponses = /* @__PURE__ */ new Map();\n";
-const hmrCompose = "\t\tthis.previousBatchResponses = this.batchResponses;\n\t\tthis.batchResponses = batchResponses;\n\t\tthis.responses = responses;";
-const hmrServe = "\t\tconst response = this.responses.get(resourceUrl) ?? this.previousBatchResponses.get(resourceUrl) ?? this.chunkResponse(requestUrl);";
-if (!hmrSource.includes("const retiredResponses = new Map()")) {
-for (const needle of [hmrClass, hmrPrevious, hmrCompose, hmrServe]) {
-  if (!hmrSource.includes(needle)) {
-    throw new Error(`DSH ${pinned} client bundle history patch no longer matches its pinned package`);
-  }
-}
-await writeFile(hmrEntry, hmrSource
-  .replace(hmrClass, `const retiredResponses = new Map();\n${hmrClass}`)
-  .replace(hmrPrevious, "")
-  .replace(hmrCompose, "\t\tif (this.responses) for (const [url, response] of this.responses) retiredResponses.set(url, response);\n\t\tthis.batchResponses = batchResponses;\n\t\tthis.responses = responses;")
-  .replace(hmrServe, "\t\tconst response = this.responses.get(resourceUrl) ?? retiredResponses.get(resourceUrl) ?? this.chunkResponse(requestUrl);"));
-
-}
 await writeFile(hmrEntry, batchDshClientModules(await readFile(hmrEntry, "utf8")));

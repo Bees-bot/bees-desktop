@@ -10,21 +10,23 @@ const MEDIA_TYPES = {
 
 export const previewType = (path) => MEDIA_TYPES[String(path).split(".").pop().toLowerCase()] ?? null;
 export const previewFormat = (type) => type === "application/pdf" ? "pdf" : type === "text/html" ? "html" : type.split("/")[0];
+export const documentPreview = (path) => /\.(docx?|xlsx?|pptx?|csv|tsv)$/i.test(path);
 
 export async function loadRunFile(ctx, target, signal) {
   const query = new URLSearchParams({ executionId: target.executionId, path: target.path });
   const type = previewType(target.path);
   // Keep the bounded, formatted text reader for code, Markdown, and large logs.
-  if (typeof type !== "string") return request(`/bees-api/run-file?${query}`, { signal });
+  if (typeof type !== "string" && !documentPreview(target.path)) return request(`/bees-api/run-file?${query}`, { signal });
   query.set("native", "1");
   const file = await request(`/bees-api/run-file?${query}`, { signal });
   signal.throwIfAborted();
   if (!file.sessionId) throw new Error("This run's file session is unavailable.");
-  const result = await ctx.remote.workspaceFiles.readAll(file.sessionId, file.path, signal);
+  if (documentPreview(file.path)) return { ...file, format: "document" };
+  const result = await ctx.remote.workspaceFiles.readBytes(file.sessionId, file.path, {}, signal);
   signal.throwIfAborted();
   if (!result.ok) throw new Error(result.error.message || "The file could not be read.");
   if (!result.value.eof) throw new Error("The file could not be loaded completely.");
-  const bytes = Uint8Array.from(atob(result.value.data), (character) => character.charCodeAt(0));
+  const bytes = result.value.data;
   return { path: file.path, name: file.path.split("/").pop(), size: bytes.length,
     format: previewFormat(type),
     blob: new Blob([bytes], { type }) };

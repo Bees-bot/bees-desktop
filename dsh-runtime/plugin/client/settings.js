@@ -33,6 +33,8 @@ function AiSettings({ ctx, modelSettings, preferences, systemDefault, reload }) 
 
 function AppearanceSettings({ ctx, preferences }) {
   const preference = usePreference(preferences);
+  const chat = React.useMemo(() => ctx.configForms.get("ui-chat"), [ctx]);
+  const chatPreference = usePreference(chat);
   const theme = ctx.get?.("theme") ?? ctx.theme;
   const preset = THEME_PRESETS.some(({ id }) => id === preference.themePreset)
     ? preference.themePreset : "forest";
@@ -47,6 +49,13 @@ function AppearanceSettings({ ctx, preferences }) {
     theme.setTheme(nextMode);
   };
   return h("div", { className: "bees-stack" },
+    h("section", { className: "bees-box" }, h("h3", null, "Conversation details"),
+      h("label", null, "Work process display", h("select", { className: "bees-select",
+        value: ({ normal: "standard", expanded: "detailed" })[chatPreference.transcriptView] ?? chatPreference.transcriptView ?? "compact",
+        disabled: chat.getSnapshot().status !== "ready",
+        onChange: (event) => void chat.set("transcriptView", event.target.value) },
+      ...[["compact", "Compact"], ["standard", "Standard"], ["detailed", "Detailed"], ["verbose", "Fully expanded while running"]]
+        .map(([value, label]) => h("option", { value, key: value }, label))))),
     h("section", { className: "bees-box bees-appearance-card" }, 
       h("h3", { className: "bees-section-title" }, "Theme defaults"),
       h("p", { className: "bees-muted" }, "Choose which palettes the header button uses when switching between dark and light."),

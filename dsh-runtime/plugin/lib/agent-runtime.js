@@ -434,7 +434,10 @@ export function recoveryToolContext(events, pending, ownerChecked = false) {
 
 function outcomeFor(event) {
   const reason = event?.data?.reason;
-  if (reason?.kind === "completed" || reason?.kind === "max-tokens") return { outcome: "completed", error: null };
+  if (reason?.kind === "completed") return { outcome: "completed", error: null };
+  if (reason?.kind === "max-tokens") return { outcome: "failed", error: {
+    code: "OUTPUT_LIMIT", message: "The model reached its output limit before finishing. Review the saved work, then retry with a larger output limit or a smaller task."
+  } };
   if (reason?.kind === "aborted") return { outcome: "cancelled", error: { message: "Stopped by user" } };
   const message = reason?.error?.message ?? (reason?.kind ? `Agent turn ended: ${reason.kind}` : "The agent runtime did not record a terminal turn");
   return { outcome: "failed", error: { message, code: reason?.error?.code } };
@@ -928,24 +931,35 @@ export class AgentRuntime {
     `).get(executionId);
   }
 
-  /**
-   * Hold this agent to the MCP servers it was granted. A deny list, not an allow list: the preset's
-   * tools are still registering at setup, so an allow mask would freeze the agent to whatever
-   * happened to exist at that instant.
-   *
-   * ponytail: a server connected mid-run stays visible to a run already going. An allow mask would
-   * close that, at the cost of hiding every tool that registers late, and DSH is explicit that
-   * restrict() is tool visibility rather than an authority boundary either way.
-   */
+  /** Check each call and prompt against the grant, including tools connected after setup. */
   restrictMcp(agentCtx, data) {
     if (data.mcpAccess === "all") return;
-    const allowed = new Set(data.mcpServers);
-    const deny = this.ctx.tools.schemas().map(({ name }) => name).filter((name) => {
-      const match = /^mcp__([A-Za-z0-9_-]{1,32}?)__/.exec(name);
-      return match && !allowed.has(match[1]);
-    });
-    if (!deny.length) return;
-    return agentCtx.tools.restrict({ deny });
+    const denied = (name) => this.mcpDenied(data, name);
+    const owner = scopeOf(agentCtx);
+    const disposers = [
+      agentCtx.tools.guard((exec) => denied(exec.name)
+        ? `This run is not granted access to ${exec.name}. Ask the owner to update its MCP access.` : undefined),
+      agentCtx.on("system-prompt/assemble", async (_assembly, context, next) => {
+        const assembly = await next();
+        if (context.scope !== owner) return assembly;
+        return { ...assembly, tools: assembly.tools.filter(({ name }) => !denied(name)),
+          sections: assembly.sections.filter(({ name }) => !name.startsWith("tool:") || !denied(name.slice(5))) };
+      })
+    ];
+    const deny = this.ctx.tools.schemas().map(({ name }) => name).filter(denied);
+    if (deny.length) disposers.push(agentCtx.tools.restrict({ deny }));
+    return () => disposers.forEach((dispose) => dispose());
+  }
+
+  mcpDenied(data, name) {
+    if (!name.startsWith("mcp__") || data.mcpAccess === "all") return false;
+    if (data.mcpAccess !== "listed") return true;
+    // Server names can contain "__". Resolve the longest registered namespace
+    // so granting "sales" cannot grant a newly connected "sales__private".
+    const server = this.database.prepare("SELECT server_name AS name FROM mcp_servers").all()
+      .filter(({ name: server }) => name.startsWith(`mcp__${server}__`))
+      .sort((a, b) => b.name.length - a.name.length)[0]?.name;
+    return !server || !data.mcpServers.includes(server);
   }
 
   async refreshMcpForProcess(processId) {
@@ -1014,8 +1028,8 @@ export class AgentRuntime {
     const owner = scopeOf(agentCtx);
     if (this.policyAgents.has(owner)) return;
     this.policyAgents.add(owner);
-    if (discovery) mountToolDiscovery(agentCtx, this.ctx.credentials);
-    installContextPolicy(agentCtx, this.ctx.tokenMeter, owner);
+    if (discovery) mountToolDiscovery(agentCtx, this.ctx.credentials, (name) => !this.mcpDenied(data, name));
+    installContextPolicy(agentCtx);
     mountRepeatGuard(agentCtx, owner);
     mountPageFetch(agentCtx, this.ctx.web);
   }
@@ -1538,7 +1552,11 @@ export class AgentRuntime {
           const resolution = await this.resolveDependency(executionId, args, exec);
           if (resolution !== true) return resolution;
         }
-        if (args.outcome !== "blocked") assertPeersSettled(this, data);
+        if (args.outcome !== "blocked") {
+          assertPeersSettled(this, data);
+          if (this.pendingJobs(exec.agent).length)
+            throw new Error("Background jobs are still running. Collect their results before submitting this stage.");
+        }
         const evidence = pinned ? this.workContext.resultEvidence(executionId, data, workspace, result, findings) : null;
         transaction(this.database, () => {
           this.database.prepare("INSERT INTO bees_stage_results VALUES (?, ?, ?, ?, ?)")
@@ -2114,9 +2132,31 @@ export class AgentRuntime {
     await this.finish(executionId, submissionId, sessionId, handle, result);
   }
 
+  pendingJobs(agent) {
+    return (this.ctx.jobs?.list(agent.session.id) ?? []).filter((job) =>
+      job.owner === agent.session.id && ["running", "stopping"].includes(job.status));
+  }
+
   async untilIdle(executionId, handle) {
-    const idle = handle.agent.whenIdle().then(() => true, () => true);
-    while (!await Promise.race([idle, delay(5_000).then(() => false)])) {
+    while (!this.closing) {
+      const idle = await Promise.race([handle.agent.whenIdle().then(() => true), delay(5_000).then(() => false)]);
+      if (idle) {
+        // Completion delivery may have opened another turn after whenIdle resolved.
+        await delay(0);
+        if (handle.agent.status === "running") continue;
+        const pending = this.pendingJobs(handle.agent);
+        if (!pending.length) return;
+        // jobs.wait consumes settlement notifications. Observe without claiming
+        // the result so DSH can deliver it and wake the owning agent.
+        await new Promise((resolve) => {
+          const done = () => { clearTimeout(timer); unsubscribe(); resolve(); };
+          const unsubscribe = this.ctx.jobs.events.subscribe({ owner: handle.agent.session.id }, (event) => {
+            if (event.type === "settled" || event.type === "removed") done();
+          });
+          const timer = setTimeout(done, 5_000);
+        });
+        continue;
+      }
       const live = this.live.get(executionId);
       // A tool that has not returned may be waiting on a person or on a peer, and a question
       // re-presented after a restart sends nothing either. Only a silently generating turn stalls.

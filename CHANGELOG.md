@@ -4,6 +4,17 @@ Notable changes, newest first. Dates are release dates.
 
 ## Unreleased
 
+- Upgrade the bundled DeepSeek Harness from 0.1.7-alpha.1 to 0.1.7-rc.2.
+- Wait for owned background jobs before settling a stage. Model output limits now
+  report a recoverable failure instead of reporting successful completion.
+- Enforce each run's MCP grants when tools connect during an existing conversation.
+- Use native text/image retention while preserving full business evidence and
+  historical tool-result recall.
+- Preview authorized run spreadsheets, Word documents, and presentations with the
+  native document renderer. Add conversation detail preferences and native Team UI.
+- Keep work running when the window closes; warn before quitting with active or
+  queued work, or when activity cannot be checked. Temporal remains the scheduler.
+
 - File previews now support images, PDFs, HTML, audio, video, and more text/code formats across run files and mapped files.
 - Node 24 is required, and the app runtime, the native modules and the workflow builds all use it.
   Built under an older Node, the free AI option failed on a fresh install.

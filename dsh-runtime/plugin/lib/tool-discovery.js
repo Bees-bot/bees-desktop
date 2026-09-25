@@ -15,7 +15,7 @@ const PAGE_SIZE = 4;
 const RETAINED_TOOLS = 8;
 
 /** Present a small native toolkit; actual registrations and execution guards remain authoritative. */
-export function mountToolDiscovery(agentCtx, credentials) {
+export function mountToolDiscovery(agentCtx, credentials, allowed = () => true) {
   if (!agentCtx.on || !agentCtx.tools.schemas) return;
   const owner = scopeOf(agentCtx);
   const loaded = new Set();
@@ -49,7 +49,7 @@ export function mountToolDiscovery(agentCtx, credentials) {
       const words = query.split(/\s+/).filter(Boolean);
       // Re-read the calling agent's registry: preset and MCP tools may register after setup.
       const matches = agentCtx.tools.schemas(exec.agent).filter(({ name }) =>
-        !HIDDEN_TOOLS.has(name) && !BASE_TOOLS.has(name))
+        allowed(name) && !HIDDEN_TOOLS.has(name) && !BASE_TOOLS.has(name))
         .map((tool) => {
           const name = tool.name.toLowerCase();
           const text = `${name} ${tool.description ?? ""}`.toLowerCase();
