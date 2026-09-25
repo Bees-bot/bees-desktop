@@ -36,10 +36,18 @@ function AppearanceSettings({ ctx, preferences }) {
   const theme = ctx.get?.("theme") ?? ctx.theme;
   const preset = THEME_PRESETS.some(({ id }) => id === preference.themePreset)
     ? preference.themePreset : "halloween";
-  const darkDefault = THEME_PRESETS.some(({ id }) => id === preference.darkThemePreset)
+  const darkDefault = THEME_PRESETS.some(({ id, dark }) => id === preference.darkThemePreset && dark)
     ? preference.darkThemePreset : "halloween";
-  const lightDefault = THEME_PRESETS.some(({ id }) => id === preference.lightThemePreset)
+  const lightDefault = THEME_PRESETS.some(({ id, dark }) => id === preference.lightThemePreset && !dark)
     ? preference.lightThemePreset : "bumblebee";
+  useEffect(() => {
+    if (preference.darkThemePreset && !THEME_PRESETS.find(({ id }) => id === preference.darkThemePreset)?.dark) {
+      void preferences.set("darkThemePreset", "halloween");
+    }
+    if (preference.lightThemePreset && THEME_PRESETS.find(({ id }) => id === preference.lightThemePreset)?.dark) {
+      void preferences.set("lightThemePreset", "bumblebee");
+    }
+  }, [preference.darkThemePreset, preference.lightThemePreset, preferences]);
   const chooseTheme = async (option) => {
     const nextMode = option.dark ? "dark" : "light";
     await preferences.set("themePreset", option.id);
@@ -53,10 +61,10 @@ function AppearanceSettings({ ctx, preferences }) {
       h("div", { className: "bees-form-row", style: { marginTop: "14px" } },
         h("label", null, "Default Dark Theme", h("select", { className: "bees-select", value: darkDefault,
           "data-theme-default": "dark", onChange: (event) => void preferences.set("darkThemePreset", event.target.value) },
-        ...THEME_PRESETS.map((option) => h("option", { key: option.id, value: option.id }, option.id === "halloween" || option.id === "bumblebee" ? `${option.label} (Recommended)` : option.label)))),
+        ...THEME_PRESETS.map((option) => h("option", { key: option.id, value: option.id }, option.id === "halloween" ? `${option.label} (Recommended)` : option.label)))),
         h("label", null, "Default Light Theme", h("select", { className: "bees-select", value: lightDefault,
           "data-theme-default": "light", onChange: (event) => void preferences.set("lightThemePreset", event.target.value) },
-        ...THEME_PRESETS.map((option) => h("option", { key: option.id, value: option.id }, option.id === "halloween" || option.id === "bumblebee" ? `${option.label} (Recommended)` : option.label)))))),
+        ...THEME_PRESETS.map((option) => h("option", { key: option.id, value: option.id }, option.id === "bumblebee" ? `${option.label} (Recommended)` : option.label)))))),
     h("section", { className: "bees-box bees-appearance-card" }, 
       h("h3", { className: "bees-section-title" }, "Theme"),
       h("p", { className: "bees-muted" }, "All 35 themes from old Bees. The selected palette applies across organizations and teams on this device."),
@@ -249,6 +257,21 @@ function OrganizationSettings({
       setUpdatingMemberId("");
     }
   };
+  const removeMember = async (member) => {
+    const label = member.email || member.userId;
+    if (!await confirmAction(`Remove ${label} from ${organization.name}?`)) return;
+    setUpdatingMemberId(member.userId);
+    try {
+      setPeople(await collaboration("remove_organization_member", {
+        organizationId: organization.id, connectionId, userId: member.userId
+      }));
+      setError("");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setUpdatingMemberId("");
+    }
+  };
   const changeInvitationRole = async (invitationId, role) => {
     setUpdatingInvitationId(invitationId);
     try {
@@ -387,7 +410,7 @@ function OrganizationSettings({
           h("span", { className: "bees-badge", style: { padding: "4px 8px" } }, `${people.memberships.length} members`)
         ),
         h("div", { style: { display: "flex", flexDirection: "column", gap: "8px" } },
-        ...(people.memberships.length ? people.memberships.map((member) => h("div", { className: "bees-row", key: member.id, style: { background: "var(--dsw-alias-bg-base)", padding: "12px 16px", borderRadius: "8px", border: "1px solid var(--dsw-alias-border-l2)" } },
+        ...(people.memberships.length ? people.memberships.map((member) => h("div", { className: "bees-row", key: member.id, style: { padding: "12px 4px", border: 0 } },
           h("div", { 
             style: { width: "32px", height: "32px", borderRadius: "50%", background: "var(--dsw-alias-border-l2)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "600", fontSize: "14px", marginRight: "12px", color: "var(--dsw-alias-label-primary)" }
           }, (member.email || member.userId).charAt(0).toUpperCase()),
@@ -396,22 +419,35 @@ function OrganizationSettings({
             h("div", { className: "bees-muted", style: { fontSize: "13px" } }, member.status)),
           member.role === "owner"
             ? h("span", { className: "bees-badge", style: { background: "var(--dsw-alias-brand)", color: "#fff" } }, "Owner")
-            : h("select", {
+            : h("div", {
+                className: "bees-detail-actions",
+                style: { alignItems: "center", flexWrap: "nowrap", gap: "8px", marginTop: 0 },
+                role: "group", "aria-label": `Member controls for ${member.email || member.userId}`
+              }, h("select", {
                 className: "bees-select",
-                style: { padding: "4px 8px", height: "auto" },
+                style: {
+                  minWidth: "120px", padding: "7px 32px 7px 12px", fontWeight: 600,
+                  backgroundColor: "var(--dsw-specific-sidebar-fill)"
+                },
                 value: member.role,
                 disabled: updatingMemberId === member.userId,
                 "aria-label": `Role for ${member.email || member.userId}`,
                 onChange: (event) => void changeMemberRole(member.userId, event.target.value)
               },
               h("option", { value: "member" }, "Member"),
-              h("option", { value: "admin" }, "Admin"))))
+              h("option", { value: "admin" }, "Admin")),
+              h(Button, {
+                className: "danger",
+                disabled: updatingMemberId === member.userId,
+                "aria-label": `Remove ${member.email || member.userId}`,
+                onClick: () => void removeMember(member)
+              }, updatingMemberId === member.userId ? "Removing…" : "Remove"))))
           : [h(Empty, { key: "empty" }, "No organization members")]))),
           
       h("section", { className: "bees-box bees-appearance-card", style: { padding: "20px" } }, 
         h("h3", null, "Invite new member"),
         h("p", { className: "bees-muted", style: { marginBottom: "16px" } }, "Send an email invitation to join this organization."),
-        h("form", { className: "bees-form-row", style: { display: "flex", gap: "12px", alignItems: "flex-end", background: "var(--dsw-alias-bg-base)", padding: "16px", borderRadius: "8px", border: "1px solid var(--dsw-alias-border-l2)" }, onSubmit: invite },
+        h("form", { className: "bees-form-row", style: { display: "flex", gap: "12px", alignItems: "flex-end" }, onSubmit: invite },
           h("label", { style: { flex: "1 1 0", margin: 0 } }, h("div", { style: { marginBottom: "6px", fontSize: "13px", fontWeight: "500" } }, "Email address"), h("input", { className: "bees-input", name: "email", type: "email", placeholder: "colleague@example.com", required: true, style: { width: "100%" } })),
           h("label", { style: { width: "120px", margin: 0 } }, h("div", { style: { marginBottom: "6px", fontSize: "13px", fontWeight: "500" } }, "Role"), h("select", { className: "bees-select", name: "role", style: { width: "100%" } }, h("option", { value: "member" }, "Member"), h("option", { value: "admin" }, "Admin"))),
           h("button", { className: "bees-btn primary", disabled: inviting, style: { height: "32px" } }, inviting ? "Sending…" : "Send invitation")),
@@ -419,7 +455,7 @@ function OrganizationSettings({
         people.invitations.length > 0 ? h("div", { style: { marginTop: "24px" } },
           h("h4", { style: { marginBottom: "12px", fontSize: "14px", fontWeight: "600", color: "var(--dsw-alias-label-secondary)" } }, "Pending Invitations"),
           h("div", { style: { display: "flex", flexDirection: "column", gap: "8px" } },
-            ...people.invitations.map((invitation) => h("div", { className: "bees-row", key: invitation.id, style: { background: "var(--dsw-alias-bg-base)", padding: "12px 16px", borderRadius: "8px", border: "1px solid var(--dsw-alias-border-l2)" } },
+            ...people.invitations.map((invitation) => h("div", { className: "bees-row", key: invitation.id, style: { padding: "12px 4px", border: 0 } },
               h("div", { 
                 style: { width: "32px", height: "32px", borderRadius: "50%", background: "var(--dsw-alias-border-l2)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "600", fontSize: "14px", marginRight: "12px", color: "var(--dsw-alias-label-secondary)" }
               }, "@"),

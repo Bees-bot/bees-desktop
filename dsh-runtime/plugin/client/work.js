@@ -447,8 +447,6 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
         run && (plan ? LIVE_RUN.includes(run.status) : item.runtimePhase === "running") ? h("button", { className: "bees-btn-danger-ghost",
           onClick: () => act(plan ? { action: "stop_run", executionId: run.id } : { action: "cancel_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "⏹"), "Stop") : null,
         run && item.runtimePhase === "waiting" ? h("button", { className: "bees-btn-danger-ghost", onClick: () => act({ action: "cancel_item", itemId: item.id }) }, h("span", {className: "bees-btn-icon"}, "⏹"), "Cancel routing") : null,
-        plan ? null : !item.archivedAt ? h("button", { className: "bees-btn-danger-ghost", onClick: archive }, h("span", {className: "bees-btn-icon"}, "📦"), "Archive")
-          : h("button", { className: "bees-btn-secondary", onClick: restore }, h("span", {className: "bees-btn-icon"}, "↩"), "Restore"),
         run?.status === "completed" && run.outputs?.length ? h("button", { className: "bees-btn-primary", onClick: publish },
           item.outputLocationId || process?.outputLocationId ? "Publish outputs" : "Save outputs to folder…") : null
       )
@@ -578,7 +576,14 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onScheduleCre
   const completed = items.filter((item) => workItemStatus(item) === "completed").length;
   const total = items.length;
   const layout = workItemLayoutFrom(preference.workItemLayout);
-  const board = h("div", { className: "bees-board bees-cockpit-board" }, ...stages.map((stage) => {
+  
+  const archive = async () => {
+    if (!await confirmAction(`Archive “${root.title}”? Active work will be cancelled. Its history will be preserved.`)) return;
+    if (await act({ action: "archive_item", itemId: root.id })) onBack?.();
+  };
+  const restore = () => act({ action: "archive_item", itemId: root.id, restore: true });
+
+  const boardComponent = h("div", { className: "bees-board bees-cockpit-board", style: { flex: 1, minHeight: 0 } }, ...stages.map((stage) => {
     const rows = items.filter(({ stageId }) => stageId === stage.id);
     return h("section", { className: "bees-column", key: stage.id },
       h("header", { className: "bees-column-head" }, stage.name, h("span", { className: "bees-count" }, rows.length)),
@@ -601,6 +606,15 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onScheduleCre
                 : h("span", null, !run || run.status === "queued" ? "Not started" : "Time unavailable"))));
       }) : [h(Empty, { key: "empty" }, "No work in this stage")])));
   }));
+
+  const boardActions = h("div", { className: "bees-row bees-page-actions", style: { padding: "10px 14px", gap: "8px", justifyContent: "flex-end", flexWrap: "wrap", borderBottom: "1px solid var(--dsw-alias-border-l1)", flex: "none" } },
+    !editing && !root.archivedAt && !isScheduleDefinition(root) && root.kind !== "plan" && schedulable ? h(Button, { onClick: () => setScheduleEditor(true) }, "Schedule") : null,
+    !editing && !root.archivedAt && !isScheduleDefinition(root) && root.kind !== "plan" ? h(Button, { className: "primary", onClick: () => setCreatingRun(true) }, "New Process Run") : null,
+    root.kind !== "plan" ? (!root.archivedAt ? h(Button, { className: "danger bees-btn-danger-ghost", onClick: archive }, h("span", {className: "bees-btn-icon"}, "📦"), "Archive")
+          : h(Button, { className: "secondary", onClick: restore }, h("span", {className: "bees-btn-icon"}, "↩"), "Restore")) : null
+  );
+
+  const board = h("div", { style: { display: "flex", flexDirection: "column", height: "100%" } }, boardActions, boardComponent);
   useEffect(() => {
     if (creatingRun) return;
     setPageHeader && setPageHeader(
@@ -615,8 +629,6 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onScheduleCre
     setPageActions && setPageActions(
       h("div", { className: "bees-page-actions" },
         editing ? h(Button, { onClick: () => preferences.set("workItemLayout", []) }, "Reset") : null,
-        !editing && !root.archivedAt && !isScheduleDefinition(root) && root.kind !== "plan" && schedulable ? h(Button, { onClick: () => setScheduleEditor(true) }, "Schedule") : null,
-        !editing && !root.archivedAt && !isScheduleDefinition(root) && root.kind !== "plan" ? h(Button, { className: "primary", onClick: () => setCreatingRun(true) }, "New Process Run") : null,
         h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) }, editing ? "Done" : "Customize")
       )
     );
