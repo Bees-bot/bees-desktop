@@ -338,7 +338,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
       h("div", { className: `bees-convo-msg agent${message.role === "error" ? " error" : ""}` },
         h("strong", null, message.label),
         message.outcome ? h("span", { className: "bees-message-outcome" }, message.outcome) : null,
-        h("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, message.text))));
+        h(MarkdownText, { text: message.text }))));
   }
   if (run?.ranElsewhere) convoItems.push(h("div", { className: "bees-convo-msg system", key: "elsewhere" },
     ["waiting_for_input", "waiting_for_approval"].includes(run.status)

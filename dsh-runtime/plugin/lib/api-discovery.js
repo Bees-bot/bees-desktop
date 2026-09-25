@@ -1,4 +1,6 @@
 /** What an API says about itself. Only the API is asked, never a third party. */
+import { lookup } from "node:dns/promises";
+import { publicIPv4 } from "./app-source.js";
 
 const SPEC_PATHS = [
   "/openapi.json", "/openapi.yaml", "/swagger.json", "/v3/api-docs",
@@ -71,13 +73,24 @@ function specFromLinks(origin, links, title) {
 
 /** Loopback, link-local and the private ranges. A bridge is built from an address a model proposed,
  *  so without this it could be pointed at something only this machine can reach. */
-const PRIVATE_HOST = /^(?:localhost|\[?::1\]?|0\.0\.0\.0|10\.|127\.|169\.254\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/i;
+// ponytail: checked once when the bridge is added, so a name that later points elsewhere or a redirect still gets through; pin like app-source if that matters
+export async function privateAddress(address) {
+  let host;
+  // localhost. with the root dot is still localhost
+  try { host = new URL(address).hostname.replace(/\.$/, ""); } catch { return false; }
+  // an ipv6 literal is never a hosted api, and ::1 or ::ffff:127.0.0.1 hide in many spellings
+  if (host.startsWith("[")) return true;
+  if (/^[\d.]+$/.test(host)) return !publicIPv4(host);
+  if (/(^|\.)(localhost|local|internal|lan|home\.arpa)$/i.test(host)) return true;
+  // a name like 127.0.0.1.nip.io reads as public, so check where it points
+  const found = await lookup(host, { all: true }).catch(() => []);
+  // only 2000::/3 is public ipv6, so ::1, fd00:: and a mapped 127.0.0.1 all count as private
+  return found.some(({ address: ip, family }) => family === 4 ? !publicIPv4(ip) : !/^[23][0-9a-f]{3}:/i.test(ip));
+}
 
 export async function discoverApi(address, reader = read) {
   const url = new URL(address);
   if (!["http:", "https:"].includes(url.protocol)) throw new Error("Use an http or https address");
-  if (PRIVATE_HOST.test(url.hostname) || url.hostname.endsWith(".local"))
-    throw new Error("That address is on this machine or a private network, so it cannot be an API connection");
   const origin = url.origin;
   const host = url.hostname.replace(/^www\./, "");
 

@@ -901,14 +901,18 @@ pub fn run() {
             }
             app.manage(LocalModelManager::default());
             app.manage(DshManager(Mutex::new(None)));
-            startup::step("native.tray", || build_tray(app.handle()))?;
+            // a linux desktop without a tray library used to stop Bees from opening at all
+            if startup::step("native.tray", || build_tray(app.handle())).is_err() {
+                startup::mark("native.tray.failed");
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
             // Agents keep running with the window shut, so closing it hides the window and leaves
             // the tray as the way back in. Quit from the tray is what actually ends the process.
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main" {
+                // with no tray there's no way back to a hidden window, so let it close
+                if window.label() == "main" && window.app_handle().tray_by_id("bees").is_some() {
                     api.prevent_close();
                     let _ = window.hide();
                 }

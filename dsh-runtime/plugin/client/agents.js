@@ -404,7 +404,7 @@ export function AgentsPage({ ctx, data, servers = [], tools = [], catalog = [], 
         h(Button, { onClick: openDshSettings }, "Manage presets & skills")),
       ...(data.presets.length ? data.presets.map((preset) => h("div", { className: "bees-row", key: preset.id },
         h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, preset.name),
-          h("div", { className: "bees-muted" }, preset.broken ? "Unavailable" : preset.description || "Agent preset")))) : [h(Empty, { key: "empty" }, "No agent presets are available")]));
+          h("div", { className: "bees-muted" }, preset.broken || preset.description || "Agent preset")))) : [h(Empty, { key: "empty" }, "No agent presets are available")]));
   return h("div", { className: "bees-flex-page bees-stack" },
     h("div", { className: "bees-search", style: { justifyContent: "flex-end" } },
       h("select", { className: "bees-select", value: agentStatus, "aria-label": "Agent status", onChange: (event) => setAgentStatus(event.target.value) },

@@ -1008,6 +1008,8 @@ export async function executeProductCommand(action, input) {
       }), current);
       if (input.viaAgent && Object.hasOwn(input, "mcpAccess"))
         assertAgentHasTools({ mcpAccess: policy.access, mcpServers: policy.servers, name: assignment.name });
+      // a bad folder used to throw after the update landed, so the agent saved half the edit
+      return transaction(this.database, () => {
       this.database.prepare(`
         UPDATE agent_assignments SET preset_id = ?, name = ?, description = ?, instructions = ?,
           model = ?, reasoning_effort = ?, capabilities_json = ?, enabled = ?, max_concurrency = ?,
@@ -1021,6 +1023,7 @@ export async function executeProductCommand(action, input) {
       if (Object.hasOwn(input, "inputLocationIds")) replaceLocations(this.database, "agent_locations",
         "agent_assignment_id", id, locationIds(this.database, assignment.workspaceId, input.inputLocationIds));
       return { id };
+      });
     }
     if (action === "add_location") {
       const teamId = required(input.teamId, "Team");
