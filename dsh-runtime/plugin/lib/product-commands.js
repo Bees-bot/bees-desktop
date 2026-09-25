@@ -670,15 +670,16 @@ export async function executeProductCommand(action, input) {
     }
     if (action === "create_process") return transaction(this.database, () => {
       const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);
-      // Home starts a process straight from a template card, so it sends the template instead of stages.
+      // Home sends only the template. The form also sends the stages it showed, so it still works if the template goes.
       const template = input.templateId ? this.database.prepare(`
         SELECT workspace_id AS workspaceId, description, stages_json AS stages
         FROM process_templates WHERE id = ? AND archived_at IS NULL
       `).get(input.templateId) : null;
-      if (input.templateId && !template) throw new Error("Process template not found");
+      if (input.templateId && !template && !input.stages) throw new Error("Process template not found");
       if (template && template.workspaceId !== workspace.id)
         throw new Error("That process template belongs to another team");
-      const stages = processStages(template ? JSON.parse(template.stages) : input.stages);
+      const templateStages = template ? JSON.parse(template.stages) : [];
+      const stages = processStages(input.stages ?? templateStages, "process", templateStages);
       const inputLocationIds = locationIds(this.database, workspace.id, input.inputLocationIds);
       const outputLocationId = locationIds(this.database, workspace.id,
         input.outputLocationId ? [input.outputLocationId] : [], true)[0] ?? null;
@@ -830,10 +831,11 @@ export async function executeProductCommand(action, input) {
       // a failed run is not in flight, same rule as archiving
       if (this.processes.isAutomatic(processId) && hasActiveWork(this.database, processId, ["completed", "cancelled", "failed"]))
         throw new Error("Finish or cancel active automatic work before editing this process");
-      const names = processStages(input.stages);
       const existing = this.database.prepare(`
-        SELECT id, name FROM stages WHERE process_id = ? AND archived_at IS NULL ORDER BY position
+        SELECT id, name, driver, requires_human_approval AS requiresHumanApproval
+        FROM stages WHERE process_id = ? AND archived_at IS NULL ORDER BY position
       `).all(processId);
+      const names = processStages(input.stages, "process", existing);
       const assigned = Array(names.length).fill(null);
       const used = new Set();
       names.forEach(({ name }, index) => {
@@ -853,9 +855,11 @@ export async function executeProductCommand(action, input) {
       existing.filter(({ id }) => !used.has(id)).forEach(({ id }) =>
         this.database.prepare("UPDATE stages SET archived_at = ? WHERE id = ?").run(at, id));
       names.forEach(({ name, driver, requiresHumanApproval }, position) => {
+        // a name typed over a stage in the same spot is a rename, so that stage keeps its approval gate
+        const renamed = typeof input.stages[position] === "string" && existing.indexOf(assigned[position]) === position;
         if (assigned[position]) this.database.prepare(`
           UPDATE stages SET name = ?, position = ?, driver = ?, requires_human_approval = ?, is_terminal = ? WHERE id = ?
-        `).run(name, position, driver, requiresHumanApproval ? 1 : 0,
+        `).run(name, position, driver, requiresHumanApproval || (renamed && assigned[position].requiresHumanApproval) ? 1 : 0,
           driver === "terminal" ? 1 : 0, assigned[position].id);
         else this.database.prepare(`
           INSERT INTO stages (id, process_id, name, position, driver, requires_human_approval, is_terminal, archived_at)
