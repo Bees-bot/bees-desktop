@@ -15,6 +15,7 @@ import { mountAppTools } from "./app-tools.js";
 import { installContextPolicy, readToolResult } from "./context-policy.js";
 import { outputFiles, outputLocation } from "./product-files.js";
 import { mountRepeatGuard } from "./repeat-guard.js";
+import { sendsOut } from "./spec-from-curl.js";
 import { mountPageFetch } from "./web-page.js";
 import { SKILL_CATALOG } from "./skill-packs.js";
 import { mountToolDiscovery } from "./tool-discovery.js";
@@ -278,7 +279,7 @@ function messageParts(content) {
 
 // The stage brief Bees writes arrives as an ordinary user message, so the run screen printed the
 // whole machine instruction to the person who only asked for the outcome.
-const STAGE_BRIEF = /^(Complete only the |Independently review the candidate |Resume this )/;
+const STAGE_BRIEF = /^(Current work item: |Complete only the |Complete this work item\.|Independently review the candidate |Resume this )/;
 function internalPromptLabel(message) {
   const source = message?.source;
   if (source?.kind === "skill-catalog" || source?.kind === "runtime-context") return `Context injection · ${source.kind}`;
@@ -653,10 +654,14 @@ export class AgentRuntime {
       if (rootless !== outside) return `${outside} starts at the disk root. Use the relative path ${rootless} instead, which is inside this run.`;
       if (outside && !granted(outside))
         return `${outside} is outside this run. That folder belongs to the person, so ask for it with bees_request_work_review, naming this full path and why you need it, and try again once they approve; team files come through bees_search_knowledge and bees_read_knowledge.`;
-      // approval is only checked when the stage finishes, so a bid or an email could go out before anyone saw it
-      if (exec.name.startsWith("mcp__") && (/^(?!get|list|search|read|fetch).*(send|post|submit|delete|trash|place|publish|reply|pay|bid|transfer)/i.test(exec.name.split("__").pop())
-        || !/^(get|head)?$/i.test(String(exec.arguments?.method ?? "")))) {
-        if (link && JSON.parse(link.config).requiresHumanApproval && !approvals().length)
+      // approval is only checked when the stage finishes, so a bid or an email could go out before anyone saw it.
+      // files, notes, thinking and time never leave this computer
+      if (exec.name.startsWith("mcp__") && !/^mcp__(filesystem|memory|thinking|time)__/.test(exec.name)
+        && link && JSON.parse(link.config).requiresHumanApproval && !approvals().length) {
+        // a big api is called through invoke-api-endpoint, and the endpoint it names is what gets read or sent.
+        // the api bridge names every write so it reads as one, and a browser snapshot still passes
+        const tool = exec.name.endsWith("__invoke-api-endpoint") ? String(exec.arguments?.endpoint ?? "") : exec.name.slice(exec.name.indexOf("__", 5) + 2);
+        if (sendsOut(tool) || !/^(get|head)?$/i.test(String(exec.arguments?.method ?? "")))
           return "This stage needs the person's approval before anything goes out. Show exactly what this call will send with bees_request_work_review, then make the call.";
       }
       if (exec.name !== "ask_user_question") return;
