@@ -1019,6 +1019,8 @@ export async function executeProductCommand(action, input) {
       }), current);
       if (input.viaAgent && Object.hasOwn(input, "mcpAccess"))
         assertAgentHasTools({ mcpAccess: policy.access, mcpServers: policy.servers, name: assignment.name });
+      // a bad folder used to throw after the update landed, so the agent saved half the edit
+      return transaction(this.database, () => {
       this.database.prepare(`
         UPDATE agent_assignments SET preset_id = ?, name = ?, description = ?, instructions = ?,
           model = ?, reasoning_effort = ?, capabilities_json = ?, enabled = ?, max_concurrency = ?,
@@ -1032,6 +1034,7 @@ export async function executeProductCommand(action, input) {
       if (Object.hasOwn(input, "inputLocationIds")) replaceLocations(this.database, "agent_locations",
         "agent_assignment_id", id, locationIds(this.database, assignment.workspaceId, input.inputLocationIds));
       return { id };
+      });
     }
     if (action === "add_location") {
       const teamId = required(input.teamId, "Team");
@@ -1333,7 +1336,7 @@ export async function executeProductCommand(action, input) {
       const grants = reviewing ? [] : [outputLocation(this.database, item.id)].filter(Boolean);
       const queued = await this.agents.dispatch("bees-run", executionId, {
         idempotencyKey: `start:${executionId}`, workspace: runDirectory,
-        body: `${reviewing ? "Independently review the candidate work against what was asked." : "Complete this work item."}\n\nTitle: ${item.title}\n\n${item.description}${manifest ? `\n\n${manifest}` : ""}\n\n${this.workContext.prompt(executionId)}`,
+        body: `${reviewing ? "Independently review the candidate work against what was asked." : "Complete this work item."}\n\nTitle: ${item.title}\n\n${item.description}${manifest ? `\n\n${manifest}` : ""}`,
         initialData: {
           version: 1, mode: reviewing ? "review" : "work", executionId, workItemId: item.id,
           agentId: assignment.id, agentName: assignment.name,

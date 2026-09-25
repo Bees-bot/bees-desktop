@@ -3,6 +3,7 @@ import { parse } from "yaml";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { sendsOut } from "./spec-from-curl.js";
 
 /** Every operation in an OpenAPI document becomes a call to the API. Ours, because the bridge we used
  *  joined a list into "3,17", which an API reading jobs[]=3&jobs[]=17 silently ignores. */
@@ -18,9 +19,10 @@ const text = /^https?:/.test(source)
   : await readFile(source, "utf8");
 let spec;
 try { spec = JSON.parse(text); } catch { spec = parse(text); }
-// configFor writes Name:value pairs joined by commas, and a value may hold a comma of its own
+// configFor writes Name:value pairs joined by commas, and a value may hold a comma of its own.
+// names are lowercased so a later Authorization replaces an earlier authorization instead of both going out
 const auth = Object.fromEntries((process.env.API_HEADERS ?? "").split(/,(?=\s*[\w-]+\s*:)/)
-  .map((pair) => [pair.slice(0, pair.indexOf(":")).trim(), pair.slice(pair.indexOf(":") + 1).trim()]).filter(([name]) => name));
+  .map((pair) => [pair.slice(0, pair.indexOf(":")).trim().toLowerCase(), pair.slice(pair.indexOf(":") + 1).trim()]).filter(([name]) => name));
 
 const pointer = (ref) => ref.slice(2).split("/").reduce((node, key) => node?.[key.replace(/~1/g, "/").replace(/~0/g, "~")], spec);
 // refs expand only when an endpoint is asked for, and stop 8 deep, so a schema that names itself still ends
@@ -34,7 +36,10 @@ const expand = (node, depth = 0) => {
 const used = new Set();
 const operations = Object.entries(spec.paths ?? {}).flatMap(([path, item]) =>
   ["get", "post", "put", "patch", "delete", "head", "options"].filter((method) => item?.[method]).map((method) => {
-    const stem = String(item[method].operationId || `${method}-${path}`).replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 56) || method;
+    const given = String(item[method].operationId || `${method}-${path}`);
+    // the approval gate goes by the name, so a POST called getOrCreate or a GET called createReport says what it does
+    const fix = /^(get|head|options)$/.test(method) ? sendsOut(given) && "get" : !sendsOut(given) && method;
+    const stem = (fix ? `${fix}-${given}` : given).replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 56) || method;
     let name = stem;
     for (let n = 2; used.has(name); n++) name = `${stem}-${n}`;
     used.add(name);
@@ -93,7 +98,7 @@ async function call(entry, args) {
     // brackets stay literal, since some apis only read jobs[] written that way
     else if (field.in === "query") for (const one of values) query.push(`${encodeURIComponent(field.name).replace(/%5B/gi, "[").replace(/%5D/gi, "]")}=${encodeURIComponent(one)}`);
     else if (field.in === "formData") for (const one of values) form.append(field.name, one);
-    else if (field.in === "header") headers[field.name] = values.join(",");
+    else if (field.in === "header") headers[field.name.toLowerCase()] = values.join(",");
   }
   const missing = path.match(/\{([^{}]+)\}/)?.[1];
   if (missing) throw new Error(`Give ${missing}, which is part of the address`);
