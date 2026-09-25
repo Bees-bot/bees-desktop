@@ -13,6 +13,27 @@
 - id: ui-settings-models
   disabled: true
 
+# Temporal is the only scheduler for Bees work. Long runs receive an explicit clock.
+- id: schedule
+  disabled: true
+
+- id: ui-schedule
+  disabled: true
+
+- id: time-context
+  disabled: false
+  config:
+    refreshIntervalMs: 600000
+
+# Match small local model contexts; native retention preserves recoverable text/images.
+- id: spill-policy
+  config:
+    maxInlineTokens: 2000
+
+- id: ui-chat
+  config:
+    transcriptView: compact
+
 - id: agent-default-model
   config:
     provider: local-openai
@@ -74,6 +95,8 @@
       config:
         freshProvider: spawn
         forkProvider: fork
+    - id: ui-agent-team
+      name: '@deepseek-ai/dsh-experimental-client-ui-agent-team'
     - id: bees-local-ai
       name: '@bees/dsh-local-ai'
     - id: bees-subscriptions
@@ -84,4 +107,4 @@
       name: '@bees/dsh-custom-ai'
     - id: bees
       name: '@bees/dsh-plugin'
-      inject: [webServer, agents, agentPresets, sessionPersistence, approval, workspaceRegistry, settings, credentials, agentDefaultModel, llm, skills, tools, agentTeams, tokenMeter, sessions, attachments]
+      inject: [webServer, agents, agentPresets, sessionPersistence, approval, workspaceRegistry, settings, credentials, agentDefaultModel, llm, skills, tools, agentTeams, tokenMeter, sessions, attachments, jobs]

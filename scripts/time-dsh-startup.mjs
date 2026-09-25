@@ -18,7 +18,7 @@ export const bootTimings = [
   ...[
     ["dsh.loader.init", "ctx.plugin(Loader)"],
     ["dsh.host.prepare", "prepare?.(ctx)"],
-    ["dsh.tree.mount", "mountRootInclude(ctx, absoluteConfigPath, patches, bareModuleBaseUrl)"],
+    ["dsh.tree.mount", "mountRootInclude(ctx, absoluteConfigPath, patches, bareModuleBaseUrl, binName)"],
     ["dsh.tree.settle", 'ctx.get("loader")?.await()'],
     ["dsh.tree.validate", "auditStartupEntries(ctx, binName)"]
   ].map(([phase, expression]) => [`await ${expression};`, `await ${timed(phase, expression)};`])

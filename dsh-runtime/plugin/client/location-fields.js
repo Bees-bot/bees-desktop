@@ -341,7 +341,7 @@ export function FilePreview({ target, onClose, inline }) {
   });
 }
 
-function FileContents({ target, onClose, inline, loadFile }) {
+function FileContents({ target, onClose, inline, loadFile, Document }) {
   const [file, setFile] = useState(null);
   const [error, setError] = useState("");
   const [path, setPath] = useState(target.path);
@@ -377,7 +377,8 @@ function FileContents({ target, onClose, inline, loadFile }) {
           file.truncated ? h("p", { className: "bees-muted" }, "Showing the first 200 entries.") : null)
           : h(React.Fragment, null,
             file.truncated ? h("div", { className: "bees-muted" }, `Showing the first part of a ${formatSize(file.size)} file.`) : null,
-            file.format === "image" ? h("img", { className: "bees-file-preview-image", src: file.url, alt: title })
+            file.format === "document" ? h(Document, { file })
+              : file.format === "image" ? h("img", { className: "bees-file-preview-image", src: file.url, alt: title })
               : file.format === "audio" ? h("audio", { className: "bees-file-preview-media", src: file.url, controls: true })
               : file.format === "video" ? h("video", { className: "bees-file-preview-media", src: file.url, controls: true })
               : file.format === "html" ? h("iframe", { className: "bees-file-preview-document", src: file.url, title,
@@ -398,7 +399,7 @@ function FileContents({ target, onClose, inline, loadFile }) {
     onClose ? h(Button, { className: "bees-editor-action", onClick: onClose, title: "Close file", "aria-label": "Close file preview" }, h(CloseIcon)) : null);
   return h(React.Fragment, null,
     h("section", { className: `bees-file-preview${inline ? " bees-file-preview-inline" : ""}`, "aria-label": "File contents" }, header(false),
-      h("div", { className: "bees-file-preview-body", tabIndex: 0, "aria-label": "File content" }, contents)),
+      h("div", { className: "bees-file-preview-body", tabIndex: 0, "aria-label": "File content" }, expanded ? null : contents)),
     h("dialog", { ref: dialog, className: "bees-file-dialog", "aria-label": "Full-screen file preview",
       onKeyDown: (event) => {
         if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); dialog.current.close(); }

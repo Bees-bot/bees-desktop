@@ -165,10 +165,11 @@ function poolReceipt(exec, result, database) {
 function capture(exec, result, database) {
   if (!exec.name?.startsWith("mcp__") || exec.parent !== undefined) return undefined;
   const text = plainText(result?.content);
-  if (text === undefined || Buffer.byteLength(text, "utf8") < MIN_BYTES) return undefined;
+  if (text === undefined) return undefined;
+  const file = spillPath(text);
+  if (!file && Buffer.byteLength(text, "utf8") < MIN_BYTES) return undefined;
   const directory = directoryOf(exec, database);
   if (!directory) return undefined;
-  const file = spillPath(text);
   const payload = file ? readJson(file) : json(text);
   if (!payload) return undefined;
   const requestId = String(payload.request_id ?? "");

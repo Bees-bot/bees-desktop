@@ -1,5 +1,6 @@
 import { createPortal, h, NativeUi, React, useEffect, useState } from "./runtime.js";
 import { loadLocationFile, loadRunFile } from "./run-file-preview.js";
+import { sessionFileAddress } from "@deepseek-ai/dsh-util-workspace-path";
 
 const listeners = new Set();
 let embedding = { target: null, debug: false };
@@ -70,5 +71,44 @@ export function NativeRunFilePreview({ target, onClose, inline, Preview }) {
   const { ctx } = React.useContext(NativeUi);
   const loadFile = React.useCallback((value, signal) => value.executionId
     ? loadRunFile(ctx, value, signal) : loadLocationFile(value, signal), [ctx]);
-  return h(Preview, { target, onClose, inline, loadFile });
+  return h(Preview, { target, onClose, inline, loadFile, Document: NativeDocumentPreview });
+}
+
+/** Use the native document tab with its session providers and tab-owned zoom state. */
+function NativeDocumentPreview({ file }) {
+  const { ctx } = React.useContext(NativeUi);
+  const main = React.useRef(null), rightbar = React.useRef(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let disposed = false, opened = false;
+    const previous = nativeEmbedding.getSnapshot().target;
+    const previousSession = ctx.sidebarRight.mounted.getSnapshot();
+    const target = { main: main.current, rightbar: rightbar.current };
+    const open = () => {
+      if (disposed || opened || ctx.sidebarRight.mounted.getSnapshot() !== file.sessionId) return;
+      try {
+        opened = true;
+        ctx.sidebarRight.openResource(sessionFileAddress(file.sessionId, file.path));
+      } catch (reason) { setError(reason.message); }
+    };
+    const unsubscribe = ctx.sidebarRight.mounted.subscribe(open);
+    ctx.sessions.refresh().then(() => {
+      if (disposed) return;
+      ctx.uiWorkspace.openSession(file.sessionId);
+      nativeEmbedding.update({ target });
+      open();
+    }).catch((reason) => { if (!disposed) setError(reason.message); });
+    return () => {
+      disposed = true; unsubscribe();
+      if (nativeEmbedding.getSnapshot().target === target) {
+        nativeEmbedding.update({ target: previous?.main?.isConnected ? previous : null });
+        if (previousSession && ctx.sessions.list.getSnapshot().byId[previousSession])
+          ctx.uiWorkspace.openSession(previousSession);
+      }
+    };
+  }, [ctx, file.sessionId, file.path]);
+  return h("div", { className: "bees-native-document", style: { height: "65vh", minHeight: 320, display: "flex" } },
+    h("div", { ref: main, style: { display: "none" } }),
+    h("div", { ref: rightbar, style: { display: "contents" } }),
+    error ? h("p", { className: "bees-error", role: "alert" }, error) : null);
 }

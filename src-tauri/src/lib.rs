@@ -27,6 +27,7 @@ use std::{
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::Manager;
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 
 struct ManagedDsh {
     child: Sidecar,
@@ -39,6 +40,8 @@ struct ManagedDsh {
 struct DshManager(Mutex<Option<ManagedDsh>>);
 
 static WATCHING_DSH: AtomicBool = AtomicBool::new(false);
+static QUIT_PENDING: AtomicBool = AtomicBool::new(false);
+static QUIT_CONFIRMED: AtomicBool = AtomicBool::new(false);
 
 struct DshRuntimeInfo {
     base_url: String,
@@ -262,7 +265,8 @@ const BEES_PLUGINS: [&str; 5] = [
     "dsh-subscriptions",
 ];
 
-const DSH_PROFILE_PLUGINS: [&str; 2] = [
+const DSH_PROFILE_PLUGINS: [&str; 3] = [
+    "dsh-experimental-client-ui-agent-team",
     "dsh-experimental-agent-team",
     "dsh-experimental-tool-agent-team",
 ];
@@ -813,6 +817,7 @@ fn bees_data_size(app: tauri::AppHandle) -> Result<DataFolder, String> {
 fn uninstall_bees(app: tauri::AppHandle) -> Result<(), String> {
     let data = bees_data_folder(&app)?;
     *REMOVE_ON_EXIT.lock().map_err(|error| error.to_string())? = Some(data);
+    QUIT_CONFIRMED.store(true, Ordering::SeqCst);
     app.exit(0);
     Ok(())
 }
@@ -866,6 +871,48 @@ fn build_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> 
         })
         .build(app)?;
     Ok(())
+}
+
+/// Check the authenticated sidecar off the UI thread; an unavailable count is not an idle run.
+fn confirm_quit(app: tauri::AppHandle, exit_code: i32) {
+    if QUIT_PENDING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    thread::spawn(move || {
+        let connection = app.try_state::<DshManager>().and_then(|state| {
+            state.0.lock().ok().and_then(|managed| managed.as_ref()
+                .map(|dsh| (dsh.port, dsh.token.clone())))
+        });
+        let count = match connection {
+            None => Some(0),
+            Some((port, token)) => reqwest::blocking::Client::builder()
+                .timeout(Duration::from_secs(2)).build().ok()
+                .and_then(|client| client.get(format!("http://127.0.0.1:{port}/bees-api/active-runs"))
+                    .bearer_auth(token).send().ok())
+                .and_then(|response| response.error_for_status().ok())
+                .and_then(|response| response.text().ok())
+                .and_then(|text| text.parse::<usize>().ok()),
+        };
+        if count == Some(0) {
+            QUIT_CONFIRMED.store(true, Ordering::SeqCst);
+            app.exit(exit_code);
+            return;
+        }
+        let detail = count.map_or_else(
+            || "Bees could not check whether work is still active.".to_string(),
+            |count| format!("Bees has {count} active or queued run(s)."),
+        );
+        app.dialog().message(format!("{detail} Quitting interrupts work and stops local schedules until Bees opens again. Close the window to keep working in the background."))
+            .title("Quit Bees?")
+            .buttons(MessageDialogButtons::OkCancelCustom("Quit Bees".into(), "Keep working".into()))
+            .show(move |confirmed| {
+                QUIT_PENDING.store(false, Ordering::SeqCst);
+                if confirmed {
+                    QUIT_CONFIRMED.store(true, Ordering::SeqCst);
+                    app.exit(exit_code);
+                }
+            });
+    });
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -947,6 +994,12 @@ pub fn run() {
         })
         .expect("error while running Bees")
         .run(|handle, event| {
+            if let tauri::RunEvent::ExitRequested { api, code, .. } = &event {
+                if !QUIT_CONFIRMED.load(Ordering::SeqCst) {
+                    api.prevent_exit();
+                    confirm_quit(handle.clone(), code.unwrap_or(0));
+                }
+            }
             if matches!(event, tauri::RunEvent::Ready) {
                 startup::mark("native.event-loop-ready");
             }

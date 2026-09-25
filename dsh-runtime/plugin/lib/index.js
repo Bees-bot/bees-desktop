@@ -22,7 +22,7 @@ export const name = "bees";
 export const inject = [
   "webServer", "connection", "agents", "agentPresets", "sessionPersistence", "approval",
   "workspaceRegistry", "settings", "credentials", "agentDefaultModel", "llm",
-  "skills", "tools", "userQuestions", "agentTeams", "tokenMeter", "sessions", "web", "attachments"
+  "skills", "tools", "userQuestions", "agentTeams", "tokenMeter", "sessions", "web", "attachments", "jobs"
 ];
 
 const ModelPreference = z.object({
@@ -315,6 +315,12 @@ export async function apply(ctx, config = {}, internals = {}) {
   register(ctx, { kind: "exact", path: "/healthz", handler: (_req, res) =>
     reply(res, 200, { status: "ok", runtime: "dsh", product: "bees" }) });
   mark("bees.health-route.registered");
+  register(ctx, { kind: "exact", path: "/bees-api/active-runs", handler: (_req, res) => {
+    const active = new Set([...agents.live.values()].map(({ handle }) => handle.agent.session.id));
+    for (const agent of ctx.agents.list())
+      if (agent.status === "running" || agents.pendingJobs(agent).length) active.add(agent.session.id);
+    reply(res, 200, active.size + database.prepare("SELECT count(*) AS count FROM bees_run_queue").get().count);
+  } });
   const startupMarkers = new Set(["ui.module-loaded", "ui.shell-mounted", "ui.data-rendered"]);
   register(ctx, { kind: "exact", path: "/bees-api/startup", handler: (req, res) => {
     if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });

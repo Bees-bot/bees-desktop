@@ -1,16 +1,7 @@
-import { freezeMessage } from "@deepseek-ai/dsh-llm";
-import { hasSpillNotice } from "@deepseek-ai/dsh-spill-policy/notice";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 
-export const TOOL_PREVIEW_CHARS = 8_000;
-export const TOOL_RECEIPT_CHARS = 256;
 export const TOOL_READ_CHARS = 6_000;
-export const TOOL_CONTEXT_CHARS = 64_000;
 const installed = new WeakSet();
-const pendingFlush = new WeakSet();
-
-const textLength = (blocks) => blocks.reduce((sum, block) =>
-  sum + (block.type === "text" ? Array.from(block.text).length : 0), 0);
 
 function originalResults(session) {
   const originals = new Map();
@@ -20,79 +11,6 @@ function originalResults(session) {
     if (!originals.has(id)) originals.set(id, event);
   }
   return originals;
-}
-
-/** Keep rich blocks in order and a head/tail excerpt, with an explicit recall pointer. */
-function previewContent(blocks, budget, callId) {
-  const total = textLength(blocks);
-  const marker = `\n[Text shortened from ${total} chars. Full result: bees_read_tool_result({"call_id":${JSON.stringify(callId)}})]\n`;
-  // Provider call IDs are normally short. Never sever a longer ID just to meet a receipt budget.
-  const available = Math.max(0, budget - Array.from(marker).length);
-  const head = Math.ceil(available * 0.75);
-  const tail = total - (available - head);
-  let consumed = 0;
-  let marked = false;
-  return blocks.flatMap((block) => {
-    if (block.type !== "text") return [block];
-    const points = Array.from(block.text);
-    const start = consumed;
-    consumed += points.length;
-    const insert = !marked && consumed > head && start < tail;
-    if (insert) marked = true;
-    const text = points.slice(0, Math.max(0, head - start)).join("") +
-      (insert ? marker : "") + points.slice(Math.max(0, tail - start)).join("");
-    return text ? [{ ...block, text }] : [];
-  });
-}
-
-/** The spill policy already saved the full text and put its locator in the notice.
- *  Keep the locator and drop the body: grepping that file beats paging the result back. */
-function spillReceipt(blocks) {
-  const text = blocks.filter((block) => block.type === "text").map((block) => block.text).join("");
-  const at = text.lastIndexOf("\n\n(");
-  return at >= 0 && hasSpillNotice(text.slice(at + 2))
-    ? [{ ...blocks.find((block) => block.type === "text"), text: text.slice(at + 2) }] : null;
-}
-
-/** Rewrite the DSH surface, never a provider request or the immutable original event. */
-export function pruneToolResults(session, tokenMeter) {
-  const originals = originalResults(session);
-  const calls = new Map(session.snapshotEvents().filter(({ type }) => type === "tool/call")
-    .map(({ data }) => [data.callId, data.name]));
-  let laterResponses = 0;
-  let remaining = TOOL_CONTEXT_CHARS;
-  let pruned = 0;
-  let charsRemoved = 0;
-  for (const seq of [...session.surface.nodes].reverse()) {
-    const event = session.eventAt(seq);
-    if (event.type === "assistant/message") { laterResponses++; continue; }
-    if (event.type !== "tool/result") continue;
-    const callId = event.data.message.source.callId;
-    const recalled = ["bees_read_tool_result", "bees_read_work_evidence"].includes(calls.get(callId));
-    // Age alone is not pressure. Keep small documents and recalled evidence usable;
-    // native DSH compaction owns the overall model context limit.
-    // fixed sizes, not a slide: rewriting a result drops the provider's cache of everything after it
-    const budget = recalled || laterResponses < 2 || remaining >= TOOL_PREVIEW_CHARS
-      ? TOOL_PREVIEW_CHARS : TOOL_RECEIPT_CHARS;
-    const before = textLength(event.data.message.content);
-    remaining -= Math.min(before, budget);
-    if (before <= budget) continue;
-    const original = originals.get(callId).data.message.content;
-    const content = spillReceipt(original) ?? previewContent(original, budget, callId);
-    const after = textLength(content);
-    if (after >= before) continue;
-    const message = freezeMessage({ ...event.data.message, content });
-    session.append("compaction/prune", {
-      shadowedRange: { start: seq, end: seq }, shadowedSeqs: [seq],
-      shadowedTokenCount: tokenMeter.estimateMessage(event.data.message)
-    });
-    session.append("tool/result", { ...event.data, message }, {
-      surfaceOp: { op: "replace", startSeq: seq, endSeq: seq }, sourceEventSeqs: [seq]
-    });
-    pruned++;
-    charsRemoved += before - after;
-  }
-  return { pruned, charsRemoved };
 }
 
 /** Read only this session's original tool text. Offsets count Unicode code points. */
@@ -135,9 +53,8 @@ export function readToolResult(session, args, visited = new Set()) {
   };
 }
 
-/** Installed on each managed agent, including discussion participants and resumed agents.
- *  The meter comes from the plugin context: an agent context may only read what it injects. */
-export function installContextPolicy(agentCtx, tokenMeter, owner) {
+/** Keep recall available for pre-RC2 receipts. Native retention owns new output. */
+export function installContextPolicy(agentCtx) {
   if (typeof agentCtx.on !== "function") return;
   if (installed.has(agentCtx)) return;
   installed.add(agentCtx);
@@ -162,14 +79,4 @@ export function installContextPolicy(agentCtx, tokenMeter, owner) {
       return { result_json: JSON.stringify(readToolResult(exec.agent.session, args)) };
     }
   }));
-  agentCtx.on("agent/pre-step", async ({ agent, signal }, next) => {
-    if (agent !== owner || signal.aborted) return next();
-    const { pruned } = pruneToolResults(agent.session, tokenMeter);
-    if (pruned) pendingFlush.add(agent.session);
-    if (pendingFlush.has(agent.session)) {
-      await agentCtx.sessions.flush(agent.session);
-      pendingFlush.delete(agent.session);
-    }
-    return next();
-  }, { prepend: true });
 }
