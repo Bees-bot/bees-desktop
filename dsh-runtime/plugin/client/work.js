@@ -338,7 +338,9 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
         h("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, message.text))));
   }
   if (run?.ranElsewhere) convoItems.push(h("div", { className: "bees-convo-msg system", key: "elsewhere" },
-    "This ran on another device. Its result is above; the full transcript and any files it wrote stayed there."));
+    ["waiting_for_input", "waiting_for_approval"].includes(run.status)
+      ? "This run is waiting for an answer on the device that ran it. Open Bees there to answer; this device cannot."
+      : "This ran on another device. Its result is above; the full transcript and any files it wrote stayed there."));
   else if (run && !visibleHistory && !historyError) convoItems.push(h("div", { className: "bees-convo-msg system", key: "loading" }, "Loading conversation…"));
   if (processExecution) {
     const runner = data.directory?.find((row) => row.accountUserId === processExecution.userId)?.email

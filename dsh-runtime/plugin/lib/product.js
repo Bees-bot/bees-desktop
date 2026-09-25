@@ -10,7 +10,7 @@ import {
   normalizeRunSettings, processStages, required, requireTeam, workspaceContext
 } from "./product-database.js";
 import {
-  inputManifest, logicalRelativePath, outputFiles, outputLocation, runFiles, stageInputs,
+  controlName, inputManifest, logicalRelativePath, outputFiles, outputLocation, runFiles, stageInputs,
   mappedLocation, stagedLocation, stageLocation, TEXT_EXTENSIONS
 } from "./product-files.js";
 import { fileReferences, leadingAgentInvocation, preserveReferences, referenceContext, referenceRows, referenceSlug, referenceText, resolveReference, resolveReferences, typedReferences } from "./product-references.js";
@@ -719,7 +719,7 @@ export class BeesProduct {
     const selected = stagedLocation(location, logical);
     if (selected.kind === "folder") {
       const entries = readdirSync(selected.localPath, { withFileTypes: true })
-        .filter((entry) => !entry.name.startsWith(".") && !entry.isSymbolicLink() && (entry.isFile() || entry.isDirectory()))
+        .filter((entry) => !entry.name.startsWith(".") && !controlName(entry.name) && !entry.isSymbolicLink() && (entry.isFile() || entry.isDirectory()))
         .sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name));
       return { name: location.name, path: logical, truncated: entries.length > 200,
         entries: entries.slice(0, 200).map((entry) => ({ name: entry.name,
