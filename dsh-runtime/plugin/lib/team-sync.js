@@ -12,6 +12,8 @@ const json = (value, fallback = []) => {
 };
 const timestamp = (value) => value ? new Date(value).toISOString() : null;
 const versionOf = (value) => Math.max(0, Date.parse(value) || 0);
+// cut to the server's limit without splitting an emoji, postgres refuses half of one
+const clip = (text, max) => text?.slice(0, max).replace(/[\ud800-\udbff]$/, "");
 const record = (recordType, row, payload, deleted = false) => ({
   recordType, recordId: row.id, version: versionOf(row.updatedAt), deleted, payload
 });
@@ -147,7 +149,8 @@ function teamRecords(database, organizationId, connectionId = "", includeAppDefi
   `).all(organizationId)) records.push(record("team_work_item", row, {
     ...owner('app_process_owners', 'process_id', row.processId),
     teamId: row.teamId, processId: row.processId, stageId: row.stageId, parentId: row.parentId,
-    kind: row.kind, title: row.title, description: row.description, owner: row.owner,
+    // the server refuses a title over 180, and a refused item never gets a lease to start
+    kind: row.kind, title: clip(row.title, 180), description: row.description, owner: row.owner,
     agentId: json(row.agentIds)[0] ?? null, agentIds: json(row.agentIds),
     priority: row.priority, runtimePhase: row.runtimePhase,
     runtimeAttempt: row.runtimeAttempt, runtimeReviewCycle: row.runtimeReviewCycle,
@@ -180,7 +183,7 @@ function teamRecords(database, organizationId, connectionId = "", includeAppDefi
     teamId: row.teamId, workItemId: row.workItemId, stageId: row.stageId,
     agentId: row.agentId, agentIds: json(row.agentIds), status: row.status,
     mode: row.mode, reason: row.reason, agentRevision: row.agentRevision,
-    outcome: row.outcome, summary: row.summary?.slice(0, 20_000) ?? null,
+    outcome: row.outcome, summary: clip(row.summary, 20_000) ?? null,
     startedAt: timestamp(row.startedAt),
     createdAt: timestamp(row.createdAt), updatedAt: timestamp(row.updatedAt)
   }));

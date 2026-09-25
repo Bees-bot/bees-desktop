@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { copyFileSync, lstatSync, mkdirSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { basename, dirname, relative, resolve, sep } from "node:path";
+import { basename, dirname, normalize, relative, resolve, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { scopeOf } from "@deepseek-ai/dsh-scope";
@@ -27,7 +27,7 @@ export { authorizeReferences, typedReferences } from "./product-references.js";
 
 /** What a run may build for itself; everything else stays with the screens. */
 const CONTROL_ACTIONS = {
-  product: ["list_items", "create_process", "create_item", "create_goal", "create_recurring_work",
+  product: ["list_items", "list_processes", "create_process", "create_item", "create_goal", "create_recurring_work",
     "add_agent_assignment", "edit_agent_assignment", "set_stage_route"],
   capability: ["search_mcp_registry", "install_mcp_server", "add_mcp_server", "list_skill_pack", "install_skill"]
 };
@@ -39,7 +39,7 @@ const RUN_STALL_MS = Number(process.env.BEES_RUN_STALL_MS ?? 15 * 60_000);
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
-For ordinary runs read inputs from inputs/ and write requested file deliverables under outputs/, as relative paths like outputs/report.md with no leading slash. Anything outside this run is the person's, so ask for it with bees_request_work_review, naming its full path, before you read or write it. The summary is the plain-language, user-facing verdict: say what happened, what the person can use, where any files are, and what is needed next. Keep technical evidence in the evidence record or files instead of making it the summary. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; Bees will ask the user for approval. Request approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result. Take ownership of resolving dependencies: inspect existing inputs, context and available tools, try relevant alternatives, and use bees_control to set up missing capabilities within the task permissions. A missing MCP, file, account connection or detail is a next step to resolve, not a finished result. Ask for only the next concrete dependency with ask_user_question, explain exactly what the person should connect or provide and why, then verify their answer with tools and continue automatically. Never request secrets in chat; direct credentials to the connection settings. Work through remaining dependencies one at a time, preserve completed work, and do not repeat an ineffective attempt or an already answered question. Use bees_request_work_review for real approvals so there is an actionable approval control; never merely say you are waiting for approval. Stop only when the owner explicitly stops the work or denies a required permission. When the task requires external information, use available tools to obtain relevant evidence and follow its stated source restrictions. If the evidence is insufficient, use another relevant source or ask the owner for missing information. Once the evidence is sufficient for the requested scope, complete and submit the work. For authenticated services, prefer an authorized MCP that supports the operation. Otherwise, when the task supplies API credentials, use the supported API over HTTP; never ask a person to sign in for it. Use the browser for authenticated pages only when no available MCP or API supports the operation. Do not use unauthenticated fetch for a page that requires a signed-in session. If the browser then lands on a login wall, ask the owner with ask_user_question, which offers them the browser to sign in. Neither a robots refusal nor a login wall is a reason to finish the run blocked. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means calling bees_control; a document that describes one does not complete that stage. When the request only asks to schedule future work, create the schedule and do not also perform that work now unless the owner asks for an immediate run. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. Use bees_delegate_work for analysis, discussion and execution. Use bees_share_update for questions and decisions. There is one peer lifecycle; peers finish with bees_submit_stage_result.`;
+For ordinary runs read inputs from inputs/ and write requested file deliverables under outputs/, as relative paths like outputs/report.md with no leading slash. Anything outside this run is the person's, so ask for it with bees_request_work_review, naming its full path, before you read or write it. The summary is the plain-language, user-facing verdict: say what happened, what the person can use, where any files are, and what is needed next. Keep technical evidence in the evidence record or files instead of making it the summary. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; Bees will ask the user for approval. Request approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result. Take ownership of resolving dependencies: inspect existing inputs, context and available tools, try relevant alternatives, and use bees_control to set up missing capabilities within the task permissions. A missing MCP, file, account connection or detail is a next step to resolve, not a finished result. Ask for only the next concrete dependency with ask_user_question, explain exactly what the person should connect or provide and why, then verify their answer with tools and continue automatically. Never request secrets in chat; direct credentials to the connection settings. Work through remaining dependencies one at a time, preserve completed work, and do not repeat an ineffective attempt or an already answered question. Use bees_request_work_review for real approvals so there is an actionable approval control; never merely say you are waiting for approval. Stop only when the owner explicitly stops the work or denies a required permission. When the task requires external information, use available tools to obtain relevant evidence and follow its stated source restrictions. If the evidence is insufficient, use another relevant source or ask the owner for missing information. Once the evidence is sufficient for the requested scope, complete and submit the work. For authenticated services, prefer an authorized MCP that supports the operation. Otherwise, when the task supplies API credentials, use the supported API over HTTP; never ask a person to sign in for it. Use the browser for authenticated pages only when no available MCP or API supports the operation. Do not use unauthenticated fetch for a page that requires a signed-in session. If the browser then lands on a login wall, ask the owner with ask_user_question, which offers them the browser to sign in. Neither a robots refusal nor a login wall is a reason to finish the run blocked. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means calling bees_control; a document that describes one does not complete that stage. A request that says when work repeats, such as every weekday at 8am, asks for a schedule even without that word: create it with create_recurring_work unless a schedule started this run. When the request only asks for future work, do not also perform that work now unless the owner asks for an immediate run. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. Use bees_delegate_work for analysis, discussion and execution. Use bees_share_update for questions and decisions. There is one peer lifecycle; peers finish with bees_submit_stage_result.`;
 
 const DELEGATION_PROTOCOL = `Delegation scheduling: Honor the user's requested delegation count and parallel or sequential execution order, even when saved agent instructions give a different default. For parallel work, put independent assignments together in the items_json array of one bees_delegate_work call, up to the tool's batch limit; use background:true for discussion so you can answer peers while they work. A waiting call may return early for a shared message; inspect statuses rather than assuming the batch finished. Separate blocking calls serialize work. Give each parallel peer distinct output paths. When sequential execution is requested or a task depends on an earlier result, delegate one at a time and inspect the result before launching the next. Otherwise default to running independent assignments together. Inspect every returned result before completing the combined work.`;
 
@@ -418,7 +418,8 @@ export function recoveryToolContext(events, pending, ownerChecked = false) {
   }
   const uncertain = [...calls.values()].filter((call) => !call.result &&
     !["ask_user_question", WORK_REVIEW_TOOL, ...REPEATABLE_TOOLS].includes(call.name) &&
-    !(pending?.kind === "approval" && pending.callId === call.callId));
+    // a call still waiting on a person has done nothing yet, like a blocked submit asking its question
+    pending?.callId !== call.callId);
   // Whether an in-flight call ran is unknowable, so Bees refuses to continue by itself. Retrying
   // never cleared that, which left the run stuck for good; the owner continuing it says they looked.
   if (uncertain.length && !ownerChecked) throw new Error(`Bees restarted while ${uncertain[0].name} was executing, before its result was recorded. Check whether the action completed, then continue this run to say so; Bees will not repeat it on its own.`);
@@ -449,9 +450,11 @@ function jsonHash(value) {
   return createHash("sha256").update(serialized).digest("hex");
 }
 
-export function copyOutputs(workspace, location, executionId) {
+export function copyOutputs(workspace, location, executionId, paths) {
   const sourceRoot = realpathSync(resolve(workspace, "outputs"));
   const destinationRoot = realpathSync(location.localPath);
+  // named deliverables only, so a stage's hand-off file never lands in the person's folder
+  const only = paths?.length ? new Set(paths.map((path) => normalize(path).replace(/^outputs[\\/]/, ""))) : null;
 
   // Inputs are staged under "<name>-<id8>[-hash]/"; an output written at that same path replaces the original file.
   const staged = `${location.name.replace(/[^a-zA-Z0-9._-]+/g, "-")}-${location.id.slice(0, 8)}`;
@@ -465,7 +468,9 @@ export function copyOutputs(workspace, location, executionId) {
       const source = resolve(directory, entry.name);
       if (entry.isDirectory()) stack.push(source);
       else if (entry.isFile()) {
-        const [first, ...rest] = relative(sourceRoot, source).split(sep);
+        const name = relative(sourceRoot, source);
+        if (only && !only.delete(name)) continue;
+        const [first, ...rest] = name.split(sep);
         const logical = (first === staged || first.startsWith(`${staged}-`)) && rest.length ? rest.join(sep) : [first, ...rest].join(sep);
         const stat = lstatSync(source);
         if (!logical || logical.startsWith(`..${sep}`) || logical === "..") continue;
@@ -476,6 +481,7 @@ export function copyOutputs(workspace, location, executionId) {
       }
     }
   }
+  if (only?.size) throw new Error(`Not found under outputs/: ${[...only].join(", ")}`);
   if (!pending.length) throw new Error("No files exist under outputs/");
 
   // Copy files directly into destinationRoot
@@ -749,11 +755,6 @@ export class AgentRuntime {
     // This is read during the boot scan. One unreadable row used to stop the whole plugin loading.
     try { return JSON.parse(row.pendingInteractionJson); }
     catch { this.ctx.logger.warn(`bees: unreadable pending interaction on ${executionId}`); return null; }
-  }
-
-  pendingApproval(executionId) {
-    const pending = this.pendingInteraction(executionId);
-    return pending?.kind === "approval" ? pending : null;
   }
 
   pendingQuestion(executionId) {
@@ -1181,8 +1182,8 @@ export class AgentRuntime {
     }));
     if (!installedApp && data.mode === "work" && this.command && this.capabilities) agentCtx.tools.register(defineTool({
       name: "bees_control",
-      description: "Build Bees itself when the task needs more than this run: processes with stages, work items in them, agents with their own instructions, MCP servers and skills. When a task or stage says build, create, set up, schedule or run one of those, calling this tool is the deliverable; writing a document about it is not. Same actions and inputs the Bees screens send; the team is filled in for you. list_items {} -> the team's work items with title, process, stage, phase and updatedAt; read this before reporting on what the team did. "
-        + "create_process {name, description, stages: [\"Stage name\", ...] or [{name, driver?: agent|discussion|review|terminal, requiresHumanApproval?: true}]} -> {id, stages: [{id, name}]}. create_item {processId or process: its exact name, title, description, stageId?, agentIds?} -> {id}. create_goal {title, description} -> {id}. create_recurring_work {name, frequency: hourly|daily|weekly|monthly|advanced, everyMinutes?, hour?, minute?, timezone?, dayOfWeek?, dayOfMonth?, cronExpression?} schedules this run's primary work item, starts active, and returns {id, sourceWorkItemId, nextRunAt}. "
+      description: "Build Bees itself when the task needs more than this run: processes with stages, work items in them, agents with their own instructions, MCP servers and skills. When a task or stage says build, create, set up, schedule or run one of those, calling this tool is the deliverable; writing a document about it is not. Same actions and inputs the Bees screens send; the team is filled in for you. list_items {} -> the team's work items with title, process, stage, phase and updatedAt; read this before reporting on what the team did. list_processes {} -> each process with its output folder, stages, the agents routed to each stage, and its schedules; read it to check what you built before you submit. "
+        + "create_process {name, description, stages: [\"Stage name\", ...] or [{name, driver?: agent|discussion|review|terminal, requiresHumanApproval?: true}]} -> {id, stages: [{id, name}]}. create_item {processId or process: its exact name, title, description, stageId?, agentIds?} -> {id}. create_goal {title, description} -> {id}. create_recurring_work {name, itemId?, frequency: hourly|daily|weekly|monthly|advanced, everyMinutes?, hour?, minute?, timezone?, dayOfWeek?, dayOfMonth?, cronExpression?} schedules itemId, or this run's primary work item without it, starts active, and returns {id, sourceWorkItemId, nextRunAt}. Every scheduled run repeats that item's description, so when this run sets up a process for repeating work, create_item in that process with what each run does and schedule that item. "
         + "add_agent_assignment {presetId: \"standard\", name, description, instructions, model?, mcpAccess: all|listed, mcpServers?} -> {id}; give it all unless the task limits it, so it reaches every server the team has. edit_agent_assignment {agent, description?, instructions?, model?, mcpAccess?, mcpServers?} changes an agent that already exists; never clone one under a new name. set_stage_route {stageId, agentIds: [assignment ids]}. "
         + `search_mcp_registry {query}. install_mcp_server {catalogId, inputs?: {curl | apiBaseUrl | openapiSpec}, secrets: {NAME: value}}, where catalogId openapi-bridge with inputs {curl} turns any REST API into tools (write a per-call id in the path as {name}); ${FOLDER_LABELS} are added by a person on the MCP servers page, where they pick the folder it may reach, so ask for one there when the task needs it; add_mcp_server {serverName, transport: stdio|streamable-http, command?, args?: [one argument per item], url?, secrets: {NAME: value}} -> {id}; a server you install is usable in this run at once as mcp__<serverName>__ tools. `
         + "list_skill_pack {repo}. install_skill {repo, directory}. When the task gives an API key or token, connect that API here or call it over HTTP; never ask a person to sign in for it.",
@@ -1203,8 +1204,16 @@ export class AgentRuntime {
         try { input = JSON.parse(args.input_json || "{}"); } catch (error) { throw new Error(`input_json must be valid JSON: ${message(error)}`); }
         const capability = CONTROL_ACTIONS.capability.includes(args.action);
         if (!capability && !CONTROL_ACTIONS.product.includes(args.action)) throw new Error(`bees_control cannot ${args.action}`);
-        if (args.action === "create_recurring_work" && !input.itemId) input.itemId = this.workContext.lineage(data.workItemId)[0].id;
-        const payload = await this.capabilities.stash({ ...input, action: args.action, workspaceId: data.workspaceId, viaAgent: true });
+        const root = this.workContext.lineage(data.workItemId)[0];
+        if (args.action === "create_recurring_work" && !input.itemId) input.itemId = root.id;
+        if (args.action === "create_process") {
+          // a process a run builds works in the run's folders, and can read what it wrote there before
+          input.outputLocationId ??= outputLocation(this.database, data.workItemId) ?? undefined;
+          input.inputLocationIds ??= [...new Set([...this.database.prepare("SELECT location_id FROM work_item_locations WHERE work_item_id = ?")
+            .all(root.id).map(({ location_id }) => location_id), input.outputLocationId].filter(Boolean))];
+        }
+        // the run acts for its owner, so team work it creates belongs to that account like it would from the screens
+        const payload = await this.capabilities.stash({ ...input, action: args.action, workspaceId: data.workspaceId, accountUserId: root.accountUserId, viaAgent: true });
         const result = capability ? await this.capabilities.command(payload) : await this.command(payload);
         if (["install_mcp_server", "add_mcp_server"].includes(args.action)) {
           if (!result?.id) throw new Error(`${args.action} did not return a server`);
@@ -1251,7 +1260,7 @@ export class AgentRuntime {
         proposal_summary: { type: "string", required: true, description: "Why these changes meet the outcome, and which schedules the owner resumes: planned schedules start paused." },
         changes_json: {
           type: "string", required: true,
-          description: "JSON array, applied in order. Kinds: {action:'create_goal',title,description,agents?:[agent name],inputLocations?:[folder name],outputLocation?:folder name}; {action:'create_process',name,description,template?:template name or id,stages:['Stage name'] or [{name,driver?:'agent'|'discussion'|'review'|'terminal',requiresHumanApproval?:true}]}; {action:'create_item',process,title,description,inputLocations?:[folder name],outputLocation?:folder name}; {action:'add_agent_assignment',presetId:'standard',name,description,instructions,model?,mcpAccess?:'all'|'listed',mcpServers?:[server name]}; {action:'edit_agent_assignment',agent,description?,instructions?,model?,mcpAccess?,mcpServers?} for an agent that already exists, instead of a copy under a new name; {action:'set_stage_route',process,stage,agents:[agent name]}; {action:'install_mcp_server',catalogId,inputs?:{curl|apiBaseUrl|openapiSpec},secrets:{NAME:value}}; {action:'add_mcp_server',serverName,transport:'stdio'|'streamable-http',command?,args?:[argument],url?,secrets:{NAME:value}}; {action:'install_skill',repo,directory}; {action:'create_recurring_work',item,name,frequency,...} where frequency 'hourly' is an interval and takes everyMinutes (5 for every five minutes), 'daily'|'weekly'|'monthly' take hour, minute?, timezone? and dayOfWeek? or dayOfMonth?, 'advanced' takes cronExpression. A stage is just its name. Put reusable workflow instructions and completion criteria in the process description, shared with every assigned agent; put each run's requested outcome in the item's description. inputLocations and outputLocation name team folders from the brief; set both when the outcome reads or changes files in one. mcpServers names installed servers from the brief or the catalogId of one installed in this proposal, except openapi-bridge, which is named after its API host (https://api.open-meteo.com gives open-meteo); the filesystem and git servers are added by the person on the MCP servers page, where they pick the folder it may reach, so ask them there when the work needs one rather than proposing it. Give every agent mcpAccess all, which reaches every server the team has and every one this proposal installs; listed only when the person asks to limit an agent, and never none, which leaves it no mcp__ tool at all. process and agents reference active resources from the brief by exact name or id, or resources created earlier in this array. stage names a stage in that process. item must name a create_goal or create_item earlier in the array; put its schedule afterwards. Default example: [{action:'create_goal',title:'Morning brief',description:'Read the requested sources and summarize them.'},{action:'create_recurring_work',item:'Morning brief',name:'Daily brief',frequency:'daily',hour:9,timezone:'America/Los_Angeles'}]. Only for an explicitly requested new reusable workflow, example: [{action:'add_agent_assignment',presetId:'standard',name:'Researcher',description:'Finds sources',instructions:'Only cite pages you opened.'},{action:'create_process',name:'Weekly brief',description:'...',stages:['Research','Approve','Publish']},{action:'set_stage_route',process:'Weekly brief',stage:'Research',agents:['Researcher']},{action:'create_item',process:'Weekly brief',title:'First brief',description:'...'}]."
+          description: "JSON array, applied in order. Kinds: {action:'create_goal',title,description,agents?:[agent name],inputLocations?:[folder name],outputLocation?:folder name}; {action:'create_process',name,description,template?:template name or id,stages:['Stage name'] or [{name,driver?:'agent'|'discussion'|'review'|'terminal',requiresHumanApproval?:true}]}; {action:'create_item',process,title,description,inputLocations?:[folder name],outputLocation?:folder name}; {action:'add_agent_assignment',presetId:'standard',name,description,instructions,model?,mcpAccess?:'all'|'listed',mcpServers?:[server name]}; {action:'edit_agent_assignment',agent,description?,instructions?,model?,mcpAccess?,mcpServers?} for an agent that already exists, instead of a copy under a new name; {action:'set_stage_route',process,stage,agents:[agent name]}; {action:'install_mcp_server',catalogId,inputs?:{curl|apiBaseUrl|openapiSpec},secrets:{NAME:value}}; {action:'add_mcp_server',serverName,transport:'stdio'|'streamable-http',command?,args?:[argument],url?,secrets:{NAME:value}}; {action:'install_skill',repo,directory}; {action:'create_recurring_work',item,name,frequency,...} where frequency 'hourly' is an interval and takes everyMinutes (5 for every five minutes), 'daily'|'weekly'|'monthly' take hour, minute?, timezone? (default: this device's) and dayOfWeek? or dayOfMonth?, 'advanced' takes cronExpression. A stage is just its name. Put reusable workflow instructions and completion criteria in the process description, shared with every assigned agent; put each run's requested outcome in the item's description. inputLocations and outputLocation name team folders from the brief; set both when the outcome reads or changes files in one. mcpServers names installed servers from the brief or the catalogId of one installed in this proposal, except openapi-bridge, which is named after its API host (https://api.open-meteo.com gives open-meteo); the filesystem and git servers are added by the person on the MCP servers page, where they pick the folder it may reach, so ask them there when the work needs one rather than proposing it. Give every agent mcpAccess all, which reaches every server the team has and every one this proposal installs; listed only when the person asks to limit an agent, and never none, which leaves it no mcp__ tool at all. process and agents reference active resources from the brief by exact name or id, or resources created earlier in this array. stage names a stage in that process. item must name a create_goal or create_item earlier in the array; put its schedule afterwards. Default example: [{action:'create_goal',title:'Morning brief',description:'Read the requested sources and summarize them.'},{action:'create_recurring_work',item:'Morning brief',name:'Daily brief',frequency:'daily',hour:9}]. Only for an explicitly requested new reusable workflow, example: [{action:'add_agent_assignment',presetId:'standard',name:'Researcher',description:'Finds sources',instructions:'Only cite pages you opened.'},{action:'create_process',name:'Weekly brief',description:'...',stages:['Research','Approve','Publish']},{action:'set_stage_route',process:'Weekly brief',stage:'Research',agents:['Researcher']},{action:'create_item',process:'Weekly brief',title:'First brief',description:'...'}]."
         }
       },
       output: {
@@ -1604,16 +1613,19 @@ export class AgentRuntime {
       WHERE l.id IN (SELECT value FROM json_each(?)) AND l.archived_at IS NULL
         AND w.id = ?
     `).all(currentIdentity(this.database).deviceId, JSON.stringify(grantIds()), data.workspaceId);
-    const grants = installedApp || data.mode !== "work" ? [] : granted();
-    if (grants.length) {
-      agentCtx.systemPrompt.variable("bees_publication_grants", () => `Approved publication targets (an additional approval is required for each copy):\n${grants.map((grant) => `- ${grant.name}: ${grant.id}`).join("\n")}`);
-      agentCtx.systemPrompt.context({ name: "bees:publication-grants", order: 90, text: "{{bees_publication_grants}}" });
-    }
-    if (!installedApp && data.mode === "work") agentCtx.tools.register(defineTool({
+    if (installedApp || data.mode !== "work") return;
+    // read every turn, so a folder the user connects mid-run shows up without a restart
+    agentCtx.systemPrompt.variable("bees_publication_grants", () => {
+      const grants = granted();
+      return grants.length ? `Approved publication targets (an additional approval is required for each copy):\n${grants.map((grant) => `- ${grant.name}: ${grant.id}`).join("\n")}` : "";
+    });
+    agentCtx.systemPrompt.context({ name: "bees:publication-grants", order: 90, text: "{{bees_publication_grants}}" });
+    agentCtx.tools.register(defineTool({
         name: "bees_publish_outputs",
         description: "Copy the finished files under outputs/ to one granted company folder. This always asks the user for approval before writing outside the run workspace.",
         parameters: {
-          location_id: { type: "string", required: true, description: "Exact id of a granted publication target." }
+          location_id: { type: "string", required: true, description: "Exact id of a granted publication target." },
+          paths: { type: "array", items: { type: "string" }, description: "The deliverables to publish, like outputs/report.md. Leave out working files that only fed a later stage. Omit to publish everything under outputs/." }
         },
         output: {
           schema: {
@@ -1633,11 +1645,11 @@ export class AgentRuntime {
           const outcome = await this.ctx.approval.request({
             agent: exec.agent,
             toolName: "bees_publish_outputs",
-            reason: `Publish this run's finished outputs to ${location.name}?`,
+            reason: `Publish ${args.paths?.length ? args.paths.join(", ") : "this run's finished outputs"} to ${location.name}?`,
             signal: exec.signal
           });
           if (outcome !== "allowed-once") throw new Error(`Publication ${outcome}`);
-          const result = copyOutputs(workspace, location, executionId);
+          const result = copyOutputs(workspace, location, executionId, args.paths);
           this.audit("outputs-published", executionId, String(exec.agent.session.id), {
             locationId: location.id, files: result.files, bytes: result.bytes,
             destination: result.destination, existing: result.existing
@@ -1951,7 +1963,6 @@ export class AgentRuntime {
       throw error;
     }
     const workspace = run.runDirectory;
-    const recoveryApproval = recovery ? this.pendingApproval(executionId) : null;
     const recoveryQuestion = recovery ? this.pendingQuestion(executionId) : null;
     // Each cold continuation gets a fresh writer and client binding. Native history can
     // own the previous writer or retain its disposed control stream; its log stays readable.
@@ -1974,8 +1985,7 @@ export class AgentRuntime {
     }
     const submissionId = randomUUID();
     const at = new Date().toISOString();
-    const activeStatus = recovery && ["waiting_for_input", "waiting_for_approval"].includes(previousStatus)
-      ? previousStatus : "running";
+    const activeStatus = recovery && previousStatus === "waiting_for_input" ? previousStatus : "running";
     // One unit: a crash between the delivery and the queue delete used to leave a delivery row with
     // no outcome and no queue row, and the next admit returned that row instead of starting a
     // session. The run then sat at running for ever with nothing able to clear it.
@@ -2006,15 +2016,15 @@ export class AgentRuntime {
     this.live.set(executionId, { handle, data, approvalAbort, lastEventAt: Date.now(), openTools: new Set() });
     this.checkpoint(executionId, sessionId, activeStatus === "running" ? "running" : "recovery_started", {
       inputReferences: references,
+      // an unanswered approval is dropped, the agent asks again when it retries
+      ...(recovery ? { pendingInteraction: recoveryQuestion } : {}),
       idempotencyKey: `running:${payload.idempotencyKey}`
     });
     const recoveryNotice = recovery
-      ? "\n\nRecovery note: this is a replacement runtime session seeded through the previous session's durable log. Do not repeat a tool side effect already recorded there. Re-present any unresolved human approval before continuing." + recoveryContext
+      ? "\n\nRecovery note: this is a replacement runtime session seeded through the previous session's durable log. Do not repeat a tool side effect already recorded there. An action still waiting for approval never ran, so call it again to ask again." + recoveryContext
       : "";
-    if (recoveryApproval || recoveryQuestion) {
-      this.track(recoveryApproval
-        ? this.recoverApproval(executionId, submissionId, sessionId, handle, approvalAbort, recoveryApproval, `${payload.body}${recoveryNotice}`)
-        : this.recoverQuestion(executionId, submissionId, sessionId, handle, approvalAbort, recoveryQuestion, `${payload.body}${recoveryNotice}`));
+    if (recoveryQuestion) {
+      this.track(this.recoverQuestion(executionId, submissionId, sessionId, handle, approvalAbort, recoveryQuestion, `${payload.body}${recoveryNotice}`));
       this.recovery.delete(executionId);
     } else {
       let before;
@@ -2039,61 +2049,6 @@ export class AgentRuntime {
       this.track(this.settle(executionId, submissionId, sessionId, handle, before));
     }
     return { submissionId, uid: run.instanceUid };
-  }
-
-  reissueApproval(handle, pending, signal) {
-    return new Promise((resolve, reject) => {
-      let dispose = () => {};
-      const timer = setTimeout(() => {
-        dispose();
-        reject(new Error("The recovery approval could not be re-presented"));
-      }, 30_000);
-      dispose = this.ctx.on("session/event", (session, event) => {
-        if (session !== handle.agent.session || event.type !== "turn/start") return;
-        dispose();
-        clearTimeout(timer);
-        // still inside the turn/start publication; appending the approval here makes dsh throw "cannot reenter"
-        setTimeout(() => void this.ctx.approval.request({
-          agent: handle.agent,
-          toolName: pending.toolName,
-          reason: pending.reason ?? "Resume the action from its last safe checkpoint?",
-          signal
-        }).then(resolve, reject), 0);
-      }, { global: true });
-    });
-  }
-
-  async recoverApproval(executionId, submissionId, sessionId, handle, approvalAbort, pending, body) {
-    try {
-      const approval = this.reissueApproval(handle, pending, approvalAbort.signal);
-      handle.agent.followup(createUserMessage({
-        content: [{
-          type: "text",
-          text: "Recovery checkpoint validation. Do not call tools or repeat the prior action in this turn. The prior approval is being re-presented to the user."
-        }],
-        source: { kind: "user" }
-      }));
-      const outcome = await approval;
-      await handle.agent.whenIdle();
-      if (outcome !== "allowed-once") {
-        await this.finish(executionId, submissionId, sessionId, handle, {
-          outcome: "cancelled",
-          error: { message: `Recovery approval ${outcome}` }
-        });
-        return;
-      }
-      const before = handle.agent.session.seq;
-      handle.agent.followup(createUserMessage({
-        content: [{ type: "text", text: body }],
-        source: { kind: "user" }
-      }));
-      await this.settle(executionId, submissionId, sessionId, handle, before);
-    } catch (error) {
-      await this.finish(executionId, submissionId, sessionId, handle, {
-        outcome: "failed",
-        error: { message: message(error) }
-      });
-    }
   }
 
   /** The model asked before the restart; Bees asks again itself and hands the answer to the resumed run. */

@@ -90,7 +90,7 @@ export function GridStackPage({ layoutId, defaults, panels, preference, preferen
     return () => setPageActions(null);
   }, [editing, layoutId, layouts, preferences, setPageActions, pageActions]);
   return h("div", { className: "bees-flex-page" },
-    pageActions && typeof pageActions !== "string" && !pageActions.type && Array.isArray(pageActions) ? null : null,
+    null,
     panels.beforeGrid || null,
     h(FlexibleGrid, { layout, editing, resizeAlways, onLayout: save, panels, className: `bees-page-grid ${className}`.trim() })
   );

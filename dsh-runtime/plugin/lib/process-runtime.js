@@ -318,15 +318,6 @@ export class ProcessRuntime {
     }
   }
 
-  async deleteRecurring(recurringWorkId) {
-    const executors = this.database.prepare(`
-      SELECT temporal_schedule_id AS temporalScheduleId
-      FROM bees_recurring_executors WHERE recurring_work_id = ?
-    `).all(recurringWorkId);
-    await Promise.all(executors.map(({ temporalScheduleId }) =>
-      this.client.schedule.getHandle(temporalScheduleId).delete()));
-  }
-
   async createRecurringWorkItem(recurringWorkId, occurrenceAt = "", accountUserId = "") {
     const recurring = this.recurring(recurringWorkId, accountUserId);
     const claim = this.claims
@@ -365,6 +356,8 @@ export class ProcessRuntime {
       `).run(id, recurring.sourceWorkItemId);
       return this.input(id);
     });
+    // the server refuses a lease on a run it has not seen, and then the schedule stops holding the run
+    await this.claims?.publish();
     // only the lease holder runs it; refused or unreachable, the run waits and a later sync starts it wherever the lease goes
     const lease = await this.claims?.acquire("work_item", work.workItemId, recurring.teamId, "", accountUserId)
       .catch(() => null);
@@ -634,17 +627,6 @@ export class ProcessRuntime {
       UPDATE work_items SET runtime_phase = ?, runtime_error = NULL, updated_at = ? WHERE id = ?
     `).run(phase, new Date().toISOString(), workItemId);
     return { ...item, runtimePhase: phase };
-  }
-
-  move(workItemId, targetStageId) {
-    const item = this.item(workItemId);
-    if (this.isAutomatic(item.processId)) throw new Error("Temporal moves this process automatically");
-    const result = this.database.prepare(`
-      UPDATE work_items SET stage_id = ?, updated_at = ? WHERE id = ? AND process_id = ?
-        AND EXISTS (SELECT 1 FROM stages WHERE id = ? AND process_id = ? AND archived_at IS NULL)
-    `).run(targetStageId, new Date().toISOString(), workItemId, item.processId, targetStageId, item.processId);
-    if (!result.changes) throw new Error("The stage does not belong to this process");
-    return { ...item, stageId: targetStageId };
   }
 
   async archive(workItemId, restore = false) {

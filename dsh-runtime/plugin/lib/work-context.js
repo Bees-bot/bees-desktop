@@ -180,7 +180,8 @@ export class WorkContext {
     const saved = this.database.prepare("SELECT content_json AS content FROM bees_work_contexts WHERE root_id = ? ORDER BY version DESC LIMIT 1").get(root.id);
     const shared = saved && JSON.parse(saved.content);
     const content = candidate?.content ?? {
-      goal: { id: "goal", title: root.title, requirements: root.description },
+      goal: { id: "goal", title: root.title,
+        requirements: [root.description, root.recurringWorkId && "A schedule started this run, so do the work now."].filter(Boolean).join("\n\n") },
       process: { id: "process", name: root.processName, requirements: root.processDescription },
       system: shared?.system ?? { id: "system", requirements: systemInstructions },
       recurringGuidance: this.guidance(root.id),

@@ -15,7 +15,8 @@ export declare function authorizeReferences(database: unknown, workspaceId: stri
 export declare function copyOutputs(
   workspace: string,
   location: { id: string; name: string; localPath: string },
-  executionId: string
+  executionId: string,
+  paths?: string[]
 ): { files: number; bytes: number; destination: string; existing: boolean };
 
 export declare class AgentRuntime {
@@ -32,7 +33,6 @@ export declare class AgentRuntime {
   setWorkStarter(start: (input: Record<string, unknown>) => unknown): void;
   onSessionEvent(session: { id: string }, event: { type: string; seq: number; data: Record<string, unknown> }): void;
   pendingInteraction(executionId: string): Record<string, unknown> | null;
-  pendingApproval(executionId: string): Record<string, unknown> | null;
   needsRecovery(executionId: string): boolean;
   admit(agentName: string, executionId: string, payload: Record<string, any>): Promise<any>;
   dispatch(agentName: string, executionId: string, payload: Record<string, any>): Promise<any>;

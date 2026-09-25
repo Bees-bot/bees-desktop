@@ -191,7 +191,9 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
       ["running", "waiting_for_input", "waiting_for_approval"].includes(run.status)).map((run) => run.sessionId));
     for (const id of wanted) {
       if (interactionSessions.current.has(id)) continue;
-      const reference = ctx.sessions.retain(id, { source: "bees" });
+      let reference;
+      // a run recovered at boot lists its new session before the session store has it; the 30s reload retries
+      try { reference = ctx.sessions.retain(id, { source: "bees" }); } catch { continue; }
       interactionSessions.current.set(id, reference);
       reference.ready.catch((reason) => {
         if (interactionSessions.current.get(id) !== reference) return;
@@ -656,7 +658,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     ),
     h("section", { className: "bees-main" },
       h(AppHeader, { routeLabel, parts, ctx, preferences }),
-      onboarding.active && route !== "getting-started" ? h(GettingStartedBar, { state: onboarding, update: updateOnboarding, navigate, aiStatus: aiReady ? "AI ready" : "AI setup can continue while you explore.", data, openWorkItem: openStarter }) : null,
+      onboarding.active && route === "home" ? h(GettingStartedBar, { state: onboarding, update: updateOnboarding, navigate, aiStatus: aiReady ? "AI ready" : "AI setup can continue while you explore.", data, openWorkItem: openStarter }) : null,
       error ? h("div", { className: "bees-error", role: "alert", style: { display: "flex", alignItems: "center", gap: "12px" } },
         h("span", { style: { flex: 1, minWidth: 0, overflowWrap: "anywhere" } }, error),
         h(Button, { onClick: () => setError(""), "aria-label": "Dismiss error" }, "Dismiss")) : null,
