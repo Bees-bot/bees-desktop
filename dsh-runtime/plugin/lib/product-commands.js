@@ -256,7 +256,7 @@ export function recurringSchedule(input) {
   if (frequency === "weekly") {
     const dayOfWeek = required(input.dayOfWeek, "Schedule weekday, and a schedule change resends the whole schedule").toUpperCase();
     if (!new Set(["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"]).has(dayOfWeek))
-      throw new Error("Schedule weekday is invalid");
+      throw new Error("Schedule weekday must be a day name such as friday");
     value.dayOfWeek = dayOfWeek;
   }
   if (frequency === "monthly") {
@@ -566,7 +566,7 @@ export async function executeProductCommand(action, input) {
       });
       try {
         const runtime = await this.processes.createRecurring(id);
-        return { id, sourceWorkItemId, ...runtime };
+        return { id, sourceWorkItemId, timezone: schedule.timezone, ...runtime };
       } catch (error) {
         transaction(this.database, () => {
           this.database.prepare("DELETE FROM work_items WHERE id = ?").run(sourceWorkItemId);
