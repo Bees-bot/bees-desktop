@@ -1000,7 +1000,7 @@ const pendingInteractionFor = (waiting, sessionId, handled) => {
 
 const interactionName = (kind) => kind === "approval" ? "Approval" : kind === "work-review" ? "Work review" : "Question";
 
-function WorkItemControls({ item, act, onDone, showUnavailable = false, data, allowReRun = false }) {
+export function WorkItemControls({ item, act, onDone, showUnavailable = false, data, allowReRun = false }) {
   const [busy, setBusy] = useState("");
   if (!item || !act || item.kind === "plan") return null;
   const canRetry = item.runtimePhase === "failed";
@@ -1039,7 +1039,17 @@ function WorkItemControls({ item, act, onDone, showUnavailable = false, data, al
     await invoke("archive_item");
   };
   const canReRun = allowReRun && item.kind === "run" && isDone(item) && !item.parentId;
+  const canPause = item.runtimePhase === "running";
+  const canResume = item.runtimePhase === "paused";
   return h(React.Fragment, null,
+    canResume || showUnavailable ? h(Button, {
+      className: canResume ? "primary" : "", disabled: Boolean(busy) || !canResume,
+      title: canResume ? "Resume work" : "Resume is available for paused work", onClick: () => invoke("resume_item")
+    }, busy === "resume_item" ? "Resuming…" : "Resume") : null,
+    canPause || showUnavailable ? h(Button, {
+      disabled: Boolean(busy) || !canPause,
+      title: canPause ? "Pause work" : "Pause is available for running work", onClick: () => invoke("pause_item")
+    }, busy === "pause_item" ? "Pausing…" : "Pause") : null,
     canRetry || showUnavailable ? h(Button, {
       className: canRetry ? "primary" : "", disabled: Boolean(busy) || !canRetry,
       title: canRetry ? "Retry work" : "Retry is available for failed work", onClick: () => invoke("retry_item")
@@ -1141,8 +1151,12 @@ export function NeedsYouWidget({ data, act, queue, records, limit = 8 }) {
       h("span", { className: "bees-dashboard-need-copy" }, runTitle(data, run)),
       h("span", { className: "bees-badge" }, "Working…"))));
 
+  if (!visibleRecords.length && !workingRows.length) {
+    return h(Empty, { style: { height: "100%", display: "flex", flexDirection: "column", justifyContent: "center", border: "none" } }, "Nothing needs you right now.");
+  }
+
   return h("div", { className: "bees-dashboard-needs" },
-    visibleRecords.length || workingRows.length ? h("div", { className: "bees-dashboard-list", "aria-label": "Work needing attention" }, ...visibleRecords.map((record) => {
+    h("div", { className: "bees-dashboard-list", "aria-label": "Work needing attention" }, ...visibleRecords.map((record) => {
       const { live } = record;
       const isSelected = Boolean(selected && live.run.id === selected.run.id);
       const panelId = `bees-dashboard-need-${live.run.id}`;
@@ -1166,7 +1180,7 @@ export function NeedsYouWidget({ data, act, queue, records, limit = 8 }) {
             onControlled: () => queue.answered(`control:${selected.run.id}`, visibleRecords.map(r => r.live))
           })) : null
       );
-    }), ...workingRows) : h(Empty, null, "Nothing needs you right now.")
+    }), ...workingRows)
   );
 }
 

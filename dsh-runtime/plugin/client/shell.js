@@ -391,7 +391,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     h("div", { className: "bees-app bees-loading", style: { display: "flex", flexDirection: "column", gap: "16px", background: "#111315" } }, 
       error || h(React.Fragment, null, 
         h("style", null, `@keyframes hover { 50% { transform: translateY(-6px); } }`),
-        h("img", { src: brandMark, style: { width: "46px", height: "46px", borderRadius: "14px", objectFit: "cover", animation: "hover 1.8s ease-in-out infinite" } }),
+        h("img", { src: brandMark, style: { width: "54px", height: "54px", borderRadius: "16px", objectFit: "cover", animation: "hover 1.8s ease-in-out infinite" } }),
         h("strong", { style: { fontSize: "20px", color: "#f5f5f5" } }, "Bees Desktop")
       )));
   const dashboards = dashboardsFrom(preference.dashboards);
@@ -431,7 +431,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     const target = sectionFor(targetRoute);
     const openRoute = () => navigate(targetRoute);
     if (target.id === "work") return workItemsFor(viewData, targetRoute, scopeFor(targetRoute))
-      .map((item) => ({ id: item.id, label: item.title, open: () => openWorkItem(item.id) }));
+      .map((item) => ({ id: item.id, label: item.title, open: () => openWorkItem(item.id), item }));
     if (target.id === "processes") {
       if (targetRoute === "templates") return (data.templates ?? []).filter((row) => workspaceIds.includes(row.workspaceId))
         .map((row) => ({ id: row.id, label: row.name, open: openRoute }));
@@ -584,7 +584,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
       "--dsw-alias-bg-base": activeTheme.surfaceAlt,
       "--dsw-specific-sidebar-fill": activeTheme.surface,
       "--dsw-alias-label-primary": activeTheme.foreground,
-      "--dsw-alias-label-secondary": `color-mix(in srgb, ${activeTheme.foreground} 68%, transparent)`,
+      "--dsw-alias-label-secondary": `color-mix(in srgb, ${activeTheme.foreground} 88%, transparent)`,
       "--dsw-alias-border-l1": `color-mix(in srgb, ${activeTheme.foreground} 12%, transparent)`,
       "--dsw-alias-border-l2": `color-mix(in srgb, ${activeTheme.foreground} 20%, transparent)`,
       "--dsw-alias-interactive-bg-hover": `color-mix(in srgb, ${activeTheme.colors[0]} 14%, transparent)`,

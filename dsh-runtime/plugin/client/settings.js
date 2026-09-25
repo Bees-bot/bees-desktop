@@ -35,11 +35,11 @@ function AppearanceSettings({ ctx, preferences }) {
   const preference = usePreference(preferences);
   const theme = ctx.get?.("theme") ?? ctx.theme;
   const preset = THEME_PRESETS.some(({ id }) => id === preference.themePreset)
-    ? preference.themePreset : "forest";
+    ? preference.themePreset : "halloween";
   const darkDefault = THEME_PRESETS.some(({ id }) => id === preference.darkThemePreset)
-    ? preference.darkThemePreset : "forest";
+    ? preference.darkThemePreset : "halloween";
   const lightDefault = THEME_PRESETS.some(({ id }) => id === preference.lightThemePreset)
-    ? preference.lightThemePreset : "emerald";
+    ? preference.lightThemePreset : "bumblebee";
   const chooseTheme = async (option) => {
     const nextMode = option.dark ? "dark" : "light";
     await preferences.set("themePreset", option.id);
@@ -53,10 +53,10 @@ function AppearanceSettings({ ctx, preferences }) {
       h("div", { className: "bees-form-row", style: { marginTop: "14px" } },
         h("label", null, "Default Dark Theme", h("select", { className: "bees-select", value: darkDefault,
           "data-theme-default": "dark", onChange: (event) => void preferences.set("darkThemePreset", event.target.value) },
-        ...THEME_PRESETS.map((option) => h("option", { key: option.id, value: option.id }, option.label)))),
+        ...THEME_PRESETS.map((option) => h("option", { key: option.id, value: option.id }, option.id === "halloween" || option.id === "bumblebee" ? `${option.label} (Recommended)` : option.label)))),
         h("label", null, "Default Light Theme", h("select", { className: "bees-select", value: lightDefault,
           "data-theme-default": "light", onChange: (event) => void preferences.set("lightThemePreset", event.target.value) },
-        ...THEME_PRESETS.map((option) => h("option", { key: option.id, value: option.id }, option.label)))))),
+        ...THEME_PRESETS.map((option) => h("option", { key: option.id, value: option.id }, option.id === "halloween" || option.id === "bumblebee" ? `${option.label} (Recommended)` : option.label)))))),
     h("section", { className: "bees-box bees-appearance-card" }, 
       h("h3", { className: "bees-section-title" }, "Theme"),
       h("p", { className: "bees-muted" }, "All 35 themes from old Bees. The selected palette applies across organizations and teams on this device."),

@@ -1,8 +1,8 @@
 import { h, React, useEffect, useState } from "./runtime.js";
-import { Button, confirmAction, Empty, HelpTooltip, openExternal, ProposalCard, useSubmit } from "./shared.js";
+import { accountLabel, Button, confirmAction, Empty, HelpTooltip, openExternal, ProposalCard, useSubmit } from "./shared.js";
 import { addDashboardWidget, applyDashboardLayout, dashboardsFrom, DEFAULT_WIDGETS } from "./dashboard-model.js";
 import { FlexibleGrid } from "./flexible-grid.js";
-import { needsYouRows, NeedsYouWidget, useNeedsYouQueue } from "./work.js";
+import { needsYouRows, NeedsYouWidget, useNeedsYouQueue, WorkItemControls } from "./work.js";
 import { ProcessListActions } from "./processes.js";
 import { AgentListActions, useMcpPreflight } from "./agents.js";
 import { AskBeesSetup, workFromOutcome } from "./ask-bees.js";
@@ -84,23 +84,34 @@ function TemplatesWidget({ ctx, data, workspaceId, act, openWorkItem }) {
       key: card.id
     },
       h("div", { className: "bees-template-card-title" }, card.name),
-      h("div", { className: "bees-template-card-meta" }, card.description || "Process template"))),
+      h("div", { className: "bees-template-card-meta" }, [card.description || "Process template",
+        accountLabel(data, card.accountUserId) ? `Created by ${accountLabel(data, card.accountUserId)}` : null].filter(Boolean).join(" · ")))),
     cards.length > 10 && !showAllTemplates ? h("button", { type: "button", className: "bees-dashboard-view-all", onClick: () => setShowAllTemplates(true) }, `Show all ${cards.length} process templates`) : null
   );
 }
 
 function ListWidget({ definition, rowsForRoute, navigate, data, act, openWorkItem }) {
   const rows = rowsForRoute(definition.route).slice(0, definition.limit ?? 20);
+  if (!rows.length) {
+    return h(Empty, { style: { height: "100%", display: "flex", flexDirection: "column", justifyContent: "center", border: "none" } }, definition.empty ?? "Nothing here yet.");
+  }
   return h("div", { className: "bees-dashboard-list" },
-    rows.length ? rows.map((row) => {
+    rows.map((row) => {
       const process = definition.route === "all-processes" ? data.processes.find(({ id }) => id === row.id) : null;
       const agent = definition.route === "all-agents" ? data.assignments.find(({ id }) => id === row.id) : null;
-      const link = h("button", {
-      className: "bees-dashboard-row", key: row.id, onClick: row.open, title: row.label
-      }, row.label);
+      const workItem = row.item;
+      const link = h("div", {
+        className: "bees-dashboard-row", key: row.id, onClick: row.open, title: row.label, style: { display: "flex", alignItems: "center", gap: "10px" }
+      }, 
+        h("span", { style: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", flex: 1 } }, row.label),
+        workItem ? h("span", { className: `bees-status bees-${workItem.runtimePhase || workItem.status || "unknown"}`, style: { flex: "none" } }, workItem.runtimePhase || workItem.status) : null,
+        workItem ? h("div", { className: "bees-flex-widget-actions", style: { marginLeft: 0 }, onPointerDown: (e) => e.stopPropagation(), onClick: (e) => e.stopPropagation() },
+          h(WorkItemControls, { item: workItem, act, showUnavailable: false, data, allowReRun: true })
+        ) : null
+      );
       return process || agent ? h("div", { className: "bees-row", key: row.id, style: { flexWrap: "wrap" } },
         h("div", { className: "bees-row-main" }, link), process ? h(ProcessListActions, { process, act, openWorkItem }) : h(AgentListActions, { agent, act })) : link;
-    }) : h(Empty, null, definition.empty ?? "Nothing here yet."),
+    }),
     h("button", { type: "button", className: "bees-dashboard-view-all", onClick: () => navigate(definition.route) }, "View more")
   );
 }
