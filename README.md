@@ -143,6 +143,12 @@ Production builds connect to `https://app.bees.bot` unless `BEES_ACCOUNT_API_URL
 
 DSH releases are upgraded as one pinned set through the [DSH upgrade checklist](docs/dsh-upgrade-checklist.md).
 
+### Editing product defaults
+
+In a development build, sign in with a platform admin account. **Global Settings → Platform Admin** appears only after the server confirms the role. Turn on **Edit product defaults**, then use the existing model, appearance, and layout controls. Turning it off returns those controls to your personal settings.
+
+Changes save directly to the existing `dsh-runtime/plugin/cordis.patch.yml` in this checkout. The next build includes them as defaults; personal overrides remain personal. Credentials, downloads, and running models are device settings and are never written into the shipped configuration. There is no publish step or remote configuration store. Admin verification requires connectivity; ordinary installations use the bundled defaults offline. Release builds cannot edit the source checkout.
+
 ### The Apps catalog
 
 Apps loads a hosted catalog when you open the Apps tab or select Refresh. Users inspect a package's name, description, publisher, access, and sources, then Install, finish setup, and Open. Packages live in `bees-apps`; installing one needs no JSON upload or GitHub credentials of your own. Installed versions are pinned; updating one needs a separate approval, preserves existing results, and requires stopping any schedule or active work on it first. An offline catalog is browse-only, while installs you already have keep working.

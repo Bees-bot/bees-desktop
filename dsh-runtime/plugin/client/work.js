@@ -644,7 +644,8 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onScheduleCre
     );
     setPageActions && setPageActions(
       h("div", { className: "bees-page-actions" },
-        editing ? h(Button, { onClick: () => preferences.set("workItemLayout", []) }, "Reset") : null,
+        editing ? h(Button, { onClick: () => preferences.set("workItemLayout", preferences.productDefaults
+          ? [] : preferences.getSnapshot().base?.workItemLayout ?? []) }, "Reset") : null,
         h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) }, editing ? "Done" : "Customize")
       )
     );

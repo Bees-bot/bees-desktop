@@ -198,7 +198,8 @@ export function Home({ ctx, data, workspaceId, act, openWorkItem, navigate, rows
   };
   const resetDashboard = async () => {
     if (!await confirmAction("Reset this layout back to the default arrangement?")) return;
-    saveDashboard({ ...dashboard, widgets: DEFAULT_WIDGETS.map((widget) => ({ ...widget })) });
+    const shipped = preferences.getSnapshot().base?.dashboards?.find(({ id }) => id === dashboard.id)?.widgets;
+    saveDashboard({ ...dashboard, widgets: (preferences.productDefaults ? DEFAULT_WIDGETS : shipped ?? DEFAULT_WIDGETS).map((widget) => ({ ...widget })) });
   };
   const deleteDashboard = async () => {
     if (dashboard.id === "home" || !(await confirmAction(`Delete “${dashboard.name}”?`))) return;

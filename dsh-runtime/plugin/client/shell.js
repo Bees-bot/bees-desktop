@@ -17,6 +17,7 @@ import { AgentsPage } from "./agents.js";
 import { McpPage, SkillsPage, useCapabilities } from "./skills.js";
 import { ActivityPage, FilesPage, KnowledgePage } from "./resources.js";
 import { AccountsPage, AccountSignInButtons, SettingsPage } from "./settings.js";
+import { ProductSettings } from "./product-settings.js";
 import brandMark from "../../../src/brand-mark.png";
 
 const newDashboardId = () => globalThis.crypto?.randomUUID?.() ?? `dashboard-${Date.now()}`;
@@ -171,19 +172,43 @@ function ScopeSwitcher({
       })));
 }
 
-export function BeesApp({ ctx, preferences, modelSettings }) {
-  const preference = usePreference(preferences);
+export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: personalModelSettings }) {
+  const productSettings = React.useMemo(() => new ProductSettings(request, (message) => setError(message)), []);
+  const [platform, setPlatform] = useState(productSettings.state);
+  const preferences = React.useMemo(() => productSettings.scope("bees", personalPreferences), [productSettings, personalPreferences, platform.scopeVersion]);
+  const modelSettings = React.useMemo(() => productSettings.scope("llm-pi-ai", personalModelSettings), [productSettings, personalModelSettings, platform.scopeVersion]);
+  useEffect(() => productSettings.subscribe(() => setPlatform({ ...productSettings.state })), [productSettings]);
+  const personalPreference = usePreference(personalPreferences);
+  const preference = platform.editing ? preferences.getSnapshot().value : personalPreference;
   const onboarding = preference.onboarding ?? {};
   const initializedOnboarding = useRef(false);
   const [aiTest, setAiTest] = useState(null);
   const [setupBusy, setSetupBusy] = useState(false);
   const setupLock = useRef(false);
   const [aiStatus, setAiStatus] = useState("Choose a model in AI connections, then test it here.");
-  const modelConfig = usePreference(modelSettings);
+  const personalModelConfig = usePreference(personalModelSettings);
+  const modelConfig = platform.editing ? modelSettings.getSnapshot().value : personalModelConfig;
   const updateOnboarding = (patch) => preferences.set("onboarding", {
     ...(preferences.getSnapshot().value?.onboarding ?? {}), ...patch
   });
   const [data, setData] = useState(null);
+  const accountsKey = JSON.stringify((data?.accounts ?? []).map(({ userId }) => userId));
+  useEffect(() => {
+    productSettings.reset();
+    // Independent of initial data loading; a disconnected app renders normally.
+    if (data?.accounts?.length) void productSettings.check();
+    const retry = () => {
+      if (data?.accounts?.length && !productSettings.state.isPlatformAdmin && !productSettings.state.busy)
+        void productSettings.check();
+    };
+    window.addEventListener("online", retry);
+    window.addEventListener("focus", retry);
+    return () => {
+      window.removeEventListener("online", retry);
+      window.removeEventListener("focus", retry);
+      productSettings.reset();
+    };
+  }, [accountsKey, productSettings]);
   // Approval/question waterfalls need a retained session even when its Chat tab is closed.
   const interactionSessions = useRef(new Map());
   useEffect(() => {
@@ -278,7 +303,7 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
       ?? THEME_PRESETS.find(({ id }) => id === "halloween");
     const colorMode = ["dark", "light"].includes(preference.colorMode)
       ? preference.colorMode : preset.dark ? "dark" : "light";
-    if (theme.getTheme().preference !== colorMode) theme.setTheme(colorMode);
+    if (!preferences.productDefaults && theme.getTheme().preference !== colorMode) theme.setTheme(colorMode);
     if (!preference.themePreset) void preferences.set("themePreset", "halloween");
     if (preference.colorMode !== colorMode) void preferences.set("colorMode", colorMode);
   }, [ctx, preferences, preference.colorMode, preference.themePreset]);
@@ -410,8 +435,8 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
   };
   const createAgent = () => { setRoute("all-agents"); setCreating("agent"); };
   const capabilities = useCapabilities(route);
-  const localAi = h(LocalAiController, { modelSettings, preferences, onError: setError });
-  const freeAi = h(FreeAiController, { modelSettings, onError: setError });
+  const localAi = h(LocalAiController, { modelSettings: personalModelSettings, preferences: personalPreferences, onError: setError });
+  const freeAi = h(FreeAiController, { modelSettings: personalModelSettings, onError: setError });
   if (!data) return h(React.Fragment, null, localAi, freeAi,
     h("div", { className: "bees-app bees-loading", style: { display: "flex", flexDirection: "column", gap: "16px", background: "#111315" } }, 
       error || h(React.Fragment, null, 
@@ -592,9 +617,9 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
           : section.id === "files" ? h(FilesPage, { ctx, data: viewData, teamId: parts.teamId, act })
             : section.id === "activity" ? h(ActivityPage, { data: viewData, route, workspaceIds, openWorkItem, openProcess })
               : section.id === "knowledge" ? h(KnowledgePage, { data: viewData, route, workspaceId: parts.workspaceId, teamId: parts.teamId, openWorkItem })
-                : h(SettingsPage, { ctx, data: viewData, act, route, teamId: parts.teamId,
+                : h(SettingsPage, { key: platform.scopeVersion, ctx, data: viewData, act, route, teamId: parts.teamId,
                     organizationId: parts.organizationId, connectionId, modelSettings, preferences, preference, reload: load,
-                    navigate,
+                    navigate, productSettings, platform,
                     openOrganization: async (organization) => {
                       await load();
                       setScope(`organization:${organization.id}`, organization.connectionId);
@@ -658,6 +683,8 @@ export function BeesApp({ ctx, preferences, modelSettings }) {
     ),
     h("section", { className: "bees-main" },
       h(AppHeader, { routeLabel, parts, ctx, preferences }),
+      platform.editing ? h("div", { className: "bees-callout", role: "status", "data-product-defaults": true },
+        "Editing product defaults — model lists, layouts and appearance save immediately for future builds.") : null,
       onboarding.active && route === "home" ? h(GettingStartedBar, { state: onboarding, update: updateOnboarding, navigate, aiStatus: aiReady ? "AI ready" : "AI setup can continue while you explore.", data, openWorkItem: openStarter }) : null,
       error ? h("div", { className: "bees-error", role: "alert", style: { display: "flex", alignItems: "center", gap: "12px" } },
         h("span", { style: { flex: 1, minWidth: 0, overflowWrap: "anywhere" } }, error),

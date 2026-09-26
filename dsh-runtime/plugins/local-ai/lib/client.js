@@ -7,43 +7,6 @@ window.__ModuleLoader__.load({
     const h = React.createElement;
     const { useEffect, useMemo, useRef, useState } = React;
 
-    // runsProcesses marks the models that finish a goal end to end; only those can be recommended.
-    const LOCAL_MODELS = [
-      {
-        id: "granite-4-0-h-tiny-q4-k-m", name: "Granite 4.0 h tiny (Q4_K_M)",
-        runsProcesses: true,
-        fileName: "granite-4.0-h-tiny-Q4_K_M.gguf",
-        url: "https://huggingface.co/ibm-granite/granite-4.0-h-tiny-GGUF/resolve/main/granite-4.0-h-tiny-Q4_K_M.gguf?download=true",
-        bytes: 4230976352,
-        sha256: "5a38b08c441ae1adbafb1d2b8a7167e0d48734d83af68b268cefea1eec553dcd"
-      },
-      {
-        id: "lfm2-5-2-6b-q4-k-m", name: "LFM2.5 2.6B (Q4_K_M)",
-        runsProcesses: true,
-        fileName: "LFM2.5-2.6B-Q4_K_M.gguf",
-        url: "https://huggingface.co/LiquidAI/LFM2.5-2.6B-GGUF/resolve/main/LFM2.5-2.6B-Q4_K_M.gguf?download=true",
-        bytes: 1674455040,
-        sha256: "02a8b7e17487d326e46d68ce0ba24211e1b80a14c4cd0597fa73c1cd697f52ed"
-      },
-      {
-        id: "granite-4-2-3b-q4-k-m", name: "Granite 4.2 3B (Q4_K_M)",
-        runsProcesses: false,
-        fileName: "granite-4.2-3b-Q4_K_M.gguf",
-        url: "https://huggingface.co/ibm-granite/granite-4.2-3b-GGUF/resolve/main/granite-4.2-3b-Q4_K_M.gguf?download=true",
-        bytes: 2244011552,
-        sha256: "e0406663965846ae22a403456eb826ccce5f450840491f71952f18a7cb78e7d5"
-      },
-      {
-        id: "qwen3-4b-instruct-2507-q4-k-m", name: "Qwen3 4B Instruct (Q4_K_M)",
-        runsProcesses: false,
-        fileName: "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
-        url: "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf?download=true",
-        bytes: 2497281120,
-        sha256: "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597"
-      }
-    ];
-    const DEFAULT_LOCAL_MODEL = LOCAL_MODELS[0];
-
     // Conservative first-run choice from the shipped catalog, not an intelligence ranking.
     function recommendedLocalModel(hardware, models, statuses) {
       const running = models.find((model) => statuses[model.id]?.running);
@@ -52,7 +15,7 @@ window.__ModuleLoader__.load({
       const candidates = models.filter((model) => model.runsProcesses && model.bytes > 0 &&
         model.bytes + 2 * 1024 ** 3 <= Math.min(hardware.totalMemory * 0.6, hardware.availableMemory));
       return candidates.find((model) => statuses[model.id]?.running || statuses[model.id]?.state === "ready")
-        ?? candidates.find((model) => model.id === DEFAULT_LOCAL_MODEL.id &&
+        ?? candidates.find((model) => model.id === models[0]?.id &&
           hardware.availableDisk != null && hardware.availableDisk >= model.bytes + 1024 ** 3) ?? null;
     }
 
@@ -84,7 +47,7 @@ window.__ModuleLoader__.load({
     }
 
     const allModels = (config) => [
-      ...LOCAL_MODELS.filter(({ id }) => !config.removedLocalModelIds?.includes(id)),
+      ...(config.localModelCatalog ?? []).filter(({ id }) => !config.removedLocalModelIds?.includes(id)),
       ...(Array.isArray(config.localModels) ? config.localModels : [])
     ];
 
@@ -130,8 +93,9 @@ window.__ModuleLoader__.load({
 
     function LocalAiController({ modelSettings, preferences, onError }) {
       const started = useRef(false);
+      const preference = usePreference(preferences);
       useEffect(() => {
-        if (started.current || !window.__TAURI__?.core?.invoke) return;
+        if (started.current || preferences.getSnapshot().status !== "ready" || !window.__TAURI__?.core?.invoke) return;
         started.current = true;
         const config = settingValue(preferences);
         const models = allModels(config);
@@ -149,19 +113,21 @@ window.__ModuleLoader__.load({
             }
           }
         })().catch((reason) => onError?.(String(reason?.message ?? reason)));
-      }, []);
+      }, [preference, preferences]);
       return null;
     }
 
     function LocalModels({ modelSettings, preferences, systemDefault, ask, Button, confirmAction }) {
       const config = usePreference(preferences);
-      const models = useMemo(() => allModels(config), [config.localModels, config.removedLocalModelIds]);
+      const productDefaults = preferences.productDefaults === true;
+      const catalog = config.localModelCatalog ?? [];
+      const models = useMemo(() => allModels(config), [config.localModelCatalog, config.localModels, config.removedLocalModelIds]);
       const [statuses, setStatuses] = useState({});
       const [hardware, setHardware] = useState(null);
       const [hardwareError, setHardwareError] = useState("");
       useEffect(() => {
         let active = true;
-        if (window.__TAURI__?.core?.invoke) void invokeLocal("local_model_hardware").then(
+        if (!productDefaults && window.__TAURI__?.core?.invoke) void invokeLocal("local_model_hardware").then(
           (value) => { if (active) setHardware(value); },
           (reason) => { if (active) setHardwareError(String(reason?.message ?? reason)); });
         return () => { active = false; };
@@ -171,7 +137,7 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = useState([]);
       const [error, setError] = useState("");
       const refresh = async () => {
-        if (!window.__TAURI__?.core?.invoke) return;
+        if (productDefaults || !window.__TAURI__?.core?.invoke) return;
         try {
           const rows = await Promise.all(models.map(async (model) =>
             [model.id, await invokeLocal("local_model_status", { spec: model })]));
@@ -179,6 +145,7 @@ window.__ModuleLoader__.load({
         } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
       };
       useEffect(() => {
+        if (productDefaults) return;
         void refresh();
         let unlisten;
         void window.__TAURI__?.event?.listen("local-model-progress", ({ payload }) => {
@@ -187,7 +154,7 @@ window.__ModuleLoader__.load({
         }).then((dispose) => { unlisten = dispose; });
         const timer = setInterval(() => void refresh(), 3000);
         return () => { clearInterval(timer); unlisten?.(); };
-      }, [models.map(({ id }) => id).join("|")]);
+      }, [models.map(({ id }) => id).join("|"), productDefaults]);
 
       const perform = async (operation, model, work) => {
         const key = `${operation}:${model.id}`;
@@ -228,9 +195,13 @@ window.__ModuleLoader__.load({
         });
       };
       const remove = async (model) => {
-        if (LOCAL_MODELS.some(({ id }) => id === model.id)) return;
+        if (!productDefaults && catalog.some(({ id }) => id === model.id)) return;
         if (!await confirmAction(`Delete ${model.name} from the model list?`)) return;
         await perform("delete", model, async () => {
+          if (productDefaults) {
+            await preferences.set("localModelCatalog", catalog.filter(({ id }) => id !== model.id));
+            return;
+          }
           await invokeLocal("delete_local_model", { spec: model });
           await updateWantedModels(preferences, (ids) => ids.filter((id) => id !== model.id));
           const current = settingValue(preferences);
@@ -259,7 +230,7 @@ window.__ModuleLoader__.load({
           }
           const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "model";
           const model = { id: `${slug}-${Date.now().toString(36)}`, name, fileName, url: url.toString(), bytes: 0 };
-          await preferences.set("localModels", [...(config.localModels ?? []), model]);
+          await preferences.set(productDefaults ? "localModelCatalog" : "localModels", [...(productDefaults ? catalog : config.localModels ?? []), model]);
           setError("");
         } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
       };
@@ -267,7 +238,7 @@ window.__ModuleLoader__.load({
       const recommended = recommendedLocalModel(hardware, models, statuses);
       const recommendedStatus = recommended && statuses[recommended.id];
       return h("div", { className: "bees-stack" },
-        h("section", { className: "bees-callout" },
+        productDefaults ? null : h("section", { className: "bees-callout" },
           h("h3", null, recommended ? `Suggested for this computer: ${recommended.name}` : "Bees AI setup"),
           h("p", { className: "bees-muted" }, hardware
             ? `${bytes(hardware.totalMemory)} memory · ${bytes(hardware.availableMemory)} currently available · ${hardware.availableDisk == null ? "Free disk space unavailable" : `${bytes(hardware.availableDisk)} free disk space`}`
@@ -279,7 +250,7 @@ window.__ModuleLoader__.load({
             onClick: () => run(recommended) }, recommendedStatus?.running ? "Model running"
               : recommendedStatus?.state === "ready" ? "Use installed model" : `Download and use · ${bytes(recommended.bytes)}`) : null),
         h("div", { className: "bees-local-model-head" },
-          h("p", { className: "bees-muted" }, "Models stay private on this device. Run as many as this computer's memory can hold."),
+          h("p", { className: "bees-muted" }, productDefaults ? "Models listed here ship in the Bees catalog. Downloads and running models remain personal." : "Models stay private on this device. Run as many as this computer's memory can hold."),
           h(Button, { className: "primary", onClick: addModel }, "Add a model")),
         h("div", { className: "bees-local-model-table" }, h("table", null,
           h("thead", null, h("tr", null,
@@ -288,7 +259,7 @@ window.__ModuleLoader__.load({
           h("tbody", null, ...models.map((model) => {
             const status = statuses[model.id];
             const event = progress[model.id];
-            const isBundledModel = LOCAL_MODELS.some(({ id }) => id === model.id);
+            const isBundledModel = !productDefaults && catalog.some(({ id }) => id === model.id);
             const running = Boolean(status?.running);
             const nativeStarting = status?.state === "starting";
             const complete = status?.state === "ready" || running || nativeStarting;
@@ -314,21 +285,21 @@ window.__ModuleLoader__.load({
             return h("tr", { key: model.id, "data-model-id": model.id },
               h("td", null,
                 h("div", { className: "bees-local-model-name" }, model.name,
-                  model.id === DEFAULT_LOCAL_MODEL.id ? h("span", { className: "bees-badge" }, "Default") : null),
+                  model.id === catalog[0]?.id ? h("span", { className: "bees-badge" }, "Default") : null),
                 h("div", { className: "bees-muted" }, `${model.bytes ? bytes(model.bytes) : "Size found when downloaded"} · private on this device`)),
               h("td", { className: "bees-local-model-status" },
-                h("span", { className: `bees-status ${running ? "bees-running" : ""}` }, label),
+                h("span", { className: `bees-status ${running ? "bees-running" : ""}` }, productDefaults ? "Product catalog" : label),
                 downloading && !cancelling ? h("progress", { className: "bees-local-model-progress", max: total, value: downloaded }) : null),
               h("td", null, h("label", { className: "bees-local-toggle" },
                 h("input", { type: "checkbox", role: "switch", "data-model-toggle": "download",
                   "aria-label": `Download ${model.name}`, checked: downloadChecked,
-                  disabled: running && !downloading,
+                  disabled: productDefaults || running && !downloading,
                   onChange: (change) => change.target.checked ? download(model) : downloading ? cancelDownload(model) : removeFile(model) }),
                 h("span", null, downloadChecked ? "On" : "Off"))),
               h("td", null, h("label", { className: "bees-local-toggle" },
                 h("input", { type: "checkbox", role: "switch", "data-model-toggle": "run",
                   "aria-label": `Run ${model.name}`, checked: runChecked,
-                  disabled: modelBusy && !runPending,
+                  disabled: productDefaults || modelBusy && !runPending,
                   onChange: (change) => change.target.checked ? run(model) : stop(model) }),
                 h("span", null, runChecked ? "On" : "Off"))),
               h("td", null, h(Button, { className: "danger bees-local-delete", title: deleteReason,
@@ -423,8 +394,7 @@ window.__ModuleLoader__.load({
     }
 
     exports.recommendedLocalModel = recommendedLocalModel;
-    exports.LOCAL_MODELS = LOCAL_MODELS;
-    exports.DEFAULT_LOCAL_MODEL = DEFAULT_LOCAL_MODEL;
+    exports.allModels = allModels;
     exports.LocalAiController = LocalAiController;
     exports.LocalAiSettings = LocalAiSettings;
     exports.ExternalLocalAiSettings = ExternalLocalAiSettings;

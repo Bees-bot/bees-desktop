@@ -4,6 +4,7 @@ import { GridStackPage } from "./flexible-grid.js";
 import { inheritedInputs, ResourceFields } from "./location-fields.js";
 import { CatalogReview } from "./skills.js";
 import { ArrowLeftIcon } from "./icons.js";
+import { modelLabel } from "../lib/model-label.js";
 const AGENTS_LAYOUT = [
   { kind: "agents", x: 0, y: 0, w: 7, h: 7 },
   { kind: "presets", x: 7, y: 0, w: 5, h: 7 }
@@ -22,19 +23,22 @@ function latestCodexModel(models, family) {
 }
 
 function agentModelLabel(group, model) {
+  if (group.id === "local-openai" || group.id.startsWith("local-openai-"))
+    return modelLabel(`${group.id}/${model.id}`, model.name);
   if (group.id === "claude-code") {
     if (model.id === "default") return "CLI default (auto-updates)";
     if (["sonnet", "opus", "haiku"].includes(model.id))
       return `Latest ${model.id[0].toUpperCase()}${model.id.slice(1)} (auto-updates)`;
   }
-  return model.name === model.id ? model.id : `${model.name} (${model.id})`;
+  return !model.name || model.name === model.id ? model.id : `${model.name} (${model.id})`;
 }
 
-export function AgentModelSelect({ ctx, value = "", effort = "", systemDefault, allowSystemDefault = true, refreshKey = 0 }) {
+export function AgentModelSelect({ ctx, value = "", effort = "", systemDefault, allowSystemDefault = true, refreshKey = 0, productCatalog }) {
   const [catalog, setCatalog] = useState({ groups: [], failures: [], loading: true, error: "" });
   const [route, setRoute] = useState(value);
   const [reasoningEffort, setReasoningEffort] = useState(effort);
   useEffect(() => {
+    if (productCatalog) { setCatalog({ groups: productCatalog, failures: [], loading: false, error: "" }); return; }
     let mounted = true;
     void request("/bees-api/llm-models").then((catalog) => {
       if (mounted) setCatalog({ ...catalog, loading: false, error: "" });
@@ -43,7 +47,7 @@ export function AgentModelSelect({ ctx, value = "", effort = "", systemDefault, 
         error: reason instanceof Error ? reason.message : String(reason) });
     });
     return () => { mounted = false; };
-  }, [ctx, refreshKey]);
+  }, [ctx, refreshKey, productCatalog]);
   const groups = [...catalog.groups].sort((left, right) =>
     left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
   const codex = groups.find(({ id }) => id === "openai-codex");
@@ -61,8 +65,10 @@ export function AgentModelSelect({ ctx, value = "", effort = "", systemDefault, 
   const preserveEffort = reasoningEffort && !effortIds.has(reasoningEffort);
   const defaultEffort = selectedModel?.reasoning?.defaultEffort;
   const defaultEffortName = efforts.find(({ id }) => id === defaultEffort)?.name ?? defaultEffort;
+  const defaultGroup = groups.find(({ id }) => id === systemDefault?.provider);
+  const defaultModel = defaultGroup?.models.find(({ id }) => id === systemDefault?.model);
   const systemDefaultLabel = systemDefault?.provider && systemDefault?.model
-    ? `System default — ${systemDefault.provider}/${systemDefault.model}${systemDefault.reasoningEffort ? ` · ${systemDefault.reasoningEffort} effort` : ""}`
+    ? `System default — ${modelLabel(`${systemDefault.provider}/${systemDefault.model}`, defaultModel?.name, defaultGroup?.name)}${systemDefault.reasoningEffort ? ` · ${systemDefault.reasoningEffort} effort` : ""}`
     : "System default (auto-updates)";
   return h(React.Fragment, null,
     h("label", { className: "bees-process-name", style: { display: "grid", gap: "5px" } }, "Model",
@@ -71,14 +77,14 @@ export function AgentModelSelect({ ctx, value = "", effort = "", systemDefault, 
     } },
       allowSystemDefault ? h("option", { value: "" }, catalog.loading ? `${systemDefaultLabel} (loading available models…)` : systemDefaultLabel)
         : !route ? h("option", { value: "", disabled: true }, catalog.loading ? "Loading available models…" : "Choose a model") : null,
-      preserveCurrent ? h("option", { value: route }, catalog.loading ? `Current: ${route}`
-        : catalog.error ? `Current: ${route} (catalog unavailable)` : `Current: ${route} (unavailable)`) : null,
+      preserveCurrent ? h("option", { value: route }, catalog.loading ? `Current: ${modelLabel(route)}`
+        : catalog.error ? `Current: ${modelLabel(route)} (catalog unavailable)` : `Current: ${modelLabel(route)} (unavailable)`) : null,
       ...groups.map((group) => h("optgroup", { label: group.name, key: group.id },
         ...(group.id === "openai-codex" ? channels.map((channel) => h("option", {
           value: channel.route, key: `channel:${channel.id}`
         }, `Latest ${channel.name} (auto-updates)`)) : []),
         ...group.models.map((model) => h("option", { value: `${group.id}/${model.id}`, key: model.id },
-          agentModelLabel(group, model)))))),
+          productCatalog && group.id === "local-openai" ? "Active local model on each device" : agentModelLabel(group, model)))))),
     catalog.error ? h("span", { className: "bees-muted", role: "status" }, `Could not load available models: ${catalog.error}`)
       : catalog.failures.length ? h("span", { className: "bees-muted", role: "status" },
         `Some providers could not load: ${catalog.failures.map(({ name }) => name).join(", ")}`) : null),
@@ -92,10 +98,17 @@ export function AgentModelSelect({ ctx, value = "", effort = "", systemDefault, 
       !route ? h("span", { className: "bees-muted" }, "Choose a model to override its reasoning effort.") : null));
 }
 
-export function SystemDefaultSettings({ ctx, modelSettings, systemDefault, reload, modelsChanged = 0 }) {
+export function SystemDefaultSettings({ ctx, modelSettings, systemDefault, reload, modelsChanged = 0, saveDefault, catalogModels, defaultModelLists }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const activeModelSettings = usePreference(modelSettings);
+  const productCatalog = React.useMemo(() => catalogModels ? [
+    ...catalogModels.map((m) => ({ id: `local-openai-${m.id.toLowerCase().replace(/[^a-z0-9-]/g, "-")}`, name: "Local", models: [{ id: "active", name: m.name }] })),
+    ...Object.entries(activeModelSettings.providers ?? {}).map(([id, config]) => ({ id, name: config.displayName ?? id, models: config.models ?? [] })),
+    ...(!activeModelSettings.providers?.["openai-codex"] && defaultModelLists?.codex?.length
+      ? [{ id: "openai-codex", name: "Codex", models: defaultModelLists.codex }] : []),
+    { id: "claude-code", name: "Claude Code", models: (defaultModelLists?.claude ?? []).map((id) => ({ id, name: id })) }
+  ] : undefined, [catalogModels, activeModelSettings, defaultModelLists]);
   const route = systemDefault?.provider && systemDefault?.model
     ? `${systemDefault.provider}/${systemDefault.model}` : "";
   const save = async (event) => {
@@ -106,11 +119,12 @@ export function SystemDefaultSettings({ ctx, modelSettings, systemDefault, reloa
     if (separator < 1 || separator === modelRoute.length - 1) return setMessage("Choose a model.");
     setBusy(true); setMessage("");
     try {
-      await request("/bees-api/system-default-model", { method: "POST", body: JSON.stringify({
+      const selection = {
         provider: modelRoute.slice(0, separator), model: modelRoute.slice(separator + 1),
         reasoningEffort: String(form.get("reasoningEffort") ?? "")
-      }) });
-      await reload();
+      };
+      if (saveDefault) await saveDefault(selection);
+      else { await request("/bees-api/system-default-model", { method: "POST", body: JSON.stringify(selection) }); await reload(); }
       setMessage("System default updated.");
     } catch (reason) { setMessage(reason instanceof Error ? reason.message : String(reason)); }
     finally { setBusy(false); }
@@ -119,7 +133,7 @@ export function SystemDefaultSettings({ ctx, modelSettings, systemDefault, reloa
     h("h2", null, "System default"),
     h("p", { className: "bees-muted" }, "New agents use this model unless you choose a different one. Choose another default before turning this connection off."),
     h("form", { key: `${route}:${systemDefault?.reasoningEffort ?? ""}`, className: "bees-form-row", onSubmit: save },
-      h(AgentModelSelect, { ctx, value: route, effort: systemDefault?.reasoningEffort, allowSystemDefault: false, refreshKey: `${modelsChanged}:${JSON.stringify(activeModelSettings)}` }),
+      h(AgentModelSelect, { ctx, value: route, effort: systemDefault?.reasoningEffort, allowSystemDefault: false, productCatalog, refreshKey: `${modelsChanged}:${JSON.stringify(activeModelSettings)}` }),
       h(Button, { type: "submit", className: "primary", disabled: busy }, busy ? "Saving…" : "Save default")),
     message ? h("div", { className: message.endsWith("updated.") ? "bees-muted" : "bees-error", role: "status" }, message) : null);
 }

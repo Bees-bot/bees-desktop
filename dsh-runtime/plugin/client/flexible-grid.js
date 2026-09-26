@@ -83,7 +83,8 @@ export function GridStackPage({ layoutId, defaults, panels, preference, preferen
       pageActions,
       editing ? h(Button, { onClick: async () => {
         if (await confirmAction("Reset this layout back to the default arrangement?")) {
-          await preferences.set("pageLayouts", { ...layouts, [layoutId]: [] });
+          await preferences.set("pageLayouts", { ...layouts, [layoutId]: preferences.productDefaults
+            ? [] : preferences.getSnapshot().base?.pageLayouts?.[layoutId] ?? [] });
         }
       } }, "Reset") : null,
       h(Button, { className: editing ? "primary" : "", onClick: () => setEditing((value) => !value) }, editing ? "Done" : "Customize")));

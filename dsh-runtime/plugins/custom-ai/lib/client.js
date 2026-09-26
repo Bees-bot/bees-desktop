@@ -56,6 +56,7 @@ window.__ModuleLoader__.load({
     function CustomAiSettings({ ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button }) {
       const config = usePreference(modelSettings);
       const ui = usePreference(preferences);
+      const productDefaults = preferences.productDefaults === true;
       const credentials = ctx.remote.credentials;
       const custom = config.providers?.["custom-openai"] ?? {};
       const protects = (provider, model) => systemDefault?.provider === provider && (!model || systemDefault.model === model);
@@ -77,6 +78,7 @@ window.__ModuleLoader__.load({
       const chosen = available.some(({ id }) => id === selected) ? selected : "";
 
       const refreshCredentials = async () => {
+        if (productDefaults) return;
         const refs = Object.fromEntries(PROVIDERS.map(({ id }) => [id, refFor(id)]));
         const described = unwrap(await credentials.describe(Object.values(refs)));
         setCredentialState(Object.fromEntries(PROVIDERS.map(({ id }) => [id, described[refs[id]]?.configured === true])));
@@ -131,12 +133,14 @@ window.__ModuleLoader__.load({
       };
       const add = () => perform(`add:${chosen}`, async () => {
         if (!chosen) throw new Error("Choose a provider");
-        if (!key.trim()) throw new Error("Enter the API key");
+        if (!productDefaults && !key.trim()) throw new Error("Enter the API key");
         if (!model.trim()) throw new Error("Enter the model ID");
         const models = [{ id: model.trim() }];
-        const result = await testProvider(chosen, model.trim(), key.trim());
-        await saveKey(chosen, key.trim());
-        setTests((current) => ({ ...current, [chosen]: result.message }));
+        if (!productDefaults) {
+          const result = await testProvider(chosen, model.trim(), key.trim());
+          await saveKey(chosen, key.trim());
+          setTests((current) => ({ ...current, [chosen]: result.message }));
+        }
         await setEnabled(chosen, true, models);
         await saveProviderIds([...new Set([...ids, chosen])]);
         await preferences.set("generalAiModels", { ...(ui.generalAiModels ?? {}), [chosen]: models });
@@ -165,9 +169,9 @@ window.__ModuleLoader__.load({
         setTests((current) => ({ ...current, [id]: result.message }));
       });
       const remove = (id) => perform(`remove:${id}`, async () => {
-        if (!await confirmAction(`Remove ${BY_ID[id].name} and its saved API key?`)) return;
+        if (!await confirmAction(productDefaults ? `Remove ${BY_ID[id].name} from product defaults?` : `Remove ${BY_ID[id].name} and its saved API key?`)) return;
         await setEnabled(id, false);
-        unwrap(await credentials.unset(refFor(id)));
+        if (!productDefaults) unwrap(await credentials.unset(refFor(id)));
         await saveProviderIds(ids.filter((value) => value !== id));
         const models = { ...(ui.generalAiModels ?? {}) }; delete models[id];
         await preferences.set("generalAiModels", models);
@@ -181,11 +185,13 @@ window.__ModuleLoader__.load({
           const id = (await ask("Model ID", "default"))?.trim(); if (!id) return;
           models = [{ id, name: id, contextWindow: 131072, maxTokens: 8192 }];
         }
-        const value = await ask("API key (leave blank to keep the stored key)", "", "password");
-        if (value) unwrap(await credentials.set(CUSTOM_KEY_REF, value));
-        // Registering the provider without a stored key only fails later, at the first call.
-        else if (!unwrap(await credentials.describe([CUSTOM_KEY_REF]))[CUSTOM_KEY_REF]?.configured)
-          throw new Error("An API key is needed the first time you connect this server");
+        if (!productDefaults) {
+          const value = await ask("API key (leave blank to keep the stored key)", "", "password");
+          if (value) unwrap(await credentials.set(CUSTOM_KEY_REF, value));
+          // Registering the provider without a stored key only fails later, at the first call.
+          else if (!unwrap(await credentials.describe([CUSTOM_KEY_REF]))[CUSTOM_KEY_REF]?.configured)
+            throw new Error("An API key is needed the first time you connect this server");
+        }
         await modelSettings.set("providers", { ...(config.providers ?? {}), "custom-openai": {
           ...custom, displayName: "Custom OpenAI-compatible API", api: custom.api ?? "openai-completions", baseURL,
           apiKeyEnv: CUSTOM_KEY_REF,
@@ -219,12 +225,12 @@ window.__ModuleLoader__.load({
               h("strong", null, provider.name), h("span", null, provider.note)))),
           chosen ? h(React.Fragment, null,
             h("label", null, `${BY_ID[chosen].name} API key`, h("input", { className: "bees-input", type: "password", value: key,
-              autoComplete: "off", placeholder: "Paste the key here", onChange: (event) => setKey(event.target.value) })),
+              disabled: productDefaults, autoComplete: "off", placeholder: productDefaults ? "Each user supplies their own key" : "Paste the key here", onChange: (event) => setKey(event.target.value) })),
             h("label", null, "Model ID", h("input", { className: "bees-input", value: model,
               placeholder: chosen === "openrouter" ? "e.g. anthropic/claude-sonnet-5" : "Provider model ID",
               onChange: (event) => setModel(event.target.value) })),
             h(Button, { disabled: Boolean(busy), onClick: () => perform(`link:${chosen}`, () => openExternal(BY_ID[chosen].signup)) }, "Create key / sign up"),
-            h(Button, { className: "primary", disabled: Boolean(busy) || !key.trim() || !model.trim(), onClick: add }, busy === `add:${chosen}` ? "Testing…" : "Add and test")) :
+            h(Button, { className: "primary", disabled: Boolean(busy) || (!productDefaults && !key.trim()) || !model.trim(), onClick: add }, busy === `add:${chosen}` ? "Saving…" : productDefaults ? "Add provider" : "Add and test")) :
             h("p", { className: "bees-muted" }, "Choose a provider to configure it.")) : null,
         ids.length ? h("div", { className: "bees-general-table" }, h("table", null,
           h("thead", null, h("tr", null, h("th", null, "Provider"), h("th", null, "Models"), h("th", null, "Test"), h("th", null, "Enabled"), h("th", null, "Remove"))),
@@ -236,7 +242,7 @@ window.__ModuleLoader__.load({
               h("td", null, h("strong", null, provider.name), h("div", { className: "bees-muted" }, provider.note),
                 h("div", { className: "bees-general-actions" },
                   h("span", { className: `bees-status ${credentialState[id] ? "bees-running" : ""}` }, credentialState[id] ? "API key saved" : "API key needed"),
-                  h(Button, { disabled: Boolean(busy), onClick: () => replaceKey(id) }, credentialState[id] ? "Replace" : "Add key"),
+                  h(Button, { disabled: productDefaults || Boolean(busy), onClick: () => replaceKey(id) }, credentialState[id] ? "Replace" : "Add key"),
                   h(Button, { disabled: Boolean(busy), onClick: () => perform(`link:${id}`, () => openExternal(provider.signup)) }, "Provider website"))),
               h("td", null, h("div", { className: "bees-general-models" },
                 ...(models.length ? models.map((entry) => h("span", { className: "bees-badge", key: entry.id }, entry.id,
@@ -245,12 +251,12 @@ window.__ModuleLoader__.load({
                   : [h("span", { className: "bees-muted", key: "all" }, "All catalog models")]),
                 h(Button, { disabled: Boolean(busy), onClick: () => addModel(id) }, "Add model"))),
               h("td", null, h("div", { className: "bees-general-actions" },
-                h(Button, { disabled: Boolean(busy) || !credentialState[id], onClick: () => test(id) }, busy === `test:${id}` ? "Testing…" : "Test"),
+                h(Button, { disabled: productDefaults || Boolean(busy) || !credentialState[id], onClick: () => test(id) }, busy === `test:${id}` ? "Testing…" : "Test"),
                 tests[id] ? h("span", { className: "bees-status bees-running" }, tests[id]) : null)),
               h("td", null, h("label", { className: "bees-general-toggle" },
                 h("input", { type: "checkbox", role: "switch", checked: enabled,
                   title: enabled && protects(id) ? defaultGuard : "",
-                  disabled: Boolean(busy) || !credentialState[id] || (enabled && protects(id)),
+                  disabled: Boolean(busy) || (!productDefaults && !credentialState[id]) || (enabled && protects(id)),
                   "aria-label": `Enable ${provider.name}`, onChange: (event) => perform(`toggle:${id}`, () => setEnabled(id, event.target.checked)) }),
                 h("span", null, enabled ? "On" : "Off"))),
               h("td", null, h(Button, { className: "danger", title: protects(id) ? defaultGuard : "",

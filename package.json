@@ -17,7 +17,9 @@
     "check:page-fetch": "node scripts/check-page-fetch.mjs",
     "release:prepare": "node scripts/release.mjs version",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm run check:schedules && npm run check:page-fetch && npm run check:process-interactions && npm run check:dsh-upgrade && npm run build",
+    "check": "npm run typecheck && npm run check:schedules && npm run check:page-fetch && npm run check:process-interactions && npm run check:dsh-upgrade && npm run check:file-locks && npm run check:product-defaults && npm run build",
+    "check:product-defaults": "node --test dsh-runtime/plugin/lib/product-defaults.test.js",
+    "check:file-locks": "node --test dsh-runtime/plugin/lib/file-locks.test.js",
     "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "tauri:build": "tauri build",
     "check:dsh-upgrade": "node scripts/check-dsh-upgrade.mjs && node --test dsh-runtime/plugin/client/run-file-preview.test.js"

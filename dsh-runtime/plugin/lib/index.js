@@ -8,6 +8,7 @@ import { testOnboardingModel, testPlanningModels } from "./onboarding.js";
 import { AgentRuntime } from "./agent-runtime.js";
 import { Capabilities } from "./capabilities.js";
 import { ConnectedAccount } from "./connected-account.js";
+import { ProductDefaults } from "./product-defaults.js";
 import { appDirectory, sharedFolder } from "./data-folder.js";
 import { mountEvidenceCapture } from "./evidence-capture.js";
 import { GoogleDriveConnection } from "./google-drive.js";
@@ -22,7 +23,7 @@ export const name = "bees";
 export const inject = [
   "webServer", "connection", "agents", "agentPresets", "sessionPersistence", "approval",
   "workspaceRegistry", "settings", "credentials", "agentDefaultModel", "llm",
-  "skills", "tools", "userQuestions", "agentTeams", "tokenMeter", "sessions", "web", "attachments", "jobs"
+  "skills", "tools", "userQuestions", "agentTeams", "tokenMeter", "sessions", "web", "attachments", "jobs", "fs"
 ];
 
 const ModelPreference = z.object({
@@ -74,6 +75,10 @@ export const Config = z.object({
   memoryModel: z.string().default("").volatile(),
   localModelWantedIds: z.array(z.string()).default([]).volatile(),
   removedLocalModelIds: z.array(z.string()).default([]).volatile(),
+  localModelCatalog: z.array(z.object({
+    id: z.string(), name: z.string(), fileName: z.string(), url: z.string(),
+    bytes: z.number().default(0), sha256: z.string(), runsProcesses: z.boolean().default(false)
+  })).default([]).volatile(),
   themePreset: z.string().default("halloween").volatile(),
   colorMode: z.string().default("dark").volatile(),
   darkThemePreset: z.string().default("halloween").volatile(),
@@ -291,6 +296,7 @@ export async function apply(ctx, config = {}, internals = {}) {
   void step("background.team-sync.initial", syncTick).catch((error) => ctx.logger.warn?.(`bees: initial team sync failed: ${userMessage(error)}`));
 
   const server = ctx.webServer.server;
+  const productDefaults = new ProductDefaults(connected);
   if (!server?.prependListener) throw new Error("bees: agent runtime webserver seam changed");
   const guard = (req) => {
     const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
@@ -397,6 +403,13 @@ export async function apply(ctx, config = {}, internals = {}) {
   register(ctx, { kind: "exact", path: "/bees-api/snapshot", handler: async (_req, res) => {
     try { reply(res, 200, { ...await product.snapshot(), systemDefaultModel: ctx.agentDefaultModel.currentSelection() }); }
     catch (error) { reply(res, 409, { error: userMessage(error) }); }
+  } });
+  register(ctx, { kind: "exact", path: "/bees-api/product-defaults", handler: async (req, res) => {
+    try {
+      if (req.method === "GET") return reply(res, 200, await productDefaults.status());
+      if (req.method === "PUT") return reply(res, 200, await productDefaults.update(await body(req)));
+      reply(res, 405, { error: "method not allowed" });
+    } catch (error) { reply(res, error.status ?? 409, { error: userMessage(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/system-default-model", handler: async (req, res) => {
     if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
