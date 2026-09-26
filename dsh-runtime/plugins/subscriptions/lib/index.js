@@ -8,6 +8,7 @@ import { StringDecoder } from "node:string_decoder";
 import { LlmAdapter, LlmError } from "@deepseek-ai/dsh-llm";
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import { OPENAI_CODEX_MODELS } from "@earendil-works/pi-ai/providers/openai-codex.models";
+import z from "@deepseek-ai/schemastery";
 
 export const name = "bees-subscriptions";
 export const inject = ["webServer", "credentials", "llm"];
@@ -18,6 +19,7 @@ const CLAUDE_PATH_REF = "BEES_CLAUDE_CODE_PATH";
 const CLAUDE_ENABLED_REF = "BEES_CLAUDE_CODE_ENABLED";
 const CLAUDE_MODELS_REF = "BEES_CLAUDE_CODE_MODELS";
 const DEFAULT_CLAUDE_MODELS = ["default", "sonnet", "opus", "haiku"];
+export const Config = z.object({ models: z.array(z.string()).default(DEFAULT_CLAUDE_MODELS).volatile() });
 // Signing in to Codex used to leave it with no models at all, so it never reached the picker and
 // the only way through was typing a model id by hand. pi-ai already ships the catalog.
 const DEFAULT_CODEX_MODELS = Object.values(OPENAI_CODEX_MODELS)
@@ -97,11 +99,11 @@ export function normalizeClaudeModels(value) {
   return models;
 }
 
-async function configuredClaudeModels(ctx) {
+async function configuredClaudeModels(ctx, defaults = DEFAULT_CLAUDE_MODELS) {
   const value = (await ctx.credentials.resolve(CLAUDE_MODELS_REF))?.value;
-  if (!value) return DEFAULT_CLAUDE_MODELS;
+  if (!value) return defaults;
   try { return normalizeClaudeModels(JSON.parse(value)); }
-  catch { return DEFAULT_CLAUDE_MODELS; }
+  catch { return defaults; }
 }
 
 async function refreshCodex(ctx) {
@@ -342,10 +344,10 @@ export function claudeChunks(result, tools = []) {
 }
 
 class ClaudeCodeAdapter extends LlmAdapter {
-  constructor(ctx) { super(); this.ctx = ctx; }
+  constructor(ctx, config) { super(); this.ctx = ctx; this.config = config; }
   providerInfo() { return { id: "claude-code", name: "Claude Code subscription" }; }
   async listModels() {
-    return (await configuredClaudeModels(this.ctx)).map(claudeModel);
+    return (await configuredClaudeModels(this.ctx, this.config.models.get())).map(claudeModel);
   }
   resolveModel(_provider, model) {
     return Promise.resolve(claudeModel(model));
@@ -402,13 +404,13 @@ async function findClaude(ctx) {
   return "";
 }
 
-export async function apply(ctx) {
+export async function apply(ctx, config) {
   const time = globalThis.__beesStartup?.step ?? ((_phase, run) => run());
   let pending = null;
   let claudeRegistration = null;
   let refreshingCodex = null;
   let claudeSync = Promise.resolve();
-  const adapter = new ClaudeCodeAdapter(ctx);
+  const adapter = new ClaudeCodeAdapter(ctx, config);
   const ensureCodex = () => {
     refreshingCodex ??= refreshCodex(ctx).finally(() => { refreshingCodex = null; });
     return refreshingCodex;
@@ -435,7 +437,7 @@ export async function apply(ctx) {
         const codex = await ensureCodex().catch(() => false);
         const path = (await ctx.credentials.resolve(CLAUDE_PATH_REF))?.value ?? "";
         const enabled = Boolean((await ctx.credentials.resolve(CLAUDE_ENABLED_REF))?.value);
-        const models = await configuredClaudeModels(ctx);
+        const models = await configuredClaudeModels(ctx, config.models.get());
         let version = "";
         if (path) version = await claudeVersion(path).catch(() => "Unavailable");
         return json(res, 200, { codex, codexModels: DEFAULT_CODEX_MODELS,

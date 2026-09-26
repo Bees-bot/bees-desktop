@@ -84,7 +84,7 @@ export class ConnectedAccount {
   }
 
   async request(path, {
-    method = "GET", body, organizationId, accountUserId = "", connectionId = "", authenticated = true
+    method = "GET", body, organizationId, accountUserId = "", connectionId = "", authenticated = true, timeoutMs = 20_000
   } = {}) {
     const userId = accountUserId || (connectionId ? this.accountForConnection(connectionId) : this.account()?.userId);
     const account = userId ? this.account(userId) : null;
@@ -102,7 +102,7 @@ export class ConnectedAccount {
           ...(organizationId ? { "x-organization-id": organizationId } : {})
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        signal: AbortSignal.timeout(20_000)
+        signal: AbortSignal.timeout(timeoutMs)
       });
     } catch {
       throw new Error("Can't reach the Bees server");

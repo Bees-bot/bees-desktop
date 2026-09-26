@@ -28,7 +28,7 @@ window.__ModuleLoader__.load({
       return value;
     }
 
-    function SubscriptionSettings({ modelSettings, preferences, systemDefault, ask, openExternal, Button, onChange }) {
+    function SubscriptionSettings({ modelSettings, preferences, systemDefault, ask, openExternal, Button, onChange, productDefaults }) {
       const config = usePreference(modelSettings);
       const ui = usePreference(preferences);
       const [status, setStatus] = useState({ codex: false, codexModels: [],
@@ -37,12 +37,13 @@ window.__ModuleLoader__.load({
       const [error, setError] = useState("");
       const [notice, setNotice] = useState("");
       const refresh = async () => {
+        if (productDefaults) return;
         const response = await fetch("/bees-api/subscriptions", { cache: "no-store" });
         const value = await response.json();
         if (!response.ok) throw new Error(value.error || "Could not read subscription status");
         setStatus(value);
       };
-      useEffect(() => { void refresh().catch((reason) => setError(reason.message)); }, []);
+      useEffect(() => { void refresh().catch((reason) => setError(reason.message)); }, [Boolean(productDefaults)]);
       const perform = async (name, work, success = "") => {
         setBusy(name); setError(""); setNotice("");
         // claude state lives on the server, so the model pickers above never see it change on their own
@@ -53,6 +54,7 @@ window.__ModuleLoader__.load({
         }
         finally { setBusy(""); }
       };
+      const claude = productDefaults ? { configured: true, enabled: false, models: productDefaults.claudeModels } : status.claude;
       const codexModels = config.providers?.["openai-codex"]?.models ?? ui.codexModels
         ?? status.codexModels ?? [];
       const codexProfile = (models = codexModels) => {
@@ -97,11 +99,13 @@ window.__ModuleLoader__.load({
       });
       const testClaude = () => perform("claude", () => command("claude_test"), "Claude Code connection works.");
       const toggleClaude = (enabled) => perform("claude", () => command("claude_toggle", { enabled }));
-      const saveClaudeModels = (models) => perform("claude-model", () => command("claude_models", { models }));
+      const saveClaudeModels = (models) => perform("claude-model", () => productDefaults
+        ? productDefaults.saveClaudeModels(models) : command("claude_models", { models }));
       const addClaudeModel = () => perform("claude-model", async () => {
         const id = (await ask("Claude Code model ID", ""))?.trim(); if (!id) return;
-        if (status.claude.models.includes(id)) throw new Error(`${id} is already connected`);
-        await command("claude_models", { models: [...status.claude.models, id] });
+        if (claude.models.includes(id)) throw new Error(`${id} is already connected`);
+        if (productDefaults) await productDefaults.saveClaudeModels([...claude.models, id]);
+        else await command("claude_models", { models: [...claude.models, id] });
       });
       const disconnectClaude = () => perform("claude", () => command("claude_disconnect"));
       const codexEnabled = Boolean(config.providers?.["openai-codex"]);
@@ -115,7 +119,7 @@ window.__ModuleLoader__.load({
           h("section", { className: "bees-box bees-subscription", "data-subscription": "codex" },
             h("div", { className: "bees-subscription-main" }, h("h3", null, "Codex"),
               h("p", { className: "bees-muted" }, busy === "codex" ? "Finish signing in in the browser window." : "Sign in with ChatGPT; no API key is required."),
-              status.codex ? h("div", { className: "bees-subscription-models" },
+              (status.codex || productDefaults) ? h("div", { className: "bees-subscription-models" },
                 ...(codexModels.length ? codexModels.map((model) => h("span", { className: "bees-badge", key: model.id }, model.id,
                   h(Button, { title: codexModels.length > 1 && protects("openai-codex", model.id) ? defaultGuard : `Remove ${model.id}`,
                     "aria-label": `Remove ${model.id}`, disabled: Boolean(busy) || (codexModels.length > 1 && protects("openai-codex", model.id)),
@@ -127,42 +131,42 @@ window.__ModuleLoader__.load({
                 status.codex && codexEnabled ? "Connected" : status.codex ? "Signed in · off" : "Not connected"),
               status.codex ? h("label", { className: "bees-sub-toggle", title: codexEnabled && protects("openai-codex") ? defaultGuard : "" },
                 h("input", { type: "checkbox", role: "switch", checked: codexEnabled,
-                  disabled: Boolean(busy) || (codexEnabled && protects("openai-codex")),
+                  disabled: Boolean(busy) || Boolean(productDefaults) || (codexEnabled && protects("openai-codex")),
                   "aria-label": "Enable Codex", onChange: (event) => toggleCodex(event.target.checked) }),
                 h("span", null, codexEnabled ? "On" : "Off")) : null,
-              h(Button, { className: status.codex ? "" : "primary", disabled: Boolean(busy), onClick: connectCodex },
+              h(Button, { className: status.codex ? "" : "primary", disabled: Boolean(busy) || Boolean(productDefaults), onClick: connectCodex },
                 busy === "codex" ? "Waiting for sign-in…" : status.codex ? "Reconnect" : "Sign in"),
-              status.codex ? h(Button, { disabled: Boolean(busy), onClick: testCodex },
+              status.codex ? h(Button, { disabled: Boolean(busy) || Boolean(productDefaults), onClick: testCodex },
                 busy === "codex-test" ? "Testing…" : "Test") : null,
               status.codex ? h(Button, { className: "danger", title: protects("openai-codex") ? defaultGuard : "",
-                disabled: Boolean(busy) || protects("openai-codex"), onClick: disconnectCodex }, "Disconnect") : null)),
+                disabled: Boolean(busy) || Boolean(productDefaults) || protects("openai-codex"), onClick: disconnectCodex }, "Disconnect") : null)),
           h("section", { className: "bees-box bees-subscription", "data-subscription": "claude-code" },
             h("div", { className: "bees-subscription-main" }, h("h3", null, "Claude Code"),
-              h("p", { className: "bees-muted" }, status.claude.configured
-                ? status.claude.version || "Claude Code is ready"
+              h("p", { className: "bees-muted" }, productDefaults ? "Models included in new installations." : claude.configured
+                ? claude.version || "Claude Code is ready"
                 : "Uses the Claude Code already installed on this computer."),
-              status.claude.configured ? h("div", { className: "bees-subscription-models" },
-                ...status.claude.models.map((id) => h("span", { className: "bees-badge", key: id }, id,
+              claude.configured ? h("div", { className: "bees-subscription-models" },
+                ...claude.models.map((id) => h("span", { className: "bees-badge", key: id }, id,
                   h(Button, { title: protects("claude-code", id) ? defaultGuard : `Remove ${id}`, "aria-label": `Remove ${id}`,
-                    disabled: Boolean(busy) || status.claude.models.length <= 1 || protects("claude-code", id),
-                    onClick: () => saveClaudeModels(status.claude.models.filter((model) => model !== id)) }, "×"))),
+                    disabled: Boolean(busy) || claude.models.length <= 1 || protects("claude-code", id),
+                    onClick: () => saveClaudeModels(claude.models.filter((model) => model !== id)) }, "×"))),
                 h(Button, { disabled: Boolean(busy), onClick: addClaudeModel }, "Add model")) : null),
             h("div", { className: "bees-subscription-actions" },
-              h("span", { className: `bees-status ${status.claude.enabled ? "bees-running" : ""}` },
-                status.claude.enabled ? "Connected" : status.claude.configured ? "Off" : "Not configured"),
-              status.claude.configured ? h("label", { className: "bees-sub-toggle",
-                title: status.claude.enabled && protects("claude-code") ? defaultGuard : "" },
-                h("input", { type: "checkbox", role: "switch", checked: Boolean(status.claude.enabled),
-                  disabled: Boolean(busy) || (status.claude.enabled && protects("claude-code")),
+              h("span", { className: `bees-status ${claude.enabled ? "bees-running" : ""}` },
+                claude.enabled ? "Connected" : claude.configured ? "Off" : "Not configured"),
+              claude.configured ? h("label", { className: "bees-sub-toggle",
+                title: claude.enabled && protects("claude-code") ? defaultGuard : "" },
+                h("input", { type: "checkbox", role: "switch", checked: Boolean(claude.enabled),
+                  disabled: Boolean(busy) || Boolean(productDefaults) || (claude.enabled && protects("claude-code")),
                   "aria-label": "Enable Claude Code", onChange: (event) => toggleClaude(event.target.checked) }),
-                h("span", null, status.claude.enabled ? "On" : "Off")) : null,
-              status.claude.configured
-                ? h(Button, { disabled: Boolean(busy), onClick: testClaude }, busy === "claude" ? "Testing…" : "Test")
+                h("span", null, claude.enabled ? "On" : "Off")) : null,
+              claude.configured
+                ? h(Button, { disabled: Boolean(busy) || Boolean(productDefaults), onClick: testClaude }, busy === "claude" ? "Testing…" : "Test")
                 : h(Button, { disabled: Boolean(busy), onClick: () => perform("claude-link", () => openExternal(CLAUDE_INSTALL_URL)) }, "Get Claude Code"),
-              !status.claude.configured ? h(Button, { className: "primary", disabled: Boolean(busy), onClick: configureClaude },
+              !claude.configured ? h(Button, { className: "primary", disabled: Boolean(busy) || Boolean(productDefaults), onClick: configureClaude },
                 busy === "claude" ? "Looking…" : "Connect") : null,
-              status.claude.configured ? h(Button, { className: "danger", title: protects("claude-code") ? defaultGuard : "",
-                disabled: Boolean(busy) || protects("claude-code"), onClick: disconnectClaude }, "Disconnect") : null))),
+              claude.configured ? h(Button, { className: "danger", title: protects("claude-code") ? defaultGuard : "",
+                disabled: Boolean(busy) || Boolean(productDefaults) || protects("claude-code"), onClick: disconnectClaude }, "Disconnect") : null))),
         notice ? h("div", { className: "bees-callout", role: "status" }, notice) : null,
         error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
     }

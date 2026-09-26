@@ -9,12 +9,15 @@ import { scopeOf } from "@deepseek-ai/dsh-scope";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { hideAgentBrowser } from "./agent-browser.js";
+import { modelLabel } from "./model-label.js";
 import { assertRootOnDisk, serverFolder, shortPath } from "./folder-roots.js";
 import { isBrowserCatalog, MCP_CATALOG } from "./mcp-catalog.js";
 import { mountAppTools } from "./app-tools.js";
 import { installContextPolicy, readToolResult } from "./context-policy.js";
 import { outputFiles, outputLocation } from "./product-files.js";
 import { mountRepeatGuard } from "./repeat-guard.js";
+import { FileLocks } from "./file-locks.js";
+import { mountFileLocks } from "./file-lock-tools.js";
 import { sendsOut } from "./spec-from-curl.js";
 import { mountPageFetch } from "./web-page.js";
 import { SKILL_CATALOG } from "./skill-packs.js";
@@ -96,7 +99,7 @@ const DSH_ONE_SHOT_DELEGATION_TOOLS = ["subagent", "subagent_fork", "spawn_teamm
 
 const RUN_DATA_KEYS = new Set([
   "version", "mode", "executionId", "agentId", "agentName", "purpose", "model",
-  "reasoningEffort", "resolvedModel", "resolvedReasoningEffort", "instructions",
+  "reasoningEffort", "resolvedModel", "resolvedModelLabel", "resolvedReasoningEffort", "instructions",
   "workspaceId", "workItemId", "agentPresetId", "grants", "stagePurpose",
   "mcpAccess", "mcpServers", "capabilities", "participantIds", "contextId", "candidateExecutionId", "requiresHumanApproval"
 ]);
@@ -130,6 +133,8 @@ export function validateRunData(value) {
     throw new Error("Run data has an invalid reasoning effort");
   if (value.resolvedModel !== undefined && (typeof value.resolvedModel !== "string" || !value.resolvedModel.includes("/")))
     throw new Error("Run data has an invalid resolved provider/model route");
+  if (value.resolvedModelLabel !== undefined && (typeof value.resolvedModelLabel !== "string" || !value.resolvedModelLabel.trim()))
+    throw new Error("Run data has an invalid resolved model label");
   if (value.resolvedReasoningEffort !== null && value.resolvedReasoningEffort !== undefined &&
       (typeof value.resolvedReasoningEffort !== "string" || !value.resolvedReasoningEffort || value.resolvedReasoningEffort.length > 100))
     throw new Error("Run data has an invalid resolved reasoning effort");
@@ -175,8 +180,15 @@ export async function resolveRunModel(ctx, data) {
     selection = { provider: selection.provider, model: latest.id };
   }
   const effort = data.reasoningEffort ?? (data.model ? undefined : selection.reasoningEffort);
+  const route = `${selection.provider}/${selection.model}`;
+  // Snapshot the display name so later model switches do not relabel historical runs.
+  let info;
+  try { info = await ctx.llm.resolveModelInfo(selection.provider, selection.model); }
+  catch { /* A missing display name must not prevent a configured model from running. */ }
+  const provider = ctx.llm?.listProviders?.().find(({ id }) => id === selection.provider);
   return {
-    resolvedModel: `${selection.provider}/${selection.model}`,
+    resolvedModel: route,
+    resolvedModelLabel: modelLabel(route, info?.name, provider?.name),
     resolvedReasoningEffort: effort ?? null
   };
 }
@@ -571,6 +583,12 @@ export class AgentRuntime {
       CREATE TABLE IF NOT EXISTS bees_stage_results (${STAGE_RESULT_COLUMNS}
     `);
     this.policySessions = new Set();
+    this.fileLocks = new FileLocks(resolve(process.env.BEES_APP_DATA ?? tmpdir(), "file-locks"));
+    const releaseFiles = ({ agent }) => {
+      void this.fileLocks.releaseOwner(agent).catch((error) => ctx.logger.warn(`bees: file lock cleanup failed: ${message(error)}`));
+    };
+    ctx.on("agent/status", (event) => { if (event.status === "idle") releaseFiles(event); }, { global: true });
+    ctx.on("agent/disposed", releaseFiles, { global: true });
     ctx.on("agent/created", ({ agent }) => {
       if (this.ownsSession(agent.session)) this.installPolicies(agent.ctx);
     }, { global: true });
@@ -624,7 +642,10 @@ export class AgentRuntime {
     }, { global: true });
     ctx.tools?.guard?.((exec) => {
       // the sandbox confines writes only; an mcp tool's path argument is an api route, not a file
-      const targets = exec.name.startsWith("mcp__") ? [] : ["file_path", "path", "cwd"].map((key) => exec.arguments?.[key]).filter((value) => typeof value === "string");
+      const targets = exec.name.startsWith("mcp__") ? [] : [
+        ...["file_path", "source_path", "path", "cwd"].map((key) => exec.arguments?.[key]),
+        ...(exec.name === "bees_acquire_file_locks" && Array.isArray(exec.arguments?.paths) ? exec.arguments.paths : [])
+      ].filter((value) => typeof value === "string");
       const link = database.prepare(`SELECT execution_id AS id, config_json AS config, resolved(run_directory, workspace_id) AS directory
         FROM execution_links WHERE current_session_id IN (?, ?)`)
         .get(String(exec.agent?.session?.id), String(exec.agent?.session?.header?.parentSession ?? ""));
@@ -1037,6 +1058,7 @@ export class AgentRuntime {
     if (discovery) mountToolDiscovery(agentCtx, this.ctx.credentials, (name) => !this.mcpDenied(data, name));
     installContextPolicy(agentCtx);
     mountRepeatGuard(agentCtx, owner);
+    mountFileLocks(agentCtx, owner, this.fileLocks, this.ctx.fs, this.ctx.get("sandboxPolicy"));
     mountPageFetch(agentCtx, this.ctx.web);
   }
 
@@ -1950,7 +1972,7 @@ export class AgentRuntime {
         if (Object.hasOwn(payload, "refreshedModel")) data.model = payload.refreshedModel;
         if (Object.hasOwn(payload, "refreshedReasoningEffort")) data.reasoningEffort = payload.refreshedReasoningEffort;
         // Strip the old resolved fields so resolveRunModel re-derives them from data.model.
-        const { resolvedModel: _rm, resolvedReasoningEffort: _rre, ...base } = data;
+        const { resolvedModel: _rm, resolvedModelLabel: _rml, resolvedReasoningEffort: _rre, ...base } = data;
         data = { ...base, ...await resolveRunModel(this.ctx, base) };
         validateRunData(data);
         this.database.prepare("UPDATE execution_links SET config_json = ?, updated_at = ? WHERE execution_id = ?")
@@ -2010,6 +2032,7 @@ export class AgentRuntime {
       requestedModel: data.model,
       requestedReasoningEffort: data.reasoningEffort ?? null,
       resolvedModel: data.resolvedModel ?? null,
+      resolvedModelLabel: data.resolvedModelLabel ?? modelLabel(data.resolvedModel),
       resolvedReasoningEffort: data.resolvedReasoningEffort ?? null
     });
     const approvalAbort = new AbortController();
@@ -2130,7 +2153,7 @@ export class AgentRuntime {
     if (this.closing) return;
     if (result.outcome === "failed" && result.error) {
       const data = JSON.parse(this.run(executionId)?.configJson ?? "{}");
-      const model = data.resolvedModel ?? data.model;
+      const model = data.resolvedModelLabel ?? modelLabel(data.resolvedModel ?? data.model);
       const detail = `${data.stagePurpose ?? data.mode ?? "agent"}${data.agentName ? ` (${data.agentName})` : ""}${model ? ` using ${model}` : ""}`;
       const hint = result.error.code === "TRANSPORT"
         ? " Check this agent's model under Agents and its connection under Settings → AI connections before retrying."

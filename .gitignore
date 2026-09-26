@@ -21,3 +21,5 @@ services/api-bridge/bridge.mjs
 .playwright-cli/
 graphify-out/
 CLAUDE.md
+docs/sbom/dsh-runtime.cdx.json
+dsh-runtime/package-lock.json

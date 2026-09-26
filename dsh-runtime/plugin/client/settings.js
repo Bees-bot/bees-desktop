@@ -9,8 +9,9 @@ import {
 import { MemorySettings } from "./collaboration.js";
 import { SystemDefaultSettings } from "./agents.js";
 
-function AiSettings({ ctx, modelSettings, preferences, systemDefault, reload }) {
+function AiSettings({ ctx, modelSettings, preferences, systemDefault, reload, productSettings }) {
   const preference = usePreference(preferences);
+  const generation = productSettings.generation;
   const isOnboarding = preference.onboarding?.active;
   const [modelsChanged, setModelsChanged] = useState(0);
 
@@ -20,20 +21,30 @@ function AiSettings({ ctx, modelSettings, preferences, systemDefault, reload }) 
       h("p", null, "Connect or start a model below, save it as your system default, then return to setup to test it. You can continue setup during a download.")
     ) : null,
 
-    h(SystemDefaultSettings, { ctx, modelSettings, systemDefault, reload, modelsChanged }),
+    h(SystemDefaultSettings, { ctx, modelSettings, systemDefault, reload, modelsChanged,
+      saveDefault: preferences.productDefaults ? (selection) => productSettings.save("agent-default-model", "selection", selection, generation) : undefined,
+      catalogModels: preferences.productDefaults ? preference.localModelCatalog : undefined,
+      defaultModelLists: preferences.productDefaults ? { codex: preference.codexModels,
+        claude: productSettings.state.values["bees-subscriptions"].models } : undefined }),
 
     h(SubscriptionSettings, { modelSettings, preferences, systemDefault, ask, openExternal, Button,
+      productDefaults: preferences.productDefaults ? {
+        claudeModels: productSettings.state.values["bees-subscriptions"].models,
+        saveClaudeModels: (models) => productSettings.save("bees-subscriptions", "models", models, generation)
+      } : null,
       onChange: () => setModelsChanged((count) => count + 1) }),
-    h(FreeAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button }),
+    h("fieldset", { disabled: preferences.productDefaults, style: { border: 0, padding: 0, minWidth: 0 } },
+      h(FreeAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button })),
     h(CustomAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button }),
     h(LocalAiSettings, { modelSettings, preferences, systemDefault, ask, confirmAction, Button }),
-    h(ExternalLocalAiSettings, { modelSettings, preferences, systemDefault, ask, Button })
+    h("fieldset", { disabled: preferences.productDefaults, style: { border: 0, padding: 0, minWidth: 0 } },
+      h(ExternalLocalAiSettings, { modelSettings, preferences, systemDefault, ask, Button }))
   );
 }
 
-function AppearanceSettings({ ctx, preferences }) {
+function AppearanceSettings({ ctx, preferences, productSettings }) {
   const preference = usePreference(preferences);
-  const chat = React.useMemo(() => ctx.configForms.get("ui-chat"), [ctx]);
+  const chat = React.useMemo(() => productSettings.scope("ui-chat", ctx.configForms.get("ui-chat")), [ctx, productSettings]);
   const chatPreference = usePreference(chat);
   const theme = ctx.get?.("theme") ?? ctx.theme;
   const preset = THEME_PRESETS.some(({ id }) => id === preference.themePreset)
@@ -54,7 +65,7 @@ function AppearanceSettings({ ctx, preferences }) {
     const nextMode = option.dark ? "dark" : "light";
     await preferences.set("themePreset", option.id);
     await preferences.set("colorMode", nextMode);
-    theme.setTheme(nextMode);
+    if (!preferences.productDefaults) theme.setTheme(nextMode);
   };
   return h("div", { className: "bees-stack" },
     h("section", { className: "bees-box" }, h("h3", null, "Conversation details"),
@@ -76,13 +87,15 @@ function AppearanceSettings({ ctx, preferences }) {
         ...THEME_PRESETS.map((option) => h("option", { key: option.id, value: option.id }, option.id === "bumblebee" ? `${option.label} (Recommended)` : option.label)))))),
     h("section", { className: "bees-box bees-appearance-card" }, 
       h("h3", { className: "bees-section-title" }, "Theme"),
-      h("p", { className: "bees-muted" }, "All 35 themes from old Bees. The selected palette applies across organizations and teams on this device."),
+      h("p", { className: "bees-muted" }, preferences.productDefaults
+        ? "The selected palette becomes the default for new installations."
+        : "All 35 themes from old Bees. The selected palette applies across organizations and teams on this device."),
       h("div", { className: "bees-theme-grid" }, ...THEME_PRESETS.map((option) =>
         h("button", { type: "button", key: option.id,
           className: `bees-theme-card ${preset === option.id ? "active" : ""}`,
           "aria-pressed": preset === option.id, onClick: () => void chooseTheme(option) },
         h("span", { className: "bees-theme-swatches", "aria-hidden": "true" },
-          ...option.colors.map((color) => h("span", { key: color, style: { background: color } }))),
+          ...option.colors.map((color, index) => h("span", { key: index, style: { background: color } }))),
         h("strong", null, option.label))))));
 }
 
@@ -719,14 +732,14 @@ function SettingsGroup({ label, routes, route, navigate, role, connected = true,
       onClick: () => navigate(id) }, text)));
 }
 
-function SettingsLayout({ route, navigate, organization, team, children }) {
+function SettingsLayout({ route, navigate, organization, team, platform, children }) {
   const teamRoute = team && TEAM_SETTINGS.some(([id]) => id === route);
   return h("div", { className: "bees-settings-layout" },
     h("aside", { className: "bees-settings-menu" },
       teamRoute ? h(SettingsGroup, { label: team.name, routes: TEAM_SETTINGS, route, navigate, role: team.role, divider: false })
         : h(React.Fragment, null,
           h("div", { className: "bees-settings-menu-label" }, "Global"),
-          ...GLOBAL_SETTINGS.map(([id, label]) => h("button", { type: "button", key: id,
+          ...GLOBAL_SETTINGS.filter(([id]) => id !== "platform-admin" || platform?.isPlatformAdmin).map(([id, label]) => h("button", { type: "button", key: id,
             className: route === id ? "active" : "", "aria-current": route === id ? "page" : null,
             onClick: () => navigate(id) }, label)),
           organization ? h(SettingsGroup, { label: organization.name, routes: ORGANIZATION_SETTINGS, route, navigate,
@@ -736,7 +749,7 @@ function SettingsLayout({ route, navigate, organization, team, children }) {
 
 export function SettingsPage({
   ctx, data, act, route, teamId, organizationId, connectionId, modelSettings, preferences, reload,
-  preference = {}, openOrganization, navigate = () => undefined
+  preference = {}, openOrganization, navigate = () => undefined, productSettings, platform
 }) {
   const connection = data.connections?.find(({ id }) => id === connectionId);
   const connectionTeam = data.connectionTeams?.find((row) =>
@@ -763,11 +776,21 @@ export function SettingsPage({
         : rawTeam.role !== "admin" ? h(Empty, null, "Only team administrators can set this team's folders")
           : h(FoldersSettings, { ctx, data, team: rawTeam, act })
 
+    : route === "platform-admin" ? platform?.isPlatformAdmin ? h("section", { className: "bees-box" },
+      h("h2", null, "Platform Admin"),
+      h("label", { style: { display: "flex", gap: "10px", alignItems: "center" } },
+        h("input", { type: "checkbox", role: "switch", checked: platform.editing, disabled: platform.busy || !platform.editable,
+          onChange: (event) => void productSettings.toggle(event.target.checked) }), "Edit product defaults"),
+      h("p", { className: "bees-muted" }, platform.editable
+        ? "Use the existing AI, appearance and layout controls. Changes save immediately into the product for future builds. Turn this off to return to personal settings."
+        : "Editing product defaults requires the Bees development build with a writable source checkout."))
+      : h(Empty, null, "Platform administrator access is unavailable.")
     : route === "personal-ai"
-      ? h(AiSettings, { ctx, modelSettings, preferences, systemDefault: data.systemDefaultModel, reload })
+      ? h(AiSettings, { ctx, modelSettings, preferences, systemDefault: platform?.editing
+        ? platform.values["agent-default-model"].selection : data.systemDefaultModel, reload, productSettings })
     : route === "system-instructions"
       ? h(SystemInstructionsSettings, { preferences, instructions: preference.systemInstructions ?? "" })
-    : route === "appearance" ? h(AppearanceSettings, { ctx, preferences })
+    : route === "appearance" ? h(AppearanceSettings, { ctx, preferences, productSettings })
     : route === "data-folder" ? h(DataFolderSettings, { ctx, data, act })
     : route === "removing-bees" ? h(RemoveBeesSettings, { dataFolder: data.dataFolder })
     : route === "organizations" ? h(OrganizationsSettings)
@@ -778,5 +801,5 @@ export function SettingsPage({
       })
       : h(Empty, null, "Choose a settings section");
   // the rail lists this computer's own settings, so its team group carries the local role
-  return h(SettingsLayout, { route, navigate, organization, team: rawTeam }, content);
+  return h(SettingsLayout, { route, navigate, organization, team: rawTeam, platform }, content);
 }

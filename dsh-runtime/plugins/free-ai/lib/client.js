@@ -126,7 +126,7 @@ window.__ModuleLoader__.load({
 
       const acceptState = async (next) => { setState(next); await syncFreeRoute(modelSettings, next); };
       const refresh = async () => acceptState(await loadState());
-      useEffect(() => { void refresh().catch((reason) => setError(reason.message)); }, []);
+      useEffect(() => { if (!modelSettings.productDefaults) void refresh().catch((reason) => setError(reason.message)); }, [modelSettings.productDefaults]);
 
       const perform = async (name, work) => {
         setBusy(name); setError(""); setNotice("");
@@ -215,7 +215,9 @@ window.__ModuleLoader__.load({
               h("td", null, h(Button, { className: "danger", title: lastDefaultKey ? defaultGuard : "",
                 disabled: Boolean(busy) || lastDefaultKey, onClick: () => remove(row) }, "Remove")));
           })))) : state ? h("section", { className: "bees-box" }, h("p", { className: "bees-muted" }, "No Free LLM provider has been added yet. Select Add provider to get started.")) :
-          h("section", { className: "bees-box" }, h("p", { className: "bees-muted" }, "Starting the embedded FreeLLMAPI router…")),
+          h("section", { className: "bees-box" }, h("p", { className: "bees-muted" }, modelSettings.productDefaults
+            ? "Free LLM credentials and connections are configured on each device."
+            : "Starting the embedded FreeLLMAPI router…")),
         notice ? h("div", { className: "bees-free-callout", role: "status" }, notice) : null,
         error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
     }

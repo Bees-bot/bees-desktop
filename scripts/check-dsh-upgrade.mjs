@@ -16,7 +16,30 @@ const root = mkdtempSync(join(tmpdir(), "bees-rc2-check-"));
 for (const key of ["BEES_APP_DATA", "BEES_DATA_DIR", "BEES_STATE_DIR", "BEES_DEFAULT_WORKSPACE"]) process.env[key] = root;
 writeFileSync(join(root, "device-id"), "rc2-check-device");
 try {
-  const { AgentRuntime } = await import("../dsh-runtime/plugin/lib/agent-runtime.js");
+  const { AgentRuntime, resolveRunModel } = await import("../dsh-runtime/plugin/lib/agent-runtime.js");
+  const { modelLabel } = await import("../dsh-runtime/plugin/lib/model-label.js");
+  // Human-readable labels must never replace the route used to run a model.
+  let localName = "Qwen3 4B";
+  const modelContext = {
+    agentDefaultModel: { currentSelection: () => ({ provider: "local-openai", model: "active" }) },
+    llm: {
+      listProviders: () => [{ id: "local-openai", name: "Bees AI" }, { id: "openai", name: "OpenAI" }],
+      resolveModelInfo: async () => ({ name: localName })
+    }
+  };
+  const firstModel = await resolveRunModel(modelContext, {});
+  assert.equal(firstModel.resolvedModel, "local-openai/active");
+  assert.equal(firstModel.resolvedModelLabel, "Local · Qwen3 4B");
+  localName = "Gemma 4B";
+  assert.equal((await resolveRunModel(modelContext, {})).resolvedModelLabel, "Local · Gemma 4B");
+  assert.equal(firstModel.resolvedModelLabel, "Local · Qwen3 4B");
+  modelContext.llm.resolveModelInfo = async () => { throw new Error("Catalog unavailable"); };
+  assert.equal((await resolveRunModel(modelContext, {})).resolvedModelLabel, "Local · active model (name unavailable)");
+  assert.equal(modelLabel("local-openai-qwen3/active", "Qwen3 4B"), "Local · Qwen3 4B");
+  assert.equal(modelLabel("local-openai/active", "Bees AI model"), "Local · active model (name unavailable)");
+  const cloudModel = await resolveRunModel(modelContext, { model: "openai/gpt-example" });
+  assert.equal(cloudModel.resolvedModel, "openai/gpt-example");
+  assert.equal(cloudModel.resolvedModelLabel, "OpenAI · gpt-example");
   const { initializeProductDatabase } = await import("../dsh-runtime/plugin/lib/product-database.js");
   const { readToolResult } = await import("../dsh-runtime/plugin/lib/context-policy.js");
   const database = new DatabaseSync(":memory:");

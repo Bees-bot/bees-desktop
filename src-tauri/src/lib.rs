@@ -594,6 +594,12 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(errors));
+    // Only development builds can write shipped defaults back into the source checkout.
+    #[cfg(debug_assertions)]
+    command.env(
+        "BEES_PRODUCT_SOURCE",
+        Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap(),
+    );
     let mut child = Sidecar::new(
         startup::step("node.spawn", || command.spawn())
             .map_err(|error| format!("DeepSeek Harness could not start: {error}"))?,
