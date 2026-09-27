@@ -82,7 +82,7 @@ export function AgentModelSelect({ ctx, value = "", effort = "", systemDefault, 
       ...groups.map((group) => h("optgroup", { label: group.name, key: group.id },
         ...(group.id === "openai-codex" ? channels.map((channel) => h("option", {
           value: channel.route, key: `channel:${channel.id}`
-        }, `Latest ${channel.name} (auto-updates)`)) : []),
+        }, `Latest ${channel.name} (${channel.model.id}, auto-updates)`)) : []),
         ...group.models.map((model) => h("option", { value: `${group.id}/${model.id}`, key: model.id },
           productCatalog && group.id === "local-openai" ? "Active local model on each device" : agentModelLabel(group, model)))))),
     catalog.error ? h("span", { className: "bees-muted", role: "status" }, `Could not load available models: ${catalog.error}`)

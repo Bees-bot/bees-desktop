@@ -35,6 +35,8 @@ test("account discovery accepts new model IDs and advertises capabilities the ru
 
 async function subscriptions(t, { connected = true, enabled = true } = {}) {
   let excluded = [], mutations = 0, handler;
+  let finishStartup;
+  const startupComplete = new Promise((resolve) => { finishStartup = resolve; });
   const credentials = new Map(connected ? [["BEES_CODEX_OAUTH", JSON.stringify(grant)], ["BEES_CODEX_ACCESS_TOKEN", grant.access]] : []);
   const saved = [{ id: "gpt-5.6-sol", name: "Saved Sol" }, { id: "custom-model", maxTokens: 1234 }];
   const section = { ns: "llm-pi-ai", revision: 0, value: { providers: {
@@ -51,6 +53,8 @@ async function subscriptions(t, { connected = true, enabled = true } = {}) {
     settings: {
       describe: () => [structuredClone(section)],
       async mutate(ns, [op], revision) {
+        // DSH settings edits reconcile the Loader, which waits for every plugin's apply() to finish.
+        await startupComplete;
         assert.equal(ns, "llm-pi-ai");
         assert.equal(revision, section.revision);
         assert.deepEqual(op.path, ["providers", "openai-codex", "models"]);
@@ -63,8 +67,14 @@ async function subscriptions(t, { connected = true, enabled = true } = {}) {
     effect(fn) { const dispose = fn(); t.after(() => dispose?.()); },
     webServer: { register(route) { handler = route.handler; return () => {}; } }
   };
-  await apply(ctx, { models: { get: () => ["default"] }, codexExcludedModels: { get: () => excluded } });
-  return {
+  let timer;
+  try {
+    await Promise.race([
+      apply(ctx, { models: { get: () => ["default"] }, codexExcludedModels: { get: () => excluded } }),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Codex discovery blocked plugin startup")), 1000); })
+    ]);
+  } finally { clearTimeout(timer); finishStartup(); }
+  const app = {
     section, warnings, credentials, mutations: () => mutations,
     async request(input) {
       let status, body;
@@ -73,6 +83,8 @@ async function subscriptions(t, { connected = true, enabled = true } = {}) {
       return { status, body };
     }
   };
+  await app.request();
+  return app;
 }
 
 test("existing connections refresh automatically, preserve choices, and keep removals hidden", async (t) => {

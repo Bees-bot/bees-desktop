@@ -512,7 +512,8 @@ export async function apply(ctx, config) {
     if ((!enabled || !path) && claudeRegistration) { claudeRegistration(); claudeRegistration = null; }
   };
   const syncClaude = (reset = false) => { claudeSync = claudeSync.then(() => updateClaude(reset), () => updateClaude(reset)); return claudeSync; };
-  await time("subscriptions.codex.refresh", ensureCodex).catch((error) => ctx.logger.warn(`Codex token refresh failed: ${error.message}`));
+  // Settings edits wait for the whole Loader tree. Awaiting one inside apply() deadlocks startup.
+  void time("subscriptions.codex.refresh", ensureCodex).catch((error) => ctx.logger.warn(`Codex token refresh failed: ${error.message}`));
   await time("subscriptions.claude.configure", syncClaude);
   const refreshTimer = setInterval(() => {
     void ensureCodex().catch((error) => ctx.logger.warn(`Codex token refresh failed: ${error.message}`));
