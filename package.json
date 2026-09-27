@@ -22,7 +22,7 @@
     "check:file-locks": "node --test dsh-runtime/plugin/lib/file-locks.test.js",
     "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "tauri:build": "tauri build",
-    "check:dsh-upgrade": "node scripts/check-dsh-upgrade.mjs && node --test dsh-runtime/plugin/client/run-file-preview.test.js"
+    "check:dsh-upgrade": "node scripts/check-dsh-upgrade.mjs && node --test dsh-runtime/plugin/client/run-file-preview.test.js dsh-runtime/plugins/subscriptions/lib/codex-models.test.js"
   },
   "dependencies": {
     "@tauri-apps/api": "2.11.1",

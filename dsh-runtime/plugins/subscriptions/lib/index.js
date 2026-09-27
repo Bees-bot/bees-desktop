@@ -5,13 +5,14 @@ import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import { spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
+import { isDeepStrictEqual } from "node:util";
 import { LlmAdapter, LlmError } from "@deepseek-ai/dsh-llm";
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import { OPENAI_CODEX_MODELS } from "@earendil-works/pi-ai/providers/openai-codex.models";
 import z from "@deepseek-ai/schemastery";
 
 export const name = "bees-subscriptions";
-export const inject = ["webServer", "credentials", "llm"];
+export const inject = ["webServer", "credentials", "llm", "settings"];
 
 const CODEX_OAUTH_REF = "BEES_CODEX_OAUTH";
 const CODEX_ACCESS_REF = "BEES_CODEX_ACCESS_TOKEN";
@@ -19,11 +20,61 @@ const CLAUDE_PATH_REF = "BEES_CLAUDE_CODE_PATH";
 const CLAUDE_ENABLED_REF = "BEES_CLAUDE_CODE_ENABLED";
 const CLAUDE_MODELS_REF = "BEES_CLAUDE_CODE_MODELS";
 const DEFAULT_CLAUDE_MODELS = ["default", "sonnet", "opus", "haiku"];
-export const Config = z.object({ models: z.array(z.string()).default(DEFAULT_CLAUDE_MODELS).volatile() });
-// Signing in to Codex used to leave it with no models at all, so it never reached the picker and
-// the only way through was typing a model id by hand. pi-ai already ships the catalog.
+export const Config = z.object({
+  models: z.array(z.string()).default(DEFAULT_CLAUDE_MODELS).volatile(),
+  codexExcludedModels: z.array(z.string()).default([]).volatile()
+});
+// The bundled catalog is only a fallback; the signed-in account discovers new models at runtime.
 const DEFAULT_CODEX_MODELS = Object.values(OPENAI_CODEX_MODELS)
   .map(({ id, name, contextWindow, maxTokens }) => ({ id, name, contextWindow, maxTokens }));
+const CODEX_MODEL_REFRESH_MS = 15 * 60_000;
+const CODEX_MODEL_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,199}$/;
+// These are the effort levels supported by the installed pi-ai transport (Ultra needs Codex's agent harness).
+const CODEX_EFFORTS = new Set(["minimal", "low", "medium", "high", "xhigh", "max"]);
+
+export async function fetchCodexModels(stored) {
+  // Codex's catalog protocol version, independent of Bees' version or an installed Codex CLI.
+  const response = await fetch("https://chatgpt.com/backend-api/codex/models?client_version=0.155.0", {
+    headers: { authorization: `Bearer ${stored.access}`, "chatgpt-account-id": stored.accountId, originator: "pi" },
+    signal: AbortSignal.timeout(10_000), redirect: "error"
+  });
+  if (!response.ok) throw new Error(`Codex model discovery returned HTTP ${response.status}`);
+  const body = await response.json();
+  if (!Array.isArray(body?.models)) throw new Error("Codex returned an invalid model catalog");
+  const models = new Map();
+  for (const model of body.models) {
+    if (model?.visibility !== "list" || typeof model.slug !== "string" || !CODEX_MODEL_ID.test(model.slug)) continue;
+    const efforts = Object.fromEntries((Array.isArray(model.supported_reasoning_levels) ? model.supported_reasoning_levels : [])
+      .filter((level) => CODEX_EFFORTS.has(level?.effort)).map(({ effort }) => [effort, effort]));
+    const input = Array.isArray(model.input_modalities) ? model.input_modalities.filter((value) => ["text", "image"].includes(value)) : [];
+    models.set(model.slug, {
+      id: model.slug,
+      name: typeof model.display_name === "string" && model.display_name.trim() ? model.display_name : model.slug,
+      ...(Number.isSafeInteger(model.context_window) && model.context_window > 0 ? { contextWindow: model.context_window } : {}),
+      ...(input.length ? { input } : {}),
+      ...(Object.keys(efforts).length ? { reasoningEfforts: efforts } : {})
+    });
+  }
+  if (!models.size) throw new Error("Codex returned no visible models; keeping the saved catalog");
+  return [...models.values()];
+}
+
+function mergeCodexModels(saved, discovered, excluded) {
+  const models = new Map(saved.map((model) => [model.id, model]));
+  for (const model of discovered) models.set(model.id, { ...models.get(model.id), ...model });
+  return [...models.values()].filter(({ id }) => !excluded.includes(id));
+}
+
+async function syncCodexModels(ctx, discovered, excluded) {
+  const settings = ctx.settings.describe().find(({ ns }) => ns === "llm-pi-ai");
+  const profile = settings?.value?.providers?.["openai-codex"];
+  // A refresh must never enable a disabled connection or change a separately configured provider.
+  if (profile?.apiKeyEnv !== CODEX_ACCESS_REF) return;
+  const models = mergeCodexModels(profile.models ?? DEFAULT_CODEX_MODELS, discovered, excluded);
+  if (!isDeepStrictEqual(models, profile.models)) await ctx.settings.mutate(settings.ns, [
+    { op: "set", path: ["providers", "openai-codex", "models"], value: models }
+  ], settings.revision);
+}
 const CLAUDE_REASONING = { efforts: ["low", "medium", "high", "xhigh", "max"].map((id) => ({
   id, name: `${id[0].toUpperCase()}${id.slice(1)}`
 })) };
@@ -409,10 +460,48 @@ export async function apply(ctx, config) {
   let pending = null;
   let claudeRegistration = null;
   let refreshingCodex = null;
+  let codexModels = DEFAULT_CODEX_MODELS;
+  let codexCatalogLoaded = false;
+  let codexModelError = "";
+  let codexSyncError = "";
+  let nextCodexModelRefresh = 0;
+  let codexAccountId;
   let claudeSync = Promise.resolve();
   const adapter = new ClaudeCodeAdapter(ctx, config);
-  const ensureCodex = () => {
-    refreshingCodex ??= refreshCodex(ctx).finally(() => { refreshingCodex = null; });
+  const ensureCodex = (force = false) => {
+    refreshingCodex ??= (async () => {
+      if (!await refreshCodex(ctx)) return false;
+      const stored = credential((await ctx.credentials.resolve(CODEX_OAUTH_REF))?.value);
+      if (stored.accountId !== codexAccountId) {
+        codexAccountId = stored.accountId;
+        codexModels = DEFAULT_CODEX_MODELS;
+        codexCatalogLoaded = false;
+        nextCodexModelRefresh = 0;
+      }
+      if (force || Date.now() >= nextCodexModelRefresh) {
+        try {
+          codexModels = await fetchCodexModels(stored);
+          codexCatalogLoaded = true;
+          codexModelError = "";
+          nextCodexModelRefresh = Date.now() + CODEX_MODEL_REFRESH_MS;
+        } catch (error) {
+          codexModelError = "Could not refresh Codex models. Your saved models are still available; Bees will retry automatically.";
+          nextCodexModelRefresh = Date.now() + 60_000;
+          ctx.logger.warn(`Codex model refresh failed: ${error.message}`);
+        }
+      }
+      // Updating the shared provider also updates agent runs and Latest Sol/Luna, not just Settings.
+      if (codexCatalogLoaded) {
+        try {
+          await syncCodexModels(ctx, codexModels, config.codexExcludedModels.get());
+          codexSyncError = "";
+        } catch (error) {
+          codexSyncError = "Could not update the available Codex models. Bees will retry automatically.";
+          ctx.logger.warn(`Codex model settings update failed: ${error.message}`);
+        }
+      }
+      return true;
+    })().finally(() => { refreshingCodex = null; });
     return refreshingCodex;
   };
   const updateClaude = async (reset = false) => {
@@ -440,7 +529,7 @@ export async function apply(ctx, config) {
         const models = await configuredClaudeModels(ctx, config.models.get());
         let version = "";
         if (path) version = await claudeVersion(path).catch(() => "Unavailable");
-        return json(res, 200, { codex, codexModels: DEFAULT_CODEX_MODELS,
+        return json(res, 200, { codex, codexModels: codexModels.filter(({ id }) => !config.codexExcludedModels.get().includes(id)), codexModelError: codexModelError || codexSyncError,
           claude: { configured: Boolean(path), enabled, path, version, models } });
       }
       if (req.method !== "POST") return json(res, 405, { error: "method not allowed" });
@@ -461,19 +550,35 @@ export async function apply(ctx, config) {
           const value = await current.result;
           await ctx.credentials.set(CODEX_OAUTH_REF, JSON.stringify(value));
           await ctx.credentials.set(CODEX_ACCESS_REF, value.access);
-          return json(res, 200, { connected: true });
+          await ensureCodex(true);
+          return json(res, 200, { connected: true, models: codexModels.filter(({ id }) => !config.codexExcludedModels.get().includes(id)) });
         } finally {
           current.abort.abort();
           if (pending === current) pending = null;
         }
       }
       if (input.action === "codex_test") {
-        if (!await ensureCodex()) throw new Error("Sign in to Codex first");
+        if (!await ensureCodex(true)) throw new Error("Sign in to Codex first");
         return json(res, 200, { ok: true });
       }
+      if (input.action === "codex_models") {
+        if (!Array.isArray(input.models) || !input.models.length || input.models.length > 100 || input.models.some((id) => typeof id !== "string" || !CODEX_MODEL_ID.test(id)))
+          throw new Error("Choose between 1 and 100 valid Codex model IDs");
+        const selected = new Set(input.models);
+        const excluded = [...new Set([...config.codexExcludedModels.get(), ...codexModels.map(({ id }) => id)])].filter((id) => !selected.has(id));
+        await ctx.settings.update(ctx.fiber.entry?.options.id ?? name, { codexExcludedModels: excluded });
+        return json(res, 200, { models: mergeCodexModels(input.models.map((id) => ({ id })), codexModels, excluded) });
+      }
       if (input.action === "codex_logout") {
+        await refreshingCodex;
         await ctx.credentials.unset(CODEX_OAUTH_REF);
         await ctx.credentials.unset(CODEX_ACCESS_REF);
+        codexModels = DEFAULT_CODEX_MODELS;
+        codexCatalogLoaded = false;
+        codexModelError = "";
+        codexSyncError = "";
+        codexAccountId = undefined;
+        nextCodexModelRefresh = 0;
         return json(res, 200, { connected: false });
       }
       if (input.action === "claude_configure") {

@@ -55,18 +55,20 @@ window.__ModuleLoader__.load({
         finally { setBusy(""); }
       };
       const claude = productDefaults ? { configured: true, enabled: false, models: productDefaults.claudeModels } : status.claude;
-      const codexModels = config.providers?.["openai-codex"]?.models ?? ui.codexModels
-        ?? status.codexModels ?? [];
+      const codexModels = config.providers?.["openai-codex"]?.models
+        ?? (ui.codexModels?.length ? ui.codexModels : status.codexModels) ?? [];
       const codexProfile = (models = codexModels) => {
-        const profile = { displayName: "Codex (ChatGPT subscription)", apiKeyEnv: CODEX_ACCESS_REF };
+        const profile = { ...config.providers?.["openai-codex"], displayName: "Codex (ChatGPT subscription)", apiKeyEnv: CODEX_ACCESS_REF };
         if (models.length) profile.models = models;
+        else delete profile.models;
         return profile;
       };
       const connectCodex = () => perform("codex", async () => {
         const { authUrl } = await command("codex_start");
         await openExternal(authUrl);
-        await command("codex_await");
-        await modelSettings.set("providers", { ...(config.providers ?? {}), "openai-codex": codexProfile() });
+        const { models = [] } = await command("codex_await");
+        const available = [...new Map([...codexModels, ...models].map((model) => [model.id, model])).values()];
+        await modelSettings.set("providers", { ...(config.providers ?? {}), "openai-codex": codexProfile(available) });
       });
       const testCodex = () => perform("codex-test", () => command("codex_test"), "Codex connection works.");
       const disconnectCodex = () => perform("codex", async () => {
@@ -78,13 +80,18 @@ window.__ModuleLoader__.load({
         const providers = { ...(config.providers ?? {}) };
         if (enabled) providers["openai-codex"] = codexProfile();
         else {
-          if (codexModels.length) await preferences.set("codexModels", codexModels);
+          if (codexModels.length) await preferences.set("codexModels", codexModels.map(({ id, name, contextWindow, maxTokens }) => ({ id, name, contextWindow, maxTokens })));
           delete providers["openai-codex"];
         }
         await modelSettings.set("providers", providers);
       });
       const saveCodexModels = async (models) => {
-        await preferences.set("codexModels", models);
+        if (!productDefaults) {
+          const result = await command("codex_models", { models: models.map(({ id }) => id) });
+          models = result.models.map((model) => ({ ...models.find(({ id }) => id === model.id), ...model }));
+        }
+        // UI preferences store display metadata; the provider keeps the discovered capabilities too.
+        await preferences.set("codexModels", models.map(({ id, name, contextWindow, maxTokens }) => ({ id, name, contextWindow, maxTokens })));
         if (!codexEnabled) return;
         await modelSettings.set("providers", { ...(config.providers ?? {}), "openai-codex": codexProfile(models) });
       };
@@ -118,11 +125,14 @@ window.__ModuleLoader__.load({
         h("div", { className: "bees-subscriptions" },
           h("section", { className: "bees-box bees-subscription", "data-subscription": "codex" },
             h("div", { className: "bees-subscription-main" }, h("h3", null, "Codex"),
-              h("p", { className: "bees-muted" }, busy === "codex" ? "Finish signing in in the browser window." : "Sign in with ChatGPT; no API key is required."),
+              h("p", { className: "bees-muted" }, busy === "codex" ? "Finish signing in in the browser window."
+                : status.codex ? "Available models refresh automatically. Models you remove stay hidden."
+                  : "Sign in with ChatGPT; no API key is required."),
+              status.codexModelError ? h("p", { className: "bees-muted", role: "status" }, status.codexModelError) : null,
               (status.codex || productDefaults) ? h("div", { className: "bees-subscription-models" },
                 ...(codexModels.length ? codexModels.map((model) => h("span", { className: "bees-badge", key: model.id }, model.id,
-                  h(Button, { title: codexModels.length > 1 && protects("openai-codex", model.id) ? defaultGuard : `Remove ${model.id}`,
-                    "aria-label": `Remove ${model.id}`, disabled: Boolean(busy) || (codexModels.length > 1 && protects("openai-codex", model.id)),
+                  h(Button, { title: protects("openai-codex", model.id) ? defaultGuard : `Remove ${model.id}`,
+                    "aria-label": `Remove ${model.id}`, disabled: Boolean(busy) || (!productDefaults && codexModels.length <= 1) || protects("openai-codex", model.id),
                     onClick: () => removeCodexModel(model.id) }, "×")))
                   : [h("span", { className: "bees-muted", key: "all" }, "All available models")]),
                 h(Button, { disabled: Boolean(busy), onClick: addCodexModel }, "Add model")) : null),
