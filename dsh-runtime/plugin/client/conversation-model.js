@@ -33,24 +33,28 @@ const TOOL_TARGET = ["url", "query", "file_path", "path", "command", "pattern", 
 const TOOL_NAMES = {
   bash: "Ran a command", read: "Read a file", write: "Wrote a file", edit: "Edited a file",
   glob: "Looked for files", grep: "Searched the files", web_search: "Searched the web", web_fetch: "Read a page",
+  bees_search_web: "Searched the web", bees_search_news: "Searched the news", bees_fetch_page: "Read a page",
   send_message: "Messaged a teammate", wait_agent: "Waiting for a teammate", bees_wait_for_team: "Waiting for a teammate", followup_task: "Asked for another round",
   ask_user_question: "Asked you a question", bees_control: "Set up Bees",
   bees_delegate_work: "Handed work to a peer", bees_submit_stage_result: "Submitted this stage",
-  bees_request_work_review: "Asked you to approve", bees_publish_outputs: "Published the deliverables"
+  bees_request_work_review: "Asked you to approve", bees_publish_outputs: "Published the deliverables", present: "Shared files",
+  bees_find_tools: "Looked for tools", bees_read_tool_result: "Read a tool result", bees_propose_changes: "Proposed changes"
 };
 export const readableTool = (name = "") => (Object.hasOwn(TOOL_NAMES, name) ? TOOL_NAMES[name] : name.startsWith("mcp__")
-  ? name.split("__").slice(1).join(" · ").replace(/[-_]/g, " ")
-  : name.replace(/[-_]/g, " "));
+  ? [...new Set(name.split("__").slice(1))].join(" · ").replace(/[-_]/g, " ")
+  : name.replace(/^bees_/, "").replace(/[-_]/g, " ").replace(/^./, (first) => first.toUpperCase()));
 export function toolLine(part) {
   const input = part.input && typeof part.input === "object" ? part.input : {};
-  const target = TOOL_TARGET.map((key) => input[key]).find(Boolean);
-  return `${readableTool(part.toolName)}${target ? ` · ${String(target).slice(0, 120).replace(/\s+/g, " ").slice(0, 90)}` : ""}`;
+  // a temp folder path ate the whole preview, so absolute paths keep only their last part
+  const target = String(TOOL_TARGET.map((key) => input[key]).find(Boolean) ?? "").replace(/(^|\s)\/\S*\/(?=\S)/g, "$1…/");
+  return `${readableTool(part.toolName)}${target ? ` · ${target.slice(0, 120).replace(/\s+/g, " ").slice(0, 90)}` : ""}`;
 }
 
 // Seat traffic carries its own plumbing: an envelope with a uuid, and a note when a background seat
 // stops. Show the critique under the seat's name; drop the note unless it reports a failure.
 const TEAM_ENVELOPE = /^Team message [\w-]+ from ([^:\n]+):\s*/;
 const SUBAGENT_NOTE = /^Background subagent [0-9a-f-]+ finished/;
+const TIME_NOTE = /^Time sampled while preparing turn \d+/;
 const seatName = (name) => /^participant-\d+$/.test(name.trim()) ? "Plan reviewer" : name.trim();
 
 export function conversationMessages(history, runs, assignments, children = []) {
@@ -59,10 +63,11 @@ export function conversationMessages(history, runs, assignments, children = []) 
   const messages = new Map();
   for (const message of history?.messages ?? []) {
     if (message.role === "context") continue;
-    const tool = (message.parts ?? []).find((part) => part.type === "tool");
+    // a failed call the agent retried read as done, e.g. "Submitted this stage" after the submit was refused
+    const tool = (message.parts ?? []).find((part) => part.type === "tool" && part.state !== "output-error");
     const said = (message.parts ?? []).filter((part) => part.text).map((part) => part.text).join("\n\n");
     const raw = [said, tool ? toolLine(tool) : ""].filter(Boolean).join("\n\n");
-    if (!raw.trim()) continue;
+    if (!raw.trim() || TIME_NOTE.test(raw)) continue;
     if (SUBAGENT_NOTE.test(raw) && !/error|failed/i.test(raw)) continue;
     const seat = message.role === "user" ? null : TEAM_ENVELOPE.exec(raw);
     const text = seat ? raw.slice(seat[0].length) : raw;

@@ -1,7 +1,7 @@
 import { h, React, useEffect, useState } from "./runtime.js";
 import { FilePreview } from "./work.js";
 import {
-  ask, AuditEvent, Button, confirmAction, Empty, request, runTitle, useBeesChangeRevision
+  artifactRuns, ask, AuditEvent, Button, confirmAction, Empty, request, runTitle, useBeesChangeRevision, when
 } from "./shared.js";
 import { addLocationFromDevice } from "./location-fields.js";
 
@@ -36,10 +36,7 @@ export function FilesPage({ ctx, data, teamId, act }) {
           location.mapped ? h(Button, { onClick: () => act({ action: "unmap_location", locationId: location.id }) }, "Remove mapping") : null,
           h(Button, { className: "danger", disabled: !["admin", "member"].includes(team?.role), onClick: async () => (await confirmAction(`Archive “${location.name}”? This will not delete the ${location.kind} on your device.`)) && act({ action: "archive_location", locationId: location.id }) }, "Archive")
         )
-      )) : [h(Empty, { key: "empty", action: h("div", { style: { display: "flex", gap: "8px", justifyContent: "center" } },
-        h(Button, { disabled: !teamId || !["admin", "member"].includes(team?.role), onClick: () => addLocationFromDevice(ctx, act, teamId, "file") }, "Choose file"),
-        h(Button, { className: "primary", disabled: !teamId || !["admin", "member"].includes(team?.role), onClick: () => addLocationFromDevice(ctx, act, teamId, "folder") }, "Choose folder")
-      ) }, "No shared team locations yet")])
+      )) : [h(Empty, { key: "empty" }, "No files or folders shared with this team yet")])
     )
   );
 }
@@ -50,10 +47,10 @@ export function ActivityPage({ data, route, workspaceIds, openWorkItem, openProc
   const liveRevision = useBeesChangeRevision();
   useEffect(() => {
     let active = true;
-    if (route === "audit") request("/bees-api/audit")
+    if (route === "audit") request(`/bees-api/audit?workspaceId=${encodeURIComponent(workspaceIds[0] ?? "")}`)
       .then((value) => active && setEvents(value.events ?? []), () => active && setEvents([]));
     return () => { active = false; };
-  }, [route, liveRevision]);
+  }, [route, liveRevision, workspaceIds[0]]);
   if (route === "audit") return h("div", null, ...(events.length ? events.map((event) => {
     const run = runs.find(({ id }) => id === event.executionId);
     const relatedIds = [event.metadata?.itemId, event.metadata?.parentId, event.metadata?.resultId].filter(Boolean);
@@ -61,15 +58,14 @@ export function ActivityPage({ data, route, workspaceIds, openWorkItem, openProc
       workspaceIds.includes(data.processes.find((process) => process.id === processId)?.workspaceId));
     const process = data.processes.find(({ id, workspaceId }) =>
       workspaceIds.includes(workspaceId) && [event.metadata?.processId, event.metadata?.resultId].includes(id));
-    const runItem = run ? data.items.find(({ id }) => id === run.workItemId) : null;
-    const detail = [runItem?.title ?? item?.title ?? process?.name, event.metadata?.outcome === "error" && "Failed"].filter(Boolean).join(" · ");
+    const detail = [(run && runTitle(data, run)) ?? item?.title ?? process?.name, event.metadata?.outcome === "error" && "Failed"].filter(Boolean).join(" · ");
     const onOpen = run ? () => openWorkItem(run.workItemId ?? run.id)
       : item ? () => openWorkItem(item.id) : process ? () => openProcess(process.id) : null;
     return h(AuditEvent, { event, detail, onOpen, key: event.id,
       openLabel: run ? "Open execution" : item ? "Open work item" : "Open process template" });
   }) : [h(Empty, { key: "empty" }, "No audit events yet")]));
-  return h("div", null, ...(runs.length ? runs.map((row) => h("button", { className: "bees-row bees-nav-link", key: row.id, onClick: () => openWorkItem(row.workItemId ?? row.id) },
-    h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, runTitle(data, row)), h("div", { className: "bees-muted" }, [data.assignments.find(({ id }) => id === row.resolvedAgentId)?.name, new Date(row.updatedAt).toLocaleString()].filter(Boolean).join(" · "))),
+  return h("div", null, ...(runs.length ? runs.map((row) => h("button", { className: "bees-row bees-work-item-row", key: row.id, onClick: () => openWorkItem(row.workItemId ?? row.id) },
+    h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, runTitle(data, row)), h("div", { className: "bees-muted" }, [data.assignments.find(({ id }) => id === row.resolvedAgentId)?.name, when(row.updatedAt)].filter(Boolean).join(" · "))),
     h("span", { className: `bees-status bees-${row.status}` }, row.status.replaceAll("_", " ")))) : [h(Empty, { key: "empty" }, "No executions yet")]))
   ;
 }
@@ -80,13 +76,14 @@ export function KnowledgePage({ data, route, workspaceId, teamId, openWorkItem }
   const [searchError, setSearchError] = useState("");
   const [viewer, setViewer] = useState(null);
   if (route === "artifacts") {
-    const rows = data.runs.filter((run) => run.workspaceId === workspaceId && run.outputs?.length);
+    const rows = artifactRuns(data.runs, workspaceId);
     if (!rows.length) return h(Empty, null, "No run artifacts yet");
     return h("div", { className: "bees-stack" }, ...rows.flatMap((run) => [h("div", { className: "bees-row", key: run.id },
       h("div", { className: "bees-row-main" },
-        h("div", { className: "bees-row-title" }, data.items.find(({ id }) => id === run.workItemId)?.title ?? "Run"),
+        h("div", { className: "bees-row-title" }, runTitle(data, run)),
+        h("div", { className: "bees-muted" }, when(run.updatedAt)),
         h("div", { className: "bees-file-list" }, ...run.outputs.map((name) => h(Button, {
-          key: name,
+          key: name, title: name,
           className: viewer?.executionId === run.id && viewer?.path === `outputs/${name}` ? "bees-file-chip active" : "bees-file-chip",
           onClick: () => setViewer({ executionId: run.id, path: `outputs/${name}` })
         }, name))))),
@@ -105,13 +102,13 @@ export function KnowledgePage({ data, route, workspaceId, teamId, openWorkItem }
     results?.length === 0 ? h(Empty, null, "Nothing matched that search") : null,
     ...(results ?? []).map((result) => {
       const source = [result.authority ? `Authority: ${result.authority}` : "",
-        result.modifiedAt ? `Updated ${new Date(result.modifiedAt).toLocaleString()}` : ""].filter(Boolean).join(" · ");
+        result.modifiedAt ? `Updated ${when(result.modifiedAt)}` : ""].filter(Boolean).join(" · ");
       const item = result.kind === "item";
-      return h(item ? "button" : "div", { className: item ? "bees-row bees-nav-link" : "bees-row", key: result.id,
+      return h(item ? "button" : "div", { className: item ? "bees-row bees-work-item-row" : "bees-row", key: result.id,
         onClick: item ? () => openWorkItem(result.id) : undefined }, h("div", { className: "bees-row-main" },
         h("div", { className: "bees-row-title" }, result.title),
         source ? h("div", { className: "bees-muted" }, source) : null,
-        h("div", { className: "bees-muted" }, result.excerpt)));
+        result.excerpt ? h("div", { className: "bees-muted" }, result.excerpt) : null));
     }),
     h("h3", { className: "bees-section-title", style: { marginTop: "24px" } }, "Approved sources"),
     h("div", { className: "bees-grid" },
@@ -127,6 +124,6 @@ export function KnowledgePage({ data, route, workspaceId, teamId, openWorkItem }
             h("div", { className: "bees-muted" }, row.mapped ? "Available for bounded on-demand indexing" : "Map on this device to search")
           )
         )
-      ) : [h(Empty, { key: "empty" }, "No approved sources in this team")])
+      ) : [h(Empty, { key: "empty" }, "No approved sources in this team. Add a folder in Files & folders to search it here.")])
     ));
 }
