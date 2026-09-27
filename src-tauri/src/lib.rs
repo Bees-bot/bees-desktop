@@ -668,15 +668,15 @@ fn watch_dsh(app: tauri::AppHandle, window: tauri::WebviewWindow, home: tauri::U
     thread::spawn(move || {
         // Watching the process alone was not enough: a harness that is running but has stopped
         // answering leaves the window on a dead page with no way back except quitting the app.
-        // Three misses rather than one, so a busy moment does not throw the person off their work.
         // Not being able to read the sidecar's state is not the same as the sidecar being gone,
         // and it used to leave the loop on the first try and send the window back to the start
-        // screen while the harness was serving perfectly well. Both checks get the same patience.
+        // screen while the harness was serving perfectly well, so it still gets three tries.
         let mut misses = 0;
         loop {
-            let healthy = dsh_healthz(&app).is_some_and(|url| healthz_answers(&url));
-            misses = if healthy { 0 } else { misses + 1 };
-            if misses >= 3 {
+            let url = dsh_healthz(&app);
+            misses = if url.as_deref().is_some_and(healthz_answers) { 0 } else { misses + 1 };
+            // a live harness that is only slow (a swapping machine) gets ~30s, since replacing it ends every run in flight
+            if misses >= if url.is_some() { 12 } else { 3 } {
                 break;
             }
             thread::sleep(Duration::from_secs(2));
