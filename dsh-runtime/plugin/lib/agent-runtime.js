@@ -14,7 +14,7 @@ import { assertRootOnDisk, serverFolder, shortPath } from "./folder-roots.js";
 import { isBrowserCatalog, MCP_CATALOG } from "./mcp-catalog.js";
 import { mountAppTools } from "./app-tools.js";
 import { installContextPolicy, readToolResult } from "./context-policy.js";
-import { outputFiles, outputLocation } from "./product-files.js";
+import { outputFiles, outputLocation, runFiles } from "./product-files.js";
 import { mountRepeatGuard } from "./repeat-guard.js";
 import { FileLocks } from "./file-locks.js";
 import { mountFileLocks } from "./file-lock-tools.js";
@@ -24,13 +24,13 @@ import { SKILL_CATALOG } from "./skill-packs.js";
 import { mountToolDiscovery } from "./tool-discovery.js";
 import { WorkContext } from "./work-context.js";
 import { assertPeersSettled, mountPeerCollaboration } from "./peer-collaboration.js";
-import { currentIdentity, itemContext, mcpGrantFor, message, transaction } from "./product-database.js";
+import { currentIdentity, itemContext, mcpGrantFor, message, transaction, userMessage } from "./product-database.js";
 import { authorizeReferences, typedReferences } from "./product-references.js";
 export { authorizeReferences, typedReferences } from "./product-references.js";
 
 /** What a run may build for itself; everything else stays with the screens. */
 const CONTROL_ACTIONS = {
-  product: ["list_items", "list_processes", "create_process", "create_item", "create_goal", "create_recurring_work",
+  product: ["list_items", "list_processes", "list_agents", "create_process", "create_item", "create_goal", "create_recurring_work",
     "add_agent_assignment", "edit_agent_assignment", "set_stage_route"],
   capability: ["search_mcp_registry", "install_mcp_server", "add_mcp_server", "list_skill_pack", "install_skill"]
 };
@@ -42,7 +42,7 @@ const RUN_STALL_MS = Number(process.env.BEES_RUN_STALL_MS ?? 15 * 60_000);
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
-For ordinary runs read inputs from inputs/ and write requested file deliverables under outputs/, as relative paths like outputs/report.md with no leading slash. Anything outside this run is the person's, so ask for it with bees_request_work_review, naming its full path, before you read or write it. The summary is the plain-language, user-facing verdict: say what happened, what the person can use, where any files are, and what is needed next. Keep technical evidence in the evidence record or files instead of making it the summary. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; Bees will ask the user for approval. Request approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result. Take ownership of resolving dependencies: inspect existing inputs, context and available tools, try relevant alternatives, and use bees_control to set up missing capabilities within the task permissions. A missing MCP, file, account connection or detail is a next step to resolve, not a finished result. Ask for only the next concrete dependency with ask_user_question, explain exactly what the person should connect or provide and why, then verify their answer with tools and continue automatically. Never request secrets in chat; direct credentials to the connection settings. Work through remaining dependencies one at a time, preserve completed work, and do not repeat an ineffective attempt or an already answered question. Use bees_request_work_review for real approvals so there is an actionable approval control; never merely say you are waiting for approval. Stop only when the owner explicitly stops the work or denies a required permission. When the task requires external information, use available tools to obtain relevant evidence and follow its stated source restrictions. If the evidence is insufficient, use another relevant source or ask the owner for missing information. Once the evidence is sufficient for the requested scope, complete and submit the work. For authenticated services, prefer an authorized MCP that supports the operation. Otherwise, when the task supplies API credentials, use the supported API over HTTP; never ask a person to sign in for it. Use the browser for authenticated pages only when no available MCP or API supports the operation. Do not use unauthenticated fetch for a page that requires a signed-in session. If the browser then lands on a login wall, ask the owner with ask_user_question, which offers them the browser to sign in. Neither a robots refusal nor a login wall is a reason to finish the run blocked. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means calling bees_control; a document that describes one does not complete that stage. A request that says when work repeats, such as every weekday at 8am, asks for a schedule even without that word: create it with create_recurring_work unless a schedule started this run. When the request only asks for future work, do not also perform that work now unless the owner asks for an immediate run. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. Use bees_delegate_work for analysis, discussion and execution. Use bees_share_update for questions and decisions. There is one peer lifecycle; peers finish with bees_submit_stage_result.`;
+For ordinary runs read inputs from inputs/ and write requested file deliverables under outputs/, as relative paths like outputs/report.md with no leading slash. Anything outside this run is the person's, so ask for it with bees_request_work_review, naming its full path, before you read or write it. The summary is the plain-language, user-facing verdict: say what happened, what the person can use, where any files are, and what is needed next. Keep technical evidence in the evidence record or files instead of making it the summary. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; Bees will ask the user for approval. Request approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result. Take ownership of resolving dependencies: inspect existing inputs, context and the tools bees_find_tools can load, such as a shell to run a script, try relevant alternatives, and use bees_control to set up missing capabilities within the task permissions. A missing MCP, file, account connection or detail is a next step to resolve, not a finished result. Ask for only the next concrete dependency with ask_user_question, explain exactly what the person should connect or provide and why, then verify their answer with tools and continue automatically. Never request secrets in chat; direct credentials to the connection settings. Work through remaining dependencies one at a time, preserve completed work, and do not repeat an ineffective attempt or an already answered question. Use bees_request_work_review for real approvals so there is an actionable approval control; never merely say you are waiting for approval. Stop only when the owner explicitly stops the work or denies a required permission. When the task requires external information, use available tools to obtain relevant evidence and follow its stated source restrictions. If the evidence is insufficient, use another relevant source or ask the owner for missing information. Once the evidence is sufficient for the requested scope, complete and submit the work. For authenticated services, prefer an authorized MCP that supports the operation. Otherwise, when the task supplies API credentials, use the supported API over HTTP; never ask a person to sign in for it. Use the browser for authenticated pages only when no available MCP or API supports the operation. Do not use unauthenticated fetch for a page that requires a signed-in session. If the browser then lands on a login wall, ask the owner with ask_user_question, which offers them the browser to sign in. Neither a robots refusal nor a login wall is a reason to finish the run blocked. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means creating that thing itself with bees_control; a document that describes one, or delegated work that does its steps, does not complete that stage. A request that says when work repeats, such as every weekday at 8am, asks for a schedule even without that word: create it with create_recurring_work unless a schedule started this run. When the request only asks for future work, do not also perform that work now unless the owner asks for an immediate run. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. Use bees_delegate_work for analysis, discussion and execution. Use bees_share_update for questions and decisions. There is one peer lifecycle; peers finish with bees_submit_stage_result.`;
 
 const DELEGATION_PROTOCOL = `Delegation scheduling: Honor the user's requested delegation count and parallel or sequential execution order, even when saved agent instructions give a different default. For parallel work, put independent assignments together in the items_json array of one bees_delegate_work call, up to the tool's batch limit; use background:true for discussion so you can answer peers while they work. A waiting call may return early for a shared message; inspect statuses rather than assuming the batch finished. Separate blocking calls serialize work. Give each parallel peer distinct output paths. When sequential execution is requested or a task depends on an earlier result, delegate one at a time and inspect the result before launching the next. Otherwise default to running independent assignments together. Inspect every returned result before completing the combined work.`;
 
@@ -291,7 +291,7 @@ function messageParts(content) {
 
 // The stage brief Bees writes arrives as an ordinary user message, so the run screen printed the
 // whole machine instruction to the person who only asked for the outcome.
-const STAGE_BRIEF = /^(Current work item: |Complete only the |Complete this work item\.|Independently review the candidate |Resume this )/;
+const STAGE_BRIEF = /^(Current work item: |Complete only the |Complete this work item\.|Independently review the candidate |Resume this |Plan this outcome |Publish the finished files |The user requested a retry\. |You ended without a successful bees_submit_stage_result)/;
 function internalPromptLabel(message) {
   const source = message?.source;
   if (source?.kind === "skill-catalog" || source?.kind === "runtime-context") return `Context injection · ${source.kind}`;
@@ -318,25 +318,28 @@ function redactSecrets(value) {
 function eventsToConversation(events, settlements) {
   const messages = [];
   const calls = new Map();
+  // stitched sessions repeat the turns a restart copied forward
+  const seen = new Set();
+  const push = (message) => seen.has(message.id) || (seen.add(message.id), messages.push(message));
   for (const event of events) {
     if (event.type === "user/message") {
       const label = internalPromptLabel(event.data);
       if (label) {
-        messages.push({
+        push({
           id: event.data.id, role: "context",
           parts: [{ type: "context", text: label }],
           metadata: { timestamp: event.time }
         });
         continue;
       }
-      messages.push({
+      push({
         id: event.data.id,
         role: "user",
         parts: messageParts(event.data.content),
         metadata: { timestamp: event.time }
       });
     } else if (event.type === "assistant/message") {
-      messages.push({
+      push({
         id: event.data.message.id,
         role: "assistant",
         parts: messageParts(event.data.message.content),
@@ -352,13 +355,13 @@ function eventsToConversation(events, settlements) {
         state: "input-available",
         input
       };
-      messages.push({
+      push({
         id: `tool-${event.data.callId}`,
         role: "assistant",
         parts: [part],
         metadata: { timestamp: event.time }
       });
-      calls.set(String(event.data.callId), part);
+      if (!calls.has(String(event.data.callId))) calls.set(String(event.data.callId), part);
     } else if (event.type === "tool/result") {
       const part = calls.get(resultCallId(event.data));
       if (part) {
@@ -367,7 +370,7 @@ function eventsToConversation(events, settlements) {
       }
     }
   }
-  return { v: 1, messages, settlements, events };
+  return { v: 1, messages, settlements };
 }
 
 function lastTurn(events, afterSeq = -1) {
@@ -659,8 +662,8 @@ export class AgentRuntime {
         `${form.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/?(?=$|[\\s"'\`,;:)\\]*>|?!]|\\.(?:\\s|$))`, process.platform === "darwin" ? "i" : "").test(text));
       const granted = (target) => approvals().some((text) => [target, actual(target)].some((start) => {
         for (let dir = start; !top(dir); dir = dirname(dir)) if (named(text, dir)) return true; }));
-      // dsh writes a big tool result under its temp root and tells the model to read it from there
-      const spill = (path) => exec.name === "read" && /^dsh-spill-[A-Za-z0-9]{6}$/.test(relative(actual(tmpdir()), actual(path)).split(sep)[0]);
+      // dsh writes a big tool result under its temp root and tells the model to read or grep it from there
+      const spill = (path) => ["read", "grep"].includes(exec.name) && /^dsh-spill-[A-Za-z0-9]{6}$/.test(relative(actual(tmpdir()), actual(path)).split(sep)[0]);
       // Native uploads are durable, session-admitted references. Grant the exact object for reads,
       // never its attachment directory or another session's uploads.
       const uploads = new Set();
@@ -684,6 +687,11 @@ export class AgentRuntime {
       if (rootless !== outside) return `${outside} starts at the disk root. Use the relative path ${rootless} instead, which is inside this run.`;
       if (outside && !granted(outside))
         return `${outside} is outside this run. That folder belongs to the person, so ask for it with bees_request_work_review, naming this full path and why you need it, and try again once they approve; team files come through bees_search_knowledge and bees_read_knowledge.`;
+      // read on a folder only says "not a regular file", and the listing tool is hidden until searched for
+      if (exec.name === "read" && link?.directory && targets[0]) try {
+        const names = readdirSync(resolve(link.directory, targets[0]), { withFileTypes: true }).map((entry) => entry.name + (entry.isDirectory() ? "/" : ""));
+        return `${targets[0]} is a folder, not a file. It holds ${names.length ? names.slice(0, 100).join(", ") + (names.length > 100 ? ` and ${names.length - 100} more` : "") : "nothing yet"}. Read one file at a time by its path.`;
+      } catch { /* not a folder, so read runs as usual */ }
       // approval is only checked when the stage finishes, so a bid or an email could go out before anyone saw it.
       // files, notes, thinking and time never leave this computer
       if (exec.name.startsWith("mcp__") && !/^mcp__(filesystem|memory|thinking|time)__/.test(exec.name)
@@ -721,7 +729,8 @@ export class AgentRuntime {
   }
 
   setStatus(executionId, status, at = new Date().toISOString()) {
-    this.database.prepare("UPDATE execution_links SET status = ?, updated_at = ? WHERE execution_id = ?").run(status, at, executionId);
+    // a restart re-sets the same status, which must not make an old run look new here or to teammates
+    this.database.prepare("UPDATE execution_links SET status = ?, updated_at = ? WHERE execution_id = ? AND status <> ?").run(status, at, executionId, status);
     this.notify({ type: "run/status", executionId, status, at });
   }
 
@@ -783,19 +792,23 @@ export class AgentRuntime {
     return ["question", "work-review", "dependency"].includes(pending?.kind) ? pending : null;
   }
 
-  async resolveDependency(executionId, args, exec) {
+  async resolveDependency(executionId, args, exec, discovery) {
     // A blocked result is terminal. Get a concrete human decision before recording it.
     if (this.database.prepare("SELECT 1 FROM dsh_audit_events WHERE execution_id = ? AND event_type = 'dependency-stop-requested' LIMIT 1").get(executionId)) return true;
     const permission = this.database.prepare(`SELECT metadata_json AS metadata FROM dsh_audit_events
       WHERE execution_id = ? AND event_type IN ('approval-approved', 'approval-rejected') ORDER BY rowid DESC LIMIT 1`).get(executionId);
     if (permission && JSON.parse(permission.metadata).outcome === "rejected") return true;
+    const sessionId = String(exec.agent.session.id);
+    // the shell and connected services sit behind bees_find_tools, so a run that never looked asks a person for what it had
+    const events = discovery ? await this.sessionEvents(executionId, sessionId).catch(() => null) : null;
+    if (events && !events.some(({ type, data }) => type === "tool/call" && data.name === "bees_find_tools"))
+      throw new Error("Before ending blocked, use bees_find_tools to look for a tool that removes the blocker, such as a shell to run a script or a connected service.");
     const question = String(args.next_step ?? "").trim();
     if (!question || question.length > 1200)
       throw new Error("Before ending blocked, provide next_step: one concrete question that resolves the first unmet dependency. Name the connection, file or information needed and the steps to provide it. Use available tools to investigate first. Do not list multiple issues or ask for secrets.");
     const questions = [{ id: "dependency", header: "Next step", question,
-      options: [{ label: "I've made the change", description: "Bees will check it and continue." },
+      options: [{ label: "Done, carry on", description: "Bees will check it and continue. To give information, type it instead." },
         { label: "Stop here", description: "Leave this stage unfinished." }] }];
-    const sessionId = String(exec.agent.session.id);
     const pending = { kind: "dependency", callId: String(exec.callId), questions: JSON.stringify({ questions }) };
     this.setStatus(executionId, "waiting_for_input");
     this.database.prepare(`UPDATE work_items SET runtime_phase = 'waiting', updated_at = ?
@@ -809,6 +822,7 @@ export class AgentRuntime {
       this.audit("dependency-stop-requested", executionId, sessionId);
       return true;
     }
+    this.workContext.recordAnswers(executionId, questions, answer.answers);
     return { outcome: "continue", summary: "The stage remains open. User response: " + JSON.stringify(response ?? {}) +
       " Verify the supplied change using tools, continue from completed work, and ask for the next unresolved dependency only if needed. A reply is not evidence the dependency is fixed. Do not conclude this turn with a blocker report." };
   }
@@ -845,7 +859,7 @@ export class AgentRuntime {
     // untilIdle reads these; anything on the wire counts as progress
     const live = this.live.get(executionId);
     if (live) {
-      live.lastEventAt = Date.now();
+      live.lastEventAt = performance.now();
       if (event.type === "tool/call") live.openTools.add(String(event.data.callId));
       else if (event.type === "tool/result" && event.surfaceOp?.op !== "replace") live.openTools.delete(resultCallId(event.data));
     }
@@ -945,6 +959,8 @@ export class AgentRuntime {
         completedOutputs: [...outputs, output].slice(-256),
         idempotencyKey: `tool-result:${sessionId}:${event.seq}`
       });
+      if (pending?.kind === "question" && pending.callId === callId && !event.data.message.isError)
+        this.workContext.recordAnswers(executionId, JSON.parse(pending.questions).questions, JSON.parse(event.data.message.content[0].text).answers);
     }
   }
 
@@ -1050,12 +1066,12 @@ export class AgentRuntime {
         ? [`Every mcp__${name}__ tool takes a path argument. Always pass ${serverFolder(id)}, never your working directory.`] : []);
   }
 
-  installPolicies(agentCtx, { discovery = true } = {}) {
+  installPolicies(agentCtx, { discovery = true, data } = {}) {
     if (!agentCtx?.on) return;
     const owner = scopeOf(agentCtx);
     if (this.policyAgents.has(owner)) return;
     this.policyAgents.add(owner);
-    if (discovery) mountToolDiscovery(agentCtx, this.ctx.credentials, (name) => !this.mcpDenied(data, name));
+    if (discovery) mountToolDiscovery(agentCtx, this.ctx.credentials, data && ((name) => !this.mcpDenied(data, name)));
     installContextPolicy(agentCtx);
     mountRepeatGuard(agentCtx, owner);
     mountFileLocks(agentCtx, owner, this.fileLocks, this.ctx.fs, this.ctx.get("sandboxPolicy"));
@@ -1073,7 +1089,7 @@ export class AgentRuntime {
     this.mcpRestrictions.set(data, this.restrictMcp(agentCtx, data));
     if (!installedApp) await this.startBrowserIfGranted(data, agentCtx);
     const appInstructions = installedApp ? mountAppTools(agentCtx, this.apps, installedApp, data) : "";
-    this.installPolicies(agentCtx, { discovery: !installedApp });
+    this.installPolicies(agentCtx, { discovery: !installedApp, data });
     if (data.workItemId && !this.workContext.run(executionId) && this.database.prepare("SELECT 1 FROM work_items WHERE id = ? AND deleted_at IS NULL").get(data.workItemId)) {
       this.workContext.pin(executionId, itemContext(this.database, data.workItemId), {
         instructions: data.instructions ?? "", systemInstructions: this.settings?.get?.()?.systemInstructions ?? ""
@@ -1088,7 +1104,7 @@ export class AgentRuntime {
       data.mode === "planning" ? PLAN_PERSONA : data.mode === "review" ? REVIEW_PERSONA : RUN_PERSONA,
       systemInstructions ? `System-wide user instructions:\n${systemInstructions}` : "",
       String(data.instructions ?? ""),
-      installedApp ? "" : "Choose the most specific available tool that directly supports each part of the task, using its description and input schema. The listed tools are ready to call, but connected MCP tools may require discovery: when a task concerns a service or capability not directly covered by a listed specialized tool, use bees_find_tools with the service or capability words before falling back to a general browser or web tool. A visible browser or web tool is not a reason to skip a relevant connected MCP. Use browser/web tools for public internet research, necessary web interaction, or when no authorized specialized tool supports the operation. Combine specialized tools and web tools when different parts of the task require them; do not invoke irrelevant tools or ask the user to choose when the task and permissions are clear. Newly connected MCPs follow the same description/schema-based selection. Read shortened results with bees_read_tool_result only when their previews lack information needed for the task.",
+      installedApp ? "" : "Choose the most specific available tool that directly supports each part of the task, using its description and input schema. The listed tools are ready to call, but connected MCP tools may require discovery: when a task concerns a service or capability not directly covered by a listed specialized tool, use bees_find_tools with the service or capability words before falling back to a general browser or web tool. A visible browser or web tool is not a reason to skip a relevant connected MCP. Use browser/web tools for public internet research, necessary web interaction, or when no authorized specialized tool supports the operation. Combine specialized tools and web tools when different parts of the task require them; do not invoke irrelevant tools or ask the user to choose when the task and permissions are clear. Newly connected MCPs follow the same description/schema-based selection. When a shortened result lacks what the task needs, read or grep the saved path its notice gives.",
       !installedApp && data.mode === "work" ? DELEGATION_PROTOCOL : "",
       data.mode === "planning" ? "" : HUMAN_INTERACTION_PROTOCOL,
       installedApp ? "" : "Run files and their text previews are available in bees_read_context; bees_read_work_evidence exposes source results from the same run. Team knowledge search covers work descriptions and mapped team sources, not generated run files.",
@@ -1099,7 +1115,7 @@ export class AgentRuntime {
     agentCtx.systemPrompt.section({ name: "deployment:persona", order: 0, text: "{{bees_persona}}", complete: true });
     if (!installedApp) agentCtx.tools.register(defineTool({
       name: "bees_search_knowledge",
-      description: "Search work-item descriptions and mapped source files in the current Bees team. Generated run files are available separately through bees_read_context and file tools. Use bees_read_knowledge with a result id for its full source.",
+      description: "Search work-item titles, descriptions and mapped source files in the current Bees team. Use bees_read_knowledge with a result id for its full source; a work item comes back with its latest result and the text of its output files.",
       parameters: {
         query: { type: "string", required: true, description: "Words or phrase to find." }
       },
@@ -1119,7 +1135,7 @@ export class AgentRuntime {
     }));
     if (!installedApp) agentCtx.tools.register(defineTool({
       name: "bees_read_knowledge",
-      description: "Read one work item or file returned by bees_search_knowledge, including freshness and authority metadata for files. Modified dates indicate freshness, not authority; prefer an explicit authority/status marker and surface unresolved conflicts. The result must belong to this Bees team.",
+      description: "Read one work item (with its latest result and output files) or file returned by bees_search_knowledge, including freshness and authority metadata for files. Modified dates indicate freshness, not authority; prefer an explicit authority/status marker and surface unresolved conflicts. The result must belong to this Bees team.",
       parameters: {
         result_id: { type: "string", required: true, description: "Exact result id returned by bees_search_knowledge." }
       },
@@ -1204,10 +1220,10 @@ export class AgentRuntime {
     }));
     if (!installedApp && data.mode === "work" && this.command && this.capabilities) agentCtx.tools.register(defineTool({
       name: "bees_control",
-      description: "Build Bees itself when the task needs more than this run: processes with stages, work items in them, agents with their own instructions, MCP servers and skills. When a task or stage says build, create, set up, schedule or run one of those, calling this tool is the deliverable; writing a document about it is not. Same actions and inputs the Bees screens send; the team is filled in for you. list_items {} -> the team's work items with title, process, stage, phase and updatedAt; read this before reporting on what the team did. list_processes {} -> each process with its output folder, stages, the agents routed to each stage, and its schedules; read it to check what you built before you submit. "
-        + "create_process {name, description, stages: [\"Stage name\", ...] or [{name, driver?: agent|discussion|review|terminal, requiresHumanApproval?: true}]} -> {id, stages: [{id, name}]}. create_item {processId or process: its exact name, title, description, stageId?, agentIds?} -> {id}. create_goal {title, description} -> {id}. create_recurring_work {name, itemId?, frequency: hourly|daily|weekly|monthly|advanced, everyMinutes?, hour?, minute?, timezone?, dayOfWeek?: day name, dayOfMonth?, cronExpression?} schedules itemId, or this run's primary work item without it, starts active, and returns {id, sourceWorkItemId, timezone, nextRunAt}. Every scheduled run repeats that item's description, so when this run sets up a process for repeating work, create_item in that process with what each run does and schedule that item. "
+      description: "Build Bees itself when the task needs more than this run: processes with stages, work items in them, agents with their own instructions, MCP servers and skills. When a task or stage says build, create, set up, schedule or run one of those, calling this tool is the deliverable; writing a document about it is not. Same actions and inputs the Bees screens send; the team is filled in for you. list_items {} -> the team's work items with title, process, stage, phase and updatedAt; read this before reporting on what the team did. list_processes {} -> each process with its output folder, stages, the agents routed to each stage, and its schedules; read it to check what you built before you submit. list_agents {} -> the team's agents with id, name and description; check it before adding one. This tool is the only way into Bees, so never read or change its data folder, database or local server from a shell. "
+        + "create_process {name, description, stages: [\"Stage name\", ...] or [{name, driver?: agent|discussion|review|terminal, requiresHumanApproval?: true}]} -> {id, stages: [{id, name}]}. create_item {processId or process: its exact name, title, description, stageId?, agentIds?} -> {id}; the item starts at once and runs on its own in its process, writing its files to its own run rather than your outputs/, so report it as started, follow it with list_items and never redo its stages here. create_goal {title, description} -> {id}. create_recurring_work {name, itemId?, description?, frequency: hourly|daily|weekly|monthly|advanced, everyMinutes?, hour?, minute?, timezone?, dayOfWeek?: day name, dayOfMonth?, cronExpression?} schedules itemId, or this run's primary work item without it, starts active, and returns {id, sourceWorkItemId, timezone, nextRunAt}; an item has one schedule, so scheduling it again replaces its timing and description. Every scheduled run repeats description, or that item's description without it, and none of this run's answers, so put in description everything each run needs; when this run sets up a process for repeating work, create_item in that process with what each run does and schedule that item. "
         + "add_agent_assignment {presetId: \"standard\", name, description, instructions, model?, mcpAccess: all|listed, mcpServers?} -> {id}; give it all unless the task limits it, so it reaches every server the team has. edit_agent_assignment {agent, description?, instructions?, model?, mcpAccess?, mcpServers?} changes an agent that already exists; never clone one under a new name. set_stage_route {stageId, agentIds: [assignment ids]}. "
-        + `search_mcp_registry {query}. install_mcp_server {catalogId, inputs?: {curl | apiBaseUrl | openapiSpec}, secrets: {NAME: value}}, where catalogId openapi-bridge with inputs {curl} turns any REST API into tools (write a per-call id in the path as {name}); ${FOLDER_LABELS} are added by a person on the MCP servers page, where they pick the folder it may reach, so ask for one there when the task needs it; add_mcp_server {serverName, transport: stdio|streamable-http, command?, args?: [one argument per item], url?, secrets: {NAME: value}} -> {id}; a server you install is usable in this run at once as mcp__<serverName>__ tools. `
+        + `search_mcp_registry {query}, only for a service no catalogId covers. install_mcp_server {catalogId: one of ${CATALOG_IDS}, inputs?: {curl | apiBaseUrl | openapiSpec}, secrets: {NAME: value}}, where catalogId openapi-bridge with inputs {curl} turns any REST API into tools (write a per-call id in the path as {name}), and another curl to the same API adds its endpoints and query parameters to that server with the saved credential, so add a missing endpoint or parameter yourself; ${SIGN_IN_LABELS} come only from the owner's own Google sign-in on the MCP servers page and ${FOLDER_LABELS} from a person there who picks the folder it may reach, so ask for one there when the task needs it, never a registry stand-in; add_mcp_server {serverName, transport: stdio|streamable-http, command?, args?: [one argument per item], url?, secrets: {NAME: value}} -> {id}; a server you install is usable in this run at once as mcp__<serverName>__ tools. `
         + "list_skill_pack {repo}. install_skill {repo, directory}. When the task gives an API key or token, connect that API here or call it over HTTP; never ask a person to sign in for it.",
       parameters: {
         action: { type: "string", required: true, description: "One of the actions above." },
@@ -1236,7 +1252,7 @@ export class AgentRuntime {
         }
         // the run acts for its owner, so team work it creates belongs to that account like it would from the screens
         const payload = await this.capabilities.stash({ ...input, action: args.action, workspaceId: data.workspaceId, accountUserId: root.accountUserId, viaAgent: true });
-        const result = capability ? await this.capabilities.command(payload) : await this.command(payload);
+        const result = await (capability ? this.capabilities.command(payload) : this.command(payload)).catch((error) => { throw new Error(userMessage(error)); });
         if (["install_mcp_server", "add_mcp_server"].includes(args.action)) {
           if (!result?.id) throw new Error(`${args.action} did not return a server`);
           await this.capabilities.mountFor(agentCtx, this.capabilities.row(result.id));
@@ -1504,7 +1520,7 @@ export class AgentRuntime {
           description: "The allowed result for this stage."
         },
         ...(data.stagePurpose !== "reviewer" ? {
-          next_step: { type: "string", description: "Required for blocked: one actionable question to resolve the first dependency, with exact connection/file/setup instructions. Never ask for secrets." }
+          next_step: { type: "string", description: "Required for blocked: one actionable question to resolve the first dependency, with exact connection/file/setup instructions. A choice between options is not a dependency: ask it with ask_user_question and keep working. Never ask for secrets." }
         } : {}),
         ...(data.stagePurpose === "worker" ? {
           acceptance_criteria_met: {
@@ -1534,7 +1550,7 @@ export class AgentRuntime {
         const result = { outcome: args.outcome, summary: String(args.summary ?? "").trim() };
         if (!result.summary) throw new Error("Stage result evidence is required");
         const findings = args.outcome === "revise" ? this.workContext.findings(executionId, args.findings_json) : [];
-        if (findings.length) result.summary += "\nRequired corrections: " + JSON.stringify(findings);
+        if (findings.length) result.summary += "\nRequired corrections:\n" + findings.map((f) => `- ${f.evidence} Fix: ${f.change}`).join("\n");
         if (result.summary.length > 6000) throw new Error("Keep review findings and summary within 6000 characters");
         // Keep the deliverable visible in the final reviewed result shown to the user.
         if (data.stagePurpose === "reviewer" && args.outcome === "pass") {
@@ -1555,7 +1571,9 @@ export class AgentRuntime {
         const has = (name) => present(`outputs/${name}`) || files.some((file) => file.endsWith(`/${name}`));
         const stray = named.find((name) => real(resolve(workspace, name)) && !has(name));
         if (stray) throw new Error(`${stray} sits beside outputs/, where review cannot read it. Write it to outputs/${stray}.`);
-        const absent = missing[0] ?? named.find((name) => !["inputs", "."].some((dir) => real(resolve(workspace, dir, name))) && !has(name));
+        // a file read from a mapped folder sits in inputs/<folder>/, not inputs/ itself
+        const inputs = files ? runFiles(workspace).filter((file) => file.startsWith("inputs/")) : [];
+        const absent = missing[0] ?? named.find((name) => !has(name) && !inputs.some((file) => file.endsWith(`/${name}`)));
         if (absent) throw new Error(`${absent} is not there or is empty. Write the file you named with its real content, or drop it from the summary and give the answer there.`);
         if (files && result.summary.length > 1_200)
           throw new Error(`Keep the summary under 1200 characters, this one is ${result.summary.length}: what you produced, where it is, and what is needed next. Save file deliverables under outputs/.`);
@@ -1570,7 +1588,7 @@ export class AgentRuntime {
         }
         if (data.stagePurpose === "worker" && args.outcome === "candidate" &&
             (args.acceptance_criteria_met !== true || admitsIncompleteCandidate(result.summary)))
-          throw new Error("A candidate can be submitted only after every acceptance criterion is met");
+          throw new Error("A candidate can be submitted only after every acceptance criterion is met. Finish the checks still open and submit again, or submit blocked or skipped if you cannot.");
         const pinned = this.workContext.run(executionId);
         // a reviewer or a person asked for changes, so ending the item here would skip that review
         if (args.outcome === "skipped" && pinned?.scope.reviewFeedback)
@@ -1585,7 +1603,7 @@ export class AgentRuntime {
               data.requiresHumanApproval && lastReview?.type !== "human-work-approved"))
           throw new Error("This stage requires human approval through bees_request_work_review before it can finish; resolve the rejection feedback and request review again");
         if (args.outcome === "blocked") {
-          const resolution = await this.resolveDependency(executionId, args, exec);
+          const resolution = await this.resolveDependency(executionId, args, exec, !installedApp);
           if (resolution !== true) return resolution;
         }
         if (args.outcome !== "blocked") {
@@ -1975,8 +1993,8 @@ export class AgentRuntime {
         const { resolvedModel: _rm, resolvedModelLabel: _rml, resolvedReasoningEffort: _rre, ...base } = data;
         data = { ...base, ...await resolveRunModel(this.ctx, base) };
         validateRunData(data);
-        this.database.prepare("UPDATE execution_links SET config_json = ?, updated_at = ? WHERE execution_id = ?")
-          .run(JSON.stringify(data), new Date().toISOString(), executionId);
+        this.database.prepare("UPDATE execution_links SET config_json = ? WHERE execution_id = ?")
+          .run(JSON.stringify(data), executionId);
       }
       references = typedReferences(payload.body);
       authorizeReferences(this.database, data.workspaceId, references);
@@ -2001,8 +2019,8 @@ export class AgentRuntime {
     if (replaceSession) {
       this.database.prepare(`
         UPDATE execution_links SET previous_session_id = current_session_id, current_session_id = ?,
-          recovery_count = recovery_count + 1, updated_at = ? WHERE execution_id = ?
-      `).run(sessionId, new Date().toISOString(), executionId);
+          recovery_count = recovery_count + 1 WHERE execution_id = ?
+      `).run(sessionId, executionId);
       this.audit("replacement-run-created", executionId, sessionId, { replaces: run.currentSessionId, reason: recovery ? "recovery" : "native-continuation" });
     }
     const submissionId = randomUUID();
@@ -2026,7 +2044,8 @@ export class AgentRuntime {
       await handle.dispose().catch(() => undefined);
       throw new Error("The run was stopped before it started");
     }
-    this.audit(recovery ? "run-restarted" : "run-started", executionId, sessionId, {
+    // a run that only waits for its answer just asks again after a restart, nothing restarted for a person to see
+    if (activeStatus === "running") this.audit(recovery ? "run-restarted" : "run-started", executionId, sessionId, {
       deliveryId: payload.idempotencyKey,
       submissionId,
       requestedModel: data.model,
@@ -2036,7 +2055,7 @@ export class AgentRuntime {
       resolvedReasoningEffort: data.resolvedReasoningEffort ?? null
     });
     const approvalAbort = new AbortController();
-    this.live.set(executionId, { handle, data, approvalAbort, lastEventAt: Date.now(), openTools: new Set() });
+    this.live.set(executionId, { handle, data, approvalAbort, lastEventAt: performance.now(), openTools: new Set() });
     this.checkpoint(executionId, sessionId, activeStatus === "running" ? "running" : "recovery_started", {
       inputReferences: references,
       // an unanswered approval is dropped, the agent asks again when it retries
@@ -2084,6 +2103,7 @@ export class AgentRuntime {
       });
       if (pending.kind === "dependency" && answer.answers.some(({ id, selected }) => id === "dependency" && selected?.includes("Stop here")))
         this.audit("dependency-stop-requested", executionId, sessionId);
+      else if (!review) this.workContext.recordAnswers(executionId, args.questions, answer.answers);
       const response = review ? answer.answers.find(({ id }) => id === "work-review") : null;
       const approved = Boolean(response?.selected?.includes("Approve"));
       if (review) this.audit(approved ? "human-work-approved" : "human-work-rejected", executionId, sessionId, { summary: args.summary, feedback: response?.custom ?? "" });
@@ -2095,7 +2115,8 @@ export class AgentRuntime {
       this.audit("stage-wait-resolved", executionId, sessionId);
       const outcome = review
         ? `The review you requested before the restart was ${approved ? "approved" : `rejected with this feedback: ${response?.custom ?? ""}`}.`
-        : `The user answered the question you asked before the restart:\n${JSON.stringify(answer.answers)}`;
+        : `The user answered the question you asked before the restart:\n${answer.answers.map(({ id, selected, custom }) =>
+          `${id}: ${[...(selected ?? []), custom].filter(Boolean).join(", ") || "skipped"}`).join("\n")}`;
       const before = handle.agent.session.seq;
       handle.agent.followup(createUserMessage({ content: [{ type: "text", text: `${body}\n\n${outcome}` }], source: { kind: "user" } }));
       await this.settle(executionId, submissionId, sessionId, handle, before);
@@ -2121,8 +2142,13 @@ export class AgentRuntime {
   }
 
   async untilIdle(executionId, handle) {
+    let tick = performance.now();
     while (!this.closing) {
       const idle = await Promise.race([handle.agent.whenIdle().then(() => true, () => true), delay(5_000).then(() => false)]);
+      // macos clocks keep counting through sleep, so a loop that froze for 30s+ means the mac slept, not the model
+      const gap = performance.now() - tick;
+      tick += gap;
+      if (gap > 30_000 && this.live.get(executionId)) this.live.get(executionId).lastEventAt += gap;
       if (idle) {
         // Completion delivery may have opened another turn after whenIdle resolved.
         await delay(0);
@@ -2144,7 +2170,7 @@ export class AgentRuntime {
       // A tool that has not returned may be waiting on a person or on a peer, and a question
       // re-presented after a restart sends nothing either. Only a silently generating turn stalls.
       const waiting = live?.openTools.size || this.pendingInteraction(executionId);
-      if (!waiting && Date.now() - (live?.lastEventAt ?? Date.now()) > RUN_STALL_MS)
+      if (!waiting && performance.now() - (live?.lastEventAt ?? performance.now()) > RUN_STALL_MS)
         throw new Error(`The run stopped making progress for ${Math.round(RUN_STALL_MS / 60_000)} minutes.`);
     }
   }
@@ -2309,6 +2335,11 @@ export class AgentRuntime {
     const events = live?.handle.agent.session.snapshotEvents() ??
       (run.status === "queued" ? []
         : await this.sessionEvents(executionId, run.currentSessionId));
+    // a restart copies only whole turns into the new session, so a turn it cut short vanished from the run screen
+    const earlier = [];
+    for (const { id } of this.database.prepare(`SELECT json_extract(metadata_json, '$.replaces') AS id FROM dsh_audit_events
+      WHERE execution_id = ? AND event_type = 'replacement-run-created' ORDER BY created_at`).all(executionId))
+      if (id) earlier.push(...await this.sessionEvents(executionId, id).catch(() => []));
     const settlements = this.database.prepare(`
       SELECT submission_id AS submissionId, outcome, error_json AS errorJson
       FROM dsh_deliveries WHERE execution_id = ? ORDER BY created_at
@@ -2317,7 +2348,7 @@ export class AgentRuntime {
       outcome: row.outcome,
       ...(row.errorJson ? { error: JSON.parse(row.errorJson) } : {})
     }] : []);
-    return eventsToConversation(events, settlements);
+    return eventsToConversation([...earlier, ...events], settlements);
   }
 
   async sessionEvents(executionId, sessionId) {

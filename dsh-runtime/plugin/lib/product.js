@@ -570,6 +570,7 @@ export class BeesProduct {
       return {
         ...run, processRunId: itemRunIds.get(run.workItemId), resolvedAgentIds: JSON.parse(resolvedAgentIds || "[]"),
         pendingInteraction: this.agents?.pendingInteraction?.(run.id)?.kind ?? null,
+        recovering: Boolean(this.agents?.needsRecovery?.(run.id)),
         outputs: outputFiles(runDirectory),
         outputsPath: existsSync(outputsDir) ? outputsDir : null,
         files: ["waiting_for_input", "waiting_for_approval"].includes(run.status)
@@ -654,7 +655,7 @@ export class BeesProduct {
     const terms = String(query ?? "").replace(/"/g, "").trim().split(/\s+/).filter(Boolean);
     if (!terms.length) return [];
     const items = this.database.prepare(`
-      SELECT bees_search.kind, bees_search.ref_id AS id, bees_search.title,
+      SELECT bees_search.kind, bees_search.ref_id AS id, bees_search.title, w.updated_at AS modifiedAt,
              snippet(bees_search, 3, '', '', ' … ', 18) AS excerpt
       FROM bees_search
       JOIN work_items w ON w.id = bees_search.ref_id
@@ -688,15 +689,32 @@ export class BeesProduct {
       JOIN processes p ON p.id = w.process_id
       WHERE w.id = ? AND p.workspace_id = ? AND w.deleted_at IS NULL
     `).get(resultId, workspace.id);
-    if (item) return { kind: "item", id: item.id, title: item.title, content: item.description ?? "" };
+    // a follow-up run cannot open another run's folder, so the finished result comes back here
+    if (item) return { kind: "item", id: item.id, title: item.title, content: item.description ?? "",
+      result: this.database.prepare(`SELECT r.summary FROM bees_stage_results r JOIN execution_links e ON e.execution_id = r.execution_id
+        WHERE e.work_item_id = ? AND r.purpose = 'worker' ORDER BY r.created_at DESC LIMIT 1`).get(item.id)?.summary ?? "",
+      files: this.workContext.files(item.id, true) };
     return this.knowledge.read(resultId, workspace.teamId, locations);
   }
 
-  audit() {
+  audit(workspaceId, executionId) {
+    if (executionId) workspaceId = this.database.prepare("SELECT workspace_id AS id FROM execution_links WHERE execution_id = ?").get(executionId)?.id;
+    workspaceContext(this.database, workspaceId);
+    // filter before the limit, or one busy team pushes every other team's and run's events out of the 100
+    const metadata = (key) => `json_extract(a.metadata_json, '$.${key}')`;
     return this.database.prepare(`
       SELECT id, event_type AS type, execution_id AS executionId, metadata_json AS metadata,
-             created_at AS createdAt FROM dsh_audit_events ORDER BY created_at DESC LIMIT 100
-    `).all().map((row) => ({ ...row, metadata: JSON.parse(row.metadata) }));
+             created_at AS createdAt FROM dsh_audit_events a WHERE ${executionId ? "a.execution_id = ?" : `? IN (
+        (SELECT workspace_id FROM execution_links WHERE execution_id = a.execution_id), ${metadata("workspaceId")},
+        (SELECT workspace_id FROM agent_assignments WHERE id = ${metadata("agentAssignmentId")}),
+        (SELECT workspace_id FROM recurring_work WHERE id IN (${metadata("recurringWorkId")}, ${metadata("resultId")})),
+        (SELECT workspace_id FROM processes WHERE id IN (${metadata("processId")}, ${metadata("resultId")})),
+        (SELECT p.workspace_id FROM work_items w JOIN processes p ON p.id = w.process_id
+          WHERE w.id IN (${metadata("itemId")}, ${metadata("parentId")}, ${metadata("resultId")})))`}
+      -- session bookkeeping that every restart repeats; run-restarted already tells a person
+      AND a.event_type NOT IN ('session-recovery-needed', 'replacement-run-created')
+      ORDER BY created_at DESC LIMIT 100
+    `).all(executionId || workspaceId).map((row) => ({ ...row, metadata: JSON.parse(row.metadata) }));
   }
 
   async runHistory(executionId) {
@@ -1034,7 +1052,7 @@ export class BeesProduct {
       return existing ?? this.command({
         action: "create_item", processId: parent.processId, parentId: parent.id, stageId: parent.stageId,
         title, description,
-        agentAssignmentId: agentId, accountUserId: parent.accountUserId
+        agentAssignmentId: agentId, accountUserId: parent.accountUserId, viaAgent: true
       });
     }));
   }
@@ -1047,13 +1065,13 @@ export class BeesProduct {
       this.record(action, input, result, "ok");
       return result;
     } catch (error) {
-      this.record(action, input, null, "error");
+      this.record(action, input, null, "error", message(error));
       throw error;
     }
   }
 
-  record(action, input, result, outcome) {
-    const metadata = { action, outcome };
+  record(action, input, result, outcome, error) {
+    const metadata = { action, outcome, ...(error && { error }) };
     for (const key of ["organizationId", "teamId", "workspaceId", "processId", "templateId", "stageId", "itemId", "parentId", "agentAssignmentId", "recurringWorkId", "specializationId", "locationId", "proposalId"])
       if (input[key]) metadata[key] = String(input[key]);
     if (result?.id) metadata.resultId = String(result.id);
@@ -1073,6 +1091,7 @@ export class BeesProduct {
       return this.memory.command(action, input);
     if (action === "read_work_discussion") return this.workContext.discussion(required(input.itemId, "Work item"), input.before);
     if (action === "read_work_context") return this.workContext.view(required(input.itemId, "Work item"), input.executionId, input.after);
+    if (action === "record_owner_message") return this.workContext.recordOwner(required(input.executionId, "Execution"), required(input.text, "Text"));
     if (action === "post_work_update") return this.workContext.post(required(input.itemId, "Work item"), {
       author: "User", kind: input.kind ?? "note", content: input.content, evidence: input.evidence, targetId: input.targetId
     });
