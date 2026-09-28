@@ -120,7 +120,9 @@ function beginCodexLogin() {
     signal: abort.signal,
     prompt: async (prompt) => {
       if (prompt.type === "select") return "browser";
-      if (prompt.type === "manual_code") return new Promise(() => {});
+      // must fail on timeout, or the login waits here forever and blocks every retry
+      if (prompt.type === "manual_code") return abort.signal.aborted ? Promise.reject(abort.signal.reason)
+        : new Promise((_, fail) => abort.signal.addEventListener("abort", () => fail(abort.signal.reason), { once: true }));
       throw new Error(`Unexpected Codex sign-in prompt: ${prompt.type}`);
     },
     notify: (event) => {

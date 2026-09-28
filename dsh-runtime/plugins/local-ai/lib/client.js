@@ -5,18 +5,19 @@ window.__ModuleLoader__.load({
     const exports = module.exports;
     const React = require("react");
     const h = React.createElement;
-    const { useEffect, useMemo, useRef, useState } = React;
+    const { useEffect, useRef, useState } = React;
 
     // Conservative first-run choice from the shipped catalog, not an intelligence ranking.
     function recommendedLocalModel(hardware, models, statuses) {
       const running = models.find((model) => statuses[model.id]?.running);
       if (running) return running;
-      if (!hardware || hardware.totalMemory < 8 * 1024 ** 3) return null;
-      const candidates = models.filter((model) => model.runsProcesses && model.bytes > 0 &&
-        model.bytes + 2 * 1024 ** 3 <= Math.min(hardware.totalMemory * 0.6, hardware.availableMemory));
+      if (!hardware) return null;
+      // let the per-model fit check below pick a smaller model instead of blocking every machine under 8 GB
+      const candidates = models.filter((model) => model.bytes > 0 &&
+        model.bytes + 2 * 1024 ** 3 <= hardware.totalMemory * 0.6);
       return candidates.find((model) => statuses[model.id]?.running || statuses[model.id]?.state === "ready")
-        ?? candidates.find((model) => model.id === models[0]?.id &&
-          hardware.availableDisk != null && hardware.availableDisk >= model.bytes + 1024 ** 3) ?? null;
+        ?? candidates.find((model) => hardware.availableDisk != null &&
+          hardware.availableDisk >= model.bytes + 1024 ** 3) ?? null;
     }
 
 
@@ -45,11 +46,6 @@ window.__ModuleLoader__.load({
     function bytes(value) {
       return value ? `${(value / 1024 / 1024 / 1024).toFixed(value >= 1024 ** 3 ? 1 : 2)} GB` : "0 GB";
     }
-
-    const allModels = (config) => [
-      ...(config.localModelCatalog ?? []).filter(({ id }) => !config.removedLocalModelIds?.includes(id)),
-      ...(Array.isArray(config.localModels) ? config.localModels : [])
-    ];
 
     const providerId = (model) => `local-openai-${model.id.replace(/[^a-z0-9-]/gi, "-").toLowerCase()}`;
     const providerProfile = (model, connection, displayName = `Bees AI · ${model.name}`) => ({
@@ -91,14 +87,14 @@ window.__ModuleLoader__.load({
       await syncLocalProviders(models, modelSettings);
     }
 
-    function LocalAiController({ modelSettings, preferences, onError }) {
+    function LocalAiController({ modelSettings, preferences, catalog, onError }) {
       const started = useRef(false);
       const preference = usePreference(preferences);
       useEffect(() => {
-        if (started.current || preferences.getSnapshot().status !== "ready" || !window.__TAURI__?.core?.invoke) return;
+        if (started.current || !catalog || preferences.getSnapshot().status !== "ready" || !window.__TAURI__?.core?.invoke) return;
         started.current = true;
         const config = settingValue(preferences);
-        const models = allModels(config);
+        const models = catalog;
         const wanted = wantedModelIds(config);
         void (async () => {
           for (const id of wanted) {
@@ -113,25 +109,28 @@ window.__ModuleLoader__.load({
             }
           }
         })().catch((reason) => onError?.(String(reason?.message ?? reason)));
-      }, [preference, preferences]);
+      }, [preference, preferences, catalog]);
       return null;
     }
 
-    function LocalModels({ modelSettings, preferences, systemDefault, ask, Button, confirmAction }) {
+    function LocalModels({ modelSettings, preferences, catalog: shippedCatalog, ask, Button, confirmAction }) {
       const config = usePreference(preferences);
       const productDefaults = preferences.productDefaults === true;
-      const catalog = config.localModelCatalog ?? [];
-      const models = useMemo(() => allModels(config), [config.localModelCatalog, config.localModels, config.removedLocalModelIds]);
+      const catalog = (productDefaults ? config.localModelCatalog : shippedCatalog) ?? [];
+      const models = catalog;
       const [statuses, setStatuses] = useState({});
       const [hardware, setHardware] = useState(null);
       const [hardwareError, setHardwareError] = useState("");
       useEffect(() => {
+        if (productDefaults || !window.__TAURI__?.core?.invoke) return;
         let active = true;
-        if (!productDefaults && window.__TAURI__?.core?.invoke) void invokeLocal("local_model_hardware").then(
-          (value) => { if (active) setHardware(value); },
-          (reason) => { if (active) setHardwareError(String(reason?.message ?? reason)); });
-        return () => { active = false; };
-      }, []);
+        const refreshHardware = () => void invokeLocal("local_model_hardware").then(
+          (value) => { if (active) { setHardware(value); setHardwareError(""); } },
+          (reason) => { if (active) { setHardware(null); setHardwareError(String(reason?.message ?? reason)); } });
+        refreshHardware();
+        const timer = setInterval(refreshHardware, 3000);
+        return () => { active = false; clearInterval(timer); };
+      }, [productDefaults]);
 
       const [progress, setProgress] = useState({});
       const [busy, setBusy] = useState([]);
@@ -195,28 +194,14 @@ window.__ModuleLoader__.load({
         });
       };
       const remove = async (model) => {
-        if (!productDefaults && catalog.some(({ id }) => id === model.id)) return;
+        if (!productDefaults) return;
         if (!await confirmAction(`Delete ${model.name} from the model list?`)) return;
         await perform("delete", model, async () => {
-          if (productDefaults) {
-            await preferences.set("localModelCatalog", catalog.filter(({ id }) => id !== model.id));
-            return;
-          }
-          await invokeLocal("delete_local_model", { spec: model });
-          await updateWantedModels(preferences, (ids) => ids.filter((id) => id !== model.id));
-          const current = settingValue(preferences);
-          if (current.localModels?.some(({ id }) => id === model.id)) {
-            await preferences.set("localModels", current.localModels.filter(({ id }) => id !== model.id));
-          } else {
-            await preferences.set("removedLocalModelIds", [...new Set([
-              ...(current.removedLocalModelIds ?? []), model.id
-            ])]);
-          }
-          await syncLocalProviders(models, modelSettings);
-          setProgress((current) => { const next = { ...current }; delete next[model.id]; return next; });
+          await preferences.set("localModelCatalog", catalog.filter(({ id }) => id !== model.id));
         });
       };
       const addModel = async () => {
+        if (!productDefaults) return;
         const name = await ask("Model name", "My local model");
         if (!name) return;
         const raw = await ask("Direct HTTPS link to a GGUF model", "https://huggingface.co/");
@@ -230,36 +215,39 @@ window.__ModuleLoader__.load({
           }
           const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "model";
           const model = { id: `${slug}-${Date.now().toString(36)}`, name, fileName, url: url.toString(), bytes: 0 };
-          await preferences.set(productDefaults ? "localModelCatalog" : "localModels", [...(productDefaults ? catalog : config.localModels ?? []), model]);
+          await preferences.set("localModelCatalog", [...catalog, model]);
           setError("");
         } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
       };
 
       const recommended = recommendedLocalModel(hardware, models, statuses);
       const recommendedStatus = recommended && statuses[recommended.id];
+      const lowMemory = recommended && !recommendedStatus?.running && hardware &&
+        recommended.bytes + 2 * 1024 ** 3 > hardware.availableMemory;
       return h("div", { className: "bees-stack" },
         productDefaults ? null : h("section", { className: "bees-callout" },
           h("h3", null, recommended ? `Suggested for this computer: ${recommended.name}` : "Bees AI setup"),
           h("p", { className: "bees-muted" }, hardware
-            ? `${bytes(hardware.totalMemory)} memory · ${bytes(hardware.availableMemory)} currently available · ${hardware.availableDisk == null ? "Free disk space unavailable" : `${bytes(hardware.availableDisk)} free disk space`}`
+            ? `${bytes(hardware.totalMemory)} memory · ${bytes(hardware.availableMemory)} estimated available · ${hardware.availableDisk == null ? "Free disk space unavailable" : `${bytes(hardware.availableDisk)} free disk space`}`
             : `Bees could not read this computer's memory${hardwareError ? `: ${hardwareError}` : ""}. Choose an installed model or review the sizes below.`),
-          h("p", null, recommended ? "A conservative choice based on available memory and storage. Actual speed depends on your computer. Start it below, then select it as your system default."
-            : hardware ? "No shipped model fits the memory and storage free right now. Free some up, use a model you already have, or connect another AI provider."
+          h("p", null, recommended ? lowMemory
+            ? "This model fits the installed memory estimate. Available memory is low right now; close other apps if it runs slowly or cannot start. You can still try it below."
+            : "A conservative choice based on installed memory and free disk space. Actual speed depends on your computer. Start it below, then select it as your system default."
+            : hardware ? "No automatic suggestion based on installed memory and free disk space. You can still try a model below; actual memory use depends on the model and context size."
             : "Pick a model yourself from the list below, or connect another AI provider."),
           recommended ? h(Button, { className: "primary", disabled: Boolean(recommendedStatus?.running) || busy.some((key) => key.endsWith(`:${recommended.id}`)),
             onClick: () => run(recommended) }, recommendedStatus?.running ? "Model running"
               : recommendedStatus?.state === "ready" ? "Use installed model" : `Download and use · ${bytes(recommended.bytes)}`) : null),
         h("div", { className: "bees-local-model-head" },
           h("p", { className: "bees-muted" }, productDefaults ? "Models listed here ship in the Bees catalog. Downloads and running models remain personal." : "Models stay private on this device. Run as many as this computer's memory can hold."),
-          h(Button, { className: "primary", onClick: addModel }, "Add a model")),
+          productDefaults ? h(Button, { className: "primary", onClick: addModel }, "Add a model") : null),
         h("div", { className: "bees-local-model-table" }, h("table", null,
           h("thead", null, h("tr", null,
             h("th", null, "Model"), h("th", null, "Status"), h("th", null, "Download"),
-            h("th", null, "Run"), h("th", null, "Delete"))),
+            h("th", null, "Run"), productDefaults ? h("th", null, "Delete") : null)),
           h("tbody", null, ...models.map((model) => {
             const status = statuses[model.id];
             const event = progress[model.id];
-            const isBundledModel = !productDefaults && catalog.some(({ id }) => id === model.id);
             const running = Boolean(status?.running);
             const nativeStarting = status?.state === "starting";
             const complete = status?.state === "ready" || running || nativeStarting;
@@ -279,9 +267,6 @@ window.__ModuleLoader__.load({
             const wanted = wantedModelIds(config).includes(model.id);
             const runChecked = wanted || running;
             const modelBusy = busy.some((key) => key.endsWith(`:${model.id}`));
-            const deleteReason = isBundledModel
-              ? "Keep shipped Bees AI models available for local operations"
-              : `Delete ${model.name} from your model list`;
             return h("tr", { key: model.id, "data-model-id": model.id },
               h("td", null,
                 h("div", { className: "bees-local-model-name" }, model.name,
@@ -302,18 +287,19 @@ window.__ModuleLoader__.load({
                   disabled: productDefaults || modelBusy && !runPending,
                   onChange: (change) => change.target.checked ? run(model) : stop(model) }),
                 h("span", null, runChecked ? "On" : "Off"))),
-              h("td", null, h(Button, { className: "danger bees-local-delete", title: deleteReason,
-                "aria-label": deleteReason, disabled: modelBusy || isBundledModel,
-                onClick: () => remove(model) }, "Delete")));
+              productDefaults ? h("td", null, h(Button, { className: "danger bees-local-delete",
+                "aria-label": `Delete ${model.name} from the product catalog`, disabled: modelBusy,
+                onClick: () => remove(model) }, "Delete")) : null);
           })))),
         error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
     }
 
-    function LocalAiSettings({ modelSettings, preferences, systemDefault, ask, confirmAction, Button }) {
+    function LocalAiSettings({ modelSettings, preferences, catalog, ask, confirmAction, Button }) {
       return h("section", { "data-bees-plugin": "@bees/dsh-local-ai" },
         h("h2", { className: "bees-section-title" }, "Bees AI"),
         h("p", { className: "bees-muted" }, "Bees downloads and starts GGUF models for you. Use the switches to keep a model downloaded or run it."),
-        h(LocalModels, { modelSettings, preferences, systemDefault, ask, Button, confirmAction }));
+        h("p", { className: "bees-muted" }, "Runs on this Mac. Nothing leaves it."),
+        h(LocalModels, { modelSettings, preferences, catalog, ask, Button, confirmAction }));
     }
 
     function ExternalLocalAiSettings({ modelSettings, preferences, systemDefault, ask, Button }) {
@@ -377,6 +363,7 @@ window.__ModuleLoader__.load({
       return h("section", { "data-bees-plugin": "@bees/dsh-local-ai-external" },
         h("h2", { className: "bees-section-title" }, "Another local AI server"),
         h("p", { className: "bees-muted" }, "Connect LM Studio, Ollama, llama.cpp, or another OpenAI-compatible server that you run separately."),
+        h("p", { className: "bees-muted" }, "Runs on a server you control. Nothing goes through Bees."),
         h("section", { className: "bees-box bees-subscription" }, h("div", null, h("h3", null, local.displayName ?? "OpenAI-compatible local server"),
           h("p", { className: "bees-muted" }, local.baseURL ? `${local.baseURL} · ${local.models?.length ?? 0} model${local.models?.length === 1 ? "" : "s"}` : "Not connected"),
           local.baseURL ? h("div", { className: "bees-local-server-models" },
@@ -394,7 +381,6 @@ window.__ModuleLoader__.load({
     }
 
     exports.recommendedLocalModel = recommendedLocalModel;
-    exports.allModels = allModels;
     exports.LocalAiController = LocalAiController;
     exports.LocalAiSettings = LocalAiSettings;
     exports.ExternalLocalAiSettings = ExternalLocalAiSettings;

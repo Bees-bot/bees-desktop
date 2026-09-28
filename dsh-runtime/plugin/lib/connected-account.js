@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import {
   currentIdentity, insertDefaultWorkspace, stableUuid, transaction
 } from "./product-database.js";
-import { syncTeamRecords } from "./team-sync.js";
+import { syncTeamRecords, teamRecords } from "./team-sync.js";
 
 const defaultServer = "https://app.bees.bot";
 const sessionCredential = (userId) =>
@@ -27,6 +27,7 @@ export class ConnectedAccount {
     this.baseUrl = (configured || defaultServer).replace(/\/+$/, "");
     this.logger = logger;
     this.syncQueue = Promise.resolve();
+    this.queuedSync = null;
     this.closed = false;
     this.rejectedSyncs = new Map();
     this.processQuestions = new Map();
@@ -50,11 +51,6 @@ export class ConnectedAccount {
         `).get(userId)
       : this.accounts().find(({ enabled }) => enabled) ?? null;
     return row ? { ...row, enabled: Boolean(row.enabled) } : null;
-  }
-
-  publicAccount() {
-    const row = this.account();
-    return row ? { userId: row.userId, email: row.email, name: row.name } : null;
   }
 
   connections() {
@@ -402,7 +398,7 @@ export class ConnectedAccount {
     return organizations;
   }
 
-  async sync() {
+  async sync(records = true) {
     const results = [];
     for (const account of this.accounts().filter(({ enabled }) => enabled)) {
       try {
@@ -414,14 +410,24 @@ export class ConnectedAccount {
         else this.logger.warn?.(`bees: account sync unavailable for ${account.email}: ${error instanceof Error ? error.message : error}`);
       }
     }
-    await this.syncCoordination();
+    if (records) await this.syncCoordination();
     return results;
   }
 
   syncCoordination(connectionIds = null) {
     if (this.closed) return Promise.resolve([]);
-    const connections = this.connections().filter(({ id }) => !connectionIds || connectionIds.includes(id));
+    // Share one queued pass. Requests arriving after a pass starts get a fresh pass so
+    // records created during its upload are still published before their callers proceed.
+    if (this.queuedSync) {
+      if (!connectionIds) this.queuedSync.connectionIds = null;
+      else for (const id of connectionIds) this.queuedSync.connectionIds?.add(id);
+      return this.queuedSync.promise;
+    }
+    const queued = { connectionIds: connectionIds ? new Set(connectionIds) : null };
+    this.queuedSync = queued;
     const pending = this.syncQueue.then(async () => {
+      this.queuedSync = null;
+      const connections = this.connections().filter(({ id }) => !queued.connectionIds || queued.connectionIds.has(id));
       const results = [];
       for (const connection of connections) {
         try {
@@ -447,6 +453,7 @@ export class ConnectedAccount {
       }
       return results;
     });
+    queued.promise = pending;
     this.syncQueue = pending.then(() => undefined, () => undefined);
     return pending;
   }
@@ -471,18 +478,19 @@ export class ConnectedAccount {
     `).get(teamId, accountUserId) ?? null;
   }
 
+  teamConnection(teamId, accountUserId) {
+    return this.database.prepare(`SELECT t.organization_id AS organizationId, c.id AS connectionId,
+        c.account_user_id AS accountUserId FROM teams t
+      JOIN bees_connection_teams ct ON ct.team_id=t.id JOIN bees_connections c ON c.id=ct.connection_id
+      JOIN bees_accounts a ON a.user_id=c.account_user_id AND a.enabled=1
+      WHERE t.id=? ORDER BY c.account_user_id=? DESC LIMIT 1`).get(teamId, accountUserId) ?? null;
+  }
+
   executionClaims() {
     const acquire = async (kind, id, teamId, occurrenceAt = "", accountUserId = "") => {
       const teamWorkItem = kind === "work_item";
       const ownerScope = this.claimScope(teamId, accountUserId);
-      const scope = ownerScope ?? (teamWorkItem
-        ? this.database.prepare(`SELECT t.organization_id AS organizationId, c.id AS connectionId,
-            c.account_user_id AS accountUserId FROM teams t
-          JOIN bees_connection_teams ct ON ct.team_id=t.id JOIN bees_connections c ON c.id=ct.connection_id
-          JOIN bees_accounts a ON a.user_id=c.account_user_id AND a.enabled=1
-          WHERE t.id=? ORDER BY c.account_user_id=? DESC LIMIT 1`)
-          .get(teamId, currentIdentity(this.database).userId)
-        : null);
+      const scope = ownerScope ?? (teamWorkItem ? this.teamConnection(teamId, currentIdentity(this.database).userId) : null);
       if (!scope) return null;
       if (!scope.connectionId) return { local: true, accountUserId: "" };
       const claimId = kind === "work_item" ? id : stableUuid(`${kind}:${id}:${occurrenceAt}`);
@@ -524,6 +532,8 @@ export class ConnectedAccount {
         body: { teamId: claim.teamId, machineId: claim.machineId, token: claim.token,
           appProcessId: claim.appProcessId, teamWorkItem: claim.teamWorkItem }
       });
+      // an unreadable reply is not the server saying another device has it
+      if (typeof result.acquired !== "boolean") throw new Error("The Bees server gave no claim answer");
       return result.acquired ? claim : null;
     };
     const release = async (claim) => {
@@ -534,7 +544,19 @@ export class ConnectedAccount {
           appProcessId: claim.appProcessId, teamWorkItem: claim.teamWorkItem }
       });
     };
-    return { acquire, renew, release, publish: () => this.syncCoordination() };
+    // push just this item so its creator claims it at once; a full sync gave a teammate's device time to start it first
+    const publish = async (workItemId) => {
+      const item = this.database.prepare(`SELECT w.team_id AS teamId, i.account_user_id AS accountUserId FROM work_items i
+        JOIN processes p ON p.id=i.process_id JOIN workspaces w ON w.id=p.workspace_id WHERE i.id=?`).get(workItemId);
+      const scope = item && this.teamConnection(item.teamId, item.accountUserId || currentIdentity(this.database).userId);
+      if (!scope) return;
+      const records = teamRecords(this.database, scope.organizationId, scope.connectionId)
+        .filter(({ recordType, recordId }) => recordType === "team_work_item" && recordId === workItemId);
+      await this.request("/api/sync/push", {
+        method: "POST", organizationId: scope.organizationId, accountUserId: scope.accountUserId, body: { records }
+      }).catch((error) => this.logger.warn?.(`bees: could not publish ${workItemId}: ${error instanceof Error ? error.message : error}`));
+    };
+    return { acquire, renew, release, publish };
   }
 
   processQuestionAccount(teamId) {
@@ -600,7 +622,7 @@ export class ConnectedAccount {
     };
     let invitations = [];
     try {
-      await this.sync();
+      await this.sync(false);
       accounts = this.accounts().map(({ userId, email, name, enabled, updatedAt }) =>
         ({ userId, email, name, enabled, updatedAt }));
       for (const account of accounts.filter(({ enabled }) => enabled)) {
@@ -743,7 +765,7 @@ export class ConnectedAccount {
         organizationId: team.organizationId, connectionId
       })
       : {};
-    return { members, candidates };
+    return { members, candidates, canManage };
   }
 
   async addTeamMember(teamId, userId, role, connectionId) {

@@ -1,7 +1,39 @@
 import { defineTool } from "@deepseek-ai/dsh-tools";
+import { createUserMessage } from "@deepseek-ai/dsh-llm";
 
 export const TOOL_READ_CHARS = 6_000;
 const installed = new WeakSet();
+
+/** Keep one complete runtime snapshot on the request surface; retain originals in the audit log. */
+function retireRuntimeContexts(session, messages) {
+  const snapshot = (message) => message?.source?.kind === "runtime-context" && message.source.form === "snapshot";
+  const previous = session.surface.nodes.map((seq) => session.eventAt(seq))
+    .filter((event) => event?.type === "user/message" && snapshot(event.data));
+  const obsolete = messages.some(snapshot) ? previous : previous.slice(0, -1);
+  for (const event of obsolete) session.append("user/message", createUserMessage({
+    content: [{ type: "text", text: "[Earlier runtime context superseded by the latest snapshot.]" }],
+    source: { kind: "bees-context-retention" }
+  }), { surfaceOp: { op: "replace", startSeq: event.seq, endSeq: event.seq }, sourceEventSeqs: [event.seq] });
+
+  // Full context reads and repeated waits from cursor zero contain snapshots.
+  // Keep the latest of each; leave paged discussion/memory reads alone.
+  const reads = new Map();
+  for (const event of session.snapshotEvents()) if (event.type === "tool/call" &&
+      ["bees_read_context", "bees_wait_for_peers"].includes(event.data.name)) {
+    try {
+      const args = typeof event.data.arguments === "string" ? JSON.parse(event.data.arguments) : event.data.arguments;
+      if (!args.after && args.include_memories !== true) reads.set(event.data.callId, event.data.name);
+    } catch { /* An invalid call is not a full context snapshot. */ }
+  }
+  const results = session.surface.nodes.map((seq) => session.eventAt(seq)).filter((event) =>
+    event?.type === "tool/result" && !event.data.message.isError && reads.has(event.data.message.source.callId) &&
+    !event.data.message.content[0]?.text?.startsWith("[Earlier shared-context read superseded."));
+  const latest = new Map(results.map((event) => [reads.get(event.data.message.source.callId), event]));
+  for (const event of results.filter((event) => latest.get(reads.get(event.data.message.source.callId)) !== event)) session.append("tool/result", {
+    ...event.data, message: { ...event.data.message, content: [{ type: "text",
+      text: `[Earlier shared-context read superseded. Original available via bees_read_tool_result with call_id ${event.data.message.source.callId}.]` }] }
+  }, { surfaceOp: { op: "replace", startSeq: event.seq, endSeq: event.seq }, sourceEventSeqs: [event.seq] });
+}
 
 function originalResults(session) {
   const originals = new Map();
@@ -35,7 +67,7 @@ export function readToolResult(session, args, visited = new Set()) {
     return readToolResult(session, { call_id: prior.call_id, offset: prior.offset + offset, find });
   }
   const event = originalResults(session).get(call_id);
-  if (!event) throw new Error("No tool result with that call_id exists in this session.");
+  if (!event) throw new Error("No tool result with that call_id exists in this session. A shortened result names the file that holds its full text; open that path with read or grep instead.");
   const { content, isError } = event.data.message;
   const points = Array.from(content.filter((block) => block.type === "text")
     .map((block) => block.text).join(""));
@@ -58,6 +90,14 @@ export function installContextPolicy(agentCtx) {
   if (typeof agentCtx.on !== "function") return;
   if (installed.has(agentCtx)) return;
   installed.add(agentCtx);
+  agentCtx.on("agent/pre-step", async ({ agent, signal }, next) => {
+    const decision = await next();
+    if (decision.kind === "enter") {
+      signal.throwIfAborted();
+      retireRuntimeContexts(agent.session, decision.messages);
+    }
+    return decision;
+  });
   agentCtx.tools.register(defineTool({
     name: "bees_read_tool_result",
     description: `Read original text shortened in this session's tool history. Returns up to ${TOOL_READ_CHARS} characters; use find for an exact phrase or the returned call_id and next_offset for another page. Reuse a returned page while checking it; offsets count characters, not lines.`,

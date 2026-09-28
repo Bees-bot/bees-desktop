@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { ApplicationFailure, Context } from "@temporalio/activity";
 import {
-  Client, Connection, WorkflowExecutionAlreadyStartedError
+  Client, Connection, WorkflowExecutionAlreadyStartedError, WorkflowNotFoundError
 } from "@temporalio/client";
 import { NativeConnection, Worker } from "@temporalio/worker";
 import { iso, message, transaction } from "./product-database.js";
@@ -229,7 +229,8 @@ export class ProcessRuntime {
   async refreshNextRun(recurringWorkId, accountUserId, handle) {
     try {
       const description = await handle.describe();
-      const nextRunAt = description.info?.nextActionTimes?.[0]?.toISOString?.() ?? null;
+      // a paused schedule still lists future times it will never fire at
+      const nextRunAt = description.state?.paused ? null : description.info?.nextActionTimes?.[0]?.toISOString?.() ?? null;
       this.database.prepare(`
         UPDATE bees_recurring_executors SET next_run_at = ?
         WHERE recurring_work_id = ? AND account_user_id = ?
@@ -283,7 +284,7 @@ export class ProcessRuntime {
       FROM bees_recurring_executors WHERE recurring_work_id = ?
     `).all(recurringWorkId);
     for (const executor of existing) if (!eligible.has(executor.accountUserId)) {
-      // Keep the local row only if the schedule is still out there, so reconciliation can retry it.
+      // The person is off the run now, so the schedule and its row both go.
       await this.client.schedule.getHandle(executor.temporalScheduleId).delete()
         .catch((error) => { this.logger.warn?.(`bees: a Temporal schedule would not delete: ${message(error)}`); });
       this.database.prepare(`
@@ -356,7 +357,7 @@ export class ProcessRuntime {
       return this.input(id);
     });
     // the server refuses a lease on a run it has not seen, and then the schedule stops holding the run
-    await this.claims?.publish();
+    await this.claims?.publish(work.workItemId);
     // only the lease holder runs it; refused or unreachable, the run waits and a later sync starts it wherever the lease goes
     const lease = await this.claims?.acquire("work_item", work.workItemId, recurring.teamId, "", accountUserId)
       .catch(() => null);
@@ -369,8 +370,8 @@ export class ProcessRuntime {
     this.closing = true;
     const claims = [...this.claimWatchers.values()];
     this.claimWatchers.clear();
+    // let the leases lapse: a release ends the run on the server, and then no device may resume it
     for (const watcher of claims) clearInterval(watcher.heartbeat);
-    await Promise.allSettled(claims.map(({ claim }) => this.claims?.release(claim)));
     this.worker?.shutdown();
     await this.running;
     await this.workerConnection?.close();
@@ -578,11 +579,15 @@ export class ProcessRuntime {
       if (renewing) return;
       renewing = true;
       try {
-        if (!await this.claims.renew(claim)) await handle.cancel();
+        if (await this.claims.renew(claim)) return;
+        this.logger.warn?.(`bees: ${key} is claimed by another device, stopping it here`);
+        await handle.cancel();
       } catch (error) {
         // A 4xx is the server saying this claim is not ours any more, so the work must stop. Any
         // other failure is our own connection: cancelling on that threw away a waiting run.
-        if (error?.status >= 400 && error?.status < 500) await handle.cancel().catch(() => undefined);
+        // 401, 408 and 429 are a sign-in blip or a busy server after a wake, not another owner.
+        if (error?.status >= 400 && error?.status < 500 && ![401, 408, 429].includes(error.status))
+          await handle.cancel().catch(() => undefined);
         this.logger.warn?.(`bees: execution claim heartbeat failed: ${message(error)}`);
       } finally { renewing = false; }
     }, 20_000);
@@ -611,16 +616,27 @@ export class ProcessRuntime {
     };
     if (!allowed[type]?.includes(item.runtimePhase))
       throw new Error(`Cannot ${type} work while it is ${item.runtimePhase}`);
-    if (type === "start") return this.startItem(workItemId);
+    if (type === "start") {
+      // a plan's items stay off the team until Start, and the server leases only an item it has seen
+      await this.claims?.publish(workItemId);
+      const started = await this.startItem(workItemId);
+      // a device that can't run it leaves it ready, so say why instead of doing nothing
+      if (started.waitingFor) throw new Error(`Can't start yet: ${started.waitingFor}`);
+      return started;
+    }
     const handle = this.client.workflow.getHandle(processWorkflowId(workItemId));
+    // a teammate's device ran this item, and only that device holds its workflow
+    const elsewhere = (error) => {
+      throw error instanceof WorkflowNotFoundError && !item.executionId ? new Error(`This work ran on another device. Open Bees there to ${type} it.`) : error;
+    };
     if (type === "cancel") {
       // Stop local model/tool execution now, without waiting for Temporal's next heartbeat.
       // Temporal still owns the workflow's final cancellation projection.
       if (item.executionId) this.abortAgent?.(item.executionId);
-      await handle.cancel();
+      await handle.cancel().catch(elsewhere);
       return item;
     }
-    await handle.signal(type, ...(message ? [message] : []));
+    await handle.signal(type, ...(message ? [message] : [])).catch(elsewhere);
     const phase = type === "pause" ? "paused" : "running";
     this.database.prepare(`
       UPDATE work_items SET runtime_phase = ?, runtime_error = NULL, updated_at = ? WHERE id = ?
@@ -667,9 +683,15 @@ export class ProcessRuntime {
 
   project(state) {
     const stage = this.database.prepare(`
-      SELECT 1 FROM stages WHERE id = ? AND process_id = ? AND archived_at IS NULL
+      SELECT driver, is_terminal AS isTerminal FROM stages
+      WHERE id = ? AND process_id = ? AND archived_at IS NULL
     `).get(state.stageId, state.processId);
     if (!stage) throw new Error("The stage does not belong to this process");
+    // Peers and skipped work finish early. Save their completion in the terminal board lane too.
+    if (state.phase === "completed" && stage.driver !== "terminal" && !stage.isTerminal) {
+      const terminal = this.stages(state.processId).find(({ driver, isTerminal }) => driver === "terminal" || isTerminal);
+      if (terminal) state = { ...state, stageId: terminal.id };
+    }
     const result = this.database.prepare(`
       UPDATE work_items SET stage_id = ?, runtime_phase = ?, runtime_attempt = ?,
         runtime_review_cycle = ?, runtime_execution_id = ?, runtime_error = ?, updated_at = ?

@@ -668,15 +668,15 @@ fn watch_dsh(app: tauri::AppHandle, window: tauri::WebviewWindow, home: tauri::U
     thread::spawn(move || {
         // Watching the process alone was not enough: a harness that is running but has stopped
         // answering leaves the window on a dead page with no way back except quitting the app.
-        // Three misses rather than one, so a busy moment does not throw the person off their work.
         // Not being able to read the sidecar's state is not the same as the sidecar being gone,
         // and it used to leave the loop on the first try and send the window back to the start
-        // screen while the harness was serving perfectly well. Both checks get the same patience.
+        // screen while the harness was serving perfectly well, so it still gets three tries.
         let mut misses = 0;
         loop {
-            let healthy = dsh_healthz(&app).is_some_and(|url| healthz_answers(&url));
-            misses = if healthy { 0 } else { misses + 1 };
-            if misses >= 3 {
+            let url = dsh_healthz(&app);
+            misses = if url.as_deref().is_some_and(healthz_answers) { 0 } else { misses + 1 };
+            // a live harness that is only slow (a swapping machine) gets ~30s, since replacing it ends every run in flight
+            if misses >= if url.is_some() { 12 } else { 3 } {
                 break;
             }
             thread::sleep(Duration::from_secs(2));
@@ -702,6 +702,10 @@ async fn ensure_dsh_runtime(
         .parse()
         .map_err(|error| format!("Could not build the local Bees URL: {error}"))?;
     startup::step("ui.clear-auth-cookies", || clear_dsh_auth_cookies(&window))?;
+    // only the runtime's own port may call app commands, not every page on this computer
+    app.add_capability(tauri::ipc::CapabilityBuilder::new("dsh-ui").remote(runtime.base_url.clone()).window("main")
+        .permission("allow-bees-ui").permission("core:default").permission("dialog:allow-open"))
+        .map_err(|error| error.to_string())?;
     startup::step("ui.navigate", || window.navigate(url))
         .map_err(|error| format!("Could not open the local Bees interface: {error}"))?;
     watch_dsh(app, window, home);
@@ -819,13 +823,22 @@ fn bees_data_size(app: tauri::AppHandle) -> Result<DataFolder, String> {
 
 /// Settings → Removing Bees. Nothing is deleted here: the app quits, the exit hook takes the
 /// sidecars down, and the removal runs after them.
-#[tauri::command]
-fn uninstall_bees(app: tauri::AppHandle) -> Result<(), String> {
+// the confirm is native so no page script can skip it; async keeps the wait off the main thread
+#[tauri::command(async)]
+fn uninstall_bees(app: tauri::AppHandle) -> Result<bool, String> {
     let data = bees_data_folder(&app)?;
+    let confirmed = app.dialog()
+        .message(format!("Bees quits and deletes everything in {}. Your own folders are left alone, and nothing here can be recovered.", data.display()))
+        .title("Remove Bees and its data?")
+        .buttons(MessageDialogButtons::OkCancelCustom("Remove Bees".into(), "Keep Bees".into()))
+        .blocking_show();
+    if !confirmed {
+        return Ok(false);
+    }
     *REMOVE_ON_EXIT.lock().map_err(|error| error.to_string())? = Some(data);
     QUIT_CONFIRMED.store(true, Ordering::SeqCst);
     app.exit(0);
-    Ok(())
+    Ok(true)
 }
 
 /// The memory server runs detached and outlives DSH, so find it by its port like local-memory.js does.

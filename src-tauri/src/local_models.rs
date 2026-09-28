@@ -30,11 +30,10 @@ const GIB: u64 = 1024 * 1024 * 1024;
 /// the work even starts, and the runtime holds back the model's whole output allowance on top of
 /// that, so anything under this leaves the model one token to answer in.
 const MIN_CONTEXT: u32 = 16_384;
-/// Ceiling on the *derived* window only. Past this the arithmetic keeps saying yes while
-/// prompt processing time and attention quality both say no, and no local model Bees ships
-/// benefits. An administrator who knows better overrides it per model; the override is not
-/// clamped to this.
-const MAX_DERIVED_CONTEXT: u32 = 131_072;
+/// A memory-fit window alone is too aggressive on a desktop: Qwen 4B on 32 GiB derived
+/// nearly 60k tokens, taking over 8 GiB for KV before compute buffers and other apps.
+/// Cap automatic windows; an explicit per-model override can still request more.
+const MAX_DERIVED_CONTEXT: u32 = 32_768;
 /// Share of system memory the KV cache and weights together may claim. The rest is the OS,
 /// Bees itself, and llama.cpp's own compute buffers.
 const MEMORY_SHARE: f64 = 0.33;
@@ -93,6 +92,75 @@ fn context_size_for_unknown_model(total_memory_bytes: u64) -> u32 {
         memory if memory >= 30 * GIB => 32_768,
         memory if memory >= 15 * GIB => 16_384,
         _ => 8_192,
+    }
+}
+
+/// Preserve prompt reuse between workers without adding an unbudgeted 8 GiB.
+/// Reserve at least half of RAM for compute buffers, Bees and other applications.
+fn prompt_cache_mib_for_model(
+    shape: Option<ModelShape>,
+    weights_bytes: u64,
+    total_memory_bytes: u64,
+    context: u32,
+) -> u64 {
+    let Some(shape) = shape else { return 0 };
+    (total_memory_bytes / 2)
+        .saturating_sub(weights_bytes)
+        .saturating_sub(shape.bytes_per_token.saturating_mul(context as u64))
+        .min(8 * GIB)
+        / (1024 * 1024)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn automatic_context_bounds_qwen_memory_without_clamping_explicit_overrides() {
+        let qwen = Some(ModelShape {
+            context_length: 262_144,
+            bytes_per_token: 144 * 1024,
+        });
+        let weights = 2_497_281_120;
+        assert_eq!(
+            context_size_for_model(qwen, weights, 32 * GIB, None),
+            32_768
+        );
+        assert_eq!(
+            context_size_for_model(qwen, weights, 128 * GIB, None),
+            32_768
+        );
+        assert_eq!(
+            context_size_for_model(qwen, weights, 16 * GIB, None),
+            21_504
+        );
+        assert_eq!(context_size_for_model(qwen, weights, 8 * GIB, None), 16_384);
+        assert_eq!(
+            context_size_for_model(qwen, weights, 32 * GIB, Some(65_536)),
+            65_536
+        );
+        assert_eq!(
+            context_size_for_model(None, weights, 32 * GIB, None),
+            32_768
+        );
+        assert_eq!(
+            prompt_cache_mib_for_model(qwen, weights, 32 * GIB, 32_768),
+            8192
+        );
+        assert_eq!(
+            prompt_cache_mib_for_model(qwen, weights, 8 * GIB, 16_384),
+            0
+        );
+        let smaller_cache = prompt_cache_mib_for_model(qwen, weights, 16 * GIB, 21_504);
+        assert!(smaller_cache > 0 && smaller_cache < 4096);
+        assert_eq!(
+            prompt_cache_mib_for_model(qwen, weights, 32 * GIB, 131_072),
+            0
+        );
+        assert_eq!(
+            prompt_cache_mib_for_model(None, weights, 32 * GIB, 32_768),
+            0
+        );
     }
 }
 
@@ -163,7 +231,9 @@ fn read_model_shape(path: &Path) -> Option<ModelShape> {
     // puts full attention on every Nth layer. Charging every layer starves them of context.
     let cached_heads = match layer_sums.get(&format!("{architecture}.attention.head_count_kv")) {
         Some(total) => *total,
-        None => (layers / field("full_attention_interval").unwrap_or(1).max(1)).checked_mul(kv_heads)?,
+        None => {
+            (layers / field("full_attention_interval").unwrap_or(1).max(1)).checked_mul(kv_heads)?
+        }
     };
     let bytes_per_token = cached_heads
         .checked_mul(key_length.checked_add(value_length)?)?
@@ -421,7 +491,14 @@ pub fn local_model_hardware(app: AppHandle) -> Result<LocalModelHardware, String
     let available_disk = available_disk_space(&directory);
     Ok(LocalModelHardware {
         total_memory: system.total_memory(),
-        available_memory: system.available_memory(),
+        // sysinfo 0.36 subtracts compressed pages from free + inactive memory on macOS,
+        // which can clamp availability to zero. Total - used counts the compressor once.
+        // ponytail: this is a conservative estimate until sysinfo's macOS fix can be adopted.
+        available_memory: if cfg!(target_os = "macos") {
+            system.total_memory().saturating_sub(system.used_memory())
+        } else {
+            system.available_memory()
+        },
         available_disk,
         architecture: std::env::consts::ARCH,
     })
@@ -429,7 +506,9 @@ pub fn local_model_hardware(app: AppHandle) -> Result<LocalModelHardware, String
 
 fn available_disk_space(path: &Path) -> Option<u64> {
     let disks = sysinfo::Disks::new_with_refreshed_list();
-    disks.list().iter()
+    disks
+        .list()
+        .iter()
         .filter(|disk| path.starts_with(disk.mount_point()))
         .max_by_key(|disk| disk.mount_point().components().count())
         .map(|disk| disk.available_space())
@@ -641,7 +720,10 @@ fn download_model(app: &AppHandle, spec: &ModelSpec, cancelled: &AtomicBool) -> 
         } else {
             ""
         };
-        return Err(format!("The model host returned {} while downloading.{retry}", response.status()));
+        return Err(format!(
+            "The model host returned {} while downloading.{retry}",
+            response.status()
+        ));
     }
     let resumed = offset > 0 && response.status() == StatusCode::PARTIAL_CONTENT;
     if offset > 0 && !resumed {
@@ -966,12 +1048,11 @@ fn start_local_model_blocking_inner(
     let port = available_loopback_port()?;
     // Sized from this model's own header rather than a table: a 3B and a 235B cost wildly
     // different amounts per token, and the file on disk is the only thing that knows which.
-    let context = context_size_for_model(
-        read_model_shape(&path),
-        file_len(&path),
-        total_memory(),
-        spec.context_size,
-    );
+    let shape = read_model_shape(&path);
+    let weights = file_len(&path);
+    let memory = total_memory();
+    let context = context_size_for_model(shape, weights, memory, spec.context_size);
+    let prompt_cache = prompt_cache_mib_for_model(shape, weights, memory, context);
     let mut command = Command::new(&executable);
     // llama-server needs none of our environment, and the parent's may hold model credentials.
     command.env_clear();
@@ -987,6 +1068,9 @@ fn start_local_model_blocking_inner(
         // once overrun a context sized for one and the second dies on "Context size has been
         // exceeded". One slot gives each request the whole context and queues the rest.
         .args(["--parallel", "1"])
+        // Switching workers should reuse saved prompts when the memory budget allows it.
+        .arg("--cache-ram")
+        .arg(prompt_cache.to_string())
         // Without --jinja llama.cpp falls back to its legacy template handling and parses tool calls
         // by guesswork, which is most of why a local model answers in prose instead of calling a tool.
         .arg("--jinja")

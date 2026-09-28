@@ -9,7 +9,7 @@ import {
 import { MemorySettings } from "./collaboration.js";
 import { SystemDefaultSettings } from "./agents.js";
 
-function AiSettings({ ctx, modelSettings, preferences, systemDefault, reload, productSettings }) {
+function AiSettings({ ctx, modelSettings, preferences, systemDefault, reload, productSettings, catalog }) {
   const preference = usePreference(preferences);
   const generation = productSettings.generation;
   const isOnboarding = preference.onboarding?.active;
@@ -36,7 +36,7 @@ function AiSettings({ ctx, modelSettings, preferences, systemDefault, reload, pr
     h("fieldset", { disabled: preferences.productDefaults, style: { border: 0, padding: 0, minWidth: 0 } },
       h(FreeAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button })),
     h(CustomAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button }),
-    h(LocalAiSettings, { modelSettings, preferences, systemDefault, ask, confirmAction, Button }),
+    h(LocalAiSettings, { modelSettings, preferences, systemDefault, ask, confirmAction, Button, catalog }),
     h("fieldset", { disabled: preferences.productDefaults, style: { border: 0, padding: 0, minWidth: 0 } },
       h(ExternalLocalAiSettings, { modelSettings, preferences, systemDefault, ask, Button }))
   );
@@ -180,7 +180,7 @@ export function AccountsPage({ reload }) {
     h("section", { style: { marginBottom: "32px" } },
       h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" } },
         h("h3", { style: { margin: 0 } }, "Signed in accounts"),
-        h("span", { className: "bees-badge", style: { padding: "4px 8px" } }, `${(data.accounts ?? []).length} accounts`)
+        h("span", { className: "bees-badge", style: { padding: "4px 8px" } }, `${(data.accounts ?? []).length} account${data.accounts?.length === 1 ? "" : "s"}`)
       ),
       h("div", { style: { display: "flex", flexDirection: "column", gap: "8px" } },
         ...((data.accounts ?? []).length ? data.accounts.map((account) => h("div", {
@@ -429,7 +429,7 @@ function OrganizationSettings({
       h("section", { className: "bees-box bees-appearance-card", style: { padding: "20px" } }, 
         h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" } },
           h("h3", { style: { margin: 0 } }, `${organization.name} Members`),
-          h("span", { className: "bees-badge", style: { padding: "4px 8px" } }, `${people.memberships.length} members`)
+          h("span", { className: "bees-badge", style: { padding: "4px 8px" } }, `${people.memberships.length} member${people.memberships.length === 1 ? "" : "s"}`)
         ),
         h("div", { style: { display: "flex", flexDirection: "column", gap: "8px" } },
         ...(people.memberships.length ? people.memberships.map((member) => h("div", { className: "bees-row", key: member.id, style: { padding: "12px 4px", border: 0 } },
@@ -556,7 +556,7 @@ function TeamSettings({ team, organization, connectionId, openOrganization, navi
     return () => { active = false; };
   }, [team?.id, team?.role, organization?.connected, connectionId, route]);
   const [adding, add] = useSubmit(async (event) => {
-    if (!canManage || !people?.candidates.length) return;
+    if (!people?.canManage || !people.candidates.length) return;
     const form = new FormData(event.currentTarget);
     try { setPeople(await collaboration("add_team_member", { teamId: team?.id, connectionId,
       userId: String(form.get("userId") ?? ""), role: String(form.get("role") ?? "member") })); setError(""); }
@@ -609,12 +609,12 @@ function TeamSettings({ team, organization, connectionId, openOrganization, navi
     h("section", { className: "bees-box" }, h("h3", null, "Add organization member"),
       h("p", { className: "bees-muted" }, "Team membership starts immediately; there is no invitation to accept."),
       h("form", { className: "bees-form-row", onSubmit: add },
-        h("label", null, "Organization member", h("select", { className: "bees-select", name: "userId", disabled: !canManage || !people.candidates.length },
-          !canManage || !people.candidates.length ? h("option", { value: "" }, canManage
+        h("label", null, "Organization member", h("select", { className: "bees-select", name: "userId", disabled: !people.canManage || !people.candidates.length },
+          !people.canManage || !people.candidates.length ? h("option", { value: "" }, people.canManage
             ? "Every organization member is already on this team" : "Only team administrators can add members") : null,
           ...people.candidates.map((candidate) => h("option", { value: candidate.userId, key: candidate.userId }, candidate.email || candidate.userId)))),
-        h("label", null, "Role", h("select", { className: "bees-select", name: "role", disabled: !canManage || !people.candidates.length }, h("option", { value: "member" }, "Member"), h("option", { value: "admin" }, "Admin"))),
-        h("button", { className: "bees-btn primary", disabled: !canManage || !people.candidates.length || adding }, adding ? "Adding…" : "Add member")),
+        h("label", null, "Role", h("select", { className: "bees-select", name: "role", disabled: !people.canManage || !people.candidates.length }, h("option", { value: "member" }, "Member"), h("option", { value: "admin" }, "Admin"))),
+        h("button", { className: "bees-btn primary", disabled: !people.canManage || !people.candidates.length || adding }, adding ? "Adding…" : "Add member")),
       h("p", { className: "bees-muted" }, canManageOrganization
         ? `For someone new, invite them to ${organization.name} first. After they accept, add them to ${team.name} here.`
         : "Only organization administrators can invite new people. After they join the organization, a team administrator can add them here."),
@@ -702,9 +702,9 @@ function RemoveBeesSettings({ dataFolder }) {
   }, []);
   const remove = async () => {
     if (!folder) return;
-    if (!await confirmAction(`Remove Bees and delete ${readable(folder.bytes)} from ${folder.path}? Bees quits, your own folders are left alone, and nothing here can be recovered.`)) return;
     setBusy(true);
-    try { await invoke("uninstall_bees"); }
+    // the app asks in its own window, false means the person kept Bees
+    try { if (!await invoke("uninstall_bees")) setBusy(false); }
     catch (error) { setNotice(error?.message || String(error)); setBusy(false); }
   };
   return h("section", { className: "bees-box bees-stack" },
@@ -743,7 +743,10 @@ function SettingsLayout({ route, navigate, organization, team, platform, childre
             className: route === id ? "active" : "", "aria-current": route === id ? "page" : null,
             onClick: () => navigate(id) }, label)),
           organization ? h(SettingsGroup, { label: organization.name, routes: ORGANIZATION_SETTINGS, route, navigate,
-            role: organization.role, connected: organization.connected }) : null)),
+            role: organization.role, connected: organization.connected }) : null),
+      // no auto-update yet, so point people at the releases page instead of leaving them on an old build silently
+      h(Button, { onClick: () => void openExternal("https://github.com/Bees-bot/bees-desktop/releases") },
+        "Bees does not update itself yet. Watch the releases page for new versions.")),
     h("section", { className: "bees-settings-content" }, children));
 }
 
@@ -787,7 +790,8 @@ export function SettingsPage({
       : h(Empty, null, "Platform administrator access is unavailable.")
     : route === "personal-ai"
       ? h(AiSettings, { ctx, modelSettings, preferences, systemDefault: platform?.editing
-        ? platform.values["agent-default-model"].selection : data.systemDefaultModel, reload, productSettings })
+        ? platform.values["agent-default-model"].selection : data.systemDefaultModel, reload, productSettings,
+        catalog: data.localModelCatalog })
     : route === "system-instructions"
       ? h(SystemInstructionsSettings, { preferences, instructions: preference.systemInstructions ?? "" })
     : route === "appearance" ? h(AppearanceSettings, { ctx, preferences, productSettings })

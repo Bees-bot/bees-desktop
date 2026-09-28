@@ -572,7 +572,12 @@ export async function syncTeamRecords(database, request, organizationId, connect
     "SELECT cursor FROM bees_connection_sync_cursors WHERE connection_id = ?"
   ).get(connectionId)?.cursor ?? "0";
   const incoming = await pull(database, request, organizationId, connectionId, saved);
-  const outgoing = teamRecords(database, organizationId, connectionId);
+  // a plan's items wait for their owner's Start, and once shared a teammate's device started them first
+  const waiting = new Set(database.prepare(`SELECT w.id FROM work_items w JOIN bees_work_receipts r ON r.work_item_id = w.id
+    WHERE w.runtime_phase = 'ready' AND w.deleted_at IS NULL AND w.archived_at IS NULL AND r.idempotency_key LIKE 'proposal:%'`)
+    .all().map(({ id }) => id));
+  const outgoing = teamRecords(database, organizationId, connectionId)
+    .filter(({ recordType, recordId }) => recordType !== "team_work_item" || !waiting.has(recordId));
   const rejected = [];
   for (let index = 0; index < outgoing.length; index += PUSH_LIMIT) {
     const result = await request("/api/sync/push", {

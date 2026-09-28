@@ -1,6 +1,7 @@
-import { existsSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { cp } from "node:fs/promises";
-import { basename, join, resolve, sep } from "node:path";
+import { homedir } from "node:os";
+import { basename, dirname, join, resolve, sep } from "node:path";
 
 // BEES_DATA_DIR holds the work and can be shared, BEES_APP_DATA is this computer's own folder
 export const dataDirectory = () => process.env.BEES_DATA_DIR;
@@ -8,6 +9,28 @@ export const appDirectory = () => process.env.BEES_APP_DATA;
 export const sharedFolder = () => dataDirectory() !== appDirectory();
 // several computers open a shared folder, so the app writes this computer's id beside itself
 export const deviceId = () => readFileSync(join(appDirectory(), "device-id"), "utf8").trim();
+
+// native realpath also fixes the letter case, which a case-insensitive disk would otherwise let slip past
+const real = (path) => { try { return realpathSync.native(path); } catch { return dirname(path) === path ? path : join(real(dirname(path)), basename(path)); } };
+const under = (path, root) => path === root || path.startsWith(root.endsWith(sep) ? root : root + sep);
+
+/** What agents may never read: Bees' own files, keys, logins and browser profiles. Runs, uploads and skills stay open. */
+export function readFence() {
+  const home = homedir(), dsh = process.env.DSH_HOME, db = process.env.BEES_DATABASE_PATH;
+  const list = (paths) => [...new Set(paths.filter(Boolean).map((path) => real(resolve(path))))];
+  return {
+    closed: list([appDirectory(), ...["", "-wal", "-shm"].map((end) => db && db + end), dataDirectory() && join(dataDirectory(), "api-specs"),
+      ...[".ssh", ".aws", "Library/Keychains", "Library/Safari"].map((name) => join(home, name)),
+      ...["Google", "BraveSoftware", "Firefox", "Microsoft Edge", "Arc"].map((name) => join(home, "Library/Application Support", name))]),
+    open: list([process.env.BEES_DEFAULT_WORKSPACE, dsh && join(dsh, "attachments"), dsh && join(dsh, "skills")])
+  };
+}
+
+/** Whether the fence closes this path. A search also counts as closed when a closed folder sits somewhere below it. */
+export function fenced(path, search = false) {
+  const { closed, open } = readFence(), target = real(resolve(path));
+  return closed.some((root) => under(target, root) || (search && under(root, target))) && !open.some((root) => under(target, root));
+}
 
 /** Which other computer holds the app's lock on that folder; a lock that will not read counts as held. */
 function folderHeldBy(directory) {

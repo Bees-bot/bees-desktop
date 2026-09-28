@@ -257,7 +257,8 @@ export class WorkMemory {
       }
     }
     if (["memory_configure", "memory_retry", "memory_edit", "memory_delete"].includes(action)) await this.flush(workspaceId);
-    return { ...this.settings(workspaceId), memories: this.database.prepare(`SELECT id, content, evidence, status, error, updated_at AS updatedAt
+    // the model list re-reads every plugin's settings, so only this screen pays for it, not each 15s sync per workspace
+    return { ...this.settings(workspaceId), models: this.local?.models().map(({ id, name }) => ({ id, name })) ?? [], memories: this.database.prepare(`SELECT id, content, evidence, status, error, updated_at AS updatedAt
       FROM bees_memories WHERE workspace_id = ? ORDER BY updated_at DESC LIMIT 100`).all(workspaceId) };
   }
 }

@@ -66,7 +66,7 @@ function mcpPolicy(input, current = { access: "all", servers: [] }) {
 
 /** Work that is still moving; a schedule's definition item only describes future runs. */
 const hasActiveWork = (database, processId, settled = ["completed", "cancelled"]) => Boolean(database.prepare(`
-  SELECT 1 FROM work_items WHERE process_id = ? AND deleted_at IS NULL
+  SELECT 1 FROM work_items WHERE process_id = ? AND deleted_at IS NULL AND archived_at IS NULL
     AND runtime_phase NOT IN (${settled.map(() => "?").join(", ")})
     AND id NOT IN (SELECT source_work_item_id FROM recurring_work) LIMIT 1
 `).get(processId, ...settled));
@@ -187,11 +187,12 @@ export function executionAccount(database, teamId, input) {
         JOIN bees_connection_teams ct ON ct.connection_id = c.id
         WHERE c.id = ? AND ct.team_id = ?
       `).get(input.connectionId, teamId)
+    // a teammate's run picked up here acts through this device's account, the owner's is not signed in here
     : database.prepare(`
         SELECT c.account_user_id AS accountUserId FROM bees_connections c
         JOIN bees_connection_teams ct ON ct.connection_id = c.id
-        WHERE c.account_user_id = ? AND ct.team_id = ?
-      `).get(input.accountUserId ?? "", teamId);
+        WHERE ct.team_id = ? AND (c.account_user_id = ? OR ?) ORDER BY c.account_user_id = ? DESC LIMIT 1
+      `).get(teamId, input.accountUserId ?? "", input.viaAgent ? 1 : 0, input.accountUserId ?? "");
   if (!row) throw new Error("Choose an account that can access this team");
   return row.accountUserId;
 }
@@ -214,7 +215,7 @@ function runContext(database, executionId, roles = ["admin", "member"]) {
 function timezoneOf(value) {
   const timezone = required(value, "Timezone");
   try { new Intl.DateTimeFormat("en", { timeZone: timezone }).format(); }
-  catch { throw new Error("Timezone must be a valid IANA timezone such as America/Los_Angeles"); }
+  catch { throw new Error(`"${timezone}" is not a timezone Bees knows. Pick one from the list, such as Asia/Kathmandu or America/Los_Angeles.`); }
   return timezone;
 }
 
@@ -482,9 +483,8 @@ export async function executeProductCommand(action, input) {
       });
       // an applied plan only sets work up, the owner presses Start
       if (created.reused || input.idempotencyKey?.startsWith("proposal:")) return created;
-      // Publish the ready item before taking its team-wide lease. This gives the creating device
-      // first chance to run while still letting an eligible peer start it after the owner goes offline.
-      await this.connected?.sync();
+      // the server leases only an item it has seen; a peer may still start it once the owner goes offline
+      await this.processes.claims?.publish(created.id);
       // The row is already committed; throwing here would have the caller retry and create a second item.
       return { ...created, ...await this.processes.startItem(created.id).catch((error) => ({ error: message(error) })) };
     }
@@ -529,6 +529,10 @@ export async function executeProductCommand(action, input) {
       if (item.recurringWorkId) throw new Error("This run was started by its schedule, which already exists; do the work now");
       if (!this.processes.isAutomatic(item.processId))
         throw new Error("Recurring work requires an automatic process");
+      // an item has one schedule, like the screen shows it, so scheduling it again corrects that one
+      const existing = this.database.prepare(`SELECT r.id FROM recurring_work r JOIN work_items w ON w.id = r.source_work_item_id
+        WHERE r.origin_work_item_id = ? AND w.archived_at IS NULL AND w.deleted_at IS NULL`).get(item.id);
+      if (existing) return this.execute("edit_recurring_work", { ...input, recurringWorkId: existing.id });
       const name = scheduleName(this.database, item.workspaceId, input.name);
       const schedule = recurringSchedule(input);
       const id = randomUUID();
@@ -553,7 +557,7 @@ export async function executeProductCommand(action, input) {
              account_user_id, archived_at, deleted_at, created_at, updated_at)
           VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
         `).run(sourceWorkItemId, item.processId, stageId, item.kind === "goal" ? "goal" : "work",
-          item.title, item.description, item.owner, item.agentAssignmentId, JSON.stringify(item.agentIds), item.priority,
+          item.title, String(input.description ?? "").trim() || item.description, item.owner, item.agentAssignmentId, JSON.stringify(item.agentIds), item.priority,
           item.outputLocationId, id, item.accountUserId ?? null, at, at);
         this.database.prepare(`
           INSERT INTO work_item_locations
@@ -594,6 +598,8 @@ export async function executeProductCommand(action, input) {
             SELECT name FROM agent_assignments WHERE id = agent_assignment_id
           ), updated_at = ? WHERE recurring_work_id = ?
         `).run(name, at, id);
+        const description = String(input.description ?? "").trim();
+        if (description) this.database.prepare("UPDATE work_items SET description = ?, updated_at = ? WHERE id = ?").run(description, at, current.source_work_item_id);
       });
       try { return { id, ...await this.processes.updateRecurring(id) }; }
       catch (error) {
@@ -816,14 +822,17 @@ export async function executeProductCommand(action, input) {
     if (action === "edit_process") return transaction(this.database, () => {
       const processId = required(input.processId, "Process");
       processContext(this.database, processId, ["admin", "member"]);
-      // a failed run is not in flight, same rule as archiving
-      if (this.processes.isAutomatic(processId) && hasActiveWork(this.database, processId, ["completed", "cancelled", "failed"]))
-        throw new Error("Finish or cancel active automatic work before editing this process");
       const existing = this.database.prepare(`
         SELECT id, name, driver, requires_human_approval AS requiresHumanApproval
         FROM stages WHERE process_id = ? AND archived_at IS NULL ORDER BY position
       `).all(processId);
       const names = processStages(input.stages, "process", existing);
+      // only a changed stage list can strand a run mid-way, so the rules text stays editable while teammates run it
+      const restaged = names.length !== existing.length || names.some((stage, index) => stage.name !== existing[index].name
+        || stage.driver !== existing[index].driver || stage.requiresHumanApproval !== Boolean(existing[index].requiresHumanApproval));
+      // a failed run is not in flight, same rule as archiving
+      if (restaged && this.processes.isAutomatic(processId) && hasActiveWork(this.database, processId, ["completed", "cancelled", "failed"]))
+        throw new Error("Finish or cancel active automatic work before changing this process's stages");
       const assigned = Array(names.length).fill(null);
       const used = new Set();
       names.forEach(({ name }, index) => {
@@ -883,9 +892,7 @@ export async function executeProductCommand(action, input) {
       workspaceContext(this.database, stage.workspaceId, ["admin", "member"]);
       if (["manual", "terminal"].includes(stage.driver)) throw new Error("This stage does not run an agent");
       const requiredCapabilities = capabilities(input.requiredCapabilities, "Stage capabilities");
-      if (input.targetType && input.targetType !== "agent") throw new Error("A stage routes to agents; name them in agentIds");
-      const ids = normalizeAgentIds(Array.isArray(input.agentIds) ? input.agentIds
-        : input.targetType === "agent" && input.targetId ? [input.targetId] : []);
+      const ids = normalizeAgentIds(input.agentIds);
       if (stage.driver === "review" && ids.length > 1) throw new Error("A review stage must use one independent agent");
       for (const id of ids) {
         if (!assignment(this.database, id, stage.workspaceId)) throw new Error("Agent is not in this team");
@@ -1187,7 +1194,8 @@ export async function executeProductCommand(action, input) {
             if (change.agents) payload.agentIds = change.agents.map((name) => idOf("agent", name));
           }
           if (change.action === "create_recurring_work") {
-            Object.assign(payload, { itemId: idOf("item", change.item), paused: true });
+            // a planned schedule repeats its planned item, so a stray description must not replace it
+            Object.assign(payload, { itemId: idOf("item", change.item), paused: true, description: undefined });
             // planning a schedule again, or re-applying after a failure, updates it instead of adding a copy
             const existing = this.database.prepare(`
               SELECT r.id, r.source_work_item_id AS definition FROM recurring_work r JOIN work_items w ON w.id = ?
@@ -1254,6 +1262,11 @@ export async function executeProductCommand(action, input) {
         WHERE p.workspace_id = ? AND w.archived_at IS NULL AND w.deleted_at IS NULL
         ORDER BY w.updated_at DESC LIMIT 200
       `).all(workspace.id);
+    }
+    if (action === "list_agents") {
+      const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);
+      return this.database.prepare("SELECT id, name, description FROM agent_assignments WHERE workspace_id = ? AND archived_at IS NULL ORDER BY name")
+        .all(workspace.id);
     }
     if (action === "list_processes") {
       const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);
@@ -1363,13 +1376,14 @@ export async function executeProductCommand(action, input) {
       const executionId = required(input.executionId, "Execution");
       const text = required(input.text, "Text");
       const { uid, item, runtimePhase } = runContext(this.database, executionId);
-      if (item && runtimePhase === "failed")
-        return this.processes.signal(item.id, "retry", text);
-      return this.agents.admit("bees-run", executionId, {
-        idempotencyKey: `continue:${executionId}:${Date.now()}`,
-        uid, ownerChecked: true,
-        body: text
-      });
+      const result = item && runtimePhase === "failed" ? await this.processes.signal(item.id, "retry", text)
+        : await this.agents.admit("bees-run", executionId, {
+          idempotencyKey: `continue:${executionId}:${Date.now()}`,
+          uid, ownerChecked: true,
+          body: text
+        });
+      this.workContext.recordOwner(executionId, text);
+      return result;
     }
     if (action === "publish_run") {
       const executionId = required(input.executionId, "Execution");

@@ -38,7 +38,10 @@ export function planningAgents(data, workspaceId) {
   const process = data.processes?.find((row) => row.workspaceId === workspaceId && row.kind === "goals");
   if (!process) return [];
   const stage = data.stages?.filter((row) => row.processId === process.id).sort((a, b) => a.position - b.position)[0];
-  return (stage?.agentIds ?? []).map((id) => data.assignments?.find((row) => row.id === id)).filter(Boolean);
+  // teams made after the two-agent route was dropped run Work and Review on the team's own work and review agents
+  const agents = data.assignments?.filter((row) => row.workspaceId === workspaceId) ?? [];
+  return (stage?.agentIds?.length ? stage.agentIds.map((id) => agents.find((row) => row.id === id))
+    : ["worker", "reviewer"].map((role) => agents.find((row) => row.systemRole === role))).filter(Boolean);
 }
 
 export function onboardingAiKey(data, workspaceId, config) {
@@ -71,7 +74,7 @@ export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiSta
     h("section", { className: "bees-callout" }, h("h1", null, "Your first result starts here"),
       h("p", null, "Set up your workspace, choose AI, and watch Bees turn a brief into a useful file."),
       h("div", { className: "bees-card-actions" },
-        h(Button, { onClick: () => update({ active: false }) }, "Set up later"),
+        h(Button, { onClick: () => { update({ active: false }); navigate("home"); } }, "Set up later"),
         h(Button, { onClick: () => navigate("basics") }, "Bees basics"))),
     h("nav", { className: "bees-onboarding-steps", "aria-label": "Getting started steps" },
       ...titles.map((title, index) => h("button", { type: "button", key: title,
@@ -94,9 +97,9 @@ export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiSta
           h(Button, { className: "primary", onClick: () => go(1, "local") }, "Use AI on this computer"),
           h(Button, { onClick: () => go(1, "subscriptions") }, "Connect Codex or Claude"),
           h(Button, { onClick: () => go(1, "other") }, "Choose another provider")),
-        h("p", null, "Two agents start Work together: the lead proposes an approach, and the reviewer challenges it. The lead then executes. Both use your selected AI by default."),
+        h("p", null, "Two agents run each goal: the lead plans and does the work, and the reviewer checks it. Both use your selected AI by default."),
         ...agents.map((agent, index) => h("div", { key: agent.id, className: "bees-box" },
-          h("strong", null, index === 0 ? "Planner and executor" : "Plan and result reviewer"),
+          h("strong", null, index === 0 ? "Lead" : "Reviewer"),
           h("p", null, agent.model || defaultModel),
           !agent.enabled ? h("p", { role: "status" }, "This agent is disabled. Enable it in Agents before starting.") : null,
           h("details", null, h("summary", null, "Change AI (optional)"),
@@ -135,7 +138,7 @@ export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiSta
             ...teamLocations.map((row) =>
               h("label", { key: row.id }, h("input", { type: "checkbox", checked: (state.inputLocationIds || []).includes(row.id),
                 onChange: (event) => update({ inputLocationIds: event.target.checked ? [...(state.inputLocationIds || []), row.id] : (state.inputLocationIds || []).filter((id) => id !== row.id) }) }), ` ${row.name}`)),
-            h("p", { className: "bees-muted" }, "Work (plan together, then execute) → Review → Done. The lead creates first-result.md, then a fresh reviewer session checks it. Planning uses additional AI calls. If the planning partner cannot run, the lead performs a self-review and shows the fallback."),
+            h("p", { className: "bees-muted" }, "Work → Review → Done. The lead creates first-result.md, then a fresh reviewer session checks it."),
             !aiReady ? h("div", { className: "bees-stack" },
               h("p", { role: "status" }, "Choose and test your AI before starting. You can prepare this prompt while a model downloads."),
               h(Button, { onClick: () => update({ step: 1 }) }, "Go to Choose your AI")) : null,

@@ -335,7 +335,7 @@ function stageDriver(stage, position, count) {
 // Seed editable process configuration. Runtime reads it like any other process description.
 const GOALS_DESCRIPTION = `Autonomous outcomes completed in Work and independently checked in Review.
 
-Work: Complete the requested outcome and any explicit stop condition before submitting. Do small tasks directly. For larger work, plan the next actionable steps using the assigned team, then execute and verify the deliverables. A plan alone does not complete Work. When creating a reusable workflow, include the supplied requirements and context in its configuration.
+Work: Complete the requested outcome and any explicit stop condition before submitting. Do small tasks directly unless the request requires subagents. Delegate required subagent contributions regardless of task size. For larger work, plan the next actionable steps using the assigned team, then execute and verify the deliverables. A plan alone does not complete Work. When creating a reusable workflow, include the supplied requirements and context in its configuration.
 
 Planning within Work: If planning is useful, the lead proposes an approach, the planning reviewer critiques it, and the lead reconciles the feedback before executing. Use one proposal, one critique and one reconciliation by default; record unresolved decisions instead of repeating rounds.
 
@@ -990,6 +990,34 @@ export function initializeProductDatabase(database) {
     }
     database.exec("PRAGMA user_version = 33");
   });
+  // Early completion used to leave delegated and skipped work in its working lane.
+  if (version < 34) transaction(database, () => {
+    for (const row of database.prepare(`
+      SELECT w.id, w.updated_at AS updatedAt,
+        (SELECT id FROM stages WHERE process_id = w.process_id AND archived_at IS NULL
+          AND (driver = 'terminal' OR is_terminal = 1) ORDER BY position LIMIT 1) AS terminalId
+      FROM work_items w JOIN stages s ON s.id = w.stage_id
+      WHERE w.runtime_phase = 'completed' AND w.deleted_at IS NULL
+        AND s.driver != 'terminal' AND s.is_terminal = 0
+    `).all()) {
+      if (!row.terminalId) continue;
+      const at = new Date(Math.max(Date.now(), (Date.parse(row.updatedAt) || 0) + 1)).toISOString();
+      database.prepare("UPDATE work_items SET stage_id = ?, updated_at = ? WHERE id = ?")
+        .run(row.terminalId, at, row.id);
+    }
+    database.exec("PRAGMA user_version = 34");
+  });
+  if (version < 35) transaction(database, () => {
+    // Remove the conflicting shortcut only from the untouched shipped process.
+    const previous = GOALS_DESCRIPTION.replace(
+      "Do small tasks directly unless the request requires subagents. Delegate required subagent contributions regardless of task size.",
+      "Do small tasks directly.");
+    for (const row of database.prepare("SELECT id, updated_at AS updatedAt FROM processes WHERE kind = 'goals' AND description = ?").all(previous)) {
+      const at = new Date(Math.max(Date.now(), (Date.parse(row.updatedAt) || 0) + 1)).toISOString();
+      database.prepare("UPDATE processes SET description = ?, updated_at = ? WHERE id = ?").run(GOALS_DESCRIPTION, at, row.id);
+    }
+    database.exec("PRAGMA user_version = 35");
+  });
   // every stored folder is read against the root this computer keeps for that workspace
   refreshFolderRoots(database);
   database.function("resolved", (path, workspaceId) => path && resolveStored(workspaceId, path));
@@ -1046,7 +1074,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * Server names for a stored list. Names are the same on every computer that installed the server;
  * row ids are not, so an older list, or one synced from a peer that has not migrated, still resolves.
  */
-export function serverNames(database, values = []) {
+function serverNames(database, values = []) {
   const byId = new Map(database.prepare(`
     SELECT id, server_name AS name FROM mcp_servers WHERE id IN (SELECT value FROM json_each(?))
   `).all(JSON.stringify(values)).map(({ id, name }) => [id, name]));

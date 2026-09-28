@@ -160,7 +160,7 @@ const ENTRIES = [
     homepage: "https://github.com/Bees-bot/bees-desktop/blob/main/dsh-runtime/plugin/lib/gmail-mcp.js",
     summary: "Search, read, label, draft and send email in your Gmail.",
     access: "Everything in your mailbox. Every agent set to all MCPs, and any agent you select it for, can "
-      + "read, label, draft and send email as you without asking first, and an email or page it reads can "
+      + "read, label and draft email as you without asking first, and asks you before each email it sends. An email or page it reads can "
       + "try to steer that agent. The Google sign-in stays on this computer and goes only to Google.",
     scopes: ["https://www.googleapis.com/auth/gmail.modify"],
     transport: "stdio",

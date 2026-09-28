@@ -85,7 +85,7 @@ function decodeXml(value) {
   });
 }
 
-export function drawingMarkdown(svg, title = "Google Drawing") {
+function drawingMarkdown(svg, title = "Google Drawing") {
   const text = decodeXml(String(svg ?? "")
     .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
     .replace(/<!--[\s\S]*?-->/g, " ")
@@ -134,7 +134,7 @@ function questionMarkdown(question) {
   return lines;
 }
 
-export function formMarkdown(form) {
+function formMarkdown(form) {
   const info = form?.info ?? {};
   const lines = [`# ${clean(info.title || form?.documentTitle) || "Google Form"}`];
   if (info.description) lines.push("", clean(info.description));

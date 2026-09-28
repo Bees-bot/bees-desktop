@@ -14,7 +14,7 @@ export function useCapabilities(route) {
   // A refresh must never wipe a message the person has not read yet, so only their own action clears it.
   const load = async ({ quiet = false } = {}) => {
     try { setValue(await request("/bees-api/capabilities")); if (!quiet) setError(""); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    catch (reason) { console.error("Could not load capabilities:", reason); setError("Could not load skills and add-ons. Try again."); }
   };
   useEffect(() => {
     void load();
@@ -29,7 +29,8 @@ export function useCapabilities(route) {
       await load({ quiet: true });
       return result;
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      console.error("Capability action failed:", reason);
+      setError("Could not save that change. Try again.");
       return null;
     }
   };
@@ -185,6 +186,7 @@ export function CatalogReview({ ctx, entry, onCancel, onDone }) {
     || secretFields.some(blank(secrets)) || (entry.inputs ?? []).some(blank(inputs));
   const ready = !busy && !incomplete;
   const runtime = entry.scopes ? "Connects through Google in your browser."
+    : entry.command === "{node}" ? "Runs on this computer, as part of Bees."
     : entry.transport === "stdio" ? `Runs locally: ${entry.command} ${(entry.args ?? []).join(" ")}`.trim()
     : `Connects to ${entry.url}`;
   const pick = async () => {
@@ -250,7 +252,7 @@ export function CatalogReview({ ctx, entry, onCancel, onDone }) {
             }) });
             if (done.url) await openExternal(done.url);
             onDone(done);
-          } catch (reason) { setError(reason.message); } finally { setBusy(false); }
+          } catch (reason) { console.error("Could not connect this add-on:", reason); setError("Could not connect this add-on. Try again."); } finally { setBusy(false); }
         }
       }, entry.scopes ? (busy ? "Opening Google…" : "Connect with Google") : busy ? "Connecting…" : "Connect"))));
 }
@@ -287,7 +289,7 @@ function ManualServerForm({ onCancel, act, initial }) {
         onCancel();
       }
     },
-    "aria-label": "Connect a custom MCP server", onCancel: (event) => { event.preventDefault(); onCancel(); } },
+    "aria-label": "Connect a custom add-on", onCancel: (event) => { event.preventDefault(); onCancel(); } },
     h("div", { className: "bees-mcp-dialog-head" },
       h("div", { className: "bees-grow" }, h("h3", null, "Connect a custom server"),
         h("div", { className: "bees-muted" }, "Only connect a server you trust. Its tools go straight to your agents.")),
@@ -379,7 +381,7 @@ export function McpPage({ ctx, capabilities }) {
   });
 
   const renderCatalog = () => {
-    if (!catalog.length) return h(Empty, null, "No available MCP matches that search");
+    if (!catalog.length) return h(Empty, null, "No available add-on matches that search");
     return h("div", { className: "bees-mcp-grid bees-mcp-page-grid" }, ...catalog.map((row) => h(McpCard, {
       name: row.label, status: "Available", meta: row.summary, icon: row.icon, key: row.id, onOpen: () => setReviewing(row.id)
     })));
@@ -392,30 +394,30 @@ export function McpPage({ ctx, capabilities }) {
       onDone: () => { setReviewing(""); void reload({ quiet: true }); }
     }) : null,
     error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
-    h("p", { className: "bees-mcp-intro" }, "Connect MCP servers to give your agents tools from other apps and services."),
+    h("p", { className: "bees-mcp-intro" }, "Connect add-ons to give your agents tools from other apps and services."),
     h("div", { className: "bees-detail-actions", style: { justifyContent: "flex-end", marginTop: 0 } },
-      h(Button, { className: "primary", onClick: () => setManual({}) }, "Add MCP Server")),
+      h(Button, { className: "primary", onClick: () => setManual({}) }, "Connect Add-on")),
     h("section", { className: "bees-box bees-mcp-section" },
       h("div", { className: "bees-mcp-section-head" },
-        h("div", null, h("h3", null, "Connected MCPs"),
+        h("div", null, h("h3", null, "Connected add-ons"),
           h("div", { className: "bees-muted" }, `${data.servers.filter(({ enabled }) => enabled).length} on · ${data.servers.filter(({ enabled }) => !enabled).length} off`))),
       data.servers.length ? h("div", { className: "bees-mcp-grid bees-mcp-page-grid" }, ...serverCards)
-        : h(Empty, null, "No MCP servers connected yet")),
+        : h(Empty, null, "No add-ons connected yet")),
     h("section", { className: "bees-box bees-mcp-section" },
       h("div", { className: "bees-mcp-section-head" },
-        h("div", null, h("h3", null, "Available MCPs"),
+        h("div", null, h("h3", null, "Available add-ons"),
           h("div", { className: "bees-muted" }, "Curated servers you can connect"))),
-      h(Filter, { value: query, onChange: setQuery, placeholder: "Search available MCP servers" }),
+      h(Filter, { value: query, onChange: setQuery, placeholder: "Search available add-ons" }),
       renderCatalog()),
     h("section", { className: "bees-box bees-mcp-section bees-mcp-community" },
     h("div", { className: "bees-mcp-section-head" }, h("div", null,
       h("h3", null, "Community registry"),
-      h("div", { className: "bees-muted" }, "Search unreviewed public MCP servers when the curated list does not have what you need."))),
+      h("div", { className: "bees-muted" }, "Search unreviewed public add-ons when the curated list does not have what you need."))),
     h("form", {
       className: "bees-search",
       onSubmit: (event) => { event.preventDefault(); void searchRegistry(new FormData(event.currentTarget).get("q")); }
     },
-      h("input", { className: "bees-input bees-grow", name: "q", defaultValue: registry.query, placeholder: "Search the registry", "aria-label": "Search the MCP registry" }),
+      h("input", { className: "bees-input bees-grow", name: "q", defaultValue: registry.query, placeholder: "Search the registry", "aria-label": "Search the add-on registry" }),
       h("button", { className: "bees-btn" }, "Search")),
     registry.note ? h("p", { className: "bees-muted" }, registry.note) : null,
     registry.results?.length ? h("div", { className: "bees-mcp-grid bees-mcp-page-grid" }, ...registry.results.map((row) => h(McpCard, {

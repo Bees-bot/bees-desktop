@@ -113,8 +113,11 @@ async function call(entry, args) {
   }
   const address = `${base}${path}${query.length ? `?${query.join("&")}` : ""}`;
   const response = await fetch(address, { method: entry.method.toUpperCase(), headers, body, signal: AbortSignal.timeout(120_000) });
-  const answer = await response.text();
-  const cap = 80_000;
+  let answer = await response.text();
+  // one line per field, since a run reads a big answer back from its overflow file only 2000 characters per line
+  try { answer = JSON.stringify(JSON.parse(answer), null, 1); } catch { /* not json, sent as it came */ }
+  // the run only sees the first 2000 tokens inline and reads the rest from its overflow file, so a big page costs one call not ten
+  const cap = 1_000_000;
   return {
     content: [{ type: "text", text: `${entry.method.toUpperCase()} ${address} answered HTTP ${response.status}\n\n${answer.length > cap
       ? `${answer.slice(0, cap)}\n[Cut at ${cap} of ${answer.length} characters. Ask for fewer results to see the rest.]` : answer}` }],

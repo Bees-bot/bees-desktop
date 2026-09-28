@@ -31,9 +31,45 @@ const output = {
   render: (_args, value) => [{ type: "text", text: value.result }]
 };
 
+export const FILE_LOCK_INSTRUCTIONS = "For adding text to a file, prefer bees_append_file: it locks, reads, appends atomically and releases within one call. For other file changes, acquire all destination paths together with bees_acquire_file_locks, read their current contents, then write/edit and immediately release the returned token with bees_release_file_locks, including after errors. Release before delegating, waiting or asking a person. Earlier reads are stale after acquiring or reacquiring a lock. For generated binary files, hold the destination lock, generate a unique separate temporary file, wait for completion, then publish with bees_commit_file and release. Never write shared destinations directly from shell jobs or filesystem MCPs. Read-only inspection needs no lock.";
+
 export function mountFileLocks(ctx, owner, locks, fs = ctx.fs, sandboxPolicy = ctx.get?.("sandboxPolicy")) {
   const resolve = (path, exec) => fs.resolve(path, { cwd: exec.agent.session.header.cwd, signal: exec.signal });
   const own = (exec) => { if (exec.agent !== owner) throw new Error("File lock tools belong to the calling agent only."); };
+  ctx.tools.register(defineTool({
+    name: "bees_append_file",
+    description: "Append exact text to a UTF-8 file in one operation: acquire its lock, read the latest contents, write atomically, and release even after failure. Preserves other agents' entries. Creates the file if missing; include any needed newline in content. No separate lock or read is needed. If you already hold only this file's lock, it is reused and released; release other locks first. This does not grant extra filesystem permissions.",
+    parameters: {
+      file_path: { type: "string", required: true, description: "File path relative to this run, or a permitted absolute path." },
+      content: { type: "string", required: true, description: "Text to append, including separators. Empty text can initialize a missing file." }
+    },
+    output,
+    execute: async ({ file_path, content }, exec) => {
+      own(exec);
+      if (typeof file_path !== "string" || !file_path.trim() || typeof content !== "string")
+        throw new Error("Supply a file_path and text content.");
+      let target = await resolve(file_path, exec);
+      const policy = sandboxPolicy?.resolve({ session: exec.agent.session });
+      if (fs.sandboxMode !== undefined) {
+        if (typeof fs.checkedTarget !== "function" || !policy) throw new Error("Atomic append is unavailable for this filesystem backend.");
+        target = await fs.checkedTarget(target, policy);
+      }
+      const held = locks.owners.get(owner);
+      const { token } = held?.held && !held.closing && held.paths.length === 1 && held.paths[0] === target.targetKey
+        ? held : await locks.acquire(owner, [target.targetKey], exec.signal);
+      try {
+        return await locks.use(owner, target.targetKey, async () => {
+          const info = await fs.stat(target, exec.signal);
+          if (info && (info.type !== "file" || !info.version)) throw new Error("Append requires a regular file with a freshness version.");
+          const before = info ? await fs.readText(target, exec.signal) : "";
+          const intent = info ? { kind: "replaceIfVersion", version: info.version } : { kind: "createIfAbsent" };
+          const result = await fs.writeText(target, before + content, intent, exec.signal, policy);
+          ctx.emit("fs/observed", target, { kind: "present", version: result.version }, exec);
+          return { result: JSON.stringify({ path: target.displayPath, appended_chars: Array.from(content).length, operation: result.operation }) };
+        });
+      } finally { await locks.release(owner, token); }
+    }
+  }));
   ctx.tools.register(defineTool({
     name: "bees_acquire_file_locks",
     description: "Request exclusive access to files before reading them for modification. Pass every file needed together. Waits up to 30 seconds; a timeout never takes another live agent's lock. Returns a token for bees_release_file_locks. Re-read existing files after acquisition. Locks do not grant filesystem permissions.",
@@ -95,11 +131,16 @@ export function mountFileLocks(ctx, owner, locks, fs = ctx.fs, sandboxPolicy = c
   });
   ctx.on("tools/execute", async (exec, next) => {
     if (exec.agent !== owner) return next();
+    const held = locks.owners.get(owner);
+    // A waiting tool keeps the agent running, so idle cleanup cannot break a parent/peer deadlock.
+    if (held && ["bees_delegate_work", "bees_revise_work", "bees_resolve_failed_work", "bees_wait_for_peers",
+      "ask_user_question", "bees_ask_team", "bees_request_work_review", "bees_publish_outputs",
+      "bees_submit_stage_result"].includes(exec.name))
+      throw new Error(`Finish your file work and call bees_release_file_locks with ${JSON.stringify({ token: held.token })} before ${exec.name}. Holding file locks while delegating or waiting can block the agents you are waiting for.`);
     const editor = exec.name === "str_replace_editor";
     const write = ["write", "edit"].includes(exec.name) || editor && exec.arguments.command !== "view";
     if (!write && !["read", "read_image"].includes(exec.name) && !editor) return next();
     const target = await resolve(editor ? exec.arguments.path : exec.arguments.file_path, exec);
-    const held = locks.owners.get(owner);
     if (!write && (!held?.held || held.closing || !held.paths.includes(target.targetKey))) return next();
     return locks.use(owner, target.targetKey, async (record) => {
       if (write && !record.observed.has(target.targetKey) && await fs.stat(target, exec.signal))
@@ -111,6 +152,6 @@ export function mountFileLocks(ctx, owner, locks, fs = ctx.fs, sandboxPolicy = c
   });
   ctx.systemPrompt.section({
     name: "bees:file-locks", order: 5,
-    text: "Before modifying files, call bees_acquire_file_locks with all destination paths together, then read their current contents and use write/edit. Release the returned token with bees_release_file_locks as soon as the file work finishes, including after errors, and before delegating or waiting for peers or human input. Earlier reads are stale after acquiring or reacquiring a lock. For generated documents, images, spreadsheets or other script outputs, hold the destination lock, write to a unique separate temporary path, wait for the generator to finish, and publish with bees_commit_file. Never let a shell command, background job or filesystem MCP tool write a shared destination directly: those bypass file-tool locking and atomic publication. Read-only inspection needs no lock. Locks are released when the agent becomes idle; always reacquire and re-read after resuming."
+    text: FILE_LOCK_INSTRUCTIONS
   });
 }

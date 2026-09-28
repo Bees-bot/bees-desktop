@@ -2,7 +2,7 @@ import {
   FreeAiController, h, LocalAiController, React, useEffect, useRef, useState
 } from "./runtime.js";
 import {
-  ask, askWithCheckbox, choose, collaboration, confirmAction, connectionIdForScope, defaultOrgColor, headerEmitter, NAVIGATION, request, scopeParts, runTitle, sectionFor, Button, Empty, openExternal,
+  artifactRuns, ask, collaboration, confirmAction, connectionIdForScope, defaultOrgColor, headerEmitter, NAVIGATION, request, scopeParts, runTitle, sectionFor, Button, openExternal,
   THEME_PRESETS, ThemeToggle, usePreference, workItemsFor
 } from "./shared.js";
 import { AccountIcon, BookIcon, ChevronDownIcon, CloseIcon, EditIcon, KnowledgeIcon, SettingsIcon } from "./icons.js";
@@ -189,6 +189,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
   const [aiTest, setAiTest] = useState(null);
   const [setupBusy, setSetupBusy] = useState(false);
   const setupLock = useRef(false);
+  const unstarted = useRef({});
   const [aiStatus, setAiStatus] = useState("Choose a model in AI connections, then test it here.");
   const personalModelConfig = usePreference(personalModelSettings);
   const modelConfig = platform.editing ? modelSettings.getSnapshot().value : personalModelConfig;
@@ -196,6 +197,8 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
     ...(preferences.getSnapshot().value?.onboarding ?? {}), ...patch
   });
   const [data, setData] = useState(null);
+  const [stillStarting, setStillStarting] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const accountsKey = JSON.stringify((data?.accounts ?? []).map(({ userId }) => userId));
   useEffect(() => {
     productSettings.reset();
@@ -258,6 +261,8 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
   const [processId, setProcessId] = useState("");
   const [workItemId, setWorkItemId] = useState("");
   const [creating, setCreating] = useState("");
+  // bumped by a sidebar click, so a page that keeps its own open item goes back to its list
+  const [visit, setVisit] = useState(0);
   const [creatingOrganizationName, setCreatingOrganizationName] = useState("");
   const [processDraft, setProcessDraft] = useState(null);
   const [workProcessId, setWorkProcessId] = useState("");
@@ -267,6 +272,17 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
     try { const value = await request("/bees-api/snapshot"); setData(value); return value; }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); return null; }
   };
+  const retryStartup = async () => {
+    if (retrying) return;
+    setRetrying(true);
+    try { await load(); } finally { setRetrying(false); }
+  };
+  // a hung first load never errors or resolves, so tell the user after 45s instead of animating forever
+  useEffect(() => {
+    if (data) { setStillStarting(false); return undefined; }
+    const timer = setTimeout(() => setStillStarting(true), 45_000);
+    return () => clearTimeout(timer);
+  }, [data]);
   useEffect(() => ctx.slots.inject("conversation.composer", () => ctx.slots.register({
     name: "conversation.composer", id: "bees-managed-continuation", priority: 20,
     select: ({ sessionId, pendingInteraction }) => {
@@ -279,7 +295,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
       return !["running", "waiting_for_input", "waiting_for_approval"].includes(run.status) || item?.archivedAt ? {} : null;
     }
   }, () => h("p", { className: "bees-muted", role: "status", style: { padding: "16px" } },
-    "Use Continue work below to start a managed run."))), [ctx, data]);
+    "To continue this work, message the agent from the work item's Conversation panel."))), [ctx, data]);
   useEffect(() => { void load(); const timer = setInterval(() => void load(), 30_000); return () => clearInterval(timer); }, []);
   const content = useRef(null);
   // a new page starts at the top, not where the last page was scrolled to
@@ -371,7 +387,9 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
       : team),
   } : data;
   const workspaceIds = parts.workspaceId ? [parts.workspaceId] : [];
-  const act = async (command, context = parts) => {
+  // a pop-up passes its own onError, the page banner sits under its backdrop
+  const act = async (command, context = parts, onError = setError) => {
+    unstarted.current = {};
     try {
       const result = await request("/bees-api/command", {
         method: "POST",
@@ -381,13 +399,18 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
         })
       });
       await load();
+      // a run saved but not started would sit at ready with no reason, so keep it until that run opens
+      if (result?.id && (result.error || result.waitingFor)) {
+        unstarted.current = { id: result.id, note: `Saved, but it could not start yet: ${result.error || result.waitingFor}` };
+        setError(unstarted.current.note);
+      }
       if (result?.learnedChange !== undefined) {
         setNotice(`Updated ${result.name}:\n${result.learnedChange || "No specialist guidance"}`);
         window.setTimeout(() => setNotice(""), 10_000);
       }
       return result;
     }
-    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); return null; }
+    catch (reason) { onError(reason instanceof Error ? reason.message : String(reason)); return null; }
   };
   const navigate = (id) => {
     if (id === "dsh-settings") {
@@ -396,7 +419,8 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
     }
     if (id === "home") void preferences.set("activeDashboardId", "home");
     const section = NAVIGATION.find((row) => row.id === id);
-    setRoute(section ? section.defaultChild : id); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId("");
+    // an error belongs to the page it came from, so it must not follow you to the next one
+    setError(""); setRoute(section ? section.defaultChild : id); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId("");
   };
   const finishOrganization = async (organizationId, nextConnectionId = "") => {
     const fresh = await load();
@@ -439,24 +463,22 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
   };
   const createWork = () => { setRoute("all-work"); setWorkItemId(""); setWorkProcessId(""); setCreating("work"); };
   const createProcess = () => { setRoute("all-processes"); setProcessId(""); setProcessDraft(null); setCreating("process"); };
-  const createRun = async () => {
-    const processes = data.processes.filter((row) => row.workspaceId === parts.workspaceId && row.kind === "standard");
-    const processName = await ask(`Process template:\n${processes.map(({ name }) => name).join("\n")}`, processes[0]?.name ?? "");
-    const process = processes.find(({ name }) => name === processName); if (!process) return;
-    const title = await ask("Process run name", `New ${process.name} run`); if (!title) return;
-    const work = await act({ action: "create_run", processId: process.id, title });
-    if (work?.id) { setRoute("all-work"); setWorkItemId(work.id); }
-  };
+  const createRun = () => { setRoute("all-work"); setWorkItemId(""); setWorkProcessId(""); setCreating("run"); };
   const createAgent = () => { setRoute("all-agents"); setCreating("agent"); };
   const capabilities = useCapabilities(route);
-  const localAi = h(LocalAiController, { modelSettings: personalModelSettings, preferences: personalPreferences, onError: setError });
+  const localAi = h(LocalAiController, { modelSettings: personalModelSettings, preferences: personalPreferences,
+    catalog: data?.localModelCatalog, onError: setError });
   const freeAi = h(FreeAiController, { modelSettings: personalModelSettings, onError: setError });
   if (!data) return h(React.Fragment, null, localAi, freeAi,
     h("div", { className: "bees-app bees-loading", style: { display: "flex", flexDirection: "column", gap: "16px", background: "#111315" } }, 
-      error || h(React.Fragment, null, 
+      error || h(React.Fragment, null,
         h("style", null, `@keyframes hover { 50% { transform: translateY(-6px); } }`),
         h("img", { src: brandMark, style: { width: "54px", height: "54px", borderRadius: "16px", objectFit: "cover", animation: "hover 1.8s ease-in-out infinite" } }),
-        h("strong", { style: { fontSize: "20px", color: "#f5f5f5" } }, "Bees Desktop")
+        h("strong", { style: { fontSize: "20px", color: "#f5f5f5" } }, "Bees Desktop"),
+        stillStarting ? h(React.Fragment, null,
+          h("span", { style: { color: "#f5f5f5" }, role: "status" }, "Still starting"),
+          h(Button, { onClick: retryStartup, disabled: retrying }, retrying ? "Retrying…" : "Retry")
+        ) : null
       )));
   const dashboards = dashboardsFrom(preference.dashboards);
   const activeDashboard = dashboards.find(({ id }) => id === preference.activeDashboardId) ?? dashboards[0];
@@ -483,9 +505,9 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
   const section = sectionFor(route);
   const routeLabel = route === "getting-started" ? "Getting started" : route === "basics" ? "Bees basics" : route === "guide" ? "Detailed guides" : route === "create-organization" ? "Create organization" : route === "home" ? activeDashboard.name : route === "accounts" ? "Accounts"
     : section.children.find(([id]) => id === route)?.[1] ?? section.label;
-  const openProcess = (id) => { setRoute("all-processes"); setProcessId(id); setWorkItemId(""); setCreating(""); };
+  const openProcess = (id) => { setError(""); setRoute("all-processes"); setProcessId(id); setWorkItemId(""); setCreating(""); };
   const openWorkItem = (id, processForWork = "") => {
-    setRoute("all-work"); setProcessId(""); setWorkItemId(id ?? "");
+    setError(id && unstarted.current.id === id ? unstarted.current.note : ""); setRoute("all-work"); setProcessId(""); setWorkItemId(id ?? "");
     setWorkProcessId(processForWork); setCreating(id ? "" : processForWork ? "run" : "work");
   };
   // A question waiting for you is not a workspace thing, so that route covers every workspace. The
@@ -495,7 +517,13 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
     const target = sectionFor(targetRoute);
     const openRoute = () => navigate(targetRoute);
     if (target.id === "work") return workItemsFor(viewData, targetRoute, scopeFor(targetRoute))
-      .map((item) => ({ id: item.id, label: item.title, open: () => openWorkItem(item.id), item }));
+      .map((item) => ({ id: item.id, label: item.title, item, open: () => {
+        // a waiting row can belong to another team, so open it inside that team
+        const workspace = data.workspaces.find(({ id }) => id === data.processes.find(({ id }) => id === item.processId)?.workspaceId);
+        if (workspace && workspace.id !== parts.workspaceId)
+          setScope(`team:${workspace.teamId}`, connectionIdForScope(data, `team:${workspace.teamId}`, connectionId));
+        openWorkItem(item.id);
+      } }));
     if (target.id === "processes") {
       if (targetRoute === "templates") return (data.templates ?? []).filter((row) => workspaceIds.includes(row.workspaceId))
         .map((row) => ({ id: row.id, label: row.name, open: openRoute }));
@@ -515,10 +543,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
     if (targetRoute === "runs") return viewData.runs.filter((row) => workspaceIds.includes(row.workspaceId)).map((row) => ({
       id: row.id, label: runTitle(viewData, row), open: () => openWorkItem(row.workItemId ?? row.id)
     }));
-    if (targetRoute === "artifacts") return viewData.runs.filter((row) =>
-      row.workspaceId === parts.workspaceId && row.outputs?.length)
-      .map((row) => ({ id: row.id,
-        label: viewData.items.find(({ id }) => id === row.workItemId)?.title ?? "Run", open: openRoute }));
+    if (targetRoute === "artifacts") return artifactRuns(viewData.runs, parts.workspaceId).map((row) => ({ id: row.id, label: runTitle(viewData, row), open: openRoute }));
     if (targetRoute === "team-settings") {
       const team = data.teams.find(({ id }) => id === parts.teamId);
       return team ? [{ id: team.id, label: team.name, open: openRoute }] : [];
@@ -599,7 +624,6 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
       if (!result?.id) return;
       await updateOnboarding({ workItemId: result.id, teamId: parts.teamId, connectionId, step: 3 });
       openWorkItem(result.id);
-      if (result.error) setError(`Your task was saved, but could not start: ${result.error}`);
     } finally { setupLock.current = false; setSetupBusy(false); }
   };
   const page = route === "home" ? h(Home, {
@@ -615,7 +639,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
           catch (reason) { setError(reason.message || String(reason)); }
           finally { setupLock.current = false; setSetupBusy(false); }
         }, go: goSetup, start: startFirstTask, openWorkItem: openStarter, navigate })
-    : route === "create-organization" ? h(CreateOrganizationPage, { reload: load, setScope, navigate, createLocal: createLocalOrganization, onboarding: onboarding.active, onCreated: finishOrganization })
+    : route === "create-organization" ? h(CreateOrganizationPage, { reload: load, createLocal: createLocalOrganization, onboarding: onboarding.active, onCreated: finishOrganization })
     : route === "basics" ? h(BasicsPage, { navigate, onStart: async () => {
         await updateOnboarding({ active: true, step: parts.teamId ? 3 : 0 });
         navigate("getting-started");
@@ -669,7 +693,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
       h(ScopeSwitcher, { data, organizationId: parts.organizationId, teamId: parts.teamId, connectionId,
         onChange: setScope, onCreateOrganization: createOrganizationFromSwitcher, onCreateTeam: createTeam,
         onOpenTeamSettings: (team) => { setScope(`team:${team.id}`, connectionId); navigate("team-settings"); },
-        onNavigate: navigate, route, sectionId: section.id, dashboards, activeDashboardId: activeDashboard.id,
+        onNavigate: (id) => { setVisit((value) => value + 1); navigate(id); }, route, sectionId: section.id, dashboards, activeDashboardId: activeDashboard.id,
         onOpenDashboard: (dashboardId) => { setRoute("home"); void preferences.set("activeDashboardId", dashboardId); },
         onCreateDashboard: createDashboard,
         onRenameDashboard: renameDashboard,
@@ -704,7 +728,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
         h("span", { style: { flex: 1, minWidth: 0, overflowWrap: "anywhere" } }, error),
         h(Button, { onClick: () => setError(""), "aria-label": "Dismiss error" }, "Dismiss")) : null,
       notice ? h("div", { className: "bees-notice", role: "status" }, h("strong", null, "Learned change"), h("pre", null, notice)) : null,
-      h("main", { className: "bees-content", ref: content }, h("div", { className: `bees-panel ${route === "home" || section.id === "work" && workItemId ? "bees-panel-wide" : ""} ${section.id === "work" && workItemId ? "bees-panel-full-height" : ""}` }, page))
+      h("main", { className: "bees-content", ref: content }, h("div", { key: visit, className: `bees-panel ${route === "home" || section.id === "work" && workItemId ? "bees-panel-wide" : ""} ${section.id === "work" && workItemId ? "bees-panel-full-height" : ""}` }, page))
     )
   ));
 }
@@ -734,7 +758,7 @@ function AppHeader({ routeLabel, parts, ctx, preferences }) {
 
 
 
-function CreateOrganizationPage({ reload, setScope, navigate, createLocal, onboarding, onCreated }) {
+function CreateOrganizationPage({ reload, createLocal, onboarding, onCreated }) {
   const [name, setName] = useState(onboarding ? "My workspace" : "");
   const [isLocal, setIsLocal] = useState(false);
   const [data, setData] = useState(null);
