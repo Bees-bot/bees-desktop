@@ -606,7 +606,9 @@ export class AgentRuntime {
     `));
     const active = database.prepare(`
       SELECT e.execution_id, e.current_session_id, e.status, i.runtime_phase AS item_phase,
-        i.archived_at IS NOT NULL OR i.runtime_phase IN ('completed', 'cancelled') AS item_done
+        i.archived_at IS NOT NULL OR i.runtime_phase IN ('completed', 'cancelled')
+          OR i.runtime_phase = 'failed' AND lower(coalesce(i.runtime_error, '')) NOT LIKE '%heartbeat timeout%'
+          AS item_done
       FROM execution_links e LEFT JOIN work_items i ON i.id = e.work_item_id
       WHERE e.status IN ('running', 'waiting_for_approval', 'waiting_for_input')
     `).all();
@@ -623,7 +625,7 @@ export class AgentRuntime {
       const sessionId = String(run.current_session_id);
       const pending = this.pendingInteraction(executionId);
       // a finished work item has nobody left to answer, so close its link instead of leaving it waiting for ever
-      if (run.item_done) this.setStatus(executionId, run.item_phase === "completed" ? "completed" : "cancelled");
+      if (run.item_done) this.setStatus(executionId, ["completed", "failed", "cancelled"].includes(run.item_phase) ? run.item_phase : "cancelled");
       if (run.item_done || (run.status === "cancelled" && !pending)) continue;
       const status = String(run.status);
       this.recovery.add(executionId);
