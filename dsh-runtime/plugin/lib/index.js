@@ -80,7 +80,6 @@ export const Config = z.object({
   darkThemePreset: z.string().default("halloween").volatile(),
   lightThemePreset: z.string().default("bumblebee").volatile(),
   organizationColors: z.dict(z.string()).default({}).volatile(),
-  freeAiProviders: z.array(z.string()).default([]).volatile(),
   generalAiProviders: z.array(z.string()).default([]).volatile(),
   generalAiModels: z.dict(z.array(ModelPreference)).default({}).volatile(),
   codexModels: z.array(ModelPreference).default([]).volatile(),

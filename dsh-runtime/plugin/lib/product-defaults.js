@@ -30,12 +30,13 @@ const preferences = {
   workItemLayout: layout, pageLayouts: z.record(id, layout),
   systemInstructions: z.string().max(20000),
   codexModels: z.array(model).max(100), generalAiModels: z.record(id, z.array(model).max(100)),
-  generalAiProviders: z.array(id).max(100), freeAiProviders: z.array(id).max(100)
+  generalAiProviders: z.array(id).max(100)
 };
 const provider = z.object({ displayName: label.optional(), api: id.optional(),
   baseURL: z.union([https, z.literal("http://127.0.0.1:1234/v1")]).optional(),
   apiKeyEnv: z.string().regex(/^[A-Z][A-Z0-9_]+$/).optional(),
-  headers: z.object({ authorization: z.literal("Bearer local") }).strict().optional(),
+  // the local server's bearer token, plus the session id OpenCode's Go plan routes requests by
+  headers: z.object({ authorization: z.literal("Bearer local").optional(), "x-opencode-session": id.optional() }).strict().optional(),
   models: z.array(model).max(100).optional() }).strict();
 const schemas = {
   bees: preferences,

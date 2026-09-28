@@ -18,12 +18,23 @@ window.__ModuleLoader__.load({
       { id: "huggingface", name: "Hugging Face", signup: "https://huggingface.co/settings/tokens", note: "Inference providers" },
       { id: "together", name: "Together AI", signup: "https://api.together.ai/settings/api-keys", note: "Open model hosting" },
       { id: "fireworks", name: "Fireworks AI", signup: "https://app.fireworks.ai/settings/users/api-keys", note: "Open model hosting" },
-      { id: "xai", name: "xAI", signup: "https://console.x.ai/team/default/api-keys", note: "Grok API" }
+      { id: "xai", name: "xAI", signup: "https://console.x.ai/team/default/api-keys", note: "Grok API" },
+      { id: "opencode-go", name: "OpenCode Zen", signup: "https://opencode.ai/auth", note: "DeepSeek and other models" }
     ];
     const BY_ID = Object.fromEntries(PROVIDERS.map((provider) => [provider.id, provider]));
-    // No route names a wire protocol of its own: OpenRouter and Fireworks describe both protocols in
-    // their catalogs, and a route that picks one sends the other's models to the wrong endpoint.
-    const routeOf = (route = {}) => { const { api, ...rest } = route; return rest; };
+    // OpenCode's Go plan routes every request by session, and the installed catalog sends no such
+    // header. Naming the endpoint here also lets the plan's newer models through, catalog or not.
+    const SESSION = crypto.randomUUID();
+    const ROUTES = { "opencode-go": { api: "openai-completions", baseURL: "https://opencode.ai/zen/go/v1",
+      headers: { "x-opencode-session": SESSION } } };
+    // OpenRouter and Fireworks describe both protocols in their catalogs, so a route that names one
+    // of its own would send the other's models to the wrong endpoint. A route with its own baseURL is
+    // the one case that must keep it: nothing else describes what its endpoint speaks.
+    const routeOf = (route = {}) => {
+      if (route.baseURL) return { ...route };
+      const { api, ...rest } = route;
+      return rest;
+    };
     // Preserve credentials saved by the earlier combined AI APIs screen.
     const refFor = (provider) => `BEES_FREE_${provider.replace(/[^a-z0-9]/gi, "_").toUpperCase()}_API_KEY`;
     const CUSTOM_KEY_REF = "BEES_CUSTOM_OPENAI_API_KEY";
@@ -71,9 +82,8 @@ window.__ModuleLoader__.load({
       const [error, setError] = useState("");
       const ids = useMemo(() => [...new Set([
         ...(Array.isArray(ui.generalAiProviders) ? ui.generalAiProviders : []),
-        ...(Array.isArray(ui.freeAiProviders) ? ui.freeAiProviders : []),
         ...PROVIDERS.filter(({ id }) => config.providers?.[id]).map(({ id }) => id)
-      ])].filter((id) => BY_ID[id]), [ui.generalAiProviders, ui.freeAiProviders, config.providers]);
+      ])].filter((id) => BY_ID[id]), [ui.generalAiProviders, config.providers]);
       const available = PROVIDERS.filter(({ id }) => !ids.includes(id));
       const chosen = available.some(({ id }) => id === selected) ? selected : "";
 
@@ -116,7 +126,7 @@ window.__ModuleLoader__.load({
       const setEnabled = async (id, enabled, requestedModels = modelsFor(id)) => {
         const providers = { ...(modelSettings.getSnapshot().value?.providers ?? {}) };
         if (enabled) {
-          providers[id] = { ...routeOf(providers[id]), displayName: BY_ID[id].name, apiKeyEnv: refFor(id) };
+          providers[id] = { ...routeOf(providers[id]), displayName: BY_ID[id].name, apiKeyEnv: refFor(id), ...ROUTES[id] };
           if (requestedModels.length) providers[id].models = requestedModels;
         } else {
           if (requestedModels.length) await preferences.set("generalAiModels", { ...(ui.generalAiModels ?? {}), [id]: requestedModels });
@@ -127,10 +137,7 @@ window.__ModuleLoader__.load({
         // turning one off is a write like any other, and a refused one would leave the key gone
         if (!enabled && stored(id)) throw unchanged(id);
       };
-      const saveProviderIds = async (next) => {
-        await preferences.set("generalAiProviders", next);
-        if (Array.isArray(ui.freeAiProviders)) await preferences.set("freeAiProviders", []);
-      };
+      const saveProviderIds = (next) => preferences.set("generalAiProviders", next);
       const add = () => perform(`add:${chosen}`, async () => {
         if (!chosen) throw new Error("Choose a provider");
         if (!productDefaults && !key.trim()) throw new Error("Enter the API key");
