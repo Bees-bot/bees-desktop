@@ -1228,8 +1228,6 @@ function dialogValue(label, initial, confirmOnly = false, inputType = "text", op
 }
 
 export const ask = (label, initial = "", inputType = "text") => dialogValue(label, initial, false, inputType);
-export const askWithCheckbox = (label, checkbox, checked = false, initial = "") =>
-  dialogValue(label, initial, false, "text", null, { label: checkbox, checked });
 export const choose = (label, options) => dialogValue(label, "", false, "text", options);
 export const confirmAction = (label) => dialogValue(label, "", true);
 export const oneLine = (text, max = 110) => { const flat = String(text ?? "").replace(/\s+/g, " ").trim(); return flat.length > max ? flat.slice(0, max - 1) + "…" : flat; };
