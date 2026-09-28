@@ -1,5 +1,5 @@
 import { h, React, useEffect, useState } from "./runtime.js";
-import { ask, Button, oneLine, request, useBeesChangeRevision } from "./shared.js";
+import { ask, Button, oneLine, request, useBeesChangeRevision, when } from "./shared.js";
 
 const command = (action, input) => request("/bees-api/command", {
   method: "POST", body: JSON.stringify({ action, ...input })
@@ -78,7 +78,7 @@ export function WorkDiscussion({ item, onOpenWork }) {
         h("p", { className: "bees-muted" }, entry.targetId ? `To: ${title(entry.targetId)}` : "To: everyone in this work item"),
         h("p", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, entry.content),
         entry.evidence ? h("p", { className: "bees-muted", style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, entry.evidence) : null,
-        h("time", { dateTime: entry.createdAt }, new Date(entry.createdAt).toLocaleString()),
+        h("time", { dateTime: entry.createdAt }, when(entry.createdAt)),
         h("div", null, open(entry.workItemId, `Work and files: ${title(entry.workItemId)}`)),
         entry.executionId ? h("small", null, `Execution: ${entry.executionId}`) : null))),
     h("p", { className: "bees-muted" }, "Messages and suggestions do not change pinned requirements or grant approval. To change requirements, use Details > Edit item and start a new execution with those requirements."));

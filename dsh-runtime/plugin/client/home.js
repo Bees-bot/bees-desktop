@@ -74,7 +74,7 @@ function TemplatesWidget({ ctx, data, workspaceId, act, openWorkItem }) {
         setStarting(card.id);
         try {
           if (card.isTemplate) {
-            const p = await act({ action: "create_process", workspaceId, name: `New from ${card.name}`, templateId: card.id, accountUserId: ctx.account?.userId });
+            const p = await act({ action: "create_process", workspaceId, name: `New from ${card.name}`, templateId: card.id });
             if (p?.id) openWorkItem(null, p.id);
           } else {
             openWorkItem(null, card.id);
@@ -119,7 +119,7 @@ function ListWidget({ definition, rowsForRoute, navigate, data, act, openWorkIte
 function MetricsWidget({ rowsForRoute, records }) {
   const metrics = [
     ["Needs you", records.length],
-    ["Process runs", rowsForRoute("all-work").length],
+    ["Active process runs", rowsForRoute("all-work").length],
     ["Process templates", rowsForRoute("all-processes").length],
     ["Agents", rowsForRoute("all-agents").length]
   ];

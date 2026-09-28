@@ -622,13 +622,12 @@ export class Capabilities {
     if (entry.requiresDirectory) args.push(FOLDER);
     await this.typedTools(args, given.openapiSpec);
     await this.verifyEndpoints(given.openapiSpec);
+    const api = entry.nameFrom && this.hostServerName(given[entry.nameFrom]);
     return this.insert({
       id: randomUUID(),
       folder: directory,
-      serverName: this.freeServerName(
-        (entry.nameFrom && this.hostServerName(given[entry.nameFrom])) || entry.serverName
-      ),
-      label: signIn?.label ?? entry.label,
+      serverName: this.freeServerName(api || entry.serverName),
+      label: signIn?.label ?? (api ? `${api[0].toUpperCase()}${api.slice(1)} API` : entry.label),
       transport: entry.transport,
       command: entry.command,
       args,
@@ -684,17 +683,23 @@ export class Capabilities {
     const words = transport === "stdio"
       ? required(input.command, "Command").match(/"[^"]*"|'[^']*'|\S+/g).map((w) => w.replace(/^["']|["']$/g, ""))
       : [];
+    const command = transport === "stdio" ? (words[0] ?? "") : "";
+    const args = transport === "stdio" ? [...words.slice(1), ...typed] : [];
+    const url = transport === "streamable-http" ? required(input.url, "Server URL") : "";
+    // a catalog server added by hand is still that server, or the picker offers it twice and a plan installs it again
+    const catalogId = MCP_CATALOG.find((entry) => !entry.requiresDirectory && entry.transport === transport
+      && entry.command === command && entry.url === url && JSON.stringify(entry.args) === JSON.stringify(args))?.id ?? "";
     return this.insert({
       id: randomUUID(),
       serverName,
       label: String(input.label ?? "").trim() || serverName,
       transport,
-      command: transport === "stdio" ? (words[0] ?? "") : "",
-      args: transport === "stdio" ? [...words.slice(1), ...typed] : [],
-      url: transport === "streamable-http" ? required(input.url, "Server URL") : "",
+      command,
+      args,
+      url,
       envNames: transport === "stdio" ? names : [],
       headerNames: transport === "streamable-http" ? names : [],
-      catalogId: "",
+      catalogId,
       source: "manual"
     }, secrets);
   }

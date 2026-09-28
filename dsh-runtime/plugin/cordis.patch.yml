@@ -30,6 +30,17 @@
   config:
     maxInlineTokens: 2000
 
+# Sites like GitHub put the page's real content past the first 100,000 characters.
+- id: web-fetch-http
+  config:
+    maxBodyChars: 2000000
+
+# A patch replaces the whole config, so keep the base search timeout.
+- id: tool-web
+  config:
+    searchTimeoutMs: 60000
+    fetchMaxOutputChars: 2000000
+
 - id: ui-chat
   config:
     transcriptView: compact

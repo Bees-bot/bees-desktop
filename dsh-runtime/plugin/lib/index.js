@@ -279,7 +279,7 @@ export async function apply(ctx, config = {}, internals = {}) {
   await step("bees.integrations.initialize", () => capabilities.initialize());
   await step("bees.runs.recover", () => product.recoverRuns());
   await step("bees.processes.start", () => processes.start((stage, signal) => product.runProcessStage(stage, signal)));
-  const syncTick = async () => {
+  const tickOnce = async () => {
     await connected.sync();
     const teamIds = database.prepare(`SELECT DISTINCT team_id AS id FROM bees_connection_teams`).all();
     await Promise.allSettled(teamIds.flatMap(({ id }) => [
@@ -289,6 +289,9 @@ export async function apply(ctx, config = {}, internals = {}) {
     await processes.reconcile();
     notify({ type: "team-sync" });
   };
+  // a tick outlasts the 15 s interval on a slow network, and overlapping ticks reconcile the same runs twice
+  let ticking = null;
+  const syncTick = () => ticking ??= tickOnce().finally(() => { ticking = null; });
   const syncTimer = setInterval(() => void syncTick().catch((error) =>
     ctx.logger.warn?.(`bees: background team sync failed: ${userMessage(error)}`)), 15_000);
   syncTimer.unref();
@@ -486,8 +489,12 @@ export async function apply(ctx, config = {}, internals = {}) {
       reply(res, 200, { results: await product.search(query, url.searchParams.get("workspaceId") ?? "") });
     } catch (error) { reply(res, 409, { error: userMessage(error) }); }
   } });
-  register(ctx, { kind: "exact", path: "/bees-api/audit", handler: (_req, res) =>
-    reply(res, 200, { events: product.audit() }) });
+  register(ctx, { kind: "exact", path: "/bees-api/audit", handler: (req, res) => {
+    try {
+      const url = new URL(req.url ?? "/", "http://127.0.0.1");
+      reply(res, 200, { events: product.audit(url.searchParams.get("workspaceId") ?? "", url.searchParams.get("executionId") ?? "") });
+    } catch (error) { reply(res, 409, { error: userMessage(error) }); }
+  } });
   register(ctx, { kind: "exact", path: "/bees-api/run-history", handler: async (req, res) => {
     try {
       const executionId = new URL(req.url ?? "/", "http://127.0.0.1").searchParams.get("executionId") ?? "";

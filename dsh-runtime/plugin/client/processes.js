@@ -1,5 +1,5 @@
 import { h, useEffect, useRef, useState, React } from "./runtime.js";
-import { accountLabel, ask, Button, confirmAction, Empty, useSubmit, PageHead} from "./shared.js";
+import { accountLabel, ask, Button, confirmAction, Empty, useSubmit, PageHead, when } from "./shared.js";
 import { GridStackPage } from "./flexible-grid.js";
 import { AgentCreateForm, AgentEditForm, McpAccess, needsNote } from "./agents.js";
 import { AttachedResourceFields, ResourceFields } from "./location-fields.js";
@@ -30,7 +30,7 @@ function StageAgentRoute({ stage, agents, servers = [], act, onOpenAgent, onCrea
   return h("div", { className: "bees-hierarchy-card bees-route-card", style: { cursor: "default" } },
     h("label", { className: "bees-route-field" }, h("strong", null, stage.driver === "review" ? "Reviewer" : "Lead agent"),
       h("div", { className: "bees-route-control" },
-        h("select", { className: "bees-select", value: selected[0]?.id ?? "", onChange: (event) => {
+        h("select", { className: "bees-select", "aria-label": stage.driver === "review" ? "Reviewer" : "Lead agent", value: selected[0]?.id ?? "", onChange: (event) => {
           const id = event.target.value;
           return save(id ? [id, ...(ids.includes(id) ? ids.filter((value) => value !== id) : ids.slice(1))] : []);
         } },
@@ -90,7 +90,7 @@ function ProcessForm({ ctx, data, servers, tools, catalog, onServerAction, kind,
     const created = await act({
       action: template ? "create_process_template" : "create_process", workspaceId,
       name: String(form.get("name") ?? ""), description: String(form.get("description") ?? ""), stages,
-      inputLocationIds, outputLocationId, templateId: draft?.id, accountUserId: ctx.account?.userId,
+      inputLocationIds, outputLocationId, templateId: draft?.id,
       mcpAccess: String(form.get("mcpAccess") ?? "none"), mcpServers: form.getAll("mcpServers").map(String)
     });
     if (created?.id) onCreated(created.id);
@@ -164,7 +164,7 @@ export function ProcessListActions({ ctx, process, act, openWorkItem }) {
       if (action === "run") { openWorkItem(null, process.id); return; }
       if (action === "copy_process") {
         const name = await ask("New process template name", process.name + " Copy");
-        if (name?.trim()) await act({ action, processId: process.id, name: name.trim(), accountUserId: ctx?.account?.userId });
+        if (name?.trim()) await act({ action, processId: process.id, name: name.trim() });
       } else if (await confirmAction(`Archive process template “${process.name}”? Its process runs and history will be preserved.`)) {
         await act({ action, processId: process.id });
       }
@@ -222,7 +222,7 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
       
       const copyProcess = async () => {
         const name = await ask("New process template name", process.name + " Copy"); if (!name) return;
-        const result = await act({ action: "copy_process", processId: process.id, name, accountUserId: ctx.account?.userId });
+        const result = await act({ action: "copy_process", processId: process.id, name });
         if (result?.id) setProcessId(result.id);
       };
 
@@ -312,7 +312,7 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
       h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, process.name),
         h("div", { className: "bees-muted bees-process-summary" }, [process.description,
           accountLabel(data, process.accountUserId) ? `Created by ${accountLabel(data, process.accountUserId)}` : null].filter(Boolean).join(" · ")),
-        h("div", { className: "bees-muted" }, `Archived ${new Date(process.archivedAt).toLocaleString()}`)),
+        h("div", { className: "bees-muted" }, `Archived ${when(process.archivedAt)}`)),
       h(ProcessListActions, { ctx, process, act, openWorkItem })))
       : h(Empty, null, "No archived process templates")) : h("div", null,
     ...(processes.length ? processes.map((process) => {

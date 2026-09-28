@@ -1,7 +1,7 @@
 import { NativeRunFilePreview } from "./native-conversation.js";
 import { open } from "@tauri-apps/plugin-dialog";
 import { CodeBlock, h, MarkdownText, React, useEffect, useRef, useState } from "./runtime.js";
-import { ask, Button, request } from "./shared.js";
+import { ask, Button, request, when } from "./shared.js";
 import { FilesIcon, FileIcon, ExpandIcon, CollapseIcon, CloseIcon, FolderOpenIcon } from "./icons.js";
 
 export async function addLocationFromDevice(ctx, act, teamId, kind) {
@@ -273,8 +273,8 @@ export function WorkFiles({ runs, filesRef, act }) {
         const files = [...new Set(run.outputs.map((path) => path.replaceAll("\\", "/")))];
         return h("section", { key: run.id, className: "bees-output-run" },
           h("header", { className: "bees-output-run-head" },
-            h("h3", { title: new Date(run.updatedAt).toLocaleString() }, `Run ${runs.length - runs.indexOf(run)} · ${files.length} ${files.length === 1 ? "file" : "files"}`),
-            h("span", { className: `bees-status bees-${run.status}` }, run.status)),
+            h("h3", { title: when(run.updatedAt) }, `Run ${runs.length - runs.indexOf(run)} · ${files.length} ${files.length === 1 ? "file" : "files"}`),
+            h("span", { className: `bees-status bees-${run.status}` }, run.status.replaceAll("_", " "))),
           ...(run.outputsPath ? [h("div", { className: "bees-output-path", title: run.outputsPath }, run.outputsPath.replace(/^(\/(Users|home)\/(?!Shared\/)[^/]+|[A-Za-z]:\\Users\\[^\\]+)/, "~"))] : []),
           h(OutputDirectory, { files, executionId: run.id, viewer, onOpen: setViewer, act, outputsPath: run.outputsPath }));
       }))
@@ -406,7 +406,7 @@ function FileContents({ target, onClose, inline, loadFile, Document }) {
         if (event.target !== dialog.current) return;
         const rect = dialog.current.getBoundingClientRect();
         if (!(rect.top <= event.clientY && event.clientY <= rect.top + rect.height && rect.left <= event.clientX && event.clientX <= rect.left + rect.width)) {
-          setOpen(false);
+          dialog.current.close();
         }
       },
       onKeyDown: (event) => {
