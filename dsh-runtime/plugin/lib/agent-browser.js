@@ -192,11 +192,12 @@ const macApp = (pid, call) => new Promise((resolve) => execFile("osascript", ["-
   `ObjC.import("AppKit"); const app = $.NSRunningApplication.runningApplicationWithProcessIdentifier(${pid}); app && app.${call};`],
   () => resolve()));
 
-/** In front of the person, for the one thing only they can do: sign in. In one call it unhides the app,
- *  brings it to the front and raises its windows, which is what activating does. */
+/** In front of the person, for the one thing only they can do: sign in. Activating unhides the app and
+ *  raises its windows, and it has to ignore whoever is in front already: macOS hands focus only to an
+ *  app the person asked for otherwise, which for a browser Bees opened means no sign-in page in sight. */
 async function bringUp(spec) {
   const pid = await browserPid(spec);
-  if (pid) await macApp(pid, "activateWithOptions($.NSApplicationActivateAllWindows)");
+  if (pid) await macApp(pid, "activateWithOptions($.NSApplicationActivateAllWindows | $.NSApplicationActivateIgnoringOtherApps)");
 }
 
 /**
