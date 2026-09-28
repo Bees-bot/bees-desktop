@@ -185,6 +185,7 @@ export function CatalogReview({ ctx, entry, onCancel, onDone }) {
     || secretFields.some(blank(secrets)) || (entry.inputs ?? []).some(blank(inputs));
   const ready = !busy && !incomplete;
   const runtime = entry.scopes ? "Connects through Google in your browser."
+    : entry.command === "{node}" ? "Runs on this computer, as part of Bees."
     : entry.transport === "stdio" ? `Runs locally: ${entry.command} ${(entry.args ?? []).join(" ")}`.trim()
     : `Connects to ${entry.url}`;
   const pick = async () => {

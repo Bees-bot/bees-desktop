@@ -227,6 +227,12 @@ try {
   assert(!runtime.workContext.prompt("run").includes("Draft from the supplied brief"), "live state must not replay the pinned assignment");
   assert(!pinnedInstructions.includes("counter-old.txt"));
   assert.deepEqual(runtime.workContext.view("item", "run").context.memories, oldMemory);
+  runtime.workContext.recordOwner("run", "Save the draft as Markdown.");
+  runtime.workContext.recordOwner("run", "Use plain text instead of Markdown.");
+  const ownerPrompt = runtime.workContext.prompt("run");
+  assert.match(ownerPrompt, /Where an answer differs from the pinned requirements the answer wins/);
+  assert.match(ownerPrompt, /Save the draft as Markdown\.[\s\S]*Use plain text instead of Markdown\./);
+  assert.equal(runtime.workContext.instructions("run"), pinnedInstructions, "owner updates stay live without replaying the pinned task");
   database.prepare("UPDATE work_items SET runtime_phase = 'running' WHERE id = 'review-child-4'").run();
   let wake;
   runtime.subscribe = (fn) => { wake = fn; return () => {}; };
@@ -293,7 +299,7 @@ try {
   connected.sync = () => { fullSyncs++; return cloud.promise; };
   connected.syncCoordination = () => assert.fail("Personal work does not need team synchronization");
   const started = [];
-  const delegation = new BeesProduct(database, null, { startItem: async (id) => {
+  const delegation = new BeesProduct(database, null, { claims: connected.executionClaims(), startItem: async (id) => {
     started.push(id);
     return { automatic: true, claimed: true };
   } }, root, { connected });
@@ -312,15 +318,15 @@ try {
     await spawning;
   }
 
-  // Shared work still publishes to its own connection before requesting an execution lease.
+  // Shared work still publishes its own item before requesting an execution lease.
   const published = Promise.withResolvers();
-  const scoped = [];
-  connected.claimScope = () => ({ connectionId: "work-connection" });
-  connected.syncCoordination = (ids) => { scoped.push(ids); return published.promise; };
+  const publishedItems = [];
+  delegation.processes.claims.publish = (id) => { publishedItems.push(id); return published.promise; };
   const shared = delegation.command({ action: "create_item", processId: processRow.id, title: "Shared work" });
   try {
     await new Promise(setImmediate);
-    assert.deepEqual(scoped, [["work-connection"]]);
+    assert.equal(publishedItems.length, 1);
+    assert.equal(itemContext(database, publishedItems[0]).title, "Shared work");
     assert.equal(started.length, 5, "Shared execution waits for publication");
   } finally { published.resolve([]); await shared; }
   assert.equal(started.length, 6);

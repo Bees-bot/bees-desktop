@@ -5,13 +5,15 @@ import { ProcessRoutingBoard } from "./processes.js";
 import { inheritedInputs, ResourceFields } from "./location-fields.js";
 
 export function workFromOutcome(outcome, target, resources = {}) {
-  const description = outcome.trim();
+  const description = outcome.trim(), first = description.split("\n")[0];
+  // the whole prompt stays in the description; a pasted paragraph made a seven line heading
   return { action: target.processId ? "create_item" : "create_goal", ...target,
-    title: description.split("\n")[0], description, ...resources };
+    title: first.length > 120 ? `${first.slice(0, 120).replace(/\s+\S*$/, "")}…` : first, description, ...resources };
 }
 
-export function AskBeesSetup({ ctx, data, workspaceId, initial, act, onCancel, onSave, capabilities }) {
+export function AskBeesSetup({ ctx, data, workspaceId, initial, act: pageAct, onCancel, onSave, capabilities }) {
   const [error, setError] = useState("");
+  const act = (command, context, onError = setError) => { setError(""); return pageAct(command, context, onError); };
   const [processId, setProcessId] = useState(initial?.processId ?? "");
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [creatingStageId, setCreatingStageId] = useState("");

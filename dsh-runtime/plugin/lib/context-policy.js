@@ -67,7 +67,7 @@ export function readToolResult(session, args, visited = new Set()) {
     return readToolResult(session, { call_id: prior.call_id, offset: prior.offset + offset, find });
   }
   const event = originalResults(session).get(call_id);
-  if (!event) throw new Error("No tool result with that call_id exists in this session.");
+  if (!event) throw new Error("No tool result with that call_id exists in this session. A shortened result names the file that holds its full text; open that path with read or grep instead.");
   const { content, isError } = event.data.message;
   const points = Array.from(content.filter((block) => block.type === "text")
     .map((block) => block.text).join(""));

@@ -43,8 +43,7 @@ export class LocalMemory {
   }
 
   view() {
-    return { managed: true, localStatus: this.status, model: this.preferences.get().memoryModel || "",
-      models: this.models().map(({ id, name }) => ({ id, name })), activeModel: this.activeModel || "" };
+    return { managed: true, localStatus: this.status, model: this.preferences.get().memoryModel || "", activeModel: this.activeModel || "" };
   }
 
   async select(model) {

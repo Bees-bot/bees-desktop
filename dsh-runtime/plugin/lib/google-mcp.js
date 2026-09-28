@@ -25,7 +25,7 @@ export function googleServer(label, base) {
       }
     },
     tool: (name, description, inputSchema, run) => server.registerTool(name, { description, inputSchema },
-      async (input) => ({ content: [{ type: "text", text: JSON.stringify(await run(input)) }] })),
+      async (input) => ({ content: [{ type: "text", text: JSON.stringify(await run(input), null, 1) }] })),
     serve: () => server.connect(new StdioServerTransport())
   };
 }

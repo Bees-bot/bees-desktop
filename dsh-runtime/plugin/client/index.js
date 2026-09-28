@@ -50,7 +50,7 @@ window.__ModuleLoader__.load({
     }
     const module = { exports: {} };
     const exports = module.exports;
-    exports.inject = ["slots", "uiWorkspace", "configForms", "connection", "theme", "sessions", "uiSession", "remote", "remote.credentials", "conversation", "sidebarRight"];
+    exports.inject = ["slots", "uiWorkspace", "configForms", "connection", "theme", "sessions", "uiSession", "remote", "remote.credentials", "remote.workspaceFiles", "conversation", "sidebarRight"];
     exports.apply = (ctx) => {
       const style = document.createElement("style");
       style.dataset.plugin = "@bees/dsh-plugin";

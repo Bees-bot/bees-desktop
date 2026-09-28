@@ -10,7 +10,7 @@ export class ConnectedAccount {
   signOut(userId?: string): Promise<void>;
   setAccountEnabled(userId: string, enabled: boolean): Promise<any>;
   claimScope(teamId: string, accountUserId?: string): any;
-  sync(): Promise<any[]>;
+  sync(records?: boolean): Promise<any[]>;
   syncCoordination(connectionIds?: string[] | null): Promise<any[]>;
   createOrganization(name: string, accountUserId: string): Promise<any>;
   deleteOrganization(organizationId: string, connectionId: string): Promise<any>;

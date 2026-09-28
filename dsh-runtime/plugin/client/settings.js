@@ -180,7 +180,7 @@ export function AccountsPage({ reload }) {
     h("section", { style: { marginBottom: "32px" } },
       h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" } },
         h("h3", { style: { margin: 0 } }, "Signed in accounts"),
-        h("span", { className: "bees-badge", style: { padding: "4px 8px" } }, `${(data.accounts ?? []).length} accounts`)
+        h("span", { className: "bees-badge", style: { padding: "4px 8px" } }, `${(data.accounts ?? []).length} account${data.accounts?.length === 1 ? "" : "s"}`)
       ),
       h("div", { style: { display: "flex", flexDirection: "column", gap: "8px" } },
         ...((data.accounts ?? []).length ? data.accounts.map((account) => h("div", {
@@ -429,7 +429,7 @@ function OrganizationSettings({
       h("section", { className: "bees-box bees-appearance-card", style: { padding: "20px" } }, 
         h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" } },
           h("h3", { style: { margin: 0 } }, `${organization.name} Members`),
-          h("span", { className: "bees-badge", style: { padding: "4px 8px" } }, `${people.memberships.length} members`)
+          h("span", { className: "bees-badge", style: { padding: "4px 8px" } }, `${people.memberships.length} member${people.memberships.length === 1 ? "" : "s"}`)
         ),
         h("div", { style: { display: "flex", flexDirection: "column", gap: "8px" } },
         ...(people.memberships.length ? people.memberships.map((member) => h("div", { className: "bees-row", key: member.id, style: { padding: "12px 4px", border: 0 } },
@@ -556,7 +556,7 @@ function TeamSettings({ team, organization, connectionId, openOrganization, navi
     return () => { active = false; };
   }, [team?.id, team?.role, organization?.connected, connectionId, route]);
   const [adding, add] = useSubmit(async (event) => {
-    if (!canManage || !people?.candidates.length) return;
+    if (!people?.canManage || !people.candidates.length) return;
     const form = new FormData(event.currentTarget);
     try { setPeople(await collaboration("add_team_member", { teamId: team?.id, connectionId,
       userId: String(form.get("userId") ?? ""), role: String(form.get("role") ?? "member") })); setError(""); }
@@ -609,12 +609,12 @@ function TeamSettings({ team, organization, connectionId, openOrganization, navi
     h("section", { className: "bees-box" }, h("h3", null, "Add organization member"),
       h("p", { className: "bees-muted" }, "Team membership starts immediately; there is no invitation to accept."),
       h("form", { className: "bees-form-row", onSubmit: add },
-        h("label", null, "Organization member", h("select", { className: "bees-select", name: "userId", disabled: !canManage || !people.candidates.length },
-          !canManage || !people.candidates.length ? h("option", { value: "" }, canManage
+        h("label", null, "Organization member", h("select", { className: "bees-select", name: "userId", disabled: !people.canManage || !people.candidates.length },
+          !people.canManage || !people.candidates.length ? h("option", { value: "" }, people.canManage
             ? "Every organization member is already on this team" : "Only team administrators can add members") : null,
           ...people.candidates.map((candidate) => h("option", { value: candidate.userId, key: candidate.userId }, candidate.email || candidate.userId)))),
-        h("label", null, "Role", h("select", { className: "bees-select", name: "role", disabled: !canManage || !people.candidates.length }, h("option", { value: "member" }, "Member"), h("option", { value: "admin" }, "Admin"))),
-        h("button", { className: "bees-btn primary", disabled: !canManage || !people.candidates.length || adding }, adding ? "Adding…" : "Add member")),
+        h("label", null, "Role", h("select", { className: "bees-select", name: "role", disabled: !people.canManage || !people.candidates.length }, h("option", { value: "member" }, "Member"), h("option", { value: "admin" }, "Admin"))),
+        h("button", { className: "bees-btn primary", disabled: !people.canManage || !people.candidates.length || adding }, adding ? "Adding…" : "Add member")),
       h("p", { className: "bees-muted" }, canManageOrganization
         ? `For someone new, invite them to ${organization.name} first. After they accept, add them to ${team.name} here.`
         : "Only organization administrators can invite new people. After they join the organization, a team administrator can add them here."),
