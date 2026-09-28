@@ -15,6 +15,8 @@ Notable changes, newest first. Dates are release dates.
 - Only the app's own window can reach the local server that answers Bees.
 - A run that failed no longer keeps showing as running, and Bees stops trying to recover it on
   every start.
+- Adding an API again for a host you already have keeps the key you type, so a connection that
+  needed a fixed header finally works.
 - Upgrade the bundled DeepSeek Harness from 0.1.7-alpha.1 to 0.1.7-rc.2.
 - Wait for owned background jobs before settling a stage. Model output limits now
   report a recoverable failure instead of reporting successful completion.
