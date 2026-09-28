@@ -130,7 +130,7 @@ Bees Desktop also ships third-party software under its own terms, including LGPL
 
 ## Development
 
-Requires Node 24 (pinned in `.nvmrc`), npm 10+, Rust 1.84+, and a native desktop toolchain. On macOS the first build compiles `llama-server`, so it also needs CMake (`brew install cmake`). The app bundles its own Node 24 runtime; native modules built under an older Node break the free AI option on a fresh install. Codespaces and dev containers work for the API and the website, but not for this app: Tauri needs a real machine.
+Requires Node 24 (pinned in `.nvmrc`), npm 10+, Rust 1.88+, and a native desktop toolchain. On macOS the first build compiles `llama-server`, so it also needs CMake (`brew install cmake`). The app bundles its own Node 24 runtime; native modules built under an older Node break the free AI option on a fresh install. Codespaces and dev containers work for the API and the website, but not for this app: Tauri needs a real machine.
 
 ```sh
 npm ci

@@ -4,6 +4,8 @@ Notable changes, newest first. Dates are release dates.
 
 ## Unreleased
 
+- Building from source needs Rust 1.88 instead of 1.84, which clears the open security
+  alerts in the shipped dependencies.
 - The installer is about 200 MB smaller: each download now carries only the builds for the
   computer it runs on, and the memory installer ships once instead of twice.
 - OpenCode Zen connects like every other AI connection, so an OpenCode Go plan runs the

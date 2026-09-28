@@ -5,7 +5,7 @@ description = "DSH-powered work coordination"
 authors = ["Bees contributors"]
 license = "MIT OR Apache-2.0"
 edition = "2021"
-rust-version = "1.84"
+rust-version = "1.88"
 
 [lib]
 name = "bees_desktop_lib"
