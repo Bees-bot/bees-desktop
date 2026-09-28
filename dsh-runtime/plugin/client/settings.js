@@ -702,9 +702,9 @@ function RemoveBeesSettings({ dataFolder }) {
   }, []);
   const remove = async () => {
     if (!folder) return;
-    if (!await confirmAction(`Remove Bees and delete ${readable(folder.bytes)} from ${folder.path}? Bees quits, your own folders are left alone, and nothing here can be recovered.`)) return;
     setBusy(true);
-    try { await invoke("uninstall_bees"); }
+    // the app asks in its own window, false means the person kept Bees
+    try { if (!await invoke("uninstall_bees")) setBusy(false); }
     catch (error) { setNotice(error?.message || String(error)); setBusy(false); }
   };
   return h("section", { className: "bees-box bees-stack" },

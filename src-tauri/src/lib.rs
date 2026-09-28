@@ -823,13 +823,22 @@ fn bees_data_size(app: tauri::AppHandle) -> Result<DataFolder, String> {
 
 /// Settings → Removing Bees. Nothing is deleted here: the app quits, the exit hook takes the
 /// sidecars down, and the removal runs after them.
-#[tauri::command]
-fn uninstall_bees(app: tauri::AppHandle) -> Result<(), String> {
+// the confirm is native so no page script can skip it; async keeps the wait off the main thread
+#[tauri::command(async)]
+fn uninstall_bees(app: tauri::AppHandle) -> Result<bool, String> {
     let data = bees_data_folder(&app)?;
+    let confirmed = app.dialog()
+        .message(format!("Bees quits and deletes everything in {}. Your own folders are left alone, and nothing here can be recovered.", data.display()))
+        .title("Remove Bees and its data?")
+        .buttons(MessageDialogButtons::OkCancelCustom("Remove Bees".into(), "Keep Bees".into()))
+        .blocking_show();
+    if !confirmed {
+        return Ok(false);
+    }
     *REMOVE_ON_EXIT.lock().map_err(|error| error.to_string())? = Some(data);
     QUIT_CONFIRMED.store(true, Ordering::SeqCst);
     app.exit(0);
-    Ok(())
+    Ok(true)
 }
 
 /// The memory server runs detached and outlives DSH, so find it by its port like local-memory.js does.
