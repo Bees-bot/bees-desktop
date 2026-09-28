@@ -20,6 +20,7 @@ import { mountRepeatGuard } from "./repeat-guard.js";
 import { FileLocks } from "./file-locks.js";
 import { FILE_LOCK_INSTRUCTIONS, mountFileLocks } from "./file-lock-tools.js";
 import { sendsOut } from "./spec-from-curl.js";
+import { fenced, readFence } from "./data-folder.js";
 import { mountPageFetch } from "./web-page.js";
 import { SKILL_CATALOG } from "./skill-packs.js";
 import { mountToolDiscovery } from "./tool-discovery.js";
@@ -642,6 +643,15 @@ export class AgentRuntime {
       try { this.onSessionEvent(session, event); }
       catch (error) { ctx.logger.warn(`bees: session event ${event?.type} failed: ${message(error)}`); }
     }, { global: true });
+    // dsh's seatbelt profile only fences writes; the patch in scripts/install-dsh-runtime.mjs reads this to shut the rest
+    globalThis.__beesReadFence = readFence;
+    // every email send asks first, drafts stay free, and with no window to ask in the answer is no
+    ctx.on("tools/pre-execute", async (exec, next) => {
+      if (!/^mcp__.+?__\w*(send\w*mail|mail\w*send)\w*$/i.test(exec.name)) return next();
+      // no code fence here: the run panel's markdown renderer crashes on one
+      const { to, cc, bcc, subject, body } = exec.arguments ?? {}, text = String(body ?? "");
+      return { kind: "ask", reason: `Send an email to ${to}${cc ? `, cc ${cc}` : ""}${bcc ? `, bcc ${bcc}` : ""}, subject "${subject ?? ""}"?\n\n${text.slice(0, 4000)}${text.length > 4000 ? ` ... and ${text.length - 4000} more characters` : ""}` };
+    });
     ctx.tools?.guard?.((exec) => {
       // the sandbox confines writes only; an mcp tool's path argument is an api route, not a file
       const targets = exec.name.startsWith("mcp__") ? [] : [
@@ -678,6 +688,12 @@ export class AgentRuntime {
           }
         }
       }
+      // no approval opens keys, logins or bees' own files, and grep reads every file under the folder it is given
+      const base = link?.directory ?? exec.agent?.session?.header?.cwd ?? process.cwd();
+      const shut = [...targets, ...(exec.name === "grep" && typeof exec.arguments?.path !== "string" ? [base] : [])]
+        .map((target) => resolve(base, target)).find((path) => fenced(path, exec.name === "grep"));
+      if (shut) return exec.name === "grep" ? `${shut} holds or contains passwords, keys or Bees' own files, which agents can not read. Search a narrower folder.`
+        : `${shut} holds passwords, keys or Bees' own files, which agents can not read.`;
       // the run directory is the run's own; the rest of the disk is the person's, handed over one approved path at a time
       const outside = link?.directory ? targets.map((target) => resolve(link.directory, target))
         .find((path) => !inside(path, link.directory) && !spill(path) && !uploads.has(actual(path))) : undefined;

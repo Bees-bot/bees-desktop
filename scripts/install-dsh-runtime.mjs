@@ -47,6 +47,13 @@ if (!teamSource.includes(teamNeedle) && !teamSource.includes(teamPatch)) {
 }
 await writeFile(teamEntry, teamSource.replace(teamNeedle, teamPatch));
 
+// seatbelt only fences writes; the bees plugin names the folders a shell may never read (readFence in data-folder.js)
+const sandboxEntry = path.join(runtimeRoot, "node_modules", "@deepseek-ai", "dsh-sandbox-local", "lib", "index.js");
+await writeFile(sandboxEntry, timeDshStartup(await readFile(sandboxEntry, "utf8"), [[
+  '\treturn ["-p", forms.join(" ")];',
+  '\tconst fence = globalThis.__beesReadFence?.();\n\tfor (const [rule, roots] of [["deny", fence?.closed], ["allow", fence?.open]]) if (roots?.length) forms.push(`(${rule} file-read-data ${roots.map((root) => `(subpath ${sbplString(root)})`).join(" ")})`);\n\treturn ["-p", forms.join(" ")];',
+]]));
+
 // RC2 owns failed batch recovery and bounded response history. Retain only the
 // measured startup batching optimization; do not accumulate retired bundles.
 const hmrEntry = path.join(
