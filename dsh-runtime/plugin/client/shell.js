@@ -666,7 +666,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
         h("span", null, "Bees"),
         h("div", { className: "bees-brand-settings" },
           h("button", { type: "button",
-            className: `bees-brand-settings-button ${section.id === "settings" && !["accounts", "team-settings", "team-members", "team-invitations", "team-memory", "team-folders"].includes(route) ? "active" : ""}`,
+            className: `bees-brand-settings-button ${section.id === "settings" && !["accounts", "team-settings", "team-members", "team-invitations", "team-memory", "team-folders", "team-browser"].includes(route) ? "active" : ""}`,
             title: "Global and organization settings", "aria-label": "Global and organization settings",
             onClick: () => navigate("personal-ai") }, h(SettingsIcon)))),
       h(ScopeSwitcher, { data, organizationId: parts.organizationId, teamId: parts.teamId, connectionId,

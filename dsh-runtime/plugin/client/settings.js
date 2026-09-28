@@ -192,7 +192,7 @@ export function AccountsPage({ reload }) {
         h("div", { className: "bees-row-main" }, 
           h("div", { className: "bees-row-title", style: { fontWeight: "500" } }, account.email),
           h("div", { className: "bees-muted", style: { fontSize: "13px" } }, account.enabled === false ? "Inactive" : "Active")),
-        h("label", { className: "bees-account-toggle", style: { marginRight: "12px", display: "flex", alignItems: "center" } },
+        h("label", { className: "bees-toggle", style: { marginRight: "12px", display: "flex", alignItems: "center" } },
           h("input", { type: "checkbox", role: "switch", checked: account.enabled !== false,
             disabled: busy, "aria-label": `Turn ${account.email} ${account.enabled === false ? "on" : "off"}`,
             onChange: (event) => run("set_account_enabled", {
@@ -684,6 +684,33 @@ function FoldersSettings({ ctx, data, team, act }) {
         row.picked ? h(Button, { disabled: busy, onClick: (event) => choose(event, row, true) }, `Use ${above(row)}`) : null))));
 }
 
+// The browser this team's runs open. On, they browse in the person's own browser on a copy of their
+// profile, signed in to what they already use; off, they browse in Bees' own Chrome, which leaves the
+// person's own browser, and its sign-ins, untouched.
+function BrowserSettings({ data, team, act }) {
+  const [notice, setNotice] = useState("");
+  const [busy, choose] = useSubmit(async (event, useDefault) => {
+    try {
+      setNotice("");
+      await act({ action: "set_default_browser", teamId: team.id, useDefault });
+    } catch (error) { setNotice(error.message || String(error)); }
+  });
+  const browser = data.defaultBrowser ?? {};
+  const useDefault = Boolean(browser.name) && !(browser.offTeams ?? []).includes(team.id);
+  return h("section", { className: "bees-box bees-stack" },
+    h("h2", null, "Browser"),
+    h("label", { className: "bees-toggle", style: { gap: "10px", fontWeight: "600" } },
+      h("input", { type: "checkbox", role: "switch", checked: useDefault, disabled: busy || !browser.name,
+        onChange: (event) => choose(event, event.target.checked) }),
+      h("span", { "aria-hidden": "true" }), "Use your default browser"),
+    h("p", { className: "bees-muted" }, useDefault
+      ? `Runs in this team browse in ${browser.name}, on a copy of your profile, so the sites you are already signed in to work straight away. Bees takes a fresh copy each time it opens it.`
+      : browser.name
+        ? `Runs in this team browse in Bees' own Chrome, where you sign in once. Your ${browser.name} is left alone.`
+        : "Bees could not find a default browser it can drive, so runs browse in Bees' own Chrome. Safari and Firefox cannot be driven this way."),
+    notice ? h("p", { className: "bees-callout", role: "status" }, notice) : null);
+}
+
 // Deleting the app on its own leaves the database, downloaded models and sessions behind, and the
 // next install reads them, so the size is in front of the person before it goes.
 function RemoveBeesSettings({ dataFolder }) {
@@ -775,6 +802,11 @@ export function SettingsPage({
       ? !rawTeam ? h(Empty, null, "Choose a team")
         : rawTeam.role !== "admin" ? h(Empty, null, "Only team administrators can set this team's folders")
           : h(FoldersSettings, { ctx, data, team: rawTeam, act })
+    : route === "team-browser"
+      // the browser is this computer's too, so the same local role decides
+      ? !rawTeam ? h(Empty, null, "Choose a team")
+        : rawTeam.role !== "admin" ? h(Empty, null, "Only team administrators can set this team's browser")
+          : h(BrowserSettings, { data, team: rawTeam, act })
 
     : route === "platform-admin" ? platform?.isPlatformAdmin ? h("section", { className: "bees-box" },
       h("h2", null, "Platform Admin"),
