@@ -1,5 +1,5 @@
 import { execFile, execFileSync, spawn } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -39,7 +39,7 @@ const CHROMIUM = {
  * of history, caches, extensions and saved passwords, none of which a browsing agent needs, and copying
  * it on every launch would take minutes and the person's own passwords with it.
  */
-const signedIn = (folder) => [
+const signInFiles = (folder) => [
   "Local State",
   join(folder, "Preferences"),
   join(folder, "Network", "Cookies"),
@@ -47,6 +47,9 @@ const signedIn = (folder) => [
   join(folder, "Cookies"),
   join(folder, "Local Storage")
 ];
+
+/** No cookies, in the shape playwright reads. What a run that cannot read the browser gets. */
+const NO_COOKIES = { cookies: [], origins: [] };
 
 /** mode -> the browser running for it, and mode -> the launch in flight. */
 const children = new Map();
@@ -164,14 +167,15 @@ async function cdp(spec, method, params) {
   }
 }
 
-/** The browser process itself, by the port it owns: it is the one with a window and a Dock icon. */
+/** The browser process itself, by the port it owns: it is the one with a window and a Dock icon.
+ *  Both of these are external commands, so neither is allowed to outlive the patience a launch has. */
 const browserPid = (spec) => new Promise((resolve) => execFile("/usr/sbin/lsof", ["-ti", `tcp:${spec.port}`, "-sTCP:LISTEN"],
-  (_, out) => resolve(Number.parseInt(out ?? "", 10) || null)));
+  { timeout: PATIENCE }, (_, out) => resolve(Number.parseInt(out ?? "", 10) || null)));
 
 /** What the process on that port was started with, straight from the kernel. Chrome will not report
  *  its own command line unless it runs with --enable-automation, which puts an infobar on screen. */
 const browserArgs = (pid) => new Promise((resolve) => execFile("/bin/ps", ["-o", "args=", "-p", String(pid)],
-  (_, out) => resolve(out ?? "")));
+  { timeout: PATIENCE }, (_, out) => resolve(out ?? "")));
 
 /**
  * Whether the browser on this port is the one this Bees started. Two installs on one Mac, a dev build
@@ -201,6 +205,9 @@ async function bringUp(spec) {
  * doing. Whether the window is minimised or full size does not matter, because the app is hidden.
  */
 async function openWindow(spec) {
+  const open = await fetch(`${base(spec)}/json/list`, { signal: AbortSignal.timeout(PATIENCE) }).then((r) => r.json());
+  // a window the person has closed, or one a failed launch never made, is nothing to sign in to
+  if (open.some(({ type }) => type === "page")) return;
   await cdp(spec, "Target.createTarget", { url: "about:blank", background: true });
 }
 
@@ -221,7 +228,7 @@ function copyProfile(spec) {
   const folder = activeProfile(spec);
   rmSync(profile, { recursive: true, force: true });
   mkdirSync(join(profile, folder), { recursive: true });
-  for (const part of signedIn(folder)) {
+  for (const part of signInFiles(folder)) {
     if (existsSync(join(spec.support, part))) cpSync(join(spec.support, part), join(profile, part), { recursive: true });
   }
   return folder;
@@ -258,17 +265,21 @@ async function launch(mode) {
     "--no-startup-window"
   ], { stdio: "ignore" });
   child.unref();
+  // a spawn that fails leaves the child with no exit code, and an unhandled error event would take
+  // the whole runtime down, so it is kept for the wait below to report
+  let failed = null;
+  child.on("error", (error) => { failed = error; });
   const deadline = Date.now() + PATIENCE * 4;
   while (!(await answering(spec))) {
-    if (child.exitCode !== null || Date.now() > deadline) {
+    if (failed || child.exitCode !== null || Date.now() > deadline) {
       child.kill();
-      throw new Error("The agent's browser did not start");
+      throw failed ?? new Error("The agent's browser did not start");
     }
     await delay(100);
   }
   children.set(mode, child);
-  await openWindow(spec);
-  await putAway(spec);
+  // however the window goes, the browser ends up out of the person's way
+  try { await openWindow(spec); } finally { await putAway(spec); }
 }
 
 /**
@@ -280,32 +291,41 @@ export function browserStatePath(mode = "own") {
   const path = join(stateDirectory(), target(mode).state);
   if (!existsSync(path)) {
     mkdirSync(stateDirectory(), { recursive: true });
-    writeFileSync(path, JSON.stringify({ cookies: [], origins: [] }));
+    writeFileSync(path, JSON.stringify(NO_COOKIES), { mode: 0o600 });
   }
   return path;
 }
 
 /**
  * Copy the browser's cookies out so a run that browses in its own headless session starts signed in.
- * A browser that is not up yet has nothing to copy, which is a signed-out run and not an error;
- * anything else throws and the caller logs it.
+ * Anything the browser cannot answer for hands this run no cookies at all: the last run's jar is not
+ * this run's, and a sign-in the person has since removed must not come back with it.
  */
 export async function saveBrowserState(mode = "own") {
   const spec = target(mode);
   // ours, not running: a browser started by an earlier Bees is still the one holding the cookies,
   // and its process handle died with the old Bees.
-  if (!(await ours(spec))) return;
+  const state = await ours(spec) ? await cookiesOf(spec) : NO_COOKIES;
+  const path = browserStatePath(mode);
+  // this file holds the person's live sign-ins, so only they can read it
+  writeFileSync(path, JSON.stringify(state), { mode: 0o600 });
+  // the mode above counts only when the write creates the file, and an earlier Bees left it open
+  chmodSync(path, 0o600);
+}
+
+/** The cookies the browser holds, in the shape playwright's --storage-state reads. */
+async function cookiesOf(spec) {
   const { cookies } = await cdp(spec, "Storage.getCookies", {});
-  writeFileSync(browserStatePath(mode), JSON.stringify({
+  return {
     cookies: cookies.map(({ name, value, domain, path, expires, httpOnly, secure, sameSite }) => ({
       name, value, domain, path, httpOnly, secure,
       expires: expires > 0 ? Math.floor(expires) : -1,
       // chrome reports None/Lax/Strict or nothing; playwright insists on one of its three.
       sameSite: ["Strict", "Lax", "None"].includes(sameSite) ? sameSite : "Lax"
     })),
-    // playwright reads site storage here too, which the agent's own window keeps in its own profile
+    // cookies only: the agent's window keeps its site storage in its own profile
     origins: []
-  }));
+  };
 }
 
 /** Bring the browser up. Cheap once it runs; one launch at a time, however many ask. */
@@ -321,8 +341,12 @@ async function launchIfAbsent(mode) {
   // a browser an earlier Bees left on this port still holds the sign-ins, and taking a fresh copy of
   // the person's profile would pull it out from under that browser, so it is adopted as it stands.
   if (await ours(spec)) return;
-  // anything else on the port, another Bees right now, is not ours to read from or to drive
-  if (await answering(spec)) throw new Error("Another copy of Bees is using the agent's browser");
+  // anything else on the port is not ours to read from or to drive, and saying which process holds
+  // it saves whoever has to sort this out a hunt for a second Bees that may not be there
+  if (await answering(spec)) {
+    const pid = await browserPid(spec);
+    throw new Error(`Something else is using the agent's browser port ${spec.port}${pid ? ` (process ${pid})` : ""}`);
+  }
   await launch(mode);
 }
 
@@ -330,7 +354,9 @@ async function launchIfAbsent(mode) {
 export async function showAgentBrowser(mode = "own", url) {
   if (url) return navigateAgentBrowser(mode, url);
   await startAgentBrowser(mode);
-  await bringUp(target(mode));
+  const spec = target(mode);
+  await openWindow(spec);
+  await bringUp(spec);
 }
 
 /**
