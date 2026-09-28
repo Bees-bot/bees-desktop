@@ -1148,7 +1148,10 @@ export function useSubmit(handler) {
 export async function openExternal(url) {
   const invoke = window.__TAURI__?.core?.invoke;
   if (invoke) return invoke("open_external_url", { url });
-  if (!window.open(url, "_blank", "noopener,noreferrer")) throw new Error("Your browser blocked the website window");
+  // noopener makes window.open return null even when it worked, so cut the opener by hand
+  const opened = window.open(url, "_blank");
+  if (!opened) throw new Error("Your browser blocked the website window");
+  opened.opener = null;
 }
 
 export const collaboration = (action, values = {}) => request("/bees-api/collaboration", action ? {
