@@ -455,7 +455,9 @@ function pruneForeignBinaries(runtimeRoot) {
   ].join("-");
   const nodeModules = join(runtimeRoot, "node_modules");
   const keepOnly = (parent, keep) => {
-    if (!existsSync(parent)) return;
+    // Nothing to keep means the package installed no native builds; deleting the rest then
+    // would take out the one the app needs.
+    if (!existsSync(join(parent, keep))) return;
     for (const entry of readdirSync(parent)) if (entry !== keep) rmSync(join(parent, entry), { recursive: true, force: true });
   };
   const bridge = ["@temporalio", "core-bridge", "releases"];
