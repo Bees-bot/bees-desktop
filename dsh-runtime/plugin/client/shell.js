@@ -212,9 +212,11 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
   }, [accountsKey, productSettings]);
   // Approval/question waterfalls need a retained session even when its Chat tab is closed.
   const interactionSessions = useRef(new Map());
+  const reportedSessions = useRef(new Set());
   useEffect(() => {
-    const wanted = new Set((data?.runs ?? []).filter((run) => !run.ranElsewhere && run.sessionId &&
-      ["running", "waiting_for_input", "waiting_for_approval"].includes(run.status)).map((run) => run.sessionId));
+    const runs = new Map((data?.runs ?? []).filter((run) => !run.ranElsewhere && run.sessionId &&
+      ["running", "waiting_for_input", "waiting_for_approval"].includes(run.status)).map((run) => [run.sessionId, run]));
+    const wanted = new Set(runs.keys());
     for (const id of wanted) {
       if (interactionSessions.current.has(id)) continue;
       let reference;
@@ -224,7 +226,15 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
       reference.ready.catch((reason) => {
         if (interactionSessions.current.get(id) !== reference) return;
         interactionSessions.current.delete(id); reference.release();
-        setError(`Could not load the agent's request: ${reason instanceof Error ? reason.message : String(reason)}`);
+        // the 30s reload retries it; say which work it is, and only once
+        if (reportedSessions.current.has(id)) return;
+        reportedSessions.current.add(id);
+        const itemId = runs.get(id)?.workItemId;
+        const item = data.items.find(({ id }) => id === itemId);
+        const process = data.processes.find(({ id }) => id === item?.processId);
+        const team = data.workspaces.find(({ id }) => id === process?.workspaceId);
+        const where = [item?.title && `"${item.title}"`, process?.name, team?.name && `team ${team.name}`].filter(Boolean).join(", ");
+        setError(`Could not load the agent's request${where ? ` for ${where}` : ""}: ${reason instanceof Error ? reason.message : String(reason)}`);
       });
     }
     for (const [id, reference] of interactionSessions.current) if (!wanted.has(id)) {
