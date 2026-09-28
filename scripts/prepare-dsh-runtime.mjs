@@ -38,9 +38,8 @@ if (!existsSync(dshEntry)) {
   throw new Error("DeepSeek Harness is missing. Run npm install first.");
 }
 
-const target =
-  process.env.CARGO_BUILD_TARGET ||
-  execFileSync("rustc", ["--print", "host-tuple"], { encoding: "utf8" }).trim();
+const hostTarget = execFileSync("rustc", ["--print", "host-tuple"], { encoding: "utf8" }).trim();
+const target = process.env.CARGO_BUILD_TARGET || hostTarget;
 const extension = target.includes("windows") ? ".exe" : "";
 const destination = resolve(
   desktopRoot,
@@ -574,6 +573,8 @@ await prepareMemoryInstaller();
 // Builds up to 28 Sept copied the installer beside the plugin as well. Drop that stale copy.
 rmSync(resolve(desktopRoot, "dsh-runtime", "node_modules", "@bees", "memory-runtime"), { recursive: true, force: true });
 
-pruneForeignBinaries(resolve(desktopRoot, "dsh-runtime"));
+// Pruning is in place, so a local cross-build would delete this machine's own native builds and
+// break its dev runs. Each runner builds its own target, so nothing ships unpruned.
+if (target === hostTarget) pruneForeignBinaries(resolve(desktopRoot, "dsh-runtime"));
 
 signMacBundledRuntime(resolve(desktopRoot, "dsh-runtime"));
