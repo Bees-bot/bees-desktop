@@ -2,7 +2,7 @@ import { catalogEntry } from "./mcp-catalog.js";
 import { appDirectory, useDataFolder } from "./data-folder.js";
 import { rootForWorkspace, setFolderRoot, workspaceRoot } from "./folder-roots.js";
 import { randomUUID } from "node:crypto";
-import { browserMode, hideAgentBrowser, navigateAgentBrowser, setUsesDefaultBrowser, showAgentBrowser } from "./agent-browser.js";
+import { browserModeFor, hideAgentBrowser, navigateAgentBrowser, setUsesDefaultBrowser, showAgentBrowser } from "./agent-browser.js";
 
 import { existsSync, mkdirSync } from "node:fs";
 import { resolve, sep } from "node:path";
@@ -211,12 +211,6 @@ function runContext(database, executionId, roles = ["admin", "member"]) {
   const data = JSON.parse(run.configJson);
   if (!item) workspaceContext(database, data.workspaceId, roles);
   return { ...run, data, item };
-}
-
-/** Which browser a run drives: its team's setting, and Bees' own when the run names no team. */
-function browserModeOf(database, workspaceId) {
-  const row = database.prepare("SELECT team_id AS teamId FROM workspaces WHERE id = ?").get(workspaceId ?? "");
-  return browserMode(row?.teamId ?? "");
 }
 
 function timezoneOf(value) {
@@ -1341,7 +1335,7 @@ export async function executeProductCommand(action, input) {
       // When the agent supplies a URL (e.g. a login page), navigate the run's browser there directly
       // so the user sees the actual page rather than the initial about:blank tab.
       const url = typeof input.url === "string" && input.url.startsWith("https://") ? input.url : null;
-      const mode = browserModeOf(this.database, data.workspaceId);
+      const mode = browserModeFor(this.database, data.workspaceId);
       await (url ? navigateAgentBrowser(mode, url) : showAgentBrowser(mode));
       return { opened: true };
     }
@@ -1372,7 +1366,7 @@ export async function executeProductCommand(action, input) {
         this.agents.setStatus(executionId, "cancelled");
       }
       // Nothing is waiting on a sign-in any more, so the window it raised has no reason to stay up.
-      this.agents.track(hideAgentBrowser(browserModeOf(this.database, data.workspaceId)));
+      this.agents.track(hideAgentBrowser(browserModeFor(this.database, data.workspaceId)));
       return { stopped };
     }
     if (action === "provide_run_input") {

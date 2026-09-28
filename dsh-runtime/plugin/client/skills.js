@@ -186,7 +186,8 @@ export function CatalogReview({ ctx, entry, onCancel, onDone }) {
   const ready = !busy && !incomplete;
   const runtime = entry.scopes ? "Connects through Google in your browser."
     : entry.command === "{node}" ? "Runs on this computer, as part of Bees."
-    : entry.transport === "stdio" ? `Runs locally: ${entry.command} ${(entry.args ?? []).join(" ")}`.trim()
+    // placeholders like {browserUrl} are filled in per run, so they read as noise to a person here
+    : entry.transport === "stdio" ? `Runs locally: ${[entry.command, ...(entry.args ?? []).filter((arg) => !arg.startsWith("{"))].join(" ")}`.trim()
     : `Connects to ${entry.url}`;
   const pick = async () => {
     const path = await ctx.uiWorkspace.pickDirectory();

@@ -1,9 +1,12 @@
 import { execFile, execFileSync, spawn } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { stateDirectory } from "./product-database.js";
+
+/** A browser that stops answering must not leave a run waiting on it for ever. */
+const PATIENCE = 5_000;
 
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
@@ -26,7 +29,7 @@ const CHROMIUM = {
   "com.microsoft.edgemac": "Microsoft Edge",
   "com.vivaldi.Vivaldi": "Vivaldi",
   "com.operasoftware.Opera": "com.operasoftware.Opera",
-  "company.thebrowser.Browser": "Arc",
+  "company.thebrowser.Browser": "Arc/User Data",
   "org.chromium.Chromium": "Chromium"
 };
 
@@ -36,13 +39,13 @@ const CHROMIUM = {
  * of history, caches, extensions and saved passwords, none of which a browsing agent needs, and copying
  * it on every launch would take minutes and the person's own passwords with it.
  */
-const SIGNED_IN = [
+const signedIn = (folder) => [
   "Local State",
-  join("Default", "Preferences"),
-  join("Default", "Network", "Cookies"),
-  join("Default", "Network", "Cookies-journal"),
-  join("Default", "Cookies"),
-  join("Default", "Local Storage")
+  join(folder, "Preferences"),
+  join(folder, "Network", "Cookies"),
+  join(folder, "Network", "Cookies-journal"),
+  join(folder, "Cookies"),
+  join(folder, "Local Storage")
 ];
 
 /** mode -> the browser running for it, and mode -> the launch in flight. */
@@ -55,7 +58,6 @@ let found = null;
 const profileOf = (spec) => join(stateDirectory(), spec.profile);
 const base = (spec) => `http://127.0.0.1:${spec.port}`;
 const running = (mode) => children.get(mode)?.exitCode === null && children.get(mode)?.signalCode === null;
-const listening = (spec) => fetch(`${base(spec)}/json/version`).then((reply) => reply.ok, () => false);
 
 /**
  * The person's default browser, when Bees can drive it. Asked once per launch of the app: the answer
@@ -88,6 +90,11 @@ function askMacOs() {
 /** Which browser one team's runs drive. */
 export const browserMode = (teamId) => teamId && usesDefaultBrowser(teamId) && defaultBrowser() ? "personal" : "own";
 
+/** Which browser one run drives: the team that owns its workspace decides, and a run with no team
+ *  gets Bees' own rather than a copy of a person's profile it has no setting for. */
+export const browserModeFor = (database, workspaceId) =>
+  browserMode(database.prepare("SELECT team_id AS teamId FROM workspaces WHERE id = ?").get(workspaceId ?? "")?.teamId ?? "");
+
 export const browserPort = (mode = "own") => target(mode).port;
 
 /** Bees' own browser whenever the person's is not there or cannot be driven, so a run still browses. */
@@ -119,16 +126,32 @@ export const ownBrowserTeams = () => offTeams();
 export function setUsesDefaultBrowser(teamId, use) {
   const next = offTeams().filter((id) => id !== teamId);
   if (!use) next.push(teamId);
+  // written whole and moved into place: a half-written file reads back as no teams at all, which
+  // silently hands a team that asked for Bees' own browser the person's signed-in one again
   mkdirSync(stateDirectory(), { recursive: true });
-  writeFileSync(settingsFile(), JSON.stringify(next));
+  const path = settingsFile();
+  writeFileSync(`${path}.writing`, JSON.stringify(next));
+  renameSync(`${path}.writing`, path);
+}
+
+/** Whether anything answers on the port yet. Cheap enough to poll while a launch settles. */
+async function answering(spec) {
+  try {
+    await fetch(`${base(spec)}/json/version`, { signal: AbortSignal.timeout(1_000) });
+    return true;
+  } catch { return false; }
 }
 
 async function cdp(spec, method, params) {
-  const { webSocketDebuggerUrl } = await fetch(`${base(spec)}/json/version`).then((r) => r.json());
+  const { webSocketDebuggerUrl } = await fetch(`${base(spec)}/json/version`, { signal: AbortSignal.timeout(PATIENCE) })
+    .then((r) => r.json());
   const socket = new WebSocket(webSocketDebuggerUrl);
+  // closing the socket settles the promise below, so a browser that stops answering rejects instead
+  const timer = setTimeout(() => socket.close(), PATIENCE);
   try {
     return await new Promise((resolve, reject) => {
       socket.onerror = () => reject(new Error("The agent's browser refused a connection"));
+      socket.onclose = () => reject(new Error("The agent's browser stopped answering"));
       socket.onopen = () => socket.send(JSON.stringify({ id: 1, method, params }));
       socket.onmessage = ({ data }) => {
         const { error, result } = JSON.parse(data);
@@ -136,29 +159,56 @@ async function cdp(spec, method, params) {
       };
     });
   } finally {
+    clearTimeout(timer);
     socket.close();
   }
 }
 
-/** Placed on its own window and never by app, so a run starting up cannot pull the person off
- *  whatever they were doing and cannot move the browser they were already using. */
-async function setWindow(spec, windowState) {
-  const targets = await fetch(`${base(spec)}/json/list`).then((r) => r.json());
-  const pages = targets.filter(({ type }) => type === "page");
-  // Prefer a real page the devtools server navigated to over the initial about:blank.
-  const targetId = (pages.find(({ url }) => url && url !== "about:blank") ?? pages[0])?.id;
-  if (!targetId) return;
-  const { windowId } = await cdp(spec, "Browser.getWindowForTarget", { targetId });
-  await cdp(spec, "Browser.setWindowBounds", { windowId, bounds: { windowState } });
-  if (windowState === "normal") await cdp(spec, "Target.activateTarget", { targetId });
+/** The browser process itself, by the port it owns: it is the one with a window and a Dock icon. */
+const browserPid = (spec) => new Promise((resolve) => execFile("/usr/sbin/lsof", ["-ti", `tcp:${spec.port}`, "-sTCP:LISTEN"],
+  (_, out) => resolve(Number.parseInt(out ?? "", 10) || null)));
+
+/** What the process on that port was started with, straight from the kernel. Chrome will not report
+ *  its own command line unless it runs with --enable-automation, which puts an infobar on screen. */
+const browserArgs = (pid) => new Promise((resolve) => execFile("/bin/ps", ["-o", "args=", "-p", String(pid)],
+  (_, out) => resolve(out ?? "")));
+
+/**
+ * Whether the browser on this port is the one this Bees started. Two installs on one Mac, a dev build
+ * and the released app, both want the same port, and the one that starts second would otherwise drive
+ * the other's browser and read a profile it never copied.
+ */
+async function ours(spec) {
+  const pid = await browserPid(spec);
+  if (!pid) return false;
+  return (await browserArgs(pid)).includes(`--user-data-dir=${profileOf(spec)}`);
 }
 
-// by process, not by name: the same browser is the person's own, and that is what came forward
-const bringForward = (spec) => new Promise((resolve) => execFile("/usr/sbin/lsof", ["-ti", `tcp:${spec.port}`, "-sTCP:LISTEN"], (_, pid) => {
-  if (!/^\d+/.test(pid ?? "")) return resolve();
-  execFile("osascript", ["-l", "JavaScript", "-e",
-    `ObjC.import("AppKit"); $.NSRunningApplication.runningApplicationWithProcessIdentifier(${parseInt(pid)}).activateWithOptions($.NSApplicationActivateAllWindows)`], () => resolve());
-}));
+const macApp = (pid, call) => new Promise((resolve) => execFile("osascript", ["-l", "JavaScript", "-e",
+  `ObjC.import("AppKit"); const app = $.NSRunningApplication.runningApplicationWithProcessIdentifier(${pid}); app && app.${call};`],
+  () => resolve()));
+
+/** In front of the person, for the one thing only they can do: sign in. In one call it unhides the app,
+ *  brings it to the front and raises its windows, which is what activating does. */
+async function bringUp(spec) {
+  const pid = await browserPid(spec);
+  if (pid) await macApp(pid, "activateWithOptions($.NSApplicationActivateAllWindows)");
+}
+
+/**
+ * The one window the agent browses in, opened in the background: a window Chrome opens itself comes to
+ * the front and takes the person's focus with it, which a browser they did not ask for has no business
+ * doing. Whether the window is minimised or full size does not matter, because the app is hidden.
+ */
+async function openWindow(spec) {
+  await cdp(spec, "Target.createTarget", { url: "about:blank", background: true });
+}
+
+/** Out of the person's way: a hidden app shows no window, whatever the agent does inside it. */
+async function putAway(spec) {
+  const pid = await browserPid(spec);
+  if (pid) await macApp(pid, "hide");
+}
 
 /**
  * The person's sign-ins live in the browser they use, so their copy is taken fresh each time Bees
@@ -167,37 +217,58 @@ const bringForward = (spec) => new Promise((resolve) => execFile("/usr/sbin/lsof
  */
 function copyProfile(spec) {
   const profile = profileOf(spec);
+  // a real browser holds several profiles and opens the one it last used, which is not always "Default"
+  const folder = activeProfile(spec);
   rmSync(profile, { recursive: true, force: true });
-  mkdirSync(join(profile, "Default"), { recursive: true });
-  for (const part of SIGNED_IN) {
+  mkdirSync(join(profile, folder), { recursive: true });
+  for (const part of signedIn(folder)) {
     if (existsSync(join(spec.support, part))) cpSync(join(spec.support, part), join(profile, part), { recursive: true });
   }
+  return folder;
+}
+
+/** Which profile folder the browser itself would open, so the copy is the one with the sign-ins in it. */
+function activeProfile(spec) {
+  try {
+    const { profile } = JSON.parse(readFileSync(join(spec.support, "Local State"), "utf8"));
+    // a name left behind by a deleted profile would copy nothing at all, so it has to exist here
+    if (typeof profile?.last_used === "string" && existsSync(join(spec.support, profile.last_used, "Preferences"))) {
+      return profile.last_used;
+    }
+  } catch { /* no Local State to read, so the folder every browser keeps */ }
+  return "Default";
 }
 
 async function launch(mode) {
   if (process.platform !== "darwin") throw new Error("The agent's browser needs macOS");
   const spec = target(mode);
   if (!existsSync(spec.binary)) throw new Error(`${mode === "personal" ? "Your default browser" : "Google Chrome"} is not installed`);
-  if (spec.support) copyProfile(spec);
+  const copied = spec.support ? copyProfile(spec) : null;
   const child = spawn(spec.binary, [
     `--user-data-dir=${profileOf(spec)}`,
+    // the copy says which profile it last used, and that can name one the person has deleted, so the
+    // profile we actually copied is the one it opens
+    ...(copied ? [`--profile-directory=${copied}`] : []),
     `--remote-debugging-port=${spec.port}`,
     "--no-first-run",
     "--no-default-browser-check",
     // quitting Bees kills this browser, so every launch would ask to restore pages
     "--hide-crash-restore-bubble",
-    "about:blank"
+    // and no window of its own: openWindow makes one in the background, which a launch does not
+    "--no-startup-window"
   ], { stdio: "ignore" });
   child.unref();
-  for (let waited = 0; !(await listening(spec)); waited += 1) {
-    if (child.exitCode !== null || waited === 200) {
+  const deadline = Date.now() + PATIENCE * 4;
+  while (!(await answering(spec))) {
+    if (child.exitCode !== null || Date.now() > deadline) {
       child.kill();
       throw new Error("The agent's browser did not start");
     }
     await delay(100);
   }
   children.set(mode, child);
-  await setWindow(spec, "minimized");
+  await openWindow(spec);
+  await putAway(spec);
 }
 
 /**
@@ -216,14 +287,14 @@ export function browserStatePath(mode = "own") {
 
 /**
  * Copy the browser's cookies out so a run that browses in its own headless session starts signed in.
- * Throws when the browser cannot answer, and the caller logs it: a run that starts signed out is not
- * fatal, but it must not be silent.
+ * A browser that is not up yet has nothing to copy, which is a signed-out run and not an error;
+ * anything else throws and the caller logs it.
  */
 export async function saveBrowserState(mode = "own") {
   const spec = target(mode);
-  // listening, not running: a browser started by an earlier Bees is still the one holding the
-  // cookies, and its process handle died with the old Bees.
-  if (!(await listening(spec))) return;
+  // ours, not running: a browser started by an earlier Bees is still the one holding the cookies,
+  // and its process handle died with the old Bees.
+  if (!(await ours(spec))) return;
   const { cookies } = await cdp(spec, "Storage.getCookies", {});
   writeFileSync(browserStatePath(mode), JSON.stringify({
     cookies: cookies.map(({ name, value, domain, path, expires, httpOnly, secure, sameSite }) => ({
@@ -232,25 +303,34 @@ export async function saveBrowserState(mode = "own") {
       // chrome reports None/Lax/Strict or nothing; playwright insists on one of its three.
       sameSite: ["Strict", "Lax", "None"].includes(sameSite) ? sameSite : "Lax"
     })),
+    // playwright reads site storage here too, which the agent's own window keeps in its own profile
     origins: []
   }));
 }
 
-/** Bring the browser up minimised. Cheap once it runs; one launch at a time, however many ask. */
+/** Bring the browser up. Cheap once it runs; one launch at a time, however many ask. */
 export function startAgentBrowser(mode = "own") {
   if (running(mode) || starting.has(mode)) return starting.get(mode) ?? Promise.resolve();
-  const launched = launch(mode).finally(() => { starting.delete(mode); });
+  const launched = launchIfAbsent(mode).finally(() => { starting.delete(mode); });
   starting.set(mode, launched);
   return launched;
 }
 
-/** Put the window on screen so a person can sign in, and land on the tab the agent is reading. */
+async function launchIfAbsent(mode) {
+  const spec = target(mode);
+  // a browser an earlier Bees left on this port still holds the sign-ins, and taking a fresh copy of
+  // the person's profile would pull it out from under that browser, so it is adopted as it stands.
+  if (await ours(spec)) return;
+  // anything else on the port, another Bees right now, is not ours to read from or to drive
+  if (await answering(spec)) throw new Error("Another copy of Bees is using the agent's browser");
+  await launch(mode);
+}
+
+/** Put the browser in front so a person can sign in, and land on the tab the agent is reading. */
 export async function showAgentBrowser(mode = "own", url) {
   if (url) return navigateAgentBrowser(mode, url);
   await startAgentBrowser(mode);
-  const spec = target(mode);
-  await setWindow(spec, "normal");
-  await bringForward(spec);
+  await bringUp(target(mode));
 }
 
 /**
@@ -262,21 +342,20 @@ export async function navigateAgentBrowser(mode = "own", url) {
   const spec = target(mode);
   // own tab brought to the front, so the person sees the sign-in page and the agent's tab is left alone
   try {
-    const pages = await fetch(`${base(spec)}/json/list`).then((r) => r.json());
+    const pages = await fetch(`${base(spec)}/json/list`, { signal: AbortSignal.timeout(PATIENCE) }).then((r) => r.json());
     const open = pages.find((page) => page.type === "page" && page.url === url)
       ?? await fetch(`${base(spec)}/json/new?${encodeURI(url)}`, { method: "PUT" }).then((r) => r.json());
     await fetch(`${base(spec)}/json/activate/${open.id}`);
   } catch { /* the window still comes up, and the person can type the address themselves */ }
-  await setWindow(spec, "normal");
-  await bringForward(spec);
+  await bringUp(spec);
 }
 
-/** Back out of the way once the person has answered. Listening, not running: a browser an earlier
- *  Bees started is still the window on screen, and its process handle died with the old Bees. */
+/** Back out of the person's way once they have answered. Ours, not running: a browser an earlier Bees
+ *  started is still the window on screen, and its process handle died with the old Bees. */
 export async function hideAgentBrowser(mode = "own") {
   const spec = target(mode);
-  if (!(await listening(spec))) return;
-  await setWindow(spec, "minimized");
+  if (!(await ours(spec))) return;
+  await putAway(spec);
 }
 
 /** Bees is going away and no browser has an owner left, so neither would sit there as an orphan window. */

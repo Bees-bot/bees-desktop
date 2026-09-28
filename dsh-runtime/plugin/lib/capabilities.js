@@ -134,10 +134,11 @@ export class Capabilities {
       if (!exec.name.startsWith(`mcp__${row.serverName}__`)) return next();
       if (!browserReady) {
         browserReady = true;
-        // Whatever a person has signed in to since the last run is what this one inherits.
+        // the browser was given a fresh copy of the person's sign-ins when it launched, and an older
+        // browser an earlier Bees left running is where those sign-ins now live
         await saveBrowserState(mode).catch((error) =>
           this.ctx.logger.warn(`bees: this run starts signed out, cookies could not be read: ${message(error)}`));
-        // devtools attaches to the browser — bring it up minimised so the MCP server can connect.
+        // devtools attaches to the browser, which starts out hidden so the person sees nothing
         if (row.catalogId === "chrome-devtools") {
           await startAgentBrowser(mode).catch((error) =>
             this.ctx.logger.warn(`bees: the agent's browser did not start for ${exec.name}: ${message(error)}`));
