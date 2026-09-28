@@ -2,7 +2,7 @@ import { catalogEntry } from "./mcp-catalog.js";
 import { appDirectory, useDataFolder } from "./data-folder.js";
 import { rootForWorkspace, setFolderRoot, workspaceRoot } from "./folder-roots.js";
 import { randomUUID } from "node:crypto";
-import { hideAgentBrowser, navigateAgentBrowser, showAgentBrowser } from "./agent-browser.js";
+import { browserMode, hideAgentBrowser, navigateAgentBrowser, setUsesDefaultBrowser, showAgentBrowser } from "./agent-browser.js";
 
 import { existsSync, mkdirSync } from "node:fs";
 import { resolve, sep } from "node:path";
@@ -213,6 +213,12 @@ function runContext(database, executionId, roles = ["admin", "member"]) {
   return { ...run, data, item };
 }
 
+/** Which browser a run drives: its team's setting, and Bees' own when the run names no team. */
+function browserModeOf(database, workspaceId) {
+  const row = database.prepare("SELECT team_id AS teamId FROM workspaces WHERE id = ?").get(workspaceId ?? "");
+  return browserMode(row?.teamId ?? "");
+}
+
 function timezoneOf(value) {
   const timezone = required(value, "Timezone");
   try { new Intl.DateTimeFormat("en", { timeZone: timezone }).format(); }
@@ -326,6 +332,13 @@ export async function executeProductCommand(action, input) {
       assertFolderOutsideBees(input.directory, appDirectory(), "Runs");
       setFolderRoot(this.database, { level: input.level, id: input.id, directory: input.directory, live: this.agents?.live });
       return { level: input.level, folder: input.directory };
+    }
+    if (action === "set_default_browser") {
+      // the browser is this computer's, so the setting belongs to this computer, not the shared team row
+      const teamId = required(input.teamId, "Team");
+      requireTeam(this.database, teamId, ["admin"]);
+      setUsesDefaultBrowser(teamId, input.useDefault !== false);
+      return { teamId, useDefault: input.useDefault !== false };
     }
     if (action === "create_organization") return transaction(this.database, () => {
       const { userId } = currentIdentity(this.database);
@@ -1324,11 +1337,12 @@ export async function executeProductCommand(action, input) {
     }
     if (action === "open_agent_browser") {
       const executionId = required(input.executionId, "Execution");
-      runContext(this.database, executionId);
-      // When the agent supplies a URL (e.g. a login page), navigate Chrome there directly so the
-      // user sees the actual page rather than the initial about:blank tab.
+      const { data } = runContext(this.database, executionId);
+      // When the agent supplies a URL (e.g. a login page), navigate the run's browser there directly
+      // so the user sees the actual page rather than the initial about:blank tab.
       const url = typeof input.url === "string" && input.url.startsWith("https://") ? input.url : null;
-      await (url ? navigateAgentBrowser(url) : showAgentBrowser());
+      const mode = browserModeOf(this.database, data.workspaceId);
+      await (url ? navigateAgentBrowser(mode, url) : showAgentBrowser(mode));
       return { opened: true };
     }
 
@@ -1350,7 +1364,7 @@ export async function executeProductCommand(action, input) {
     }
     if (action === "stop_run") {
       const executionId = required(input.executionId, "Execution");
-      const { status } = runContext(this.database, executionId);
+      const { status, data } = runContext(this.database, executionId);
       const stopped = this.agents.abort(executionId);
       // a queued or parked run has nothing live to abort; dropping its queue row stops a start in flight
       if (!stopped && ["queued", "waiting_for_input", "waiting_for_approval"].includes(status)) {
@@ -1358,7 +1372,7 @@ export async function executeProductCommand(action, input) {
         this.agents.setStatus(executionId, "cancelled");
       }
       // Nothing is waiting on a sign-in any more, so the window it raised has no reason to stay up.
-      this.agents.track(hideAgentBrowser());
+      this.agents.track(hideAgentBrowser(browserModeOf(this.database, data.workspaceId)));
       return { stopped };
     }
     if (action === "provide_run_input") {
