@@ -674,6 +674,10 @@ export async function executeProductCommand(action, input) {
       `).get(specialization.id, specialization.revision);
       return savePlaybook(this.database, specialization, prior?.playbook ?? "", "undo");
     });
+    if (action === "restart_item") {
+      const item = itemContext(this.database, input.itemId, ["admin", "member"]);
+      return this.processes.restartItem(item.id, input.text ?? "", input.requestId ?? randomUUID());
+    }
     if (["start_item", "pause_item", "resume_item", "retry_item", "cancel_item"].includes(action)) {
       const item = itemContext(this.database, input.itemId, ["admin", "member"]);
       return this.processes.signal(item.id, action.replace("_item", ""));

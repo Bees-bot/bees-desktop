@@ -337,23 +337,23 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
   const typedMention = /^\$([^\s]*)$/.exec(composerText);
   const mentionSuggestions = typedMention ? mentionOptions.filter(({ tag }) => tag.startsWith(typedMention[1].toLocaleLowerCase())).slice(0, 5) : [];
   const composerMention = mentionedRecipient(composerText, mentionOptions);
-  const messages = [
-    ...conversationMessages(visibleHistory, conversationRuns, assignments, subitems),
-    ...(discussion?.updates ?? []).filter((entry) => entry.author === "User" && entry.workItemId === item.id)
-      .map((entry) => ({ id: `update:${entry.id}`, role: "user", text: entry.content,
-        label: entry.targetId ? `To: ${discussion.participants.find((peer) => peer.id === entry.targetId)?.title ?? "teammate"}` : "To: everyone",
-        timestamp: new Date(entry.createdAt).getTime() || 0 }))
-  ].sort((left, right) => left.timestamp - right.timestamp);
-  const [showSteps, setShowSteps] = useState(false);
+  const messages = conversationMessages(visibleHistory, conversationRuns, assignments, subitems,
+    (discussion?.updates ?? []).filter((entry) => ["Owner", "User"].includes(entry.author) && entry.workItemId === item.id)
+      .map((entry) => ({ ...entry, label: entry.author === "Owner" ? null
+        : entry.targetId ? `To: ${discussion.participants.find((peer) => peer.id === entry.targetId)?.title ?? "teammate"}` : "To: everyone" })));
   const teamQuestions = (data.teamQuestions ?? []).filter((question) => question.workItemId === item.id);
   const processExecution = (data.processExecutions ?? []).find((execution) => execution.workItemId === item.id);
+  const pendingKey = interaction?.key ?? pendingRun?.id;
+  const lastPendingKey = useRef(null);
   useEffect(() => {
-    if (isScrolledUpRef.current && !pendingRun) return;
-    const scrollToBottom = () => { if (convoRef.current && (!isScrolledUpRef.current || pendingRun)) convoRef.current.scrollTop = pendingRun ? 0 : convoRef.current.scrollHeight; };
+    const newRequest = pendingKey && pendingKey !== lastPendingKey.current;
+    lastPendingKey.current = pendingKey;
+    if (isScrolledUpRef.current && !newRequest) return;
+    const scrollToBottom = () => { if (convoRef.current && (!isScrolledUpRef.current || newRequest)) convoRef.current.scrollTop = convoRef.current.scrollHeight; };
     scrollToBottom();
     const timer = setTimeout(scrollToBottom, 50);
     return () => clearTimeout(timer);
-  }, [history, pendingRun, interaction, item.runtimePhase]);
+  }, [history, discussion, pendingKey, item.runtimePhase]);
   const convoItems = [h(GoalMessage, { item, key: "start" })];
   for (const message of messages) {
     if (message.role === "user") convoItems.push(h(UserMessage, { key: message.id, label: message.label }, message.text));
@@ -390,15 +390,11 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
           onClick: () => act(plan ? { action: "stop_run", executionId: run.id } : { action: "cancel_item", itemId: item.id }) }, "Stop") : null,
         run && !elsewhere && item.runtimePhase === "waiting" ? h("button", { className: "bees-btn-danger-ghost", onClick: () => act({ action: "cancel_item", itemId: item.id }) }, "Cancel routing") : null,
         run?.status === "completed" && run.outputs?.length ? h("button", { className: "bees-btn-primary", onClick: publish },
-          item.outputLocationId || process?.outputLocationId ? "Publish outputs" : "Save outputs to folder…") : null),
-      pendingRun ? h("button", { type: "button", className: "bees-btn-secondary", onClick: () => setShowSteps((value) => !value) },
-        showSteps ? "Hide agent steps" : `Show agent steps (${messages.length})`) : null),
+          item.outputLocationId || process?.outputLocationId ? "Publish outputs" : "Save outputs to folder…") : null)),
     item.runtimePhase === "failed" ? h("div", { className: "bees-convo-error", role: "alert" },
       h("span", { title: item.runtimeError }, item.runtimeError || "This work failed."),
       !plan && !elsewhere ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "retry_item", itemId: item.id }) },
         latestResult?.resultOutcome === "blocked" ? "Resolve and continue" : "Retry") : null) : null,
-    ...teamQuestions.map((question) => h(TeamQuestionCard, { key: question.id, question, data, act })),
-    // a waiting question goes first and the agent's steps fold away, so nobody scrolls to find it
     h("div", {
       className: "bees-convo-history", ref: convoRef,
       onScroll: (event) => {
@@ -406,14 +402,15 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
         isScrolledUpRef.current = Math.abs(scrollHeight - clientHeight - scrollTop) > 30;
       }
     },
+      ...convoItems,
+      ...(plan ? pendingProposals(data, run) : []).map((proposal) => h(ProposalCard, { key: proposal.id, proposal, onApply: () => apply(proposal),
+        onDismiss: () => act({ action: "reject_proposal", proposalId: proposal.id }) })),
+      ...teamQuestions.map((question) => h(TeamQuestionCard, { key: question.id, question, data, act })),
       pendingRun ? h(AgentInteractionPanel, { run: pendingRun, item: data.items.find(({ id }) => id === pendingRun.workItemId) ?? item,
         interaction, handled, inConversation: true, onAnswered: answered, act, data, onOpenTools: process ? () => {
           setActiveTab("tools");
           document.getElementById("bees-tab-tools")?.scrollIntoView({ behavior: "smooth", block: "start" });
         } : undefined }) : null,
-      ...(!pendingRun || showSteps ? convoItems : []),
-      ...(!pendingRun || showSteps ? (plan ? pendingProposals(data, run) : []) : []).map((proposal) => h(ProposalCard, { key: proposal.id, proposal, onApply: () => apply(proposal),
-        onDismiss: () => act({ action: "reject_proposal", proposalId: proposal.id }) })),
       !pendingRun && isWorking ? h("div", { className: "bees-convo-msg system bees-working-indicator" },
         h("span", { className: "bees-dot-typing-container" }, h("span", { className: "bees-dot-typing-dot" })),
         run?.status === "queued" ? "Agent is starting..." : [...messages].reverse().find((message) => message.pending)?.text ?? "Agent is working...") : null),
@@ -450,7 +447,9 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
       if (!finished && !activeRun) return;
       setSending(true);
       try {
-        if (finished) await act({ action: "continue_run", executionId: run.id, text });
+        if (finished) {
+          if (!await act({ action: "continue_run", executionId: run.id, text })) return;
+        }
         else {
           // a run's session reaches this list a few seconds after the run starts
           if (!ctx.sessions.list.getSnapshot().byId[activeRun.sessionId]) await ctx.sessions.refresh();
@@ -476,7 +475,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
           h("span", { className: "bees-agent-mention" }, `$${option.tag}`), option.status ? ` · ${option.status}` : ""))) : null,
       h("textarea", {
         className: "bees-composer-input",
-        placeholder: pendingRun ? "Answer above, or type $ to message a teammate..." : "Message the current agent, or type $ for teammates...",
+        placeholder: pendingRun ? "Answer the card, or type $ to message a teammate..." : "Message the current agent, or type $ for teammates...",
         disabled: sending, value: composerText, rows: 2,
         onChange: (event) => setComposerText(event.target.value),
         onKeyDown: (event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); event.target.form.requestSubmit(); } }
@@ -990,7 +989,7 @@ function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, execu
       h("div", { className: "bees-muted" }, [question.header, questions.length > 1 ? `Question ${index + 1} of ${questions.length}` : ""].filter(Boolean).join(" · ")),
       h("h3", { className: "bees-section-title" }, question.question)),
     question.detail ? h("div", { className: "bees-question-detail" }, h(MarkdownText, { text: question.detail })) : null,
-    h("div", { className: "bees-question-options", role: question.multiSelect === true ? "group" : "radiogroup" },
+    h("div", { className: "bees-question-options", role: question.multiSelect === true ? "group" : "radiogroup", "aria-label": question.header || "Answer options" },
       ...(question.options ?? []).map((option, optionIndex) => {
         const selected = draft.selected.includes(option.label);
         const shown = displayOption(option.label);
@@ -1007,7 +1006,7 @@ function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, execu
             option.description ? h("span", { className: "bees-muted" }, option.description) : null));
       }),
       h("textarea", {
-        className: "bees-textarea", value: draft.custom, disabled: busy,
+        className: "bees-textarea", value: draft.custom, disabled: busy, rows: 3, "aria-label": "Your answer",
         ...( (question.options ?? []).length ? {} : { ref: focusWithoutScroll } ),
         placeholder: (question.options ?? []).length 
           ? (question.multiSelect === true ? "Add another answer (optional)" : "Or type another answer") 

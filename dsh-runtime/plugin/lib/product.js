@@ -315,7 +315,7 @@ export class BeesProduct {
       ...retry,
       workspace: runDirectory,
       // the work context already reaches the model through the system prompt, a second copy here cost a local model half its window
-      body: body + (!reviewer && !parent ? `\n\n${PARENT_EXECUTION_STEP}` : ""),
+      body: body + (!reviewer && !parent ? `\n\n${PARENT_EXECUTION_STEP}` : "") + (stage.retryMessage ? `\n\n${stage.retryMessage}` : ""),
       initialData: {
         version: 1, mode: reviewer ? "review" : "work", stagePurpose: reviewer ? "reviewer" : "worker",
         executionId, workItemId: item.id,

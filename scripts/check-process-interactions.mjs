@@ -186,6 +186,32 @@ try {
   assert.throws(() => assertPeersSettled(runtime, worker, claim), /4 recorded successful child executions/);
   database.prepare("UPDATE bees_stage_results SET outcome = 'candidate' WHERE execution_id = 'review-child-4'").run();
   addResult.run("run", stamp(1000));
+  // A completed stage's immutable result must not swallow a new conversation turn.
+  const oldConfig = runtime.run("run").configJson;
+  database.prepare("UPDATE execution_links SET config_json = ? WHERE execution_id = 'run'")
+    .run(JSON.stringify({ ...JSON.parse(oldConfig), stagePurpose: "worker" }));
+  runtime.setStatus("run", "completed");
+  const oldHandle = runtime.newHandle, oldSettle = runtime.settle;
+  let followupData, followupText;
+  const followupHandle = { agent: { session: { seq: 0 },
+    followup: (message) => { followupText = message.content[0].text; },
+    steer: (message) => { followupText = message.content[0].text; } }, dispose: async () => {} };
+  runtime.newHandle = async (_run, data) => { followupData = data; return { sessionId: "followup-session", handle: followupHandle }; };
+  runtime.settle = async () => {};
+  const followup = { uid: "instance", idempotencyKey: "completed-followup", body: "What did you finish?" };
+  const accepted = await runtime.admit("bees-run", "run", followup);
+  assert.equal(followupData.stagePurpose, undefined);
+  assert.equal(followupText, followup.body);
+  assert.equal(runtime.run("run").status, "running");
+  assert.equal(runtime.stageResult("run").summary, "Finished");
+  assert.deepEqual({ ...await runtime.admit("bees-run", "run", followup) }, accepted);
+  runtime.newHandle = () => assert.fail("a second message replaced a live follow-up worker");
+  await runtime.admit("bees-run", "run", { ...followup, idempotencyKey: "second-followup", body: "One more detail." });
+  assert.equal(followupText, "One more detail.");
+  assert.equal(runtime.live.get("run").handle, followupHandle);
+  await runtime.finish("run", accepted.submissionId, "followup-session", followupHandle, { outcome: "completed" });
+  runtime.newHandle = oldHandle; runtime.settle = oldSettle;
+  database.prepare("UPDATE execution_links SET config_json = ? WHERE execution_id = 'run'").run(oldConfig);
   const recorded = (await runtime.workResult("item")).delegation;
   assert.equal(recorded.launched, 5);
   assert.equal(recorded.completed, 5);
@@ -274,6 +300,56 @@ try {
   assert.throws(() => processes.project({ ...projection, stageId: "missing", phase: "completed" }),
     /stage does not belong/);
 
+  // Restart the same card at its first stage, with fresh IDs and the old results preserved.
+  const closed = [];
+  processes.client = { workflow: { getHandle: (id) => ({ result: async () => { closed.push(id); } }) } };
+  const restartInputs = [];
+  processes.startItem = async (id) => {
+    restartInputs.push(processes.input(id));
+    database.prepare("UPDATE work_items SET runtime_phase = 'running' WHERE id = ?").run(id);
+    return { automatic: true, claimed: true };
+  };
+  const restarted = await executeProductCommand.call({ database, processes }, "restart_item", {
+    itemId: "item", text: "Start this same task again", requestId: "restart-check"
+  });
+  assert.equal(restarted.id, "item");
+  assert.equal(processes.item("item").stageId, stage.id);
+  assert.equal(processes.item("item").runtimePhase, "running");
+  assert.equal(processes.item("item").attempt, 3);
+  assert.equal(processes.input("item").restart.text, "Start this same task again");
+  assert.equal(runtime.stageResult("run").summary, "Finished");
+  await processes.restartItem("item", "Start this same task again", "restart-check");
+  assert.equal(restartInputs.length, 1, "replayed requests must not restart twice");
+  await assert.rejects(processes.restartItem("item", "Different request", "restart-check"), /another request/);
+  await assert.rejects(processes.restartItem("item", "Again", "new-restart"), /Only finished/);
+  database.prepare("UPDATE work_items SET archived_at = ? WHERE id = 'child'").run(at);
+  await assert.rejects(processes.restartItem("child", "Again", "archived-restart"), /Only finished/);
+  database.prepare("UPDATE work_items SET archived_at = NULL WHERE id = 'child'").run();
+
+  const states = [], stageCalls = [];
+  const workflowSource = readFileSync(new URL("../dsh-runtime/plugin/lib/process-workflow.js", import.meta.url), "utf8")
+    .replace(/^import \{([\s\S]*?)\} from "@temporalio\/workflow";/, "const {$1} = temporal;")
+    .replaceAll("export async function", "async function");
+  const workflow = new Function("temporal", workflowSource + "\nreturn processWorkflow;")({
+    defineSignal: (name) => name, setHandler() {},
+    proxyActivities: () => ({ projectWorkItem: async (state) => states.push({ ...state }),
+      runDshStage: async (call) => { stageCalls.push(call); return { outcome: call.purpose === "reviewer" ? "pass" : "candidate" }; } })
+  });
+  await workflow(restartInputs[0]);
+  assert.equal(stageCalls[0].stageId, stage.id);
+  assert.equal(stageCalls[0].executionId, "item-stage-0-work-3");
+  assert.match(stageCalls[0].retryMessage, /Start this same task again/);
+  assert.equal(states.at(-1).phase, "completed");
+  assert.equal(states.at(-1).stageId, terminal.id);
+  processes.project({ ...projection, workItemId: "item", phase: "completed" });
+
+  const { conversationMessages } = await import("../dsh-runtime/plugin/client/conversation-model.js");
+  const ownerUpdates = [1, 2].map((n) => ({ id: `owner-${n}`, author: "Owner", executionId: "run", content: "Again", createdAt: stamp(n) }));
+  const transcript = { executionId: "run", messages: [{ id: "native", role: "user", parts: [{ text: "Again" }] }] };
+  const visible = conversationMessages(transcript, [], [], [], ownerUpdates);
+  assert.equal(visible.length, 2, "show unsurfaced owner messages without duplicating the native transcript");
+  assert.equal(conversationMessages(null, [], [], [], ownerUpdates).length, 2, "keep messages visible after switching executions");
+
   // Upgrading repairs old completed cards, preserves unfinished work and is idempotent.
   database.prepare("UPDATE work_items SET stage_id = ?, updated_at = ? WHERE id = 'child'")
     .run(stage.id, at);
@@ -344,6 +420,8 @@ try {
     title: "Test five subagents", description: "Launch five parallel subagents; each appends its own number word to outputs/counter.txt." });
   const stageFor = (id) => ({ workItemId: id, executionId: `${id}-work`, stageId: stage.id, stageName: "Work", purpose: "worker" });
   const leadRequest = await launchProduct.runProcessStage(stageFor(lead.id));
+  const restartRequest = await launchProduct.runProcessStage({ ...stageFor(lead.id), executionId: `${lead.id}-restart`, retryMessage: "Restart from stage one with the new instructions." });
+  assert.match(restartRequest.body, /Restart from stage one with the new instructions/);
   assert.doesNotMatch(leadRequest.body, /otherwise do the work yourself|substantial independent work/);
   assert.match(leadRequest.body, /your next action is bees_delegate_work/);
   const mountedTools = async (request, id) => {
