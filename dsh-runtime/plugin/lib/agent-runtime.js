@@ -1644,6 +1644,10 @@ export class AgentRuntime {
               ("Independent review " + executionId + ": " + result.summary).slice(0, 6000), "review-" + executionId);
           }
         });
+          // a lead told to wait often just ends its turn, which failed the whole run, so wait for running children here
+          const running = data.workItemId ? delegationEvidence(this.database, data.workItemId).peers
+            .filter(({ phase }) => !["completed", "cancelled", "failed", "waiting", "paused"].includes(phase)).map(({ id }) => id) : [];
+          if (running.length) await this.waitForPeers(running, exec.signal, data.workItemId);
         if (pinned && args.outcome === "pass" && this.memory) {
           this.track(this.memory.flush(data.workspaceId));
         }
