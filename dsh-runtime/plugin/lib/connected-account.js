@@ -53,11 +53,6 @@ export class ConnectedAccount {
     return row ? { ...row, enabled: Boolean(row.enabled) } : null;
   }
 
-  publicAccount() {
-    const row = this.account();
-    return row ? { userId: row.userId, email: row.email, name: row.name } : null;
-  }
-
   connections() {
     return this.database.prepare(`
       SELECT c.id, c.organization_id AS organizationId, c.account_user_id AS accountUserId,

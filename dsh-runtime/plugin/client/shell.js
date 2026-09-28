@@ -2,7 +2,7 @@ import {
   FreeAiController, h, LocalAiController, React, useEffect, useRef, useState
 } from "./runtime.js";
 import {
-  artifactRuns, ask, askWithCheckbox, choose, collaboration, confirmAction, connectionIdForScope, defaultOrgColor, headerEmitter, NAVIGATION, request, scopeParts, runTitle, sectionFor, Button, Empty, openExternal,
+  artifactRuns, ask, collaboration, confirmAction, connectionIdForScope, defaultOrgColor, headerEmitter, NAVIGATION, request, scopeParts, runTitle, sectionFor, Button, openExternal,
   THEME_PRESETS, ThemeToggle, usePreference, workItemsFor
 } from "./shared.js";
 import { AccountIcon, BookIcon, ChevronDownIcon, CloseIcon, EditIcon, KnowledgeIcon, SettingsIcon } from "./icons.js";
@@ -625,7 +625,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
           catch (reason) { setError(reason.message || String(reason)); }
           finally { setupLock.current = false; setSetupBusy(false); }
         }, go: goSetup, start: startFirstTask, openWorkItem: openStarter, navigate })
-    : route === "create-organization" ? h(CreateOrganizationPage, { reload: load, setScope, navigate, createLocal: createLocalOrganization, onboarding: onboarding.active, onCreated: finishOrganization })
+    : route === "create-organization" ? h(CreateOrganizationPage, { reload: load, createLocal: createLocalOrganization, onboarding: onboarding.active, onCreated: finishOrganization })
     : route === "basics" ? h(BasicsPage, { navigate, onStart: async () => {
         await updateOnboarding({ active: true, step: parts.teamId ? 3 : 0 });
         navigate("getting-started");
@@ -744,7 +744,7 @@ function AppHeader({ routeLabel, parts, ctx, preferences }) {
 
 
 
-function CreateOrganizationPage({ reload, setScope, navigate, createLocal, onboarding, onCreated }) {
+function CreateOrganizationPage({ reload, createLocal, onboarding, onCreated }) {
   const [name, setName] = useState(onboarding ? "My workspace" : "");
   const [isLocal, setIsLocal] = useState(false);
   const [data, setData] = useState(null);

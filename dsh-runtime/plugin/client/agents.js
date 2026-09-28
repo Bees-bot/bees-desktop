@@ -142,7 +142,7 @@ export function SystemDefaultSettings({ ctx, modelSettings, systemDefault, reloa
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Which MCP servers this agent may use. Shared by the create and edit forms. */
-export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access, chosen, onServerAction, onChange, scope = "agent", showAll = true }) {
+export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access, chosen, onServerAction, onChange, scope = "agent" }) {
   // "all" stays "all" until a server is unpicked, or saving turns it into this computer's list for the whole team
   const [mode, setMode] = useState(access ?? "all");
   const [picked, setPicked] = useState(chosen ?? []);

@@ -893,9 +893,7 @@ export async function executeProductCommand(action, input) {
       workspaceContext(this.database, stage.workspaceId, ["admin", "member"]);
       if (["manual", "terminal"].includes(stage.driver)) throw new Error("This stage does not run an agent");
       const requiredCapabilities = capabilities(input.requiredCapabilities, "Stage capabilities");
-      if (input.targetType && input.targetType !== "agent") throw new Error("A stage routes to agents; name them in agentIds");
-      const ids = normalizeAgentIds(Array.isArray(input.agentIds) ? input.agentIds
-        : input.targetType === "agent" && input.targetId ? [input.targetId] : []);
+      const ids = normalizeAgentIds(input.agentIds);
       if (stage.driver === "review" && ids.length > 1) throw new Error("A review stage must use one independent agent");
       for (const id of ids) {
         if (!assignment(this.database, id, stage.workspaceId)) throw new Error("Agent is not in this team");

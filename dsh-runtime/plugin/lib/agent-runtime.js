@@ -95,7 +95,7 @@ const reviewQuestions = (summary) => [{
   ],
   multiSelect: false
 }];
-const DSH_ONE_SHOT_DELEGATION_TOOLS = ["subagent", "subagent_fork", "spawn_teammate", "send_message", "followup_task", "list_agents", "wait_agent", "interrupt_agent", "team_task_create", "team_task_get", "team_task_list", "team_task_update"];
+const DSH_ONE_SHOT_DELEGATION_TOOLS = ["subagent", "subagent_fork", "spawn_teammate", "send_message", "list_agents", "wait_agent", "interrupt_agent", "team_task_create", "team_task_get", "team_task_list", "team_task_update"];
 
 const RUN_DATA_KEYS = new Set([
   "version", "mode", "executionId", "agentId", "agentName", "purpose", "model",
@@ -465,7 +465,7 @@ function jsonHash(value) {
   return createHash("sha256").update(serialized).digest("hex");
 }
 
-export function copyOutputs(workspace, location, executionId, paths) {
+export function copyOutputs(workspace, location, paths) {
   const sourceRoot = realpathSync(resolve(workspace, "outputs"));
   const destinationRoot = realpathSync(location.localPath);
   // named deliverables only, so a stage's hand-off file never lands in the person's folder
@@ -1730,7 +1730,7 @@ export class AgentRuntime {
             signal: exec.signal
           });
           if (outcome !== "allowed-once") throw new Error(`Publication ${outcome}`);
-          const result = copyOutputs(workspace, location, executionId, args.paths);
+          const result = copyOutputs(workspace, location, args.paths);
           this.audit("outputs-published", executionId, String(exec.agent.session.id), {
             locationId: location.id, files: result.files, bytes: result.bytes,
             destination: result.destination, existing: result.existing

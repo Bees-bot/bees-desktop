@@ -285,7 +285,7 @@ export class ProcessRuntime {
       FROM bees_recurring_executors WHERE recurring_work_id = ?
     `).all(recurringWorkId);
     for (const executor of existing) if (!eligible.has(executor.accountUserId)) {
-      // Keep the local row only if the schedule is still out there, so reconciliation can retry it.
+      // The person is off the run now, so the schedule and its row both go.
       await this.client.schedule.getHandle(executor.temporalScheduleId).delete()
         .catch((error) => { this.logger.warn?.(`bees: a Temporal schedule would not delete: ${message(error)}`); });
       this.database.prepare(`

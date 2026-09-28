@@ -1,12 +1,11 @@
 import { h, React, useEffect, useState } from "./runtime.js";
-import { accountLabel, Button, confirmAction, Empty, HelpTooltip, openExternal, ProposalCard, useSubmit } from "./shared.js";
+import { accountLabel, Button, confirmAction, Empty, openExternal, ProposalCard, useSubmit } from "./shared.js";
 import { addDashboardWidget, applyDashboardLayout, dashboardsFrom, DEFAULT_WIDGETS } from "./dashboard-model.js";
 import { FlexibleGrid } from "./flexible-grid.js";
 import { needsYouRows, NeedsYouWidget, useNeedsYouQueue, WorkItemControls } from "./work.js";
 import { ProcessListActions } from "./processes.js";
 import { AgentListActions, useMcpPreflight } from "./agents.js";
 import { AskBeesSetup, workFromOutcome } from "./ask-bees.js";
-import { EditIcon } from "./icons.js";
 
 export function OutcomeWidget({ ctx, data, workspaceId, outcome, setOutcome, configuration, configureGoal, clearConfiguration, act, openWorkItem, capabilities }) {
   const [error, setError] = useState("");

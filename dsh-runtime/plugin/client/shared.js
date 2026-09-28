@@ -1487,7 +1487,6 @@ export function ProposalCard({ proposal, onApply, onDismiss }) {
       h(Button, { disabled: Boolean(busy), onClick: once("dismiss", onDismiss) }, "Dismiss")));
 }
 
-export const activeAccounts = (data) => (data.accounts ?? []).filter(({ enabled }) => enabled !== false);
 
 /** An account id off the wire only means something once it has a person behind it. */
 export const accountLabel = (data, accountUserId) => accountUserId
