@@ -603,7 +603,8 @@ export class Capabilities {
         await personOnly(found.apiBaseUrl);
         Object.assign(secrets, found.headers);
         headerNames.push(...Object.keys(found.headers));
-        const merged = await this.mergeIntoHost(entry, found, found.headers);
+        // the person's own typed header counts too: passing only the curl's headers dropped it here
+        const merged = await this.mergeIntoHost(entry, found, secrets);
         if (merged) return merged;
         found.specUrl = await this.writeSpec(found.host, JSON.stringify(found.spec, null, 2));
       }
