@@ -483,9 +483,14 @@ export async function executeProductCommand(action, input) {
       });
       // an applied plan only sets work up, the owner presses Start
       if (created.reused || input.idempotencyKey?.startsWith("proposal:")) return created;
-      // Publish the ready item before taking its team-wide lease. This gives the creating device
-      // first chance to run while still letting an eligible peer start it after the owner goes offline.
-      await this.connected?.sync();
+      // Shared work must be published before taking its team-wide lease. Personal work has
+      // no remote owner and must not wait for synchronization of unrelated organizations.
+      if (this.connected) {
+        const item = itemContext(this.database, created.id);
+        const workspace = workspaceContext(this.database, item.workspaceId);
+        const scope = this.connected.claimScope(workspace.teamId, item.accountUserId ?? "");
+        if (scope?.connectionId) await this.connected.syncCoordination([scope.connectionId]);
+      }
       // The row is already committed; throwing here would have the caller retry and create a second item.
       return { ...created, ...await this.processes.startItem(created.id).catch((error) => ({ error: message(error) })) };
     }

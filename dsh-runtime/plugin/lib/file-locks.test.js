@@ -16,6 +16,7 @@ import * as observationPolicy from "@deepseek-ai/dsh-fs-observation-policy";
 import { apply as nativeFileTools, Config } from "@deepseek-ai/dsh-tool-fs";
 import { FileLocks } from "./file-locks.js";
 import { commitFile, mountFileLocks } from "./file-lock-tools.js";
+import { mountToolDiscovery } from "./tool-discovery.js";
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "bees-file-locks-"));
@@ -72,6 +73,35 @@ test("parallel agents preserve every update across multiple files", { timeout: 1
   assert.equal(locks.owners.size, 0);
 });
 
+test("five single-call appends preserve every contribution and release their locks", async (t) => {
+  const { root, fs, locks } = await fixture(t);
+  const path = join(root, "counter.txt");
+  const words = ["first", "second", "third", "fourth", "fifth"];
+  await Promise.all(words.map(async (word) => {
+    const a = agent(root, fs, locks);
+    await a.call("bees_append_file", { file_path: path, content: word + "\n" });
+    assert(!locks.owners.has(a.owner));
+  }));
+  assert.deepEqual((await readFile(path, "utf8")).trim().split("\n").sort(), [...words].sort());
+  assert.equal(locks.owners.size, 0);
+  const a = agent(root, fs, locks);
+  await a.lock([path]);
+  await a.call("bees_append_file", { file_path: path, content: "sixth\n" });
+  assert(!locks.owners.has(a.owner), "an existing exclusive lock is reused and released");
+  const before = await readFile(path, "utf8");
+  const controller = new AbortController();
+  fs.internals.inspectTemp = async () => controller.abort();
+  await assert.rejects(a.call("bees_append_file", { file_path: path, content: "cancelled\n" }, controller.signal), /abort/i);
+  assert.equal(await readFile(path, "utf8"), before);
+  assert.equal(locks.owners.size, 0);
+  const fenced = Object.create(fs);
+  Object.defineProperty(fenced, "sandboxMode", { value: "read-only" });
+  fenced.checkedTarget = async () => { throw new Error("sandbox denied"); };
+  await assert.rejects(agent(root, fenced, locks).call("bees_append_file", { file_path: path, content: "denied" }), /sandbox denied/);
+  assert.equal(await readFile(path, "utf8"), before);
+  assert.equal(locks.owners.size, 0);
+});
+
 test("real tool dispatch and observation policy route parent and child locks independently", async (t) => {
   const { root, locks, ctx } = await fixture(t);
   for (const plugin of [SystemPrompt, ToolRuntime, nativeToolsPlugin, observationPolicy]) {
@@ -83,6 +113,7 @@ test("real tool dispatch and observation policy route parent and child locks ind
   const mounted = await ctx.plugin({ inject: ["tools", "systemPrompt"], apply(base) {
     for (const owner of [parent, child]) {
       const scope = createScope(base, owner, owner === child ? { parent } : undefined);
+      mountToolDiscovery(scope.ctx, { resolve: async () => undefined });
       mountFileLocks(scope.ctx, owner, locks, ctx.fs);
     }
   } });
@@ -90,6 +121,10 @@ test("real tool dispatch and observation policy route parent and child locks ind
   const call = (agent, name, args) => ctx.tools.execute({ agent, name, arguments: args,
     callId: `${name}-${Math.random()}`, signal: new AbortController().signal });
   const path = join(root, "scoped.txt");
+  for (const owner of [parent, child]) {
+    const assembly = await ctx.systemPrompt.assemble({ scope: owner, signal: new AbortController().signal });
+    assert(assembly.tools.some(({ name }) => name === "bees_append_file"), "single-call append must be visible without discovery");
+  }
   await writeFile(path, "first");
   assert.equal((await call(parent, "write", { file_path: path, content: "unlocked" })).isError, true);
   for (const owner of [parent, child]) {
@@ -152,6 +187,38 @@ test("release and lifecycle cleanup wait for an actual in-flight write", async (
   finish.resolve(); await writing; await releasing; await acquiring;
   assert.equal(await readFile(path, "utf8"), "complete");
   await locks.releaseOwner(b.owner);
+  assert.equal(locks.owners.size, 0);
+});
+
+test("a parent must release its file locks before delegating or waiting", async (t) => {
+  const { root, fs, locks } = await fixture(t);
+  const parent = agent(root, fs, locks), child = agent(root, fs, locks);
+  const path = join(root, "counter.txt");
+  const { token } = await parent.lock([path]);
+  await parent.call("write", { file_path: path, content: "" });
+  let calls = 0;
+  const handoffs = ["bees_delegate_work", "bees_revise_work", "bees_resolve_failed_work", "bees_wait_for_peers",
+    "ask_user_question", "bees_ask_team", "bees_request_work_review", "bees_publish_outputs", "bees_submit_stage_result"];
+  for (const name of handoffs) {
+    const tool = { name, execute: () => { calls++; return {}; } };
+    parent.ctx.tools.register(tool);
+    child.ctx.tools.register(tool);
+    await assert.rejects(parent.call(name, {}), (error) =>
+      error.message.includes("bees_release_file_locks") && error.message.includes(token));
+  }
+  assert.equal(calls, 0); // No children or human waits were started while the parent held the lock.
+  await child.call("bees_wait_for_peers", {}); // Only the calling agent's locks matter.
+  assert.equal(calls, 1);
+  assert.equal(locks.owners.get(parent.owner).token, token); // Never evict a live writer.
+  await parent.unlock(token);
+  parent.ctx.tools.register({ name: "bees_delegate_work", execute: async () => {
+    const locked = await child.lock([path]);
+    await child.call("read", { file_path: path });
+    await child.call("write", { file_path: path, content: "first\n" });
+    await child.unlock(locked.token);
+  } });
+  await parent.call("bees_delegate_work", {});
+  assert.equal(await readFile(path, "utf8"), "first\n");
   assert.equal(locks.owners.size, 0);
 });
 

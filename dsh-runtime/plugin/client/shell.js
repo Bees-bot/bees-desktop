@@ -435,7 +435,8 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
   };
   const createAgent = () => { setRoute("all-agents"); setCreating("agent"); };
   const capabilities = useCapabilities(route);
-  const localAi = h(LocalAiController, { modelSettings: personalModelSettings, preferences: personalPreferences, onError: setError });
+  const localAi = h(LocalAiController, { modelSettings: personalModelSettings, preferences: personalPreferences,
+    catalog: data?.localModelCatalog, onError: setError });
   const freeAi = h(FreeAiController, { modelSettings: personalModelSettings, onError: setError });
   if (!data) return h(React.Fragment, null, localAi, freeAi,
     h("div", { className: "bees-app bees-loading", style: { display: "flex", flexDirection: "column", gap: "16px", background: "#111315" } }, 

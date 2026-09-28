@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { access, readFile } from "node:fs/promises";
-import { constants } from "node:fs";
+import { constants, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseDocument, isSeq } from "yaml";
 import { z } from "zod";
@@ -74,6 +74,10 @@ function snapshot(text) {
   }
   return { revision: revisionOf(text), values };
 }
+
+export const shippedModelCatalog = snapshot(
+  readFileSync(new URL("../cordis.patch.yml", import.meta.url), "utf8")
+).values.bees.localModelCatalog;
 
 export class ProductDefaults {
   constructor(connected, root = process.env.BEES_PRODUCT_SOURCE) {

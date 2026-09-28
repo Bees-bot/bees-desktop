@@ -3,12 +3,14 @@ import { test } from "node:test";
 import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import vm from "node:vm";
-import { ProductDefaults } from "./product-defaults.js";
+import { ProductDefaults, shippedModelCatalog } from "./product-defaults.js";
 import { ProductSettings } from "../client/product-settings.js";
 import { Config } from "./index.js";
 import { Config as SubscriptionConfig } from "../../plugins/subscriptions/lib/index.js";
 import { workItemLayoutFrom } from "../client/dashboard-model.js";
+import { composeEntries, loadOverlayPatches } from "@deepseek-ai/dsh-app-boot";
 
 const shippedPath = new URL("../cordis.patch.yml", import.meta.url);
 async function fixture(t) {
@@ -87,7 +89,9 @@ test("rejects secrets, private paths, invalid layouts, stale saves and removal o
   const provider = `local-openai-${state.values.bees.localModelCatalog[0].id}`;
   state = await service.update({ ...input, namespace: "agent-default-model", key: "selection", value: { provider, model: "active" } });
   await assert.rejects(service.update({ ...input, revision: state.revision, key: "localModelCatalog", value: state.values.bees.localModelCatalog.slice(1) }), /another product default/);
-  const results = await Promise.allSettled(["light", "dark"].map((value) => service.update({ ...input, revision: state.revision, key: "colorMode", value })));
+  // Both saves must change the revision; writing the current color mode is a valid no-op.
+  const results = await Promise.allSettled(["one", "two"].map((suffix) => service.update({ ...input,
+    revision: state.revision, key: "themePreset", value: `${state.values.bees.themePreset}-${suffix}` })));
   assert.equal(results.filter((r) => r.status === "fulfilled").length, 1);
   assert.match(results.find((r) => r.status === "rejected").reason.message, /changed elsewhere/);
 });
@@ -104,11 +108,30 @@ test("the shipped runtime schemas consume edited defaults and preserve explicit 
   state = await service.update({ accountUserId: "admin", namespace: "bees", key: "workItemLayout", value: layout, revision: state.revision });
   const parsed = Config["~standard"].validate(state.values.bees);
   assert.equal(parsed.issues, undefined);
-  assert.deepEqual(parsed.value.localModelCatalog.get(), state.values.bees.localModelCatalog);
   assert.deepEqual(workItemLayoutFrom(parsed.value.workItemLayout.get()).find((w) => w.kind === "kanban"), layout[3]);
   const subscriptions = SubscriptionConfig["~standard"].validate({ models: ["custom-claude"] });
   assert.equal(subscriptions.issues, undefined);
   assert.deepEqual(subscriptions.value.models.get(), ["custom-claude"]);
+});
+
+test("the product catalog is independent of saved settings and is not a writable preference", () => {
+  const shipped = loadOverlayPatches("bees", fileURLToPath(shippedPath));
+  const defaults = composeEntries([shipped]).find((row) => row.id === "bees").config;
+  assert.ok(shippedModelCatalog.length);
+  assert.deepEqual(shippedModelCatalog, defaults.localModelCatalog);
+  const personal = { localModelWantedIds: [defaults.localModelCatalog[0].id], colorMode: "light" };
+  const resolve = (config) => {
+    const row = composeEntries([shipped, [{ id: "bees", config }]]).find((row) => row.id === "bees");
+    const parsed = Config["~standard"].validate(row.config);
+    assert.equal(parsed.issues, undefined);
+    return parsed.value;
+  };
+  const parsed = resolve(personal);
+  assert.deepEqual(parsed.localModelWantedIds.get(), personal.localModelWantedIds);
+  assert.equal(parsed.colorMode.get(), "light");
+  for (const key of ["localModelCatalog", "localModels", "removedLocalModelIds"]) assert.equal(Config.dict[key], undefined);
+  resolve({ ...personal, localModelCatalog: [], removedLocalModelIds: personal.localModelWantedIds });
+  assert.deepEqual(shippedModelCatalog, defaults.localModelCatalog);
 });
 
 function personalForm(value) {
@@ -131,7 +154,6 @@ test("existing forms switch scope without copying or overwriting personal models
   await assert.rejects(form.set("themePreset", "forest"), /scope changed/);
   errors.length = 0;
   form = store.scope("bees", personal);
-  assert.deepEqual(form.getSnapshot().value.localModels, []);
   assert.equal(form.getSnapshot().value.themePreset, "halloween");
   await form.set("colorMode", "light");
   assert.deepEqual(personal.writes, []);

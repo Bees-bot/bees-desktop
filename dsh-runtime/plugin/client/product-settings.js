@@ -66,7 +66,7 @@ export class ProductSettings {
         if (!editing || !owner.state.values) return snapshot;
         const defaults = owner.state.values[namespace];
         return { ...snapshot, status: "ready", value: namespace === "bees"
-          ? { ...snapshot.value, ...defaults, localModels: [], removedLocalModelIds: [], localModelWantedIds: [] }
+          ? { ...snapshot.value, ...defaults, localModelWantedIds: [] }
           : defaults };
       },
       subscribe(listener) {

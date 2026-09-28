@@ -9,7 +9,7 @@ import {
 import { MemorySettings } from "./collaboration.js";
 import { SystemDefaultSettings } from "./agents.js";
 
-function AiSettings({ ctx, modelSettings, preferences, systemDefault, reload, productSettings }) {
+function AiSettings({ ctx, modelSettings, preferences, systemDefault, reload, productSettings, catalog }) {
   const preference = usePreference(preferences);
   const generation = productSettings.generation;
   const isOnboarding = preference.onboarding?.active;
@@ -36,7 +36,7 @@ function AiSettings({ ctx, modelSettings, preferences, systemDefault, reload, pr
     h("fieldset", { disabled: preferences.productDefaults, style: { border: 0, padding: 0, minWidth: 0 } },
       h(FreeAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button })),
     h(CustomAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button }),
-    h(LocalAiSettings, { modelSettings, preferences, systemDefault, ask, confirmAction, Button }),
+    h(LocalAiSettings, { modelSettings, preferences, systemDefault, ask, confirmAction, Button, catalog }),
     h("fieldset", { disabled: preferences.productDefaults, style: { border: 0, padding: 0, minWidth: 0 } },
       h(ExternalLocalAiSettings, { modelSettings, preferences, systemDefault, ask, Button }))
   );
@@ -787,7 +787,8 @@ export function SettingsPage({
       : h(Empty, null, "Platform administrator access is unavailable.")
     : route === "personal-ai"
       ? h(AiSettings, { ctx, modelSettings, preferences, systemDefault: platform?.editing
-        ? platform.values["agent-default-model"].selection : data.systemDefaultModel, reload, productSettings })
+        ? platform.values["agent-default-model"].selection : data.systemDefaultModel, reload, productSettings,
+        catalog: data.localModelCatalog })
     : route === "system-instructions"
       ? h(SystemInstructionsSettings, { preferences, instructions: preference.systemInstructions ?? "" })
     : route === "appearance" ? h(AppearanceSettings, { ctx, preferences, productSettings })
