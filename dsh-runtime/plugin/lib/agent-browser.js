@@ -54,6 +54,8 @@ const NO_COOKIES = { cookies: [], origins: [] };
 /** mode -> the browser running for it, and mode -> the launch in flight. */
 const children = new Map();
 const starting = new Map();
+/** mode -> the profile folder inside its copy of the person's profile. */
+const copiedFolders = new Map();
 
 let looked = false;
 let found = null;
@@ -145,6 +147,12 @@ async function answering(spec) {
   } catch { return false; }
 }
 
+/** Whether the browser on this port runs with no UI at all, which is how a holder stays out of sight. */
+async function headless(spec) {
+  const about = await fetch(`${base(spec)}/json/version`, { signal: AbortSignal.timeout(PATIENCE) }).then((r) => r.json());
+  return String(about["User-Agent"] ?? "").includes("HeadlessChrome");
+}
+
 async function cdp(spec, method, params) {
   const { webSocketDebuggerUrl } = await fetch(`${base(spec)}/json/version`, { signal: AbortSignal.timeout(PATIENCE) })
     .then((r) => r.json());
@@ -223,7 +231,7 @@ async function putAway(spec) {
  * opens it, and is thrown away first: a copy that only ever grows keeps sign-ins the person has since
  * removed, and holds the profile lock a killed browser left behind.
  */
-function copyProfile(spec) {
+function copyProfile(mode, spec) {
   const profile = profileOf(spec);
   // a real browser holds several profiles and opens the one it last used, which is not always "Default"
   const folder = activeProfile(spec);
@@ -232,6 +240,7 @@ function copyProfile(spec) {
   for (const part of signInFiles(folder)) {
     if (existsSync(join(spec.support, part))) cpSync(join(spec.support, part), join(profile, part), { recursive: true });
   }
+  copiedFolders.set(mode, folder);
   return folder;
 }
 
@@ -247,11 +256,13 @@ function activeProfile(spec) {
   return "Default";
 }
 
-async function launch(mode) {
+async function launch(mode, visible, takeCopy = true) {
   if (process.platform !== "darwin") throw new Error("The agent's browser needs macOS");
   const spec = target(mode);
   if (!existsSync(spec.binary)) throw new Error(`${mode === "personal" ? "Your default browser" : "Google Chrome"} is not installed`);
-  const copied = spec.support ? copyProfile(spec) : null;
+  // a relaunch keeps the profile it is holding: the copy carries the sign-in the person just did in it,
+  // and taking a fresh one would wipe that sign-in along with it
+  const copied = spec.support ? (takeCopy ? copyProfile(mode, spec) : copiedFolders.get(mode)) : null;
   const child = spawn(spec.binary, [
     `--user-data-dir=${profileOf(spec)}`,
     // the copy says which profile it last used, and that can name one the person has deleted, so the
@@ -262,8 +273,10 @@ async function launch(mode) {
     "--no-default-browser-check",
     // quitting Bees kills this browser, so every launch would ask to restore pages
     "--hide-crash-restore-bubble",
-    // and no window of its own: openWindow makes one in the background, which a launch does not
-    "--no-startup-window"
+    // A browser nobody is signing in on runs headless: macOS registers that one as a background app,
+    // so it holds the person's sign-ins without a window to pop up and without a Dock icon beside
+    // their own browser all day. The one a person signs in on has a window, made in the background.
+    ...(visible ? ["--no-startup-window"] : ["--headless=new"])
   ], { stdio: "ignore" });
   child.unref();
   // a spawn that fails leaves the child with no exit code, and an unhandled error event would take
@@ -279,8 +292,35 @@ async function launch(mode) {
     await delay(100);
   }
   children.set(mode, child);
+  if (!visible) return;
   // however the window goes, the browser ends up out of the person's way
   try { await openWindow(spec); } finally { await putAway(spec); }
+}
+
+/** The port stops answering while the browser that held it goes, so the next launch is not refused by
+ *  the dying one, which still answers for a moment. */
+async function untilFree(spec) {
+  const deadline = Date.now() + PATIENCE * 2;
+  while (await answering(spec)) {
+    if (Date.now() > deadline) return;
+    await delay(100);
+  }
+}
+
+/** Swap the two shapes of the same browser. Both work on the same profile, so the sign-in the person
+ *  just did, and every cookie in it, is there for whichever one comes up. */
+async function relaunch(mode, visible) {
+  const spec = target(mode);
+  if (running(mode)) children.get(mode).kill();
+  children.delete(mode);
+  await untilFree(spec);
+  await launch(mode, visible, false);
+}
+
+/** The browser a person signs in on, which is the one with a window. */
+async function makeVisible(mode) {
+  const spec = target(mode);
+  if (await headless(spec)) await relaunch(mode, true);
 }
 
 /**
@@ -348,13 +388,14 @@ async function launchIfAbsent(mode) {
     const pid = await browserPid(spec);
     throw new Error(`Something else is using the agent's browser port ${spec.port}${pid ? ` (process ${pid})` : ""}`);
   }
-  await launch(mode);
+  await launch(mode, false);
 }
 
 /** Put the browser in front so a person can sign in, and land on the tab the agent is reading. */
 export async function showAgentBrowser(mode = "own", url) {
   if (url) return navigateAgentBrowser(mode, url);
   await startAgentBrowser(mode);
+  await makeVisible(mode);
   const spec = target(mode);
   await openWindow(spec);
   await bringUp(spec);
@@ -366,6 +407,7 @@ export async function showAgentBrowser(mode = "own", url) {
  */
 export async function navigateAgentBrowser(mode = "own", url) {
   await startAgentBrowser(mode);
+  await makeVisible(mode);
   const spec = target(mode);
   // own tab brought to the front, so the person sees the sign-in page and the agent's tab is left alone
   try {
@@ -383,6 +425,8 @@ export async function hideAgentBrowser(mode = "own") {
   const spec = target(mode);
   if (!(await ours(spec))) return;
   await putAway(spec);
+  // nobody is signing in any more, so the window, and the Dock icon that comes with it, both go
+  if (!(await headless(spec))) await relaunch(mode, false);
 }
 
 /** Bees is going away and no browser has an owner left, so neither would sit there as an orphan window. */
