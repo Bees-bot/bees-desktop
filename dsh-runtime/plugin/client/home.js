@@ -1,12 +1,11 @@
 import { h, React, useEffect, useState } from "./runtime.js";
-import { accountLabel, Button, confirmAction, Empty, HelpTooltip, openExternal, ProposalCard, useSubmit } from "./shared.js";
+import { accountLabel, Button, confirmAction, Empty, openExternal, ProposalCard, useSubmit } from "./shared.js";
 import { addDashboardWidget, applyDashboardLayout, dashboardsFrom, DEFAULT_WIDGETS } from "./dashboard-model.js";
 import { FlexibleGrid } from "./flexible-grid.js";
 import { needsYouRows, NeedsYouWidget, useNeedsYouQueue, WorkItemControls } from "./work.js";
 import { ProcessListActions } from "./processes.js";
 import { AgentListActions, useMcpPreflight } from "./agents.js";
 import { AskBeesSetup, workFromOutcome } from "./ask-bees.js";
-import { EditIcon } from "./icons.js";
 
 export function OutcomeWidget({ ctx, data, workspaceId, outcome, setOutcome, configuration, configureGoal, clearConfiguration, act, openWorkItem, capabilities }) {
   const [error, setError] = useState("");
@@ -36,7 +35,7 @@ export function OutcomeWidget({ ctx, data, workspaceId, outcome, setOutcome, con
       className: "bees-composer-input",
       placeholder: workspaceId ? "e.g., Research top CRM software and draft a comparison report" : "Choose a team first",
       disabled: busy || !workspaceId || !allowed,
-      "aria-label": "What would you like Bees to do?",
+      "aria-label": "What would you like to achieve?",
       value: outcome,
       onInput: (event) => setOutcome(event.target.value),
       onKeyDown: (event) => {
@@ -101,8 +100,14 @@ function ListWidget({ definition, rowsForRoute, navigate, data, act, openWorkIte
       const agent = definition.route === "all-agents" ? data.assignments.find(({ id }) => id === row.id) : null;
       const workItem = row.item;
       const link = h("div", {
-        className: "bees-dashboard-row", key: row.id, onClick: row.open, title: row.label, style: { display: "flex", alignItems: "center", gap: "10px" }
-      }, 
+        className: "bees-dashboard-row", key: row.id, onClick: row.open, title: row.label, style: { display: "flex", alignItems: "center", gap: "10px" },
+        role: "button", tabIndex: 0,
+        // a nested action button handles its own Enter/Space, so only react when the row itself is focused
+        onKeyDown: (event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); row.open?.(); }
+        }
+      },
         h("span", { style: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", flex: 1 } }, row.label),
         workItem ? h("span", { className: `bees-status bees-${workItem.runtimePhase || workItem.status || "unknown"}`, style: { flex: "0 0 130px" } }, (workItem.runtimePhase || workItem.status).replaceAll("_", " ")) : null,
         workItem ? h("div", { className: "bees-flex-widget-actions", style: { marginLeft: 0 }, onPointerDown: (e) => e.stopPropagation(), onClick: (e) => e.stopPropagation() },
@@ -147,7 +152,7 @@ function ProposalsWidget({ data, workspaceIds, act }) {
 }
 
 const WIDGETS = [
-  { kind: "outcome", label: "Ask Bees", description: "Create a goal from an outcome", w: 8, h: 5, component: OutcomeWidget , helpText: "Tell Bees what you want to achieve, and it will plan and execute the work to reach that outcome.", helpExamples: ["Research top CRM software and draft a comparison report","Launch the new marketing website","Summarize the latest product feedback"]},
+  { kind: "outcome", label: "What would you like to achieve?", description: "Create a goal from an outcome", w: 8, h: 5, component: OutcomeWidget , helpText: "Tell Bees what you want to achieve, and it will plan and execute the work to reach that outcome.", helpExamples: ["Research top CRM software and draft a comparison report","Launch the new marketing website","Summarize the latest product feedback"]},
   { kind: "quick-actions", label: "Quick actions", description: "Create work, goals, process templates, process runs, and agents", w: 4, h: 5, component: QuickActionsWidget , helpText: "Shortcuts to create new items in your workspace quickly.", helpExamples: []},
   { kind: "metrics", label: "Metrics", description: "Key team counts", w: 12, h: 3, component: MetricsWidget , helpText: "Quick overview of your team's activity and current capacity.", helpExamples: []},
   { kind: "waiting", label: "Needs your attention", description: "Blocked and waiting work", route: "waiting", limit: 8, w: 6, h: 4, component: NeedsYouWidget , helpText: "Work items that are blocked and waiting for your input, approval, or intervention.", helpExamples: ["An agent needs your approval before sending an email","A process requires you to answer a clarifying question","A task failed and needs your attention to retry"]},

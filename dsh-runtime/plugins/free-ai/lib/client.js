@@ -53,12 +53,6 @@ window.__ModuleLoader__.load({
       .bees-free-table table{width:100%;min-width:900px;border-collapse:collapse}.bees-free-table th,.bees-free-table td{padding:11px 13px;border-bottom:1px solid var(--dsw-alias-border-l1);text-align:left;vertical-align:middle}.bees-free-table th{color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}.bees-free-table tbody tr:last-child td{border-bottom:0}.bees-free-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.bees-free-add{display:grid;grid-template-columns:minmax(160px,1fr) minmax(220px,2fr);gap:10px;align-items:end}.bees-free-add label{display:grid;gap:5px}.bees-free-toggle{display:inline-flex;align-items:center;gap:7px;cursor:pointer}.bees-free-toggle input{appearance:none;width:34px;height:20px;margin:0;border:1px solid var(--dsw-alias-border-l1);border-radius:999px;background:var(--dsw-specific-sidebar-fill);position:relative;transition:.15s}.bees-free-toggle input:after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:var(--dsw-alias-label-secondary);transition:.15s}.bees-free-toggle input:checked{border-color:#f2b84b;background:#f2b84b}.bees-free-toggle input:checked:after{left:16px;background:#151515}.bees-free-toggle input:disabled{cursor:not-allowed;opacity:.55}.bees-provider-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px;grid-column:1/-1}.bees-provider-card{display:grid;gap:3px;min-height:70px;padding:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;color:inherit;background:var(--dsw-alias-bg-base);text-align:left;cursor:pointer}.bees-provider-card:hover,.bees-provider-card.active{border-color:#f2b84b;background:#f2b84b18}.bees-provider-card span{color:var(--dsw-alias-label-secondary);font-size:11px}@media(max-width:760px){.bees-free-add{grid-template-columns:1fr}}
     `;
 
-    function usePreference(scope) {
-      const [snapshot, setSnapshot] = useState(() => scope.getSnapshot());
-      useEffect(() => scope.subscribe(() => setSnapshot(scope.getSnapshot())), [scope]);
-      return snapshot.value ?? {};
-    }
-
     async function responseValue(response, fallback) {
       const value = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(value.error || fallback);
@@ -168,7 +162,8 @@ window.__ModuleLoader__.load({
       return h("section", { "data-bees-plugin": "@bees/dsh-free-ai" },
         h("div", { className: "bees-free-head" }, h("div", null,
           h("div", { className: "bees-free-title" }, h("h2", { className: "bees-section-title" }, "Free LLM"), h("span", { className: "bees-status bees-running" }, "Embedded")),
-          h("p", { className: "bees-muted" }, "FreeLLMAPI is included in Bees. Add provider credentials here; there is nothing else to download, install, or configure.")),
+          h("p", { className: "bees-muted" }, "FreeLLMAPI is included in Bees. Add provider credentials here; there is nothing else to download, install, or configure."),
+          h("p", { className: "bees-muted" }, "Free to use. Your messages go to the provider you connect.")),
           h(Button, { className: "primary", disabled: Boolean(busy) || !state || (!adding && !available.length),
             onClick: () => { setAdding((value) => !value); setSelected(""); setKey(""); setAccountId(""); } },
             adding ? "Cancel" : available.length ? "Add provider" : "All added")),

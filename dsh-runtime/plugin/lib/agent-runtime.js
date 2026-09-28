@@ -20,6 +20,7 @@ import { mountRepeatGuard } from "./repeat-guard.js";
 import { FileLocks } from "./file-locks.js";
 import { FILE_LOCK_INSTRUCTIONS, mountFileLocks } from "./file-lock-tools.js";
 import { sendsOut } from "./spec-from-curl.js";
+import { fenced, readFence } from "./data-folder.js";
 import { mountPageFetch } from "./web-page.js";
 import { SKILL_CATALOG } from "./skill-packs.js";
 import { mountToolDiscovery } from "./tool-discovery.js";
@@ -94,7 +95,7 @@ const reviewQuestions = (summary) => [{
   ],
   multiSelect: false
 }];
-const DSH_ONE_SHOT_DELEGATION_TOOLS = ["subagent", "subagent_fork", "spawn_teammate", "send_message", "followup_task", "list_agents", "wait_agent", "interrupt_agent", "team_task_create", "team_task_get", "team_task_list", "team_task_update"];
+const DSH_ONE_SHOT_DELEGATION_TOOLS = ["subagent", "subagent_fork", "spawn_teammate", "send_message", "list_agents", "wait_agent", "interrupt_agent", "team_task_create", "team_task_get", "team_task_list", "team_task_update"];
 
 const RUN_DATA_KEYS = new Set([
   "version", "mode", "executionId", "agentId", "agentName", "purpose", "model",
@@ -464,7 +465,7 @@ function jsonHash(value) {
   return createHash("sha256").update(serialized).digest("hex");
 }
 
-export function copyOutputs(workspace, location, executionId, paths) {
+export function copyOutputs(workspace, location, paths) {
   const sourceRoot = realpathSync(resolve(workspace, "outputs"));
   const destinationRoot = realpathSync(location.localPath);
   // named deliverables only, so a stage's hand-off file never lands in the person's folder
@@ -605,7 +606,9 @@ export class AgentRuntime {
     `));
     const active = database.prepare(`
       SELECT e.execution_id, e.current_session_id, e.status, i.runtime_phase AS item_phase,
-        i.archived_at IS NOT NULL OR i.runtime_phase IN ('completed', 'cancelled') AS item_done
+        i.archived_at IS NOT NULL OR i.runtime_phase IN ('completed', 'cancelled')
+          OR i.runtime_phase = 'failed' AND lower(coalesce(i.runtime_error, '')) NOT LIKE '%heartbeat timeout%'
+          AS item_done
       FROM execution_links e LEFT JOIN work_items i ON i.id = e.work_item_id
       WHERE e.status IN ('running', 'waiting_for_approval', 'waiting_for_input')
     `).all();
@@ -622,7 +625,7 @@ export class AgentRuntime {
       const sessionId = String(run.current_session_id);
       const pending = this.pendingInteraction(executionId);
       // a finished work item has nobody left to answer, so close its link instead of leaving it waiting for ever
-      if (run.item_done) this.setStatus(executionId, run.item_phase === "completed" ? "completed" : "cancelled");
+      if (run.item_done) this.setStatus(executionId, ["completed", "failed", "cancelled"].includes(run.item_phase) ? run.item_phase : "cancelled");
       if (run.item_done || (run.status === "cancelled" && !pending)) continue;
       const status = String(run.status);
       this.recovery.add(executionId);
@@ -642,6 +645,15 @@ export class AgentRuntime {
       try { this.onSessionEvent(session, event); }
       catch (error) { ctx.logger.warn(`bees: session event ${event?.type} failed: ${message(error)}`); }
     }, { global: true });
+    // dsh's seatbelt profile only fences writes; the patch in scripts/install-dsh-runtime.mjs reads this to shut the rest
+    globalThis.__beesReadFence = readFence;
+    // every email send asks first, drafts stay free, and with no window to ask in the answer is no
+    ctx.on("tools/pre-execute", async (exec, next) => {
+      if (!/^mcp__.+?__\w*(send\w*mail|mail\w*send)\w*$/i.test(exec.name)) return next();
+      // no code fence here: the run panel's markdown renderer crashes on one
+      const { to, cc, bcc, subject, body } = exec.arguments ?? {}, text = String(body ?? "");
+      return { kind: "ask", reason: `Send an email to ${to}${cc ? `, cc ${cc}` : ""}${bcc ? `, bcc ${bcc}` : ""}, subject "${subject ?? ""}"?\n\n${text.slice(0, 4000)}${text.length > 4000 ? ` ... and ${text.length - 4000} more characters` : ""}` };
+    });
     ctx.tools?.guard?.((exec) => {
       // the sandbox confines writes only; an mcp tool's path argument is an api route, not a file
       const targets = exec.name.startsWith("mcp__") ? [] : [
@@ -678,6 +690,12 @@ export class AgentRuntime {
           }
         }
       }
+      // no approval opens keys, logins or bees' own files, and grep reads every file under the folder it is given
+      const base = link?.directory ?? exec.agent?.session?.header?.cwd ?? process.cwd();
+      const shut = [...targets, ...(exec.name === "grep" && typeof exec.arguments?.path !== "string" ? [base] : [])]
+        .map((target) => resolve(base, target)).find((path) => fenced(path, exec.name === "grep"));
+      if (shut) return exec.name === "grep" ? `${shut} holds or contains passwords, keys or Bees' own files, which agents can not read. Search a narrower folder.`
+        : `${shut} holds passwords, keys or Bees' own files, which agents can not read.`;
       // the run directory is the run's own; the rest of the disk is the person's, handed over one approved path at a time
       const outside = link?.directory ? targets.map((target) => resolve(link.directory, target))
         .find((path) => !inside(path, link.directory) && !spill(path) && !uploads.has(actual(path))) : undefined;
@@ -1628,6 +1646,10 @@ export class AgentRuntime {
           if (resolution !== true) return resolution;
         }
         if (args.outcome !== "blocked") {
+          // a lead told to wait often just ends its turn, which failed the whole run, so wait for running children here
+          const running = data.workItemId ? delegationEvidence(this.database, data.workItemId).peers
+            .filter(({ phase }) => !["completed", "cancelled", "failed", "waiting", "paused"].includes(phase)).map(({ id }) => id) : [];
+          if (running.length) await this.waitForPeers(running, exec.signal, data.workItemId);
           assertPeersSettled(this, data, ["candidate", "pass"].includes(args.outcome) ? result.summary : "");
           if (this.pendingJobs(exec.agent).length)
             throw new Error("Background jobs are still running. Collect their results before submitting this stage.");
@@ -1710,7 +1732,7 @@ export class AgentRuntime {
             signal: exec.signal
           });
           if (outcome !== "allowed-once") throw new Error(`Publication ${outcome}`);
-          const result = copyOutputs(workspace, location, executionId, args.paths);
+          const result = copyOutputs(workspace, location, args.paths);
           this.audit("outputs-published", executionId, String(exec.agent.session.id), {
             locationId: location.id, files: result.files, bytes: result.bytes,
             destination: result.destination, existing: result.existing

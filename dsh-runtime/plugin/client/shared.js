@@ -36,7 +36,7 @@ export const NAVIGATION = [
   { id: "processes", label: "Process templates", icon: ProcessesIcon, defaultChild: "all-processes", children: [] },
   { id: "agents", label: "Agents", icon: AgentsIcon, defaultChild: "all-agents", children: [
     ["all-agents", "Agents & presets"],
-    ["skills", "Skills & tools"], ["mcp", "MCP servers"]
+    ["skills", "Skills & tools"], ["mcp", "Add-ons"]
   ] },
   { id: "files", label: "Files & folders", icon: FilesIcon, defaultChild: "locations", children: [] },
   { id: "activity", label: "Activity", icon: ActivityIcon, defaultChild: "runs", children: [
@@ -862,6 +862,10 @@ body, html { overflow-x: hidden !important; }
 
 /* Interactive Cards */
 .bees-answer-card { background: var(--dsw-alias-button-elevated-fill) !important; border: 1px solid var(--dsw-alias-border-l2) !important; border-radius: 12px !important; box-shadow: 0 4px 12px #00000012 !important; padding: 14px !important; margin: 0 !important; }
+.bees-convo-history > .bees-answer-card { flex: none; width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; }
+.bees-answer-card .bees-answer-head > div:first-child, .bees-answer-card .bees-choice-copy { min-width: 0; overflow-wrap: anywhere; }
+.bees-answer-card .bees-question-detail { min-width: 0; overflow-wrap: anywhere; }
+.bees-answer-card .bees-question-detail pre { max-width: 100%; overflow-x: auto; }
 .bees-answer-card h2, .bees-answer-card h3 { color: var(--dsw-alias-label-primary) !important; margin: 0 0 8px !important; }
 .bees-answer-card .bees-question-detail { color: var(--dsw-alias-label-secondary) !important; font-size: 13px !important; margin-bottom: 12px !important; padding: 0 !important; background: var(--dsw-alias-bg-base) !important; box-shadow: 0 1px 3px rgba(0,0,0,0.2) !important; }
 .bees-answer-card .bees-choice { background: var(--dsw-alias-bg-base) !important; border: 1px solid var(--dsw-alias-border-l1) !important; color: var(--dsw-alias-label-primary) !important; }
@@ -963,7 +967,18 @@ body, html { overflow-x: hidden !important; }
 .bees-modal { width: min(620px, 100%); max-height: calc(100vh - 48px); overflow: auto; padding: 0; border: 1px solid var(--dsw-alias-border-l2); border-radius: 14px; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-base); box-shadow: 0 24px 80px rgba(0,0,0,.35); }
 .bees-modal::backdrop { background: rgba(0,0,0,.55); }
 .bees-modal > form { padding: 24px; }
-.bees-modal.bees-ask-setup { padding: 24px; }
+.bees-modal.bees-ask-setup { width: min(960px, calc(100vw - 32px)); height: min(760px, calc(100dvh - 48px)); margin: auto; padding: 0 20px; box-sizing: border-box; overflow: hidden; }
+.bees-modal.bees-ask-setup[open] { display: flex; flex-direction: column; }
+.bees-ask-setup > fieldset { flex: 1; min-height: 0; overflow: auto; }
+.bees-ask-setup > fieldset > .bees-form { padding-top: 16px; }
+.bees-ask-setup > fieldset h2 { margin: 0; }
+.bees-ask-tabs { padding-left: 0 !important; border-bottom: 0 !important; }
+.bees-ask-setup .bees-routing-board .bees-column { border: 0 !important; background: transparent !important; padding: 8px 10px !important; }
+.bees-ask-setup .bees-resource-output,.bees-ask-setup .bees-output-field { border-top: 0; }
+.bees-ask-heading { position: relative; padding-right: 44px; }
+.bees-ask-close { position: absolute; top: 8px; right: 0; border: 0; background: transparent; box-shadow: none; font-size: 20px; line-height: 1; }
+.bees-ask-actions { flex: none; align-items: center; padding: 12px 0; margin-top: 0; }
+.bees-ask-actions .bees-error { margin: 0 auto 0 0; }
 .bees-agent-dialog > .bees-modal { width: 100%; max-height: calc(100vh - 32px); padding: 24px; border: 0; box-shadow: none; }
 .bees-playbook { margin: 12px 0; padding: 12px; overflow-wrap: anywhere; white-space: pre-wrap; border: 1px solid var(--dsw-alias-border-l1); border-radius: 8px; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-base); font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .bees-cron-generator .cron_builder { max-width: none; color: var(--dsw-alias-label-primary); border-color: var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-base); }
@@ -1148,7 +1163,10 @@ export function useSubmit(handler) {
 export async function openExternal(url) {
   const invoke = window.__TAURI__?.core?.invoke;
   if (invoke) return invoke("open_external_url", { url });
-  if (!window.open(url, "_blank", "noopener,noreferrer")) throw new Error("Your browser blocked the website window");
+  // noopener makes window.open return null even when it worked, so cut the opener by hand
+  const opened = window.open(url, "_blank");
+  if (!opened) throw new Error("Your browser blocked the website window");
+  opened.opener = null;
 }
 
 export const collaboration = (action, values = {}) => request("/bees-api/collaboration", action ? {
@@ -1225,8 +1243,6 @@ function dialogValue(label, initial, confirmOnly = false, inputType = "text", op
 }
 
 export const ask = (label, initial = "", inputType = "text") => dialogValue(label, initial, false, inputType);
-export const askWithCheckbox = (label, checkbox, checked = false, initial = "") =>
-  dialogValue(label, initial, false, "text", null, { label: checkbox, checked });
 export const choose = (label, options) => dialogValue(label, "", false, "text", options);
 export const confirmAction = (label) => dialogValue(label, "", true);
 export const oneLine = (text, max = 110) => { const flat = String(text ?? "").replace(/\s+/g, " ").trim(); return flat.length > max ? flat.slice(0, max - 1) + "…" : flat; };
@@ -1259,7 +1275,7 @@ export function McpCard({ name, status, meta, tone = "", icon, onOpen, actionLab
       h("div", { className: "bees-mcp-dialog-head" },
         icon ? h("span", { className: "bees-mcp-icon", "aria-hidden": true, style: { fontSize: "20px" } }, icon) : null,
         h("h3", null, name), h("span", { className: `bees-mcp-state ${tone}` }, status),
-        h(Button, { onClick: () => setOpen(false), "aria-label": "Close MCP details" }, "×")),
+        h(Button, { onClick: () => setOpen(false), "aria-label": "Close add-on details" }, "×")),
       h("div", { className: "bees-mcp-dialog-body" }, children)) : null);
 }
 
@@ -1484,7 +1500,6 @@ export function ProposalCard({ proposal, onApply, onDismiss }) {
       h(Button, { disabled: Boolean(busy), onClick: once("dismiss", onDismiss) }, "Dismiss")));
 }
 
-export const activeAccounts = (data) => (data.accounts ?? []).filter(({ enabled }) => enabled !== false);
 
 /** An account id off the wire only means something once it has a person behind it. */
 export const accountLabel = (data, accountUserId) => accountUserId
@@ -1601,6 +1616,8 @@ if (typeof document !== 'undefined') {
     .bees-composer-input { border: 0 !important; background: transparent !important; font-size: 14px !important; outline: none !important; resize: none !important; color: inherit !important; line-height: 1.5 !important; padding: 0 !important; min-height: 48px !important; padding-right: 40px !important; }
     .bees-composer-foot { display: flex !important; justify-content: flex-end !important; align-items: center !important; position: absolute !important; right: 12px !important; bottom: 12px !important; }
     .bees-composer-hint { display: none !important; }
+    .bees-process-planner .bees-composer-input { min-height: 160px !important; resize: vertical !important; padding-right: 0 !important; }
+    .bees-process-planner .bees-composer-foot { position: static !important; }
     .bees-composer-send { width: 32px !important; height: 32px !important; border-radius: 50% !important; background: var(--dsw-alias-state-business-primary, #3b82f6) !important; color: #fff !important; border: 0 !important; cursor: pointer !important; display: grid !important; place-items: center !important; transition: all 0.2s !important; }
     .bees-composer-send:hover:not(:disabled) { transform: scale(1.05) !important; background: #2563eb !important; }
     .bees-composer-send:disabled { opacity: 0.4 !important; cursor: not-allowed !important; }

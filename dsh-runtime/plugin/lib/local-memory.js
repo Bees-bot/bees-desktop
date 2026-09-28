@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { createServer } from "node:http";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -12,6 +12,18 @@ import { step } from "./startup.js";
 
 export const LOCAL_MEMORY_URL = "http://127.0.0.1:8898";
 const version = "0.10.0";
+
+// Dev runs this file from dsh-runtime/plugin, the app from node_modules/@bees/dsh-plugin,
+// so find the runtime by name where the one copy of uv lives.
+function runtimeRoot() {
+  let directory = dirname(fileURLToPath(import.meta.url));
+  while (basename(directory) !== "dsh-runtime") {
+    const parent = dirname(directory);
+    if (parent === directory) throw new Error("Local memory installer is missing. Rebuild or reinstall Bees.");
+    directory = parent;
+  }
+  return directory;
+}
 
 /** One device-local service; workspace banks and delivery queues remain separate. */
 export class LocalMemory {
@@ -142,7 +154,7 @@ export class LocalMemory {
     const executable = join(env.UV_TOOL_BIN_DIR, `hindsight-api${suffix}`);
     if (!existsSync(executable)) {
       this.status = "Installing local memory dependencies (first launch requires internet)";
-      const uv = fileURLToPath(new URL(`../../memory-runtime/uv${suffix}`, import.meta.url));
+      const uv = join(runtimeRoot(), "memory-runtime", `uv${suffix}`);
       if (!existsSync(uv)) throw new Error("Local memory installer is missing. Rebuild or reinstall Bees.");
       this.spawn(uv, ["tool", "install", "--python", "3.12", "--with", "flashrank", `hindsight-api-slim[local-onnx,embedded-db]==${version}`], env);
       const result = await step("background.hindsight.install", () => this.exit);

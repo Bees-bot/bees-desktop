@@ -2,7 +2,6 @@ export class ConnectedAccount {
   constructor(database: any, credentials: any, baseUrl?: string, logger?: any);
   accounts(): Array<{ userId: string; email: string; name: string; enabled: boolean }>;
   connections(): any[];
-  publicAccount(): { userId: string; email: string; name: string } | null;
   authConfig(): Promise<any>;
   resumeSession(token: string, knownUser?: any): Promise<any>;
   signIn(email: string, password: string): Promise<any>;

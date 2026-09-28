@@ -249,7 +249,10 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
   // a finished item's newest run is the reviewer, which won't edit, so follow-ups default to the worker
   const run = itemRuns.find(({ id }) => id === selectedRun)
     ?? itemRuns.find(({ mode }) => item.runtimePhase === "completed" && mode === "work") ?? itemRuns[0];
-  const pendingRun = itemRuns.find(({ status, sessionId }) => sessionId && ["waiting_for_input", "waiting_for_approval"].includes(status));
+  const asks = ({ status, sessionId }) => sessionId && ["waiting_for_input", "waiting_for_approval"].includes(status);
+  // a helper's question only showed on the helper's own page, which nobody opens, so show it on its parent's too
+  const pendingRun = itemRuns.find(asks)
+    ?? data.runs.find((row) => asks(row) && data.items.some(({ id, parentId }) => id === row.workItemId && parentId === item.id));
   const waiting = useSnapshot(ctx.uiSession.sessionStatus, EMPTY_STATUS);
   const interaction = pendingInteractionFor(waiting, (pendingRun ?? run)?.sessionId, handled);
   // The composer sends into the selected run's own session, not whichever session happens to
@@ -345,8 +348,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
   const teamQuestions = (data.teamQuestions ?? []).filter((question) => question.workItemId === item.id);
   const processExecution = (data.processExecutions ?? []).find((execution) => execution.workItemId === item.id);
   useEffect(() => {
-    if (isScrolledUpRef.current) return;
-    const scrollToBottom = () => { if (!isScrolledUpRef.current && convoRef.current) convoRef.current.scrollTop = convoRef.current.scrollHeight; };
+    if (isScrolledUpRef.current && !pendingRun) return;
+    const scrollToBottom = () => { if (convoRef.current && (!isScrolledUpRef.current || pendingRun)) convoRef.current.scrollTop = pendingRun ? 0 : convoRef.current.scrollHeight; };
     scrollToBottom();
     const timer = setTimeout(scrollToBottom, 50);
     return () => clearTimeout(timer);
@@ -396,15 +399,20 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
         latestResult?.resultOutcome === "blocked" ? "Resolve and continue" : "Retry") : null) : null,
     ...teamQuestions.map((question) => h(TeamQuestionCard, { key: question.id, question, data, act })),
     // a waiting question goes first and the agent's steps fold away, so nobody scrolls to find it
-    pendingRun && !showSteps ? null : h("div", {
+    h("div", {
       className: "bees-convo-history", ref: convoRef,
       onScroll: (event) => {
         const { scrollTop, scrollHeight, clientHeight } = event.currentTarget;
         isScrolledUpRef.current = Math.abs(scrollHeight - clientHeight - scrollTop) > 30;
       }
     },
-      ...convoItems,
-      ...(plan ? pendingProposals(data, run) : []).map((proposal) => h(ProposalCard, { key: proposal.id, proposal, onApply: () => apply(proposal),
+      pendingRun ? h(AgentInteractionPanel, { run: pendingRun, item: data.items.find(({ id }) => id === pendingRun.workItemId) ?? item,
+        interaction, handled, inConversation: true, onAnswered: answered, act, data, onOpenTools: process ? () => {
+          setActiveTab("tools");
+          document.getElementById("bees-tab-tools")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        } : undefined }) : null,
+      ...(!pendingRun || showSteps ? convoItems : []),
+      ...(!pendingRun || showSteps ? (plan ? pendingProposals(data, run) : []) : []).map((proposal) => h(ProposalCard, { key: proposal.id, proposal, onApply: () => apply(proposal),
         onDismiss: () => act({ action: "reject_proposal", proposalId: proposal.id }) })),
       !pendingRun && isWorking ? h("div", { className: "bees-convo-msg system bees-working-indicator" },
         h("span", { className: "bees-dot-typing-container" }, h("span", { className: "bees-dot-typing-dot" })),
@@ -480,7 +488,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
     h("div", { className: "bees-clean-tabs", role: "tablist", "aria-label": "Work item details" },
       h("button", { type: "button", role: "tab", id: "bees-tab-files", className: `bees-clean-tab ${activeTab === "files" ? "active" : ""}`, "aria-selected": activeTab === "files", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("files") }, "Files", unreadFiles ? h("span", { className: "bees-count", "aria-label": `${unreadFiles} new files`, title: `${unreadFiles} new files` }, unreadFiles) : null),
       h("button", { type: "button", role: "tab", id: "bees-tab-details", className: `bees-clean-tab ${activeTab === "details" ? "active" : ""}`, "aria-selected": activeTab === "details", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("details") }, "Details"),
-      h("button", { type: "button", role: "tab", id: "bees-tab-tools", className: `bees-clean-tab ${activeTab === "tools" ? "active" : ""}`, "aria-selected": activeTab === "tools", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("tools") }, "MCPs"),
+      h("button", { type: "button", role: "tab", id: "bees-tab-tools", className: `bees-clean-tab ${activeTab === "tools" ? "active" : ""}`, "aria-selected": activeTab === "tools", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("tools") }, "Add-ons"),
       h("button", { type: "button", role: "tab", id: "bees-tab-recurring", className: `bees-clean-tab ${activeTab === "recurring" ? "active" : ""}`, "aria-selected": activeTab === "recurring", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("recurring") }, `Schedules (${recurringWork.length})`),
       h("button", { type: "button", role: "tab", id: "bees-tab-chat", className: `bees-clean-tab ${activeTab === "chat" ? "active" : ""}`, "aria-selected": activeTab === "chat", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("chat") }, "Chat"),
       !plan && itemRuns.length ? h("button", { type: "button", role: "tab", id: "bees-tab-context", className: `bees-clean-tab ${activeTab === "context" ? "active" : ""}`, "aria-selected": activeTab === "context", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("context") }, "Context") : null,
@@ -516,7 +524,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
         key: `${process.id}:${process.mcpAccess}:${JSON.stringify(process.mcpServers)}`, ctx, process,
         servers: capabilities.data?.servers ?? [], tools: capabilities.data?.tools ?? [],
         catalog: capabilities.data?.catalog ?? [], onServerAction: capabilities.act, act, showAll: true
-      }) : h(Empty, null, "This work has no process MCP settings.") : activeTab === "files" ? h(React.Fragment, null,
+      }) : h(Empty, null, "This work has no process add-on settings.") : activeTab === "files" ? h(React.Fragment, null,
         h(WorkFiles, { key: processRunId, runs: fileRuns, filesRef, act })
       ) : activeTab === "runs" ? h(React.Fragment, null,
         h("h3", { className: "bees-section-title" }, "Executions"),
@@ -532,12 +540,6 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
 
   return h(React.Fragment, null,
     boardActions,
-    pendingRun ? h(AgentInteractionPanel, { run: pendingRun, item, interaction, handled,
-      onAnswered: answered, act, data, onOpenTools: process ? () => {
-        setActiveTab("tools");
-        // the tab row sits below the question card, often off screen
-        document.getElementById("bees-tab-tools")?.scrollIntoView({ behavior: "smooth", block: "start" });
-      } : undefined }) : null,
     h(FlexibleGrid, {
       layout, editing, onLayout,
       className: "bees-work-item-grid",
@@ -764,7 +766,7 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, parent, 
         outputId: outputLocationId, onOutputId: setOutputLocationId, inherited,
         defaultOutputId, defaultOutputName: data.locations.find(({ id }) => id === defaultOutputId)?.name ?? "", compact: true })),
     process && !parent ? h("div", { className: "bees-process-mcps" },
-      h("p", { className: "bees-muted", style: { margin: 0, marginBottom: "8px" } }, "Process MCPs are shared with every agent and future work in this process. Changes save automatically."),
+      h("p", { className: "bees-muted", style: { margin: 0, marginBottom: "8px" } }, "Process add-ons are shared with every agent and future work in this process. Changes save automatically."),
       h(McpAccess, { key: process.id, ctx, servers: capabilities?.data?.servers ?? [],
         tools: capabilities?.data?.tools ?? [], catalog: capabilities?.data?.catalog ?? [],
         onServerAction: capabilities?.act, access: process.mcpAccess, chosen: process.mcpServers,
@@ -1020,7 +1022,7 @@ function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, execu
       index > 0 ? h(Button, { disabled: busy, onClick: () => { setIndex((current) => current - 1); setError(""); } }, "Back") : null,
       signInQuestion ? null : h(Button, { disabled: busy, onClick: skip }, "Skip"), h("div", { className: "bees-grow" }),
       teamId && act && executionId ? h(Button, { disabled: busy, onClick: provideFile }, "Provide a file") : null,
-      onOpenTools ? h(Button, { disabled: busy, onClick: onOpenTools }, "Connect MCP") : null,
+      onOpenTools ? h(Button, { disabled: busy, onClick: onOpenTools }, "Connect an add-on") : null,
       browser && act && executionId ? h(Button, {
         disabled: busy, title: "Open the browser profile this agent uses, so you can sign in on its behalf",
         onClick: openBrowser
@@ -1128,20 +1130,13 @@ export function WorkItemControls({ item, act, onDone, showUnavailable = false, d
       busy === "archive_item" ? "Archiving…" : "Archive"));
 }
 
-function AgentInteractionPanel({ run, item, title, summary, interaction, handled, onAnswered, onOpen, openLabel, act, onControlled, data, onOpenTools }) {
-  const files = [...new Set(run.files ?? (run.outputs ?? []).map((path) => `outputs/${path}`))];
-  const [viewer, setViewer] = useState(files.length ? { executionId: run.id, path: files[0] } : null);
-  const fileKey = files.join("|");
-  useEffect(() => setViewer((current) => files.length
-    ? current?.executionId === run.id && files.includes(current.path)
-      ? current : { executionId: run.id, path: files[0] }
-    : null), [run.id, fileKey]);
+function AgentInteractionPanel({ run, item, title, summary, interaction, handled, inConversation = false, onAnswered, onOpen, openLabel, act, onControlled, data, onOpenTools }) {
   const workReview = run?.pendingInteraction === "work-review" && interaction?.kind === "question";
   return h("section", { className: "bees-box bees-answer-card" },
     h("div", { className: "bees-answer-head" }, h("div", null,
       h("div", { className: "bees-status" }, interactionName(run?.pendingInteraction ?? interaction?.kind)),
-      h("h2", null, item?.title ?? title ?? summary?.displayTitle ?? "Agent run")),
-    h("div", { className: "bees-grow" }), h("div", { className: "bees-answer-controls" },
+      inConversation ? null : h("h2", null, item?.title ?? title ?? summary?.displayTitle ?? "Agent run")),
+    inConversation ? null : h("div", { className: "bees-grow" }), inConversation ? null : h("div", { className: "bees-answer-controls" },
       onOpen ? h(Button, { onClick: onOpen }, openLabel) : null,
       h(WorkItemControls, { item, act, onDone: onControlled }))),
     workReview ? h(WorkReviewPanel, { key: interaction.key, wait: interaction, onAnswered, act, executionId: run?.id, item, data })
@@ -1150,11 +1145,7 @@ function AgentInteractionPanel({ run, item, title, summary, interaction, handled
         : h(Empty, null, handled.size ? "Answer sent. Waiting for the agent…"
           // a run left waiting across a restart has no live session to ask from until it resumes
           : run.recovering ? "Bees restarted and this run has not picked up again yet. If it stays like this, stop it or archive it."
-            : "Loading the agent's request…"),
-    files.length ? h("div", { className: "bees-file-list" }, h("span", { className: "bees-muted" }, "Files"),
-      ...files.map((path) => h(Button, { className: `bees-file-chip ${viewer?.path === path ? "active" : ""}`, key: path, title: path,
-        onClick: () => setViewer({ executionId: run.id, path }) }, path))) : null,
-    viewer ? h(FilePreview, { target: { ...viewer, updatedAt: run.updatedAt }, onClose: () => setViewer(null) }) : null
+            : "Loading the agent's request…")
   );
 }
 

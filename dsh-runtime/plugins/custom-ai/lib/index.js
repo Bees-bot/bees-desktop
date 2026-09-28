@@ -14,7 +14,9 @@ const PROVIDERS = {
   huggingface: { url: "https://router.huggingface.co/v1/chat/completions" },
   together: { url: "https://api.together.ai/v1/chat/completions" },
   fireworks: { url: "https://api.fireworks.ai/inference/v1/chat/completions" },
-  xai: { url: "https://api.x.ai/v1/chat/completions" }
+  xai: { url: "https://api.x.ai/v1/chat/completions" },
+  // the Go plan routes by session, and without the header the endpoint refuses the call
+  "opencode-go": { url: "https://opencode.ai/zen/go/v1/chat/completions", headers: { "x-opencode-session": "bees-app" } }
 };
 
 // Preserve credentials saved by the earlier combined AI APIs screen.
@@ -80,7 +82,7 @@ function providerFailure(status, text) {
 // A few tokens of a real answer, so a failed key is a failed call and not a refused list request.
 async function probe(definition, model, key) {
   const url = new URL(definition.url);
-  const headers = { accept: "application/json", "content-type": "application/json" };
+  const headers = { accept: "application/json", "content-type": "application/json", ...definition.headers };
   if (definition.gemini) {
     // Google is not OpenAI-shaped: the model is a path segment, and the key goes in a header to stay out of logs.
     url.pathname += `/${encodeURIComponent(model.replace(/^models\//, ""))}:generateContent`;

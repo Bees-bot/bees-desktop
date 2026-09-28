@@ -702,9 +702,9 @@ function RemoveBeesSettings({ dataFolder }) {
   }, []);
   const remove = async () => {
     if (!folder) return;
-    if (!await confirmAction(`Remove Bees and delete ${readable(folder.bytes)} from ${folder.path}? Bees quits, your own folders are left alone, and nothing here can be recovered.`)) return;
     setBusy(true);
-    try { await invoke("uninstall_bees"); }
+    // the app asks in its own window, false means the person kept Bees
+    try { if (!await invoke("uninstall_bees")) setBusy(false); }
     catch (error) { setNotice(error?.message || String(error)); setBusy(false); }
   };
   return h("section", { className: "bees-box bees-stack" },
@@ -743,7 +743,10 @@ function SettingsLayout({ route, navigate, organization, team, platform, childre
             className: route === id ? "active" : "", "aria-current": route === id ? "page" : null,
             onClick: () => navigate(id) }, label)),
           organization ? h(SettingsGroup, { label: organization.name, routes: ORGANIZATION_SETTINGS, route, navigate,
-            role: organization.role, connected: organization.connected }) : null)),
+            role: organization.role, connected: organization.connected }) : null),
+      // no auto-update yet, so point people at the releases page instead of leaving them on an old build silently
+      h(Button, { onClick: () => void openExternal("https://github.com/Bees-bot/bees-desktop/releases") },
+        "Bees does not update itself yet. Watch the releases page for new versions.")),
     h("section", { className: "bees-settings-content" }, children));
 }
 

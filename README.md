@@ -12,13 +12,17 @@ Download the build for your computer from the [download page](https://bees.bot/d
 - **Windows:** run the installer. It is not code-signed yet, so SmartScreen will warn. Click "More info," check the name reads Bees, then "Run anyway."
 - **Linux:** install the DEB, or run the AppImage directly. Linux packages are not signed.
 
+You need 8 GB of memory for a cloud model, or 16 GB for a local model, plus 15 GB of free disk space. A local model itself is 2 to 5 GB, and the data folder can grow to about 10 GB.
+
+Bees does not update itself yet. Watch the [releases page](https://github.com/Bees-bot/bees-desktop/releases) for new versions.
+
 Open Bees. It creates a private workspace on this computer with no sign-in needed, so you can try it right away.
 
 ### Try it in about a minute
 
 Open **Settings → AI connections** and connect one AI: Codex or Claude Code (Bees uses the subscription you already have), a hosted provider, or a local model.
 
-Then, on **Home**, type this into the **Ask Bees** box:
+Then, on **Home**, type this into the **What would you like to achieve?** box:
 
 ```
 Browse Hacker News and give me a table of the current stories, grouped by category: news, Show HN, and Ask HN.
@@ -28,7 +32,7 @@ Select **Run**. Bees starts the work with your team's agents and opens it, a rev
 
 ## Features
 
-- Ask Bees for an outcome in plain language, and it runs with your team's agents. Choose **Configure** to pick the process, the agent for each stage, and input files first.
+- Describe an outcome in the **What would you like to achieve?** box, and Bees runs it with your team's agents. Choose **Configure** to set the Process, MCPs, and Input & Output tabs first.
 - Multi-agent processes: agents work through stages on a shared board, and a separate reviewer checks each result before it moves on.
 - Bring your own AI: connect Codex, Claude Code, a hosted provider, or a local model, per agent or as the system default.
 - MCP servers and skills, scoped per agent: give one agent every tool, none, or a named few.
@@ -70,6 +74,17 @@ Can sync, only if you turn on team coordination:
 Storage access (Google Drive, OneDrive, a NAS, and so on) is controlled by that provider, separately from your Bees team membership. Neither one substitutes for the other.
 
 When an agent runs, content you select can go straight from your computer to the AI provider or tool you picked for that agent, for example a hosted model, an MCP server, or a command-line agent. Those services have their own privacy terms. Choose a local model and local tools to keep that content on the machine too.
+
+### What leaves your computer
+
+Settings → AI connections offers four ways to add a model, and each sends your work differently:
+
+- **Bees AI** (a local model) runs on this device through the bundled `llama.cpp` server. Only the first model download uses the network; after that, prompts stay on the machine.
+- **AI subscriptions** (Claude Code or Codex): Codex signs in with your OpenAI account and talks to OpenAI directly from this computer. Claude Code runs the command-line tool you already installed and signed into; your prompts pass through it under your own subscription.
+- **General AI APIs** (your own API keys) send your prompt and key straight from this computer to the provider you picked, such as OpenRouter, Google, or Groq.
+- **Free LLM**, the built-in free-tier router, runs locally in the app, then sends your prompt on to the free-tier provider you picked and added a key for.
+
+A Private organization never touches Bees Cloud. The desktop app is fully open source and works on its own. Only the optional team sync server, Bees Cloud, used by Regular organizations to sync members, tasks, and progress, is closed source, and it never receives file contents.
 
 ### Workspace memory
 
@@ -115,7 +130,7 @@ Bees Desktop also ships third-party software under its own terms, including LGPL
 
 ## Development
 
-Requires Node 24 (pinned in `.nvmrc`), npm 10+, Rust 1.84+, and a native desktop toolchain. On macOS the first build compiles `llama-server`, so it also needs CMake (`brew install cmake`). The app bundles its own Node 24 runtime; native modules built under an older Node break the free AI option on a fresh install. Codespaces and dev containers work for the API and the website, but not for this app: Tauri needs a real machine.
+Requires Node 24 (pinned in `.nvmrc`), npm 10+, Rust 1.88+, and a native desktop toolchain. On macOS the first build compiles `llama-server`, so it also needs CMake (`brew install cmake`). The app bundles its own Node 24 runtime; native modules built under an older Node break the free AI option on a fresh install. Codespaces and dev containers work for the API and the website, but not for this app: Tauri needs a real machine.
 
 ```sh
 npm ci

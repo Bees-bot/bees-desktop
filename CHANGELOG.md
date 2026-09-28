@@ -4,6 +4,17 @@ Notable changes, newest first. Dates are release dates.
 
 ## Unreleased
 
+- Building from source needs Rust 1.88 instead of 1.84, which clears the open security
+  alerts in the shipped dependencies.
+- The installer is about 200 MB smaller: each download now carries only the builds for the
+  computer it runs on, and the memory installer ships once instead of twice.
+- OpenCode Zen connects like every other AI connection, so an OpenCode Go plan runs the
+  models it offers.
+- Agents cannot read passwords, browser profiles or Bees' own files, and they ask before
+  sending email. Removing Bees asks in a real macOS window a script cannot skip.
+- Only the app's own window can reach the local server that answers Bees.
+- A run that failed no longer keeps showing as running, and Bees stops trying to recover it on
+  every start.
 - Upgrade the bundled DeepSeek Harness from 0.1.7-alpha.1 to 0.1.7-rc.2.
 - Wait for owned background jobs before settling a stage. Model output limits now
   report a recoverable failure instead of reporting successful completion.

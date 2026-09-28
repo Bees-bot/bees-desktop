@@ -175,13 +175,12 @@ export function proposedFolder(database, workspaceId, name) {
 }
 
 /** Work is owned by the active org+identity connection, not by whichever account was added first. */
-function executionAccount(database, teamId, input) {
+export function executionAccount(database, teamId, input) {
   const local = database.prepare(`
-    SELECT o.personal FROM teams t JOIN organizations o ON o.id = t.organization_id
-    WHERE t.id = ?
+    SELECT authority = 'local' AS private FROM workspaces WHERE team_id = ? AND status = 'active' LIMIT 1
   `).get(teamId);
   if (!local) throw new Error("Team not found");
-  if (local.personal) return null;
+  if (local.private) return null;
   const row = input.connectionId
     ? database.prepare(`
         SELECT c.account_user_id AS accountUserId FROM bees_connections c
@@ -893,9 +892,7 @@ export async function executeProductCommand(action, input) {
       workspaceContext(this.database, stage.workspaceId, ["admin", "member"]);
       if (["manual", "terminal"].includes(stage.driver)) throw new Error("This stage does not run an agent");
       const requiredCapabilities = capabilities(input.requiredCapabilities, "Stage capabilities");
-      if (input.targetType && input.targetType !== "agent") throw new Error("A stage routes to agents; name them in agentIds");
-      const ids = normalizeAgentIds(Array.isArray(input.agentIds) ? input.agentIds
-        : input.targetType === "agent" && input.targetId ? [input.targetId] : []);
+      const ids = normalizeAgentIds(input.agentIds);
       if (stage.driver === "review" && ids.length > 1) throw new Error("A review stage must use one independent agent");
       for (const id of ids) {
         if (!assignment(this.database, id, stage.workspaceId)) throw new Error("Agent is not in this team");

@@ -2,7 +2,7 @@ import {
   FreeAiController, h, LocalAiController, React, useEffect, useRef, useState
 } from "./runtime.js";
 import {
-  artifactRuns, ask, askWithCheckbox, choose, collaboration, confirmAction, connectionIdForScope, defaultOrgColor, headerEmitter, NAVIGATION, request, scopeParts, runTitle, sectionFor, Button, Empty, openExternal,
+  artifactRuns, ask, collaboration, confirmAction, connectionIdForScope, defaultOrgColor, headerEmitter, NAVIGATION, request, scopeParts, runTitle, sectionFor, Button, openExternal,
   THEME_PRESETS, ThemeToggle, usePreference, workItemsFor
 } from "./shared.js";
 import { AccountIcon, BookIcon, ChevronDownIcon, CloseIcon, EditIcon, KnowledgeIcon, SettingsIcon } from "./icons.js";
@@ -10,6 +10,7 @@ import { Home, GuidePage } from "./home.js";
 import { GettingStarted, GettingStartedBar, onboardingAiKey, planningAgents, starterDescription } from "./getting-started.js";
 import { BasicsPage } from "./basics.js";
 import { dashboardsFrom } from "./dashboard-model.js";
+import { firstTeamForOrganization } from "./scope-selection.js";
 import { WorkPage } from "./work.js";
 import { ProcessesPage } from "./processes.js";
 import { AppsPage } from "./apps.js";
@@ -69,7 +70,10 @@ function ScopeSwitcher({
         className: `bees-org-tile ${row.id === organizationId && row.connectionId === connectionId ? "active" : ""}`,
         style: { "--bees-org-color": organizationColors[row.id] || row.color || defaultOrgColor(row.name) },
         title: row.details, "aria-label": row.details,
-        onClick: () => onChange(`organization:${row.id}`, row.connectionId)
+        onClick: () => {
+          const firstTeam = firstTeamForOrganization(data, row.id, row.connectionId);
+          onChange(firstTeam ? `team:${firstTeam.id}` : `organization:${row.id}`, row.connectionId);
+        }
       }, row.name.trim().charAt(0).toLocaleUpperCase() || "•")),
       h("button", { type: "button", className: "bees-org-tile bees-scope-add", title: "Add organization",
         "aria-label": "Add organization", onClick: onCreateOrganization }, h(CloseIcon))),
@@ -120,8 +124,8 @@ function ScopeSwitcher({
                 "aria-current": active && sectionId === item.id ? "page" : null,
                 "aria-expanded": hasChildren ? menuExpanded : null, onClick: () => {
                   if (item.id === "home") {
-                    if (!active) onChange(`team:${row.id}`, connectionId);
-                    onOpenDashboard(activeDashboardId);
+                    if (!active) onChange(`team:${row.id}`, connectionId, false);
+                    onOpenDashboard(active ? activeDashboardId : dashboards[0].id);
                   } else open(item.id);
                   if (hasChildren) setExpandedMenus((current) => {
                     const next = new Set(current);
@@ -147,7 +151,7 @@ function ScopeSwitcher({
                   className: `bees-nav-link bees-nav-child bees-dashboard-link ${active && route === "home" && dashboard.id === activeDashboardId ? "active" : ""}`,
                   "aria-current": active && route === "home" && dashboard.id === activeDashboardId ? "page" : null,
                   onClick: () => {
-                    if (!active) onChange(`team:${row.id}`, connectionId);
+                    if (!active) onChange(`team:${row.id}`, connectionId, false);
                     onOpenDashboard(dashboard.id);
                   }
                 }, dashboard.name),
@@ -163,7 +167,7 @@ function ScopeSwitcher({
                 type: "button", className: "bees-nav-link bees-nav-child bees-dashboard-create",
                 disabled: dashboards.length >= 20, title: dashboards.length >= 20 ? "Dashboard limit reached" : "Create dashboard",
                 onClick: () => {
-                  if (!active) onChange(`team:${row.id}`, connectionId);
+                  if (!active) onChange(`team:${row.id}`, connectionId, false);
                   onCreateDashboard();
                 }
               }, h("span", { className: "bees-add-icon", "aria-hidden": "true" }, h(CloseIcon)), h("span", null, "New dashboard"))
@@ -193,6 +197,8 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
     ...(preferences.getSnapshot().value?.onboarding ?? {}), ...patch
   });
   const [data, setData] = useState(null);
+  const [stillStarting, setStillStarting] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const accountsKey = JSON.stringify((data?.accounts ?? []).map(({ userId }) => userId));
   useEffect(() => {
     productSettings.reset();
@@ -266,6 +272,17 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
     try { const value = await request("/bees-api/snapshot"); setData(value); return value; }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); return null; }
   };
+  const retryStartup = async () => {
+    if (retrying) return;
+    setRetrying(true);
+    try { await load(); } finally { setRetrying(false); }
+  };
+  // a hung first load never errors or resolves, so tell the user after 45s instead of animating forever
+  useEffect(() => {
+    if (data) { setStillStarting(false); return undefined; }
+    const timer = setTimeout(() => setStillStarting(true), 45_000);
+    return () => clearTimeout(timer);
+  }, [data]);
   useEffect(() => ctx.slots.inject("conversation.composer", () => ctx.slots.register({
     name: "conversation.composer", id: "bees-managed-continuation", priority: 20,
     select: ({ sessionId, pendingInteraction }) => {
@@ -318,7 +335,13 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
     );
     if (selectedConnectionId !== connectionId) setConnectionId(selectedConnectionId);
     const selected = scopeParts(data, scope, selectedConnectionId);
-    if (selected.organizationId) return;
+    if (selected.organizationId) {
+      if (!selected.teamId) {
+        const firstTeam = firstTeamForOrganization(data, selected.organizationId, selectedConnectionId);
+        if (firstTeam) setScopeState(`team:${firstTeam.id}`);
+      }
+      return;
+    }
     const saved = scopeParts(data, preference.lastScope, selectedConnectionId);
     if (saved.organizationId) { setScopeState(preference.lastScope); return; }
     const teamIds = selectedConnectionId
@@ -341,7 +364,11 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
     } else if (onboarding.active) setRoute("getting-started");
   }, [data, onboarding.version]);
   useEffect(() => { setAiTest(null); }, [JSON.stringify(modelConfig), JSON.stringify(data?.systemDefaultModel)]);
-  const setScope = (next, nextConnectionId = connectionId) => {
+  const setScope = (next, nextConnectionId = connectionId, resetDashboard = true) => {
+    if (next.startsWith("team:") && next !== scope) {
+      setRoute("home");
+      if (resetDashboard) void preferences.set("activeDashboardId", dashboardsFrom(preference.dashboards)[0].id);
+    }
     setConnectionId(nextConnectionId);
     setScopeState(next); setProcessId(""); setWorkItemId(""); setCreating(""); setProcessDraft(null); setWorkProcessId("");
     void preferences.set("lastScope", next);
@@ -444,10 +471,14 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
   const freeAi = h(FreeAiController, { modelSettings: personalModelSettings, onError: setError });
   if (!data) return h(React.Fragment, null, localAi, freeAi,
     h("div", { className: "bees-app bees-loading", style: { display: "flex", flexDirection: "column", gap: "16px", background: "#111315" } }, 
-      error || h(React.Fragment, null, 
+      error || h(React.Fragment, null,
         h("style", null, `@keyframes hover { 50% { transform: translateY(-6px); } }`),
         h("img", { src: brandMark, style: { width: "54px", height: "54px", borderRadius: "16px", objectFit: "cover", animation: "hover 1.8s ease-in-out infinite" } }),
-        h("strong", { style: { fontSize: "20px", color: "#f5f5f5" } }, "Bees Desktop")
+        h("strong", { style: { fontSize: "20px", color: "#f5f5f5" } }, "Bees Desktop"),
+        stillStarting ? h(React.Fragment, null,
+          h("span", { style: { color: "#f5f5f5" }, role: "status" }, "Still starting"),
+          h(Button, { onClick: retryStartup, disabled: retrying }, retrying ? "Retrying…" : "Retry")
+        ) : null
       )));
   const dashboards = dashboardsFrom(preference.dashboards);
   const activeDashboard = dashboards.find(({ id }) => id === preference.activeDashboardId) ?? dashboards[0];
@@ -608,7 +639,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
           catch (reason) { setError(reason.message || String(reason)); }
           finally { setupLock.current = false; setSetupBusy(false); }
         }, go: goSetup, start: startFirstTask, openWorkItem: openStarter, navigate })
-    : route === "create-organization" ? h(CreateOrganizationPage, { reload: load, setScope, navigate, createLocal: createLocalOrganization, onboarding: onboarding.active, onCreated: finishOrganization })
+    : route === "create-organization" ? h(CreateOrganizationPage, { reload: load, createLocal: createLocalOrganization, onboarding: onboarding.active, onCreated: finishOrganization })
     : route === "basics" ? h(BasicsPage, { navigate, onStart: async () => {
         await updateOnboarding({ active: true, step: parts.teamId ? 3 : 0 });
         navigate("getting-started");
@@ -727,7 +758,7 @@ function AppHeader({ routeLabel, parts, ctx, preferences }) {
 
 
 
-function CreateOrganizationPage({ reload, setScope, navigate, createLocal, onboarding, onCreated }) {
+function CreateOrganizationPage({ reload, createLocal, onboarding, onCreated }) {
   const [name, setName] = useState(onboarding ? "My workspace" : "");
   const [isLocal, setIsLocal] = useState(false);
   const [data, setData] = useState(null);

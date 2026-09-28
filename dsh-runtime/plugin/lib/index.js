@@ -80,7 +80,6 @@ export const Config = z.object({
   darkThemePreset: z.string().default("halloween").volatile(),
   lightThemePreset: z.string().default("bumblebee").volatile(),
   organizationColors: z.dict(z.string()).default({}).volatile(),
-  freeAiProviders: z.array(z.string()).default([]).volatile(),
   generalAiProviders: z.array(z.string()).default([]).volatile(),
   generalAiModels: z.dict(z.array(ModelPreference)).default({}).volatile(),
   codexModels: z.array(ModelPreference).default([]).volatile(),
@@ -291,17 +290,20 @@ export async function apply(ctx, config = {}, internals = {}) {
   const server = ctx.webServer.server;
   const productDefaults = new ProductDefaults(connected);
   if (!server?.prependListener) throw new Error("bees: agent runtime webserver seam changed");
+  // the cookie rides along from a page on any 127.0.0.1 port, so a call another page started is refused
+  const allowed = (req) => (req.headers.origin === undefined || req.headers.origin === `http://${req.headers.host}`)
+    && equalSecret(tokenFrom(req), token);
   const guard = (req) => {
     const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
     if ([
       "/bees-auth", "/bees-social-callback",
       "/healthz", "/_bees_unauthorized"
     ].includes(path)) return;
-    if (!equalSecret(tokenFrom(req), token)) req.url = "/_bees_unauthorized";
+    if (!allowed(req)) req.url = "/_bees_unauthorized";
   };
   // An upgrade has no response to redirect, so an unauthorized socket is dropped instead.
   const guardUpgrade = (req, socket) => {
-    if (!equalSecret(tokenFrom(req), token)) socket.destroy();
+    if (!allowed(req)) socket.destroy();
   };
   server.prependListener("request", guard);
   server.prependListener("upgrade", guardUpgrade);

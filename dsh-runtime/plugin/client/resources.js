@@ -1,4 +1,4 @@
-import { h, React, useEffect, useState } from "./runtime.js";
+import { h, useEffect, useState } from "./runtime.js";
 import { FilePreview } from "./work.js";
 import {
   artifactRuns, ask, AuditEvent, Button, confirmAction, Empty, request, runTitle, useBeesChangeRevision, when
