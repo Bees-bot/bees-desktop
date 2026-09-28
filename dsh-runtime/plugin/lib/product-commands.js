@@ -175,13 +175,12 @@ export function proposedFolder(database, workspaceId, name) {
 }
 
 /** Work is owned by the active org+identity connection, not by whichever account was added first. */
-function executionAccount(database, teamId, input) {
+export function executionAccount(database, teamId, input) {
   const local = database.prepare(`
-    SELECT o.personal FROM teams t JOIN organizations o ON o.id = t.organization_id
-    WHERE t.id = ?
+    SELECT authority = 'local' AS private FROM workspaces WHERE team_id = ? AND status = 'active' LIMIT 1
   `).get(teamId);
   if (!local) throw new Error("Team not found");
-  if (local.personal) return null;
+  if (local.private) return null;
   const row = input.connectionId
     ? database.prepare(`
         SELECT c.account_user_id AS accountUserId FROM bees_connections c

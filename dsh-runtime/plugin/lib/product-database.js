@@ -999,6 +999,10 @@ export function initializeProductDatabase(database) {
     database.exec(`
       UPDATE organizations SET name = 'Personal Org' WHERE personal = 1 AND name = 'Personal';
       UPDATE teams SET name = 'Team1' WHERE personal = 1 AND name = 'Personal';
+      UPDATE team_memberships SET status = 'active'
+      WHERE user_id = (SELECT id FROM users ORDER BY created_at LIMIT 1)
+        AND status = 'suspended'
+        AND team_id IN (SELECT team_id FROM workspaces WHERE authority = 'local');
     `);
     for (const { id } of database.prepare(`
       SELECT id FROM teams WHERE status = 'active' AND NOT EXISTS (
@@ -1025,11 +1029,11 @@ export function initializeProductDatabase(database) {
     const workspaceId = randomUUID();
     database.prepare("INSERT INTO users VALUES (?, 'You', ?, ?)").run(userId, at, at);
     database.prepare("INSERT INTO devices VALUES (?, ?, ?, ?)").run(device, hostname(), at, at);
-    database.prepare(`INSERT INTO organizations VALUES (?, 'Personal Org', 1, ?, 'active', ?, ?)`)
+    database.prepare(`INSERT INTO organizations VALUES (?, 'Personal Organization', 1, ?, 'active', ?, ?)`)
       .run(organizationId, userId, at, at);
     database.prepare("INSERT INTO organization_memberships VALUES (?, ?, 'owner', 'active', ?)")
       .run(userId, organizationId, at);
-    database.prepare(`INSERT INTO teams VALUES (?, ?, 'Team1', 1, ?, 'active', ?, ?)`)
+    database.prepare(`INSERT INTO teams VALUES (?, ?, 'My Team', 1, ?, 'active', ?, ?)`)
       .run(teamId, organizationId, userId, at, at);
     database.prepare("INSERT INTO team_memberships VALUES (?, ?, 'admin', 'active', ?)")
       .run(userId, teamId, at);

@@ -121,9 +121,8 @@ function ProcessForm({ ctx, data, servers, tools, catalog, onServerAction, kind,
   );
 }
 
-export function ProcessMcpForm({ ctx, process, servers, tools, catalog, onServerAction, act, showAll = false, compact = false }) {
+export function ProcessMcpForm({ ctx, process, servers, tools, catalog, onServerAction, act, showAll = false }) {
   return h("div", { className: "bees-form bees-process-mcp-form", style: { paddingTop: "8px" } },
-    compact ? null : h("p", { className: "bees-muted", style: { marginBottom: "16px" } }, "Every agent in this process inherits these MCPs in addition to its own."),
     h(McpAccess, { ctx, servers, tools, catalog, onServerAction, access: process.mcpAccess, chosen: process.mcpServers,
       scope: "process", showAll, onChange: ({ mcpAccess, mcpServers }) =>
         act({ action: "set_process_mcp", processId: process.id, mcpAccess, mcpServers }) }));
@@ -137,7 +136,7 @@ function ProcessPlanner({ workspaceId, act, onClose, openWorkItem }) {
     const result = await act({ action: "ask_bees", workspaceId, outcome: outcome.trim(), process: true });
     if (result?.executionId) openWorkItem(result.executionId);
   });
-  return h("form", { className: "bees-composer", onSubmit: submit },
+  return h("form", { className: "bees-composer bees-process-planner", onSubmit: submit },
     h("textarea", {
       className: "bees-composer-input", value: outcome, disabled: busy, "aria-label": "What should this process do?",
       placeholder: "e.g., Every weekday, find new freelance projects that fit me and draft a proposal for each",
@@ -268,7 +267,7 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
         h(AttachedResourceFields, { key: process.id, ctx, data, teamId, act,
           owner: { processId: process.id }, references: attached, outputId: process.outputLocationId ?? "", compact: true }));
       const mcpPanel = h(ProcessMcpForm, { key: `${process.id}:${process.mcpAccess}:${JSON.stringify(process.mcpServers)}`,
-        ctx, process, servers, tools, catalog, onServerAction, act, compact: true });
+        ctx, process, servers, tools, catalog, onServerAction, act });
 
       return h(React.Fragment, null,
         h(GridStackPage, {

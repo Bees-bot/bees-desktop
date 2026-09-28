@@ -339,8 +339,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
   const teamQuestions = (data.teamQuestions ?? []).filter((question) => question.workItemId === item.id);
   const processExecution = (data.processExecutions ?? []).find((execution) => execution.workItemId === item.id);
   useEffect(() => {
-    if (isScrolledUpRef.current) return;
-    const scrollToBottom = () => { if (!isScrolledUpRef.current && convoRef.current) convoRef.current.scrollTop = convoRef.current.scrollHeight; };
+    if (isScrolledUpRef.current && !pendingRun) return;
+    const scrollToBottom = () => { if (convoRef.current && (!isScrolledUpRef.current || pendingRun)) convoRef.current.scrollTop = pendingRun ? 0 : convoRef.current.scrollHeight; };
     scrollToBottom();
     const timer = setTimeout(scrollToBottom, 50);
     return () => clearTimeout(timer);
@@ -390,15 +390,17 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
         latestResult?.resultOutcome === "blocked" ? "Resolve and continue" : "Retry") : null) : null,
     ...teamQuestions.map((question) => h(TeamQuestionCard, { key: question.id, question, data, act })),
     // a waiting question goes first and the agent's steps fold away, so nobody scrolls to find it
-    pendingRun && !showSteps ? null : h("div", {
+    h("div", {
       className: "bees-convo-history", ref: convoRef,
       onScroll: (event) => {
         const { scrollTop, scrollHeight, clientHeight } = event.currentTarget;
         isScrolledUpRef.current = Math.abs(scrollHeight - clientHeight - scrollTop) > 30;
       }
     },
-      ...convoItems,
-      ...(plan ? pendingProposals(data, run) : []).map((proposal) => h(ProposalCard, { key: proposal.id, proposal, onApply: () => apply(proposal),
+      pendingRun ? h(AgentInteractionPanel, { run: pendingRun, item, interaction, handled, inConversation: true,
+        onAnswered: answered, act, data, onOpenTools: process ? () => setActiveTab("tools") : undefined }) : null,
+      ...(!pendingRun || showSteps ? convoItems : []),
+      ...(!pendingRun || showSteps ? (plan ? pendingProposals(data, run) : []) : []).map((proposal) => h(ProposalCard, { key: proposal.id, proposal, onApply: () => apply(proposal),
         onDismiss: () => act({ action: "reject_proposal", proposalId: proposal.id }) })),
       !pendingRun && isWorking ? h("div", { className: "bees-convo-msg system bees-working-indicator" },
         h("span", { className: "bees-dot-typing-container" }, h("span", { className: "bees-dot-typing-dot" })),
@@ -522,8 +524,6 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
 
   return h(React.Fragment, null,
     boardActions,
-    pendingRun ? h(AgentInteractionPanel, { run: pendingRun, item, interaction, handled,
-      onAnswered: answered, act, data, onOpenTools: process ? () => setActiveTab("tools") : undefined }) : null,
     h(FlexibleGrid, {
       layout, editing, onLayout,
       className: "bees-work-item-grid",
@@ -1111,31 +1111,20 @@ export function WorkItemControls({ item, act, onDone, showUnavailable = false, d
       busy === "archive_item" ? "Archiving…" : "Archive"));
 }
 
-function AgentInteractionPanel({ run, item, title, summary, interaction, handled, onAnswered, onOpen, openLabel, act, onControlled, data, onOpenTools }) {
-  const files = [...new Set(run.files ?? (run.outputs ?? []).map((path) => `outputs/${path}`))];
-  const [viewer, setViewer] = useState(files.length ? { executionId: run.id, path: files[0] } : null);
-  const fileKey = files.join("|");
-  useEffect(() => setViewer((current) => files.length
-    ? current?.executionId === run.id && files.includes(current.path)
-      ? current : { executionId: run.id, path: files[0] }
-    : null), [run.id, fileKey]);
+function AgentInteractionPanel({ run, item, title, summary, interaction, handled, inConversation = false, onAnswered, onOpen, openLabel, act, onControlled, data, onOpenTools }) {
   const workReview = run?.pendingInteraction === "work-review" && interaction?.kind === "question";
   return h("section", { className: "bees-box bees-answer-card" },
     h("div", { className: "bees-answer-head" }, h("div", null,
       h("div", { className: "bees-status" }, interactionName(run?.pendingInteraction ?? interaction?.kind)),
-      h("h2", null, item?.title ?? title ?? summary?.displayTitle ?? "Agent run")),
-    h("div", { className: "bees-grow" }), h("div", { className: "bees-answer-controls" },
+      inConversation ? null : h("h2", null, item?.title ?? title ?? summary?.displayTitle ?? "Agent run")),
+    inConversation ? null : h("div", { className: "bees-grow" }), inConversation ? null : h("div", { className: "bees-answer-controls" },
       onOpen ? h(Button, { onClick: onOpen }, openLabel) : null,
       h(WorkItemControls, { item, act, onDone: onControlled }))),
     workReview ? h(WorkReviewPanel, { key: interaction.key, wait: interaction, onAnswered, act, executionId: run?.id, item, data })
       : interaction?.kind === "question" ? h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered, act, executionId: run?.id, browser: data?.browserEnabled, data, workspaceId: run.workspaceId, onOpenTools })
       : interaction?.kind === "approval" ? h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered })
         : h(Empty, null, handled.size
-          ? "Answer sent. Waiting for the agent…" : "Loading the agent's request…"),
-    files.length ? h("div", { className: "bees-file-list" }, h("span", { className: "bees-muted" }, "Files"),
-      ...files.map((path) => h(Button, { className: `bees-file-chip ${viewer?.path === path ? "active" : ""}`, key: path, title: path,
-        onClick: () => setViewer({ executionId: run.id, path }) }, path))) : null,
-    viewer ? h(FilePreview, { target: { ...viewer, updatedAt: run.updatedAt }, onClose: () => setViewer(null) }) : null
+          ? "Answer sent. Waiting for the agent…" : "Loading the agent's request…")
   );
 }
 

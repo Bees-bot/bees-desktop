@@ -176,8 +176,7 @@ export class ProcessRuntime {
     if (connected.length) return connected;
     const local = this.database.prepare(`
       SELECT 1 FROM recurring_work r JOIN workspaces w ON w.id = r.workspace_id
-      JOIN teams t ON t.id = w.team_id JOIN organizations o ON o.id = t.organization_id
-      WHERE r.id = ? AND o.personal = 1
+      WHERE r.id = ? AND w.authority = 'local'
     `).get(recurringWorkId);
     return local ? [""] : [];
   }
@@ -395,9 +394,9 @@ export class ProcessRuntime {
           OR w.runtime_phase = 'failed' AND lower(w.runtime_error) LIKE '%heartbeat timeout%')
         AND EXISTS (
           SELECT 1 FROM processes p JOIN workspaces ws ON ws.id = p.workspace_id
-          JOIN teams t ON t.id = ws.team_id JOIN organizations o ON o.id = t.organization_id
+          JOIN teams t ON t.id = ws.team_id
           WHERE p.id = w.process_id AND (
-            (o.personal = 1 AND w.account_user_id IS NULL)
+            (ws.authority = 'local' AND w.account_user_id IS NULL)
             OR EXISTS (
               SELECT 1 FROM bees_connections c
               JOIN bees_connection_teams ct ON ct.connection_id = c.id AND ct.team_id = t.id

@@ -857,6 +857,10 @@ body, html { overflow-x: hidden !important; }
 
 /* Interactive Cards */
 .bees-answer-card { background: var(--dsw-alias-button-elevated-fill) !important; border: 1px solid var(--dsw-alias-border-l2) !important; border-radius: 12px !important; box-shadow: 0 4px 12px #00000012 !important; padding: 14px !important; margin: 0 !important; }
+.bees-convo-history > .bees-answer-card { flex: none; width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; }
+.bees-answer-card .bees-answer-head > div:first-child, .bees-answer-card .bees-choice-copy { min-width: 0; overflow-wrap: anywhere; }
+.bees-answer-card .bees-question-detail { min-width: 0; overflow-wrap: anywhere; }
+.bees-answer-card .bees-question-detail pre { max-width: 100%; overflow-x: auto; }
 .bees-answer-card h2, .bees-answer-card h3 { color: var(--dsw-alias-label-primary) !important; margin: 0 0 8px !important; }
 .bees-answer-card .bees-question-detail { color: var(--dsw-alias-label-secondary) !important; font-size: 13px !important; margin-bottom: 12px !important; padding: 0 !important; background: var(--dsw-alias-bg-base) !important; box-shadow: 0 1px 3px rgba(0,0,0,0.2) !important; }
 .bees-answer-card .bees-choice { background: var(--dsw-alias-bg-base) !important; border: 1px solid var(--dsw-alias-border-l1) !important; color: var(--dsw-alias-label-primary) !important; }
@@ -1594,6 +1598,8 @@ if (typeof document !== 'undefined') {
     .bees-composer-input { border: 0 !important; background: transparent !important; font-size: 14px !important; outline: none !important; resize: none !important; color: inherit !important; line-height: 1.5 !important; padding: 0 !important; min-height: 48px !important; padding-right: 40px !important; }
     .bees-composer-foot { display: flex !important; justify-content: flex-end !important; align-items: center !important; position: absolute !important; right: 12px !important; bottom: 12px !important; }
     .bees-composer-hint { display: none !important; }
+    .bees-process-planner .bees-composer-input { min-height: 160px !important; resize: vertical !important; padding-right: 0 !important; }
+    .bees-process-planner .bees-composer-foot { position: static !important; }
     .bees-composer-send { width: 32px !important; height: 32px !important; border-radius: 50% !important; background: var(--dsw-alias-state-business-primary, #3b82f6) !important; color: #fff !important; border: 0 !important; cursor: pointer !important; display: grid !important; place-items: center !important; transition: all 0.2s !important; }
     .bees-composer-send:hover:not(:disabled) { transform: scale(1.05) !important; background: #2563eb !important; }
     .bees-composer-send:disabled { opacity: 0.4 !important; cursor: not-allowed !important; }

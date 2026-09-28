@@ -302,7 +302,7 @@ export class ConnectedAccount {
     }
     this.database.prepare(`
       UPDATE team_memberships SET status = 'suspended' WHERE user_id = ?
-        AND team_id IN (SELECT t.id FROM teams t JOIN organizations o ON o.id = t.organization_id WHERE o.personal = 0)
+        AND team_id IN (SELECT team_id FROM workspaces WHERE authority = 'connected')
         AND team_id NOT IN (
           SELECT ct.team_id FROM bees_connection_teams ct
           JOIN bees_connections c ON c.id = ct.connection_id
@@ -459,8 +459,8 @@ export class ConnectedAccount {
   claimScope(teamId, accountUserId = "") {
     if (!accountUserId) return this.database.prepare(`
       SELECT t.organization_id AS organizationId, NULL AS connectionId
-      FROM teams t JOIN organizations o ON o.id = t.organization_id
-      WHERE t.id = ? AND o.personal = 1
+      FROM teams t JOIN workspaces w ON w.team_id = t.id
+      WHERE t.id = ? AND w.authority = 'local' AND w.status = 'active' LIMIT 1
     `).get(teamId) ?? null;
     return this.database.prepare(`
       SELECT t.organization_id AS organizationId, c.id AS connectionId
