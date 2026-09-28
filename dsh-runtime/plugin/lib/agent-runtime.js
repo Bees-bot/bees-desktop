@@ -9,7 +9,7 @@ import { scopeOf } from "@deepseek-ai/dsh-scope";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { setSandboxMode } from "@deepseek-ai/dsh-sandbox-policy";
 import { defineTool } from "@deepseek-ai/dsh-tools";
-import { hideAgentBrowser } from "./agent-browser.js";
+import { browserModeFor, hideAgentBrowser } from "./agent-browser.js";
 import { modelLabel } from "./model-label.js";
 import { assertRootOnDisk, serverFolder, shortPath } from "./folder-roots.js";
 import { isBrowserCatalog, MCP_CATALOG } from "./mcp-catalog.js";
@@ -958,7 +958,8 @@ export class AgentRuntime {
           idempotencyKey: `${pending.kind}-${answered ? "answered" : "cancelled"}:${sessionId}:${callId}`
         });
         this.audit(`${pending.kind}-${answered ? "answered" : "cancelled"}`, executionId, sessionId, { callId });
-        this.track(hideAgentBrowser());
+        // the run's own browser, not the other team's, or the window it raised stays on screen
+        this.track(hideAgentBrowser(browserModeFor(this.database, this.live.get(executionId)?.data?.workspaceId)));
       }
       const output = {
         sessionId,
@@ -1045,10 +1046,11 @@ export class AgentRuntime {
         (mcpAccess === "all" || mcpServers.includes(name)));
   }
 
-  /** Mounts this run's own browser. Chrome waits for the Open browser action, not for every run. */
+  /** Mounts this run's own browser. The browser waits for the Open browser action, not for every run. */
   async startBrowserIfGranted(data, agentCtx) {
     if (!this.grantedBrowser(data)) return;
-    await this.capabilities.mountBrowserFor(agentCtx, data.mcpAccess === "listed" ? data.mcpServers : null)
+    await this.capabilities.mountBrowserFor(agentCtx, data.mcpAccess === "listed" ? data.mcpServers : null,
+      browserModeFor(this.database, data.workspaceId))
       .catch((error) => this.ctx.logger.warn(`bees: this run got no browser: ${message(error)}`));
   }
 
@@ -1282,7 +1284,8 @@ export class AgentRuntime {
         const result = await (capability ? this.capabilities.command(payload) : this.command(payload)).catch((error) => { throw new Error(userMessage(error)); });
         if (["install_mcp_server", "add_mcp_server"].includes(args.action)) {
           if (!result?.id) throw new Error(`${args.action} did not return a server`);
-          await this.capabilities.mountFor(agentCtx, this.capabilities.row(result.id));
+          // an agent that installs the browser server itself gets the run's browser, not Bees' own
+          await this.capabilities.mountFor(agentCtx, this.capabilities.row(result.id), browserModeFor(this.database, data.workspaceId));
         } else if (args.action === "create_process" && result?.id) {
           // Stage ids are otherwise invisible to the model, which needs them for set_stage_route.
           result.stages = this.database.prepare(

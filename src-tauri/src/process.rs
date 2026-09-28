@@ -72,12 +72,15 @@ pub fn reap_orphan_llama_servers() {
     });
 }
 
-/// End the Chrome the agent browses in. DSH starts it, but DSH is hard-killed on quit so its own
-/// cleanup never runs, and a Chrome left behind sits in the Dock and holds the profile lock.
-/// Matched on the exact profile argument, so a person's own Chrome is left alone.
-pub fn reap_agent_browser(profile: &Path) {
-    let expected = format!("--user-data-dir={}", profile.display());
-    reap(|_, process| process.cmd().iter().any(|arg| arg == expected.as_str()));
+/// End the browsers the agent browses in: Bees' own, and the copy of the person's default browser a
+/// team asked for. DSH starts them, but DSH is hard-killed on quit so its own cleanup never runs, and
+/// a browser left behind sits in the Dock and holds the profile lock. Matched on the exact profile
+/// argument, so the browser the person is using themselves is left alone.
+pub fn reap_agent_browsers(state: &Path) {
+    for profile in ["browser-profile", "browser-profile-personal"] {
+        let expected = format!("--user-data-dir={}", state.join(profile).display());
+        reap(|_, process| process.cmd().iter().any(|arg| arg == expected.as_str()));
+    }
 }
 
 /// A child process that is killed and reaped when it goes out of scope, so dropping whatever

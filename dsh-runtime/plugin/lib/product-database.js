@@ -1018,6 +1018,15 @@ export function initializeProductDatabase(database) {
     }
     database.exec("PRAGMA user_version = 35");
   });
+  // Devtools must attach to whichever window the run's team browses in, which is decided per run.
+  if (version < 36) transaction(database, () => {
+    database.exec(`
+      UPDATE mcp_servers
+        SET args_json = '["-y","chrome-devtools-mcp@latest","--browserUrl","{browserUrl}"]'
+        WHERE catalog_id = 'chrome-devtools';
+      PRAGMA user_version = 36;
+    `);
+  });
   // every stored folder is read against the root this computer keeps for that workspace
   refreshFolderRoots(database);
   database.function("resolved", (path, workspaceId) => path && resolveStored(workspaceId, path));

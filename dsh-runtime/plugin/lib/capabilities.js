@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import * as mcpClient from "@deepseek-ai/dsh-mcp-client";
 import { assertFolderOutsideBees } from "./product-commands.js";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
-import { browserStatePath, closeAgentBrowser, saveBrowserState, startAgentBrowser } from "./agent-browser.js";
+import { browserPort, browserStatePath, closeAgentBrowser, saveBrowserState, startAgentBrowser } from "./agent-browser.js";
 import { dataDirectory } from "./data-folder.js";
 import { serverFolder, setServerFolder } from "./folder-roots.js";
 import { iso, message, required, transaction } from "./product-database.js";
@@ -47,9 +47,12 @@ function secretRef(server, name) {
 const STASHED = /^\{\{credential:(BEES_PASTED_[A-Z0-9_]+)\}\}$/;
 // a planner wrote -H 'freelancer-oauth-v1: API_HEADERS', and that word went out as the key on every call
 const PLACEHOLDER = /^(?:[Bb]earer\s+)?(?:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+|\$\{?\w+\}?|<[^<>]*>|\{\{(?!credential:)[^{}]*\}\})$/;
-// rows keep placeholders so one server definition works wherever Bees and its state directory live
-const placed = (value) => value === "{node}" ? process.execPath : value === "{browserState}" ? browserStatePath()
-  : value.replace("{lib}", () => dirname(fileURLToPath(import.meta.url))).replace("{data}", dataDirectory);
+// rows keep placeholders so one server definition works wherever Bees and its state directory live,
+// and the browser pair resolves differently per run: two teams can browse in two different profiles
+const placed = (value, mode = "own") => value === "{node}" ? process.execPath
+  : value === "{browserState}" ? browserStatePath(mode)
+    : value === "{browserUrl}" ? `http://127.0.0.1:${browserPort(mode)}`
+      : value.replace("{lib}", () => dirname(fileURLToPath(import.meta.url))).replace("{data}", dataDirectory);
 // a bridge's spec is a saved file or, when the person gave one, a url
 const readSpec = async (source) => {
   const text = /^https?:/.test(source)
@@ -62,7 +65,7 @@ const readSpec = async (source) => {
 /** A folder-bound server takes its folder as its last argument, and that folder belongs to this computer. */
 const FOLDER = "{folder}";
 const needsFolder = (catalogId) => Boolean(catalogEntry(catalogId)?.requiresDirectory);
-const argsFor = (server) => server.args.map((arg) => arg === FOLDER ? serverFolder(server.id) || arg : placed(arg));
+const argsFor = (server, mode = "own") => server.args.map((arg) => arg === FOLDER ? serverFolder(server.id) || arg : placed(arg, mode));
 
 /** A folder-bound server runs only while it has a folder here: one picked on another computer is not ours. */
 const noFolderReason = (server) => {
@@ -117,13 +120,13 @@ export class Capabilities {
    * its agent context, which dies with the run: either a headless session signed in from the one
    * Chrome a person signs into, or the DevTools chip attached to that same Chrome.
    */
-  async mountBrowserFor(agentCtx, granted = null) {
+  async mountBrowserFor(agentCtx, granted = null, mode = "own") {
     // the run's grant picks which one: with devtools and playwright both installed, the older row won
     // every time and an agent listed on "browser" hunted for mcp__browser__ tools that never existed
     const row = this.servers().find(({ enabled, catalogId, serverName }) => enabled && isBrowserCatalog(catalogId)
       && (!granted || granted.includes(serverName)));
     if (!row) return;
-    await this.mountFor(agentCtx, row);
+    await this.mountFor(agentCtx, row, mode);
     // Sync cookies and start Chrome lazily — only when the agent actually calls a browser tool.
     // This avoids spawning Chrome for runs that have browser access but never browse anything.
     let browserReady = false;
@@ -131,14 +134,13 @@ export class Capabilities {
       if (!exec.name.startsWith(`mcp__${row.serverName}__`)) return next();
       if (!browserReady) {
         browserReady = true;
-        // Whatever a person has signed in to since the last run is what this one inherits.
-        await saveBrowserState().catch((error) =>
+        // The browser came up on a copy of the person's sign-ins, so it has to be up before they are
+        // read: devtools attaches to it, and the headless session starts with what it holds. It
+        // starts out hidden, so the person sees nothing until a sign-in asks for them.
+        await startAgentBrowser(mode).catch((error) =>
+          this.ctx.logger.warn(`bees: the agent's browser did not start for ${exec.name}: ${message(error)}`));
+        await saveBrowserState(mode).catch((error) =>
           this.ctx.logger.warn(`bees: this run starts signed out, cookies could not be read: ${message(error)}`));
-        // devtools attaches to Bees' Chrome — bring it up minimised so the MCP server can connect.
-        if (row.catalogId === "chrome-devtools") {
-          await startAgentBrowser().catch((error) =>
-            this.ctx.logger.warn(`bees: the agent's browser did not start for ${exec.name}: ${message(error)}`));
-        }
       }
       return next();
     });
@@ -146,11 +148,11 @@ export class Capabilities {
 
 
   /** On the run's own context, which dies with the run. */
-  async mountFor(agentCtx, row) {
+  async mountFor(agentCtx, row, mode = "own") {
     if (!row.enabled) return;
     const finish = startStep(`mcp.per-run:${row.serverName}`);
     try {
-      await started(agentCtx.plugin(mcpClient, await this.configFor(row)), row.serverName);
+      await started(agentCtx.plugin(mcpClient, await this.configFor(row, mode)), row.serverName);
       finish();
     } catch (error) { finish("failed"); throw error; }
   }
@@ -177,7 +179,7 @@ export class Capabilities {
   }
 
   /** Resolve a row's secrets and hand `dsh-mcp-client` the config shape it validates. */
-  async configFor(server) {
+  async configFor(server, mode = "own") {
     const missing = noFolderReason(server);
     if (missing) throw new Error(missing);
     if (server.transport === "stdio") {
@@ -197,8 +199,8 @@ export class Capabilities {
       return {
         transport: "stdio",
         serverName: server.serverName,
-        command: placed(server.command),
-        args: argsFor(server),
+        command: placed(server.command, mode),
+        args: argsFor(server, mode),
         env,
         // Without this a dead command activates with no tools and no error, stuck on Starting.
         failOnStartupError: true
