@@ -123,7 +123,7 @@ function ProcessForm({ ctx, data, servers, tools, catalog, onServerAction, kind,
 
 export function ProcessMcpForm({ ctx, process, servers, tools, catalog, onServerAction, act, showAll = false, compact = false }) {
   return h("div", { className: "bees-form bees-process-mcp-form", style: { paddingTop: "8px" } },
-    compact ? null : h("p", { className: "bees-muted", style: { marginBottom: "16px" } }, "Every agent in this process inherits these MCPs in addition to its own."),
+    compact ? null : h("p", { className: "bees-muted", style: { marginBottom: "16px" } }, "Every agent in this process inherits these add-ons in addition to its own."),
     h(McpAccess, { ctx, servers, tools, catalog, onServerAction, access: process.mcpAccess, chosen: process.mcpServers,
       scope: "process", showAll, onChange: ({ mcpAccess, mcpServers }) =>
         act({ action: "set_process_mcp", processId: process.id, mcpAccess, mcpServers }) }));
@@ -277,7 +277,7 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
             beforeGrid: processActions,
             routing: { label: "Agent setup", minW: 6, minH: 5, content: routingPanel },
             files: { label: "Files", minW: 4, minH: 3, content: filesPanel },
-            mcp: { label: "Process MCPs", minW: 4, minH: 3, content: mcpPanel }
+            mcp: { label: "Process add-ons", minW: 4, minH: 3, content: mcpPanel }
           }
         })
       );
@@ -335,7 +335,7 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
           h("button", { type: "button", onClick: (event) => {
             event.currentTarget.closest("details")?.removeAttribute("open");
             setPlanning(false); setProcessDraft(null); setCreating("process");
-          } }, h("strong", null, "Create manually"), h("span", null, "Choose the stages, agents, files, and MCPs yourself.")),
+          } }, h("strong", null, "Create manually"), h("span", null, "Choose the stages, agents, files, and add-ons yourself.")),
           h("button", { type: "button", onClick: (event) => {
             event.currentTarget.closest("details")?.removeAttribute("open"); setPlanning(true);
           } }, h("strong", null, "Let Bees build it for you"), h("span", null, "Describe the outcome and let Bees propose the process.")))

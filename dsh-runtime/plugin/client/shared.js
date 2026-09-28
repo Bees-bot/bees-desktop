@@ -36,7 +36,7 @@ export const NAVIGATION = [
   { id: "processes", label: "Process templates", icon: ProcessesIcon, defaultChild: "all-processes", children: [] },
   { id: "agents", label: "Agents", icon: AgentsIcon, defaultChild: "all-agents", children: [
     ["all-agents", "Agents & presets"],
-    ["skills", "Skills & tools"], ["mcp", "MCP servers"]
+    ["skills", "Skills & tools"], ["mcp", "Add-ons"]
   ] },
   { id: "files", label: "Files & folders", icon: FilesIcon, defaultChild: "locations", children: [] },
   { id: "activity", label: "Activity", icon: ActivityIcon, defaultChild: "runs", children: [
@@ -1262,7 +1262,7 @@ export function McpCard({ name, status, meta, tone = "", icon, onOpen, actionLab
       h("div", { className: "bees-mcp-dialog-head" },
         icon ? h("span", { className: "bees-mcp-icon", "aria-hidden": true, style: { fontSize: "20px" } }, icon) : null,
         h("h3", null, name), h("span", { className: `bees-mcp-state ${tone}` }, status),
-        h(Button, { onClick: () => setOpen(false), "aria-label": "Close MCP details" }, "×")),
+        h(Button, { onClick: () => setOpen(false), "aria-label": "Close add-on details" }, "×")),
       h("div", { className: "bees-mcp-dialog-body" }, children)) : null);
 }
 

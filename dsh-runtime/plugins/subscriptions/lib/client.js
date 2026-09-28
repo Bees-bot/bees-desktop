@@ -122,6 +122,7 @@ window.__ModuleLoader__.load({
       return h("section", { "data-bees-plugin": "@bees/dsh-subscriptions" },
         h("h2", { className: "bees-section-title" }, "AI subscriptions"),
         h("p", { className: "bees-muted" }, "Use subscriptions you already pay for. Bees keeps each provider's normal sign-in and account controls."),
+        h("p", { className: "bees-muted" }, "Uses your existing subscription. Your messages go to that provider's servers."),
         h("div", { className: "bees-subscriptions" },
           h("section", { className: "bees-box bees-subscription", "data-subscription": "codex" },
             h("div", { className: "bees-subscription-main" }, h("h3", null, "Codex"),

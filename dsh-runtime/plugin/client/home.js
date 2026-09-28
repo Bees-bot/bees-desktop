@@ -101,8 +101,14 @@ function ListWidget({ definition, rowsForRoute, navigate, data, act, openWorkIte
       const agent = definition.route === "all-agents" ? data.assignments.find(({ id }) => id === row.id) : null;
       const workItem = row.item;
       const link = h("div", {
-        className: "bees-dashboard-row", key: row.id, onClick: row.open, title: row.label, style: { display: "flex", alignItems: "center", gap: "10px" }
-      }, 
+        className: "bees-dashboard-row", key: row.id, onClick: row.open, title: row.label, style: { display: "flex", alignItems: "center", gap: "10px" },
+        role: "button", tabIndex: 0,
+        // a nested action button handles its own Enter/Space, so only react when the row itself is focused
+        onKeyDown: (event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); row.open?.(); }
+        }
+      },
         h("span", { style: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", flex: 1 } }, row.label),
         workItem ? h("span", { className: `bees-status bees-${workItem.runtimePhase || workItem.status || "unknown"}`, style: { flex: "0 0 130px" } }, (workItem.runtimePhase || workItem.status).replaceAll("_", " ")) : null,
         workItem ? h("div", { className: "bees-flex-widget-actions", style: { marginLeft: 0 }, onPointerDown: (e) => e.stopPropagation(), onClick: (e) => e.stopPropagation() },

@@ -11,7 +11,8 @@ window.__ModuleLoader__.load({
     function recommendedLocalModel(hardware, models, statuses) {
       const running = models.find((model) => statuses[model.id]?.running);
       if (running) return running;
-      if (!hardware || hardware.totalMemory < 8 * 1024 ** 3) return null;
+      if (!hardware) return null;
+      // let the per-model fit check below pick a smaller model instead of blocking every machine under 8 GB
       const candidates = models.filter((model) => model.bytes > 0 &&
         model.bytes + 2 * 1024 ** 3 <= hardware.totalMemory * 0.6);
       return candidates.find((model) => statuses[model.id]?.running || statuses[model.id]?.state === "ready")
@@ -297,6 +298,7 @@ window.__ModuleLoader__.load({
       return h("section", { "data-bees-plugin": "@bees/dsh-local-ai" },
         h("h2", { className: "bees-section-title" }, "Bees AI"),
         h("p", { className: "bees-muted" }, "Bees downloads and starts GGUF models for you. Use the switches to keep a model downloaded or run it."),
+        h("p", { className: "bees-muted" }, "Runs on this Mac. Nothing leaves it."),
         h(LocalModels, { modelSettings, preferences, catalog, ask, Button, confirmAction }));
     }
 
@@ -361,6 +363,7 @@ window.__ModuleLoader__.load({
       return h("section", { "data-bees-plugin": "@bees/dsh-local-ai-external" },
         h("h2", { className: "bees-section-title" }, "Another local AI server"),
         h("p", { className: "bees-muted" }, "Connect LM Studio, Ollama, llama.cpp, or another OpenAI-compatible server that you run separately."),
+        h("p", { className: "bees-muted" }, "Runs on a server you control. Nothing goes through Bees."),
         h("section", { className: "bees-box bees-subscription" }, h("div", null, h("h3", null, local.displayName ?? "OpenAI-compatible local server"),
           h("p", { className: "bees-muted" }, local.baseURL ? `${local.baseURL} · ${local.models?.length ?? 0} model${local.models?.length === 1 ? "" : "s"}` : "Not connected"),
           local.baseURL ? h("div", { className: "bees-local-server-models" },

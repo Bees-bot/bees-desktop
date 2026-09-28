@@ -480,7 +480,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
     h("div", { className: "bees-clean-tabs", role: "tablist", "aria-label": "Work item details" },
       h("button", { type: "button", role: "tab", id: "bees-tab-files", className: `bees-clean-tab ${activeTab === "files" ? "active" : ""}`, "aria-selected": activeTab === "files", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("files") }, "Files", unreadFiles ? h("span", { className: "bees-count", "aria-label": `${unreadFiles} new files`, title: `${unreadFiles} new files` }, unreadFiles) : null),
       h("button", { type: "button", role: "tab", id: "bees-tab-details", className: `bees-clean-tab ${activeTab === "details" ? "active" : ""}`, "aria-selected": activeTab === "details", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("details") }, "Details"),
-      h("button", { type: "button", role: "tab", id: "bees-tab-tools", className: `bees-clean-tab ${activeTab === "tools" ? "active" : ""}`, "aria-selected": activeTab === "tools", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("tools") }, "MCPs"),
+      h("button", { type: "button", role: "tab", id: "bees-tab-tools", className: `bees-clean-tab ${activeTab === "tools" ? "active" : ""}`, "aria-selected": activeTab === "tools", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("tools") }, "Add-ons"),
       h("button", { type: "button", role: "tab", id: "bees-tab-recurring", className: `bees-clean-tab ${activeTab === "recurring" ? "active" : ""}`, "aria-selected": activeTab === "recurring", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("recurring") }, `Schedules (${recurringWork.length})`),
       h("button", { type: "button", role: "tab", id: "bees-tab-chat", className: `bees-clean-tab ${activeTab === "chat" ? "active" : ""}`, "aria-selected": activeTab === "chat", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("chat") }, "Chat"),
       !plan && itemRuns.length ? h("button", { type: "button", role: "tab", id: "bees-tab-context", className: `bees-clean-tab ${activeTab === "context" ? "active" : ""}`, "aria-selected": activeTab === "context", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("context") }, "Context") : null,
@@ -516,7 +516,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
         key: `${process.id}:${process.mcpAccess}:${JSON.stringify(process.mcpServers)}`, ctx, process,
         servers: capabilities.data?.servers ?? [], tools: capabilities.data?.tools ?? [],
         catalog: capabilities.data?.catalog ?? [], onServerAction: capabilities.act, act, showAll: true
-      }) : h(Empty, null, "This work has no process MCP settings.") : activeTab === "files" ? h(React.Fragment, null,
+      }) : h(Empty, null, "This work has no process add-on settings.") : activeTab === "files" ? h(React.Fragment, null,
         h(WorkFiles, { key: processRunId, runs: fileRuns, filesRef, act })
       ) : activeTab === "runs" ? h(React.Fragment, null,
         h("h3", { className: "bees-section-title" }, "Executions"),
@@ -764,7 +764,7 @@ function WorkItemForm({ ctx, data, kind, workspaceId, defaultProcessId, parent, 
         outputId: outputLocationId, onOutputId: setOutputLocationId, inherited,
         defaultOutputId, defaultOutputName: data.locations.find(({ id }) => id === defaultOutputId)?.name ?? "", compact: true })),
     process && !parent ? h("div", { className: "bees-process-mcps" },
-      h("p", { className: "bees-muted", style: { margin: 0, marginBottom: "8px" } }, "Process MCPs are shared with every agent and future work in this process. Changes save automatically."),
+      h("p", { className: "bees-muted", style: { margin: 0, marginBottom: "8px" } }, "Process add-ons are shared with every agent and future work in this process. Changes save automatically."),
       h(McpAccess, { key: process.id, ctx, servers: capabilities?.data?.servers ?? [],
         tools: capabilities?.data?.tools ?? [], catalog: capabilities?.data?.catalog ?? [],
         onServerAction: capabilities?.act, access: process.mcpAccess, chosen: process.mcpServers,
@@ -1020,7 +1020,7 @@ function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, execu
       index > 0 ? h(Button, { disabled: busy, onClick: () => { setIndex((current) => current - 1); setError(""); } }, "Back") : null,
       signInQuestion ? null : h(Button, { disabled: busy, onClick: skip }, "Skip"), h("div", { className: "bees-grow" }),
       teamId && act && executionId ? h(Button, { disabled: busy, onClick: provideFile }, "Provide a file") : null,
-      onOpenTools ? h(Button, { disabled: busy, onClick: onOpenTools }, "Connect MCP") : null,
+      onOpenTools ? h(Button, { disabled: busy, onClick: onOpenTools }, "Connect an add-on") : null,
       browser && act && executionId ? h(Button, {
         disabled: busy, title: "Open the browser profile this agent uses, so you can sign in on its behalf",
         onClick: openBrowser

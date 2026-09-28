@@ -172,9 +172,9 @@ export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access,
       // a Google sign-in lands later, so that server shows up to add once it is connected
       onDone: ({ serverName }) => { if (serverName && mode !== "all" && !picked.includes(serverName)) change([...picked, serverName]); setReviewing(""); } }) : h(React.Fragment, null,
       ...(mode === "listed" ? picked : []).map((name) => h("input", { key: name, type: "hidden", name: "mcpServers", value: name })),
-      mode === "all" ? h("div", { className: "bees-muted" }, "Uses every MCP server, including ones added later")
-        : h(Button, { onClick: () => change([], "all") }, "Use all MCP servers"),
-      h("input", { className: "bees-input", value: query, placeholder: "Search MCPs or tools", "aria-label": "Search MCPs or tools",
+      mode === "all" ? h("div", { className: "bees-muted" }, "Uses every add-on, including ones added later")
+        : h(Button, { onClick: () => change([], "all") }, "Use all add-ons"),
+      h("input", { className: "bees-input", value: query, placeholder: "Search add-ons or tools", "aria-label": "Search add-ons or tools",
         onChange: (event) => setQuery(event.target.value) }),
       missing.length ? h("div", { className: "bees-mcp-grid" }, ...missing.map((name) => {
         const item = catalog.find((one) => one.serverName === name && !one.installedAs);
@@ -182,8 +182,8 @@ export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access,
           h("div", { className: "bees-muted" }, item
             ? `${item.summary} · runs here fail until it is added`
             : UUID.test(name)
-              ? `This MCP server was set up on another computer. Take it off and pick the one this ${scope} should use.`
-              : `${name} is set up on another computer. Add it under MCP servers, or remove it from this ${scope}.`),
+              ? `This add-on was set up on another computer. Take it off and pick the one this ${scope} should use.`
+              : `${name} is set up on another computer. Add it under Add-ons, or remove it from this ${scope}.`),
           h("div", { className: "bees-detail-actions" },
             item ? h(Button, { className: "primary", disabled: !onServerAction, onClick: () => setReviewing(item.id) }, "Add") : null,
             h(Button, { onClick: () => change(picked.filter((one) => one !== name)) }, "Remove")));
@@ -209,7 +209,7 @@ export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access,
         }),
         ...available.map((item) => h(McpCard, { name: item.label, status: "Not added", key: `catalog:${item.id}`,
           icon: item.icon, onOpen: () => setReviewing(item.id) })),
-      matching.length || available.length || missing.length ? null : h("div", { className: "bees-empty" }, "No MCP or tool matches that search"))));
+      matching.length || available.length || missing.length ? null : h("div", { className: "bees-empty" }, "No add-on or tool matches that search"))));
 }
 
 function AgentDialog({ onClose, children }) {
@@ -244,7 +244,7 @@ export function needsNote(agent, servers) {
   return h("div", { className: "bees-error", style: { fontSize: "12px", marginTop: "2px" } },
     named.length
       ? `Needs ${named.join(", ")}, not connected on this computer. Runs stop here until you add or fix ${named.length === 1 ? "it" : "them"}.`
-      : "Lists MCP servers this computer cannot identify. Runs stop here until you pick its MCP servers again under Configure.");
+      : "Lists add-ons this computer cannot identify. Runs stop here until you pick its add-ons again under Configure.");
 }
 
 /** Agents a run of these stages would use here: the ones routed to a stage, or the automatic stand-in. */
@@ -269,8 +269,8 @@ function McpPreflight({ ctx, data, blockers, servers, tools, catalog, act, onSer
       h("h2", null, blockers.length ? "Add what this run needs" : "Everything this run needs is here"),
       ...blockers.flatMap(({ agent: blocked, missing }) => [
         h("div", { className: "bees-row", key: blocked.id },
-          h("strong", { className: "bees-row-main" }, `${blocked.name} needs MCP servers that are not connected on this computer`),
-          h(Button, { onClick: () => setEditing(blocked.id) }, "Choose MCP servers")),
+          h("strong", { className: "bees-row-main" }, `${blocked.name} needs add-ons that are not connected on this computer`),
+          h(Button, { onClick: () => setEditing(blocked.id) }, "Choose add-ons")),
         ...missing.map((name) => {
           const item = catalog.find((one) => one.serverName === name && !one.installedAs);
           return h("div", { className: "bees-row", key: `${blocked.id}:${name}`, style: { paddingLeft: "16px" } },
