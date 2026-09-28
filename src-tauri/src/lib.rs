@@ -702,6 +702,10 @@ async fn ensure_dsh_runtime(
         .parse()
         .map_err(|error| format!("Could not build the local Bees URL: {error}"))?;
     startup::step("ui.clear-auth-cookies", || clear_dsh_auth_cookies(&window))?;
+    // only the runtime's own port may call app commands, not every page on this computer
+    app.add_capability(tauri::ipc::CapabilityBuilder::new("dsh-ui").remote(runtime.base_url.clone()).window("main")
+        .permission("allow-bees-ui").permission("core:default").permission("dialog:allow-open"))
+        .map_err(|error| error.to_string())?;
     startup::step("ui.navigate", || window.navigate(url))
         .map_err(|error| format!("Could not open the local Bees interface: {error}"))?;
     watch_dsh(app, window, home);
