@@ -8,7 +8,7 @@ use local_models::{
     start_local_model, stop_local_model, LocalModelManager,
 };
 use process::{
-    available_loopback_port, reap_agent_browser, reap_orphan_llama_servers,
+    available_loopback_port, reap_agent_browsers, reap_orphan_llama_servers,
     reap_orphaned_sidecars, Sidecar,
 };
 use serde::Serialize;
@@ -949,9 +949,7 @@ pub fn run() {
                 startup::step("native.reap-temporal", || reap_orphaned_sidecars(&temporal));
             }
             if let Ok(state) = state_dir(app.handle()) {
-                startup::step("native.reap-browser", || {
-                    reap_agent_browser(&state.join("browser-profile"))
-                });
+                startup::step("native.reap-browser", || reap_agent_browsers(&state));
             }
             app.manage(LocalModelManager::default());
             app.manage(DshManager(Mutex::new(None)));
@@ -1025,7 +1023,7 @@ pub fn run() {
                     models.shutdown();
                 }
                 if let Ok(state) = state_dir(handle) {
-                    reap_agent_browser(&state.join("browser-profile"));
+                    reap_agent_browsers(&state);
                 }
                 // the only place the folder lock comes off, since quitting kills the harness outright
                 if let Some(lock) = CLAIMED.lock().unwrap_or_else(|e| e.into_inner()).take() {
