@@ -63,6 +63,8 @@ function ScheduleForm({ item, items = [], recurring, act, onClose, onCreated }) 
     : recurring?.scheduleKind === "interval" ? "hourly" : current.frequency || "daily";
   const [name, setName] = useState(recurring?.name ?? `Daily ${selectedItem?.title ?? "process"}`.slice(0, 120));
   const [frequency, setFrequency] = useState(currentFrequency);
+  // an interval schedule can be any number of minutes, so saving one must not flatten it to hourly
+  const [everyMinutes, setEveryMinutes] = useState(recurring?.scheduleKind === "interval" ? current.everyMinutes ?? 60 : 60);
   const [time, setTime] = useState(`${String(current.hour ?? 9).padStart(2, "0")}:${String(current.minute ?? 0).padStart(2, "0")}`);
   const [dayOfWeek, setDayOfWeek] = useState(current.dayOfWeek ?? "MONDAY");
   const [dayOfMonth, setDayOfMonth] = useState(current.dayOfMonth ?? 1);
@@ -82,7 +84,8 @@ function ScheduleForm({ item, items = [], recurring, act, onClose, onCreated }) 
         action: recurring ? "edit_recurring_work" : "create_recurring_work",
         ...(recurring ? { recurringWorkId: recurring.id } : { itemId: selectedItem.id }),
         name, frequency, hour, minute, dayOfWeek, dayOfMonth: Number(dayOfMonth), timezone,
-        cronExpression, everyMinutes: 60, anchorUtc: current.anchorUtc || new Date().toISOString()
+        cronExpression, everyMinutes: frequency === "hourly" ? Number(everyMinutes) : 60,
+        anchorUtc: current.anchorUtc || new Date().toISOString()
       }, undefined, setError);
       if (!result) return setBusy(false);
       onClose();
@@ -103,7 +106,10 @@ function ScheduleForm({ item, items = [], recurring, act, onClose, onCreated }) 
         h("option", { value: "hourly" }, "Hourly"), h("option", { value: "daily" }, "Daily"),
         h("option", { value: "weekly" }, "Weekly"), h("option", { value: "monthly" }, "Monthly"),
         h("option", { value: "advanced" }, "Advanced (cron)"))),
-      frequency === "hourly" ? h("p", { className: "bees-callout" }, "Runs once an hour, counted from when you save it.") :
+      frequency === "hourly" ? h("label", { className: "bees-process-name" }, "Minutes between runs",
+        h("input", { className: "bees-input", type: "number", min: 1, max: 525600, required: true,
+          value: everyMinutes, onChange: (event) => setEveryMinutes(event.target.value) }),
+        h("p", { className: "bees-callout" }, "Runs on this interval, counted from when you save it.")) :
         frequency === "advanced" ? h(React.Fragment, null,
           h("div", { className: "bees-cron-generator" }, h(Cron, {
             // the picker's hour and minute lists hold "08", so a bare "8" shows as 00

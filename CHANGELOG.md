@@ -17,6 +17,8 @@ Notable changes, newest first. Dates are release dates.
   every start.
 - Adding an API again for a host you already have keeps the key you type, so a connection that
   needed a fixed header finally works.
+- A schedule that runs on an interval of your own, such as every 5 minutes, keeps that interval
+  when you open and save it, and the minutes are editable on the form.
 - Upgrade the bundled DeepSeek Harness from 0.1.7-alpha.1 to 0.1.7-rc.2.
 - Wait for owned background jobs before settling a stage. Model output limits now
   report a recoverable failure instead of reporting successful completion.
