@@ -18,7 +18,7 @@ Open Bees. It creates a private workspace on this computer with no sign-in neede
 
 Open **Settings → AI connections** and connect one AI: Codex or Claude Code (Bees uses the subscription you already have), a hosted provider, or a local model.
 
-Then, on **Home**, type this into the **Ask Bees** box:
+Then, on **Home**, type this into the **What would you like to achieve?** box:
 
 ```
 Browse Hacker News and give me a table of the current stories, grouped by category: news, Show HN, and Ask HN.
@@ -28,7 +28,7 @@ Select **Run**. Bees starts the work with your team's agents and opens it, a rev
 
 ## Features
 
-- Ask Bees for an outcome in plain language, and it runs with your team's agents. Choose **Configure** to pick the process, the agent for each stage, and input files first.
+- Describe an outcome in the **What would you like to achieve?** box, and Bees runs it with your team's agents. Choose **Configure** to set the Process, MCPs, and Input & Output tabs first.
 - Multi-agent processes: agents work through stages on a shared board, and a separate reviewer checks each result before it moves on.
 - Bring your own AI: connect Codex, Claude Code, a hosted provider, or a local model, per agent or as the system default.
 - MCP servers and skills, scoped per agent: give one agent every tool, none, or a named few.

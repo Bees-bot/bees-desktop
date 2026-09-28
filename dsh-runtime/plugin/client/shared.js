@@ -958,7 +958,18 @@ body, html { overflow-x: hidden !important; }
 .bees-modal { width: min(620px, 100%); max-height: calc(100vh - 48px); overflow: auto; padding: 0; border: 1px solid var(--dsw-alias-border-l2); border-radius: 14px; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-base); box-shadow: 0 24px 80px rgba(0,0,0,.35); }
 .bees-modal::backdrop { background: rgba(0,0,0,.55); }
 .bees-modal > form { padding: 24px; }
-.bees-modal.bees-ask-setup { padding: 24px; }
+.bees-modal.bees-ask-setup { width: min(960px, calc(100vw - 32px)); height: min(760px, calc(100dvh - 48px)); margin: auto; padding: 0 20px; box-sizing: border-box; overflow: hidden; }
+.bees-modal.bees-ask-setup[open] { display: flex; flex-direction: column; }
+.bees-ask-setup > fieldset { flex: 1; min-height: 0; overflow: auto; }
+.bees-ask-setup > fieldset > .bees-form { padding-top: 16px; }
+.bees-ask-setup > fieldset h2 { margin: 0; }
+.bees-ask-tabs { padding-left: 0 !important; border-bottom: 0 !important; }
+.bees-ask-setup .bees-routing-board .bees-column { border: 0 !important; background: transparent !important; padding: 8px 10px !important; }
+.bees-ask-setup .bees-resource-output,.bees-ask-setup .bees-output-field { border-top: 0; }
+.bees-ask-heading { position: relative; padding-right: 44px; }
+.bees-ask-close { position: absolute; top: 8px; right: 0; border: 0; background: transparent; box-shadow: none; font-size: 20px; line-height: 1; }
+.bees-ask-actions { flex: none; align-items: center; padding: 12px 0; margin-top: 0; }
+.bees-ask-actions .bees-error { margin: 0 auto 0 0; }
 .bees-playbook { margin: 12px 0; padding: 12px; overflow-wrap: anywhere; white-space: pre-wrap; border: 1px solid var(--dsw-alias-border-l1); border-radius: 8px; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-base); font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .bees-cron-generator .cron_builder { max-width: none; color: var(--dsw-alias-label-primary); border-color: var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-base); }
 .bees-cron-generator .cron_builder .cron_builder_bordering { color: var(--dsw-alias-label-primary); border-color: var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-base); }

@@ -36,7 +36,7 @@ export function OutcomeWidget({ ctx, data, workspaceId, outcome, setOutcome, con
       className: "bees-composer-input",
       placeholder: workspaceId ? "e.g., Research top CRM software and draft a comparison report" : "Choose a team first",
       disabled: busy || !workspaceId || !allowed,
-      "aria-label": "What would you like Bees to do?",
+      "aria-label": "What would you like to achieve?",
       value: outcome,
       onInput: (event) => setOutcome(event.target.value),
       onKeyDown: (event) => {
@@ -147,7 +147,7 @@ function ProposalsWidget({ data, workspaceIds, act }) {
 }
 
 const WIDGETS = [
-  { kind: "outcome", label: "Ask Bees", description: "Create a goal from an outcome", w: 8, h: 5, component: OutcomeWidget , helpText: "Tell Bees what you want to achieve, and it will plan and execute the work to reach that outcome.", helpExamples: ["Research top CRM software and draft a comparison report","Launch the new marketing website","Summarize the latest product feedback"]},
+  { kind: "outcome", label: "What would you like to achieve?", description: "Create a goal from an outcome", w: 8, h: 5, component: OutcomeWidget , helpText: "Tell Bees what you want to achieve, and it will plan and execute the work to reach that outcome.", helpExamples: ["Research top CRM software and draft a comparison report","Launch the new marketing website","Summarize the latest product feedback"]},
   { kind: "quick-actions", label: "Quick actions", description: "Create work, goals, process templates, process runs, and agents", w: 4, h: 5, component: QuickActionsWidget , helpText: "Shortcuts to create new items in your workspace quickly.", helpExamples: []},
   { kind: "metrics", label: "Metrics", description: "Key team counts", w: 12, h: 3, component: MetricsWidget , helpText: "Quick overview of your team's activity and current capacity.", helpExamples: []},
   { kind: "waiting", label: "Needs your attention", description: "Blocked and waiting work", route: "waiting", limit: 8, w: 6, h: 4, component: NeedsYouWidget , helpText: "Work items that are blocked and waiting for your input, approval, or intervention.", helpExamples: ["An agent needs your approval before sending an email","A process requires you to answer a clarifying question","A task failed and needs your attention to retry"]},
