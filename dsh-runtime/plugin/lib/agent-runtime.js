@@ -1949,7 +1949,9 @@ export class AgentRuntime {
     this.starting.add(executionId);
     const start = this.admit("bees-run", executionId, JSON.parse(queued.payloadJson)).catch((error) => {
       const run = this.run(executionId);
-      if (run?.status === "queued") {
+      // a failed start leaves no session, so a live status would be a lie: a recovery that refused
+      // to continue kept the run showing as running for good
+      if (["queued", "running"].includes(run?.status)) {
         const at = new Date().toISOString();
         this.setStatus(executionId, "failed", at);
         this.database.prepare("DELETE FROM bees_run_queue WHERE execution_id = ?").run(executionId);
