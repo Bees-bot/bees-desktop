@@ -5,7 +5,7 @@ export const TOOL_READ_CHARS = 6_000;
 const installed = new WeakSet();
 
 /** Keep one complete runtime snapshot on the request surface; retain originals in the audit log. */
-export function retireRuntimeContexts(session, messages) {
+function retireRuntimeContexts(session, messages) {
   const snapshot = (message) => message?.source?.kind === "runtime-context" && message.source.form === "snapshot";
   const previous = session.surface.nodes.map((seq) => session.eventAt(seq))
     .filter((event) => event?.type === "user/message" && snapshot(event.data));

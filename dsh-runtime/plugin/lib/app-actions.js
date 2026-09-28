@@ -14,7 +14,7 @@ const text = (value, name, limit = 200) => {
   if (typeof value !== 'string' || !value.trim() || value.length > limit) throw new Error(`Invalid ${name}`);
   return value;
 };
-export const actionDigest = (payload) => createHash('sha256').update(JSON.stringify(object(payload))).digest('hex');
+const actionDigest = (payload) => createHash('sha256').update(JSON.stringify(object(payload))).digest('hex');
 export const ACTION_RESERVED_STATUSES = ['approved', 'executing', 'succeeded', 'unknown'];
 
 function unchanged(row, digest) {

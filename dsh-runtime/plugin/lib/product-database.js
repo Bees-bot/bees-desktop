@@ -1070,7 +1070,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * Server names for a stored list. Names are the same on every computer that installed the server;
  * row ids are not, so an older list, or one synced from a peer that has not migrated, still resolves.
  */
-export function serverNames(database, values = []) {
+function serverNames(database, values = []) {
   const byId = new Map(database.prepare(`
     SELECT id, server_name AS name FROM mcp_servers WHERE id IN (SELECT value FROM json_each(?))
   `).all(JSON.stringify(values)).map(({ id, name }) => [id, name]));
