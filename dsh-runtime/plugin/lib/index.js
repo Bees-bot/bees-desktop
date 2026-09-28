@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { createReadStream } from "node:fs";
 import { LOCAL_MEMORY_URL, LocalMemory } from "./local-memory.js";
+import { mountLocalInference } from "./local-inference.js";
 import { timingSafeEqual } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import z from "@deepseek-ai/schemastery";
@@ -8,7 +9,7 @@ import { testOnboardingModel, testPlanningModels } from "./onboarding.js";
 import { AgentRuntime } from "./agent-runtime.js";
 import { Capabilities } from "./capabilities.js";
 import { ConnectedAccount } from "./connected-account.js";
-import { ProductDefaults } from "./product-defaults.js";
+import { ProductDefaults, shippedModelCatalog } from "./product-defaults.js";
 import { appDirectory, sharedFolder } from "./data-folder.js";
 import { mountEvidenceCapture } from "./evidence-capture.js";
 import { GoogleDriveConnection } from "./google-drive.js";
@@ -74,11 +75,6 @@ export const Config = z.object({
   seenFiles: z.dict(z.array(z.string())).default({}).volatile(),
   memoryModel: z.string().default("").volatile(),
   localModelWantedIds: z.array(z.string()).default([]).volatile(),
-  removedLocalModelIds: z.array(z.string()).default([]).volatile(),
-  localModelCatalog: z.array(z.object({
-    id: z.string(), name: z.string(), fileName: z.string(), url: z.string(),
-    bytes: z.number().default(0), sha256: z.string(), runsProcesses: z.boolean().default(false)
-  })).default([]).volatile(),
   themePreset: z.string().default("halloween").volatile(),
   colorMode: z.string().default("dark").volatile(),
   darkThemePreset: z.string().default("halloween").volatile(),
@@ -93,14 +89,7 @@ export const Config = z.object({
     api: z.string(),
     baseURL: z.string(),
     models: z.array(ModelPreference).default([])
-  }).default({}).volatile(),
-  localModels: z.array(z.object({
-    id: z.string(),
-    name: z.string(),
-    fileName: z.string(),
-    url: z.string(),
-    bytes: z.number().default(0)
-  })).default([]).volatile()
+  }).default({}).volatile()
 });
 
 function equalSecret(left, right) {
@@ -235,6 +224,7 @@ export async function apply(ctx, config = {}, internals = {}) {
     database.close();
   }, "bees shutdown");
   const beesSettings = liveSettings(ctx, config, ctx.logger);
+  const localInference = mountLocalInference(ctx);
   // Bees owns these screens; without this, DSH also generates a settings page from the same fields.
   ctx.effect(() => ctx.settings.configure({ auto: false }, ctx.fiber), "bees settings presentation");
   step("bees.database.initialize", () => initializeProductDatabase(database));
@@ -266,7 +256,7 @@ export async function apply(ctx, config = {}, internals = {}) {
   processes.canStart = (workItemId) => product.canStartItem(workItemId);
   memory = product.memory;
   // gigabytes built for this machine, so it stays here when the work moves to a shared folder
-  memory.local = new LocalMemory(ctx.settings, beesSettings, join(appDirectory(), "memory"));
+  memory.local = new LocalMemory(ctx.settings, beesSettings, join(appDirectory(), "memory"), localInference);
   memory.local.onStart = () => capabilities.remountUrl(LOCAL_MEMORY_URL).catch((error) =>
     ctx.logger.warn(`bees: memory server remount failed: ${userMessage(error)}`));
   memory.start();
@@ -404,7 +394,8 @@ export async function apply(ctx, config = {}, internals = {}) {
     } catch (error) { replyPage(res, false, userMessage(error)); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/snapshot", handler: async (_req, res) => {
-    try { reply(res, 200, { ...await product.snapshot(), systemDefaultModel: ctx.agentDefaultModel.currentSelection() }); }
+    try { reply(res, 200, { ...await product.snapshot(), systemDefaultModel: ctx.agentDefaultModel.currentSelection(),
+      localModelCatalog: shippedModelCatalog }); }
     catch (error) { reply(res, 409, { error: userMessage(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/product-defaults", handler: async (req, res) => {

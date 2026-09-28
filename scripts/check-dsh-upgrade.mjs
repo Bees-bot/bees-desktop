@@ -41,12 +41,121 @@ try {
   assert.equal(cloudModel.resolvedModel, "openai/gpt-example");
   assert.equal(cloudModel.resolvedModelLabel, "OpenAI · gpt-example");
   const { initializeProductDatabase } = await import("../dsh-runtime/plugin/lib/product-database.js");
-  const { readToolResult } = await import("../dsh-runtime/plugin/lib/context-policy.js");
+  const { readToolResult, installContextPolicy } = await import("../dsh-runtime/plugin/lib/context-policy.js");
+  const { Session } = await import(require.resolve("@deepseek-ai/dsh-session"));
+  const { createUserMessage, createToolResultMessage } = await import(require.resolve("@deepseek-ai/dsh-llm"));
+  // RC2 appends changed runtime snapshots. Keep one on the request surface without
+  // losing user corrections, tool evidence, or the original append-only history.
+  const session = Session.create("context-retention");
+  const user = (text, source = { kind: "user" }) => createUserMessage({
+    content: [{ type: "text", text }], source
+  });
+  const snapshot = (text) => user(text, { kind: "runtime-context", form: "snapshot", sections: [] });
+  const append = (message) => session.append("user/message", message, { surfaceOp: "append" });
+  const initial = append(user("Create five contributions, preserving every entry."));
+  append(snapshot("old state ".repeat(3000)));
+  const correction = append(user("Use the current run filename."));
+  append(snapshot("newer state ".repeat(3000)));
+  const originalEvents = session.snapshotEvents();
+  let preStep;
+  installContextPolicy({ on: (name, hook) => { if (name === "agent/pre-step") preStep = hook; }, tools: { register() {} } });
+  const retainedContexts = () => session.deriveMessages().filter(({ source }) => source.kind === "runtime-context");
+  const enter = async (messages) => preStep({ agent: { session }, signal: new AbortController().signal },
+    async () => ({ kind: "enter", messages }));
+  await enter([]); // A restored session may have multiple snapshots but no new one.
+  assert.equal(retainedContexts().length, 1);
+  assert.match(retainedContexts()[0].content[0].text, /^newer state/);
+  const current = snapshot("Current requirements, human corrections, roster and file evidence.");
+  await enter([current]);
+  append(current);
+  assert.deepEqual(retainedContexts(), [current]);
+  assert(session.surface.nodes.includes(initial.seq));
+  assert(session.surface.nodes.includes(correction.seq));
+  assert.deepEqual(session.snapshotEvents().slice(0, originalEvents.length), originalEvents);
+  assert.deepEqual(Session.create(session.id, session.snapshotEvents()).deriveMessages(), session.deriveMessages());
+  const stableSeq = session.seq;
+  await enter([]);
+  assert.equal(session.seq, stableSeq, "unchanged context must not create more replacements");
+  const abort = new AbortController(); abort.abort();
+  await assert.rejects(preStep({ agent: { session }, signal: abort.signal }, async () => ({ kind: "enter", messages: [snapshot("cancelled")] })), { name: "AbortError" });
+  assert.deepEqual(retainedContexts(), [current]);
+  const contextRead = (id, args, text, name = "bees_read_context") => {
+    session.append("tool/call", { callId: id, name, arguments: JSON.stringify(args) });
+    return session.append("tool/result", { message: createToolResultMessage({ callId: id,
+      content: [{ type: "text", text }], isError: false }) }, { surfaceOp: "append" });
+  };
+  contextRead("old-context", {}, "Old complete context with historical filename.");
+  const page = contextRead("discussion-page", { after: 12 }, "Earlier discussion page requested explicitly.");
+  const recalled = contextRead("memory-read", { include_memories: true }, "Explicitly requested historical memory.");
+  const newest = contextRead("current-context", {}, "Current file and participant evidence.");
+  contextRead("old-wait", { after: 0 }, "Earlier peer statuses and messages.", "bees_wait_for_peers");
+  const latestWait = contextRead("new-wait", { after: 0 }, "Current peer statuses and messages.", "bees_wait_for_peers");
+  await enter([]);
+  assert(session.surface.nodes.includes(page.seq));
+  assert(session.surface.nodes.includes(recalled.seq));
+  assert(session.surface.nodes.includes(newest.seq));
+  assert(session.surface.nodes.includes(latestWait.seq));
+  assert(!session.deriveMessages().some((message) => message.content[0]?.text === "Old complete context with historical filename."));
+  assert.equal(readToolResult(session, { call_id: "old-context" }).text, "Old complete context with historical filename.");
+  assert(!session.deriveMessages().some((message) => message.content[0]?.text === "Earlier peer statuses and messages."));
+  assert.equal(readToolResult(session, { call_id: "old-wait" }).text, "Earlier peer statuses and messages.");
+  assert.deepEqual(Session.create(session.id, session.snapshotEvents()).deriveMessages(), session.deriveMessages());
   const database = new DatabaseSync(":memory:");
   initializeProductDatabase(database);
   const schemas = [];
   const ctx = { on() {}, tools: { schemas: () => schemas }, logger: { warn() {} } };
   const runtime = new AgentRuntime(ctx, database);
+  // A review, including a recovery seed with workspace-write, cannot mutate its
+  // candidate. Worker sessions keep their existing file policy.
+  for (const mode of ["review", "work"]) {
+    const policySession = Session.create(`policy-${mode}`);
+    policySession.append("sandbox/mode", { mode: "workspace-write" });
+    const handle = { agent: { session: policySession }, dispose: async () => {} };
+    await runtime.newHandle.call({ ctx: { ...modelContext,
+      agents: { create: async () => handle }, approval: { setPolicy() {} }
+    } }, { executionId: `policy-${mode}`, currentSessionId: `policy-${mode}` },
+    { mode, model: "local-openai/active" }, root, "create");
+    assert.equal(policySession.snapshotEvents().filter(({ type }) => type === "sandbox/mode").at(-1).data.mode,
+      mode === "review" ? "read-only" : "workspace-write");
+  }
+  // A successful terminal tool must finish even if steering/another turn was
+  // queued while it ran. Exercise the actual RC2 driver, not a fake idle state.
+  const { Context } = await import(require.resolve("@deepseek-ai/cordis"));
+  const { LlmAdapter } = await import(require.resolve("@deepseek-ai/dsh-llm"));
+  const { defineTool } = await import(require.resolve("@deepseek-ai/dsh-tools"));
+  const { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } = await import(require.resolve("@deepseek-ai/dsh-agent-loop-testkit"));
+  const loopContext = new Context();
+  await mountAgentLoopTestDependencies(loopContext);
+  await loopContext.plugin(await import(require.resolve("@deepseek-ai/dsh-time-context")), { refreshIntervalMs: 0 });
+  let calls = 0, submitted = false;
+  loopContext.llm.registerAdapter(["stage-test"], new class extends LlmAdapter {
+    async *stream() {
+      calls++;
+      assert.equal(calls, 1, "accepted stage generated another model request");
+      yield { type: "block-start", index: 0, blockType: "tool-call" };
+      yield { type: "block-end", index: 0, block: { type: "tool-call", id: "submit", name: "submit", arguments: "{}" } };
+      yield { type: "finish", reason: { kind: "tool-calls" } };
+    }
+  });
+  const harness = await mountAgentLoopTestHarness(loopContext);
+  const loopAgent = await harness.create("stage-completion", { provider: "stage-test", model: "test" });
+  runtime.guardStageCompletion.call({ stageResult: () => submitted ? { outcome: "candidate" } : null }, loopAgent.ctx, "stage-test");
+  loopAgent.ctx.tools.register(defineTool({ name: "submit", description: "Finish this test stage", parameters: {},
+    output: { schema: { type: "object", additionalProperties: false, properties: { ok: { type: "boolean", required: true } } }, render: () => [{ type: "text", text: "Accepted" }] },
+    execute: (_args, exec) => {
+      submitted = true;
+      loopAgent.steer(user("The write succeeded; submit once."));
+      loopAgent.followup(user("Late duplicate continuation."));
+      exec.concludeTurn();
+      return { ok: true };
+    }
+  }));
+  loopAgent.followup(user("Submit the finished contribution."));
+  await loopAgent.whenIdle();
+  assert(submitted);
+  assert.equal(calls, 1);
+  assert(loopAgent.session.snapshotEvents().filter((event) => event.type === "turn/end").every((event) => event.data.reason.kind === "completed"));
+  await loopContext.fiber.dispose();
   const grant = { mcpAccess: "listed", mcpServers: ["sales"] };
   const servers = database.prepare("INSERT INTO mcp_servers (id, server_name, label, transport, created_at) VALUES (?, ?, ?, 'stdio', 'now')");
   servers.run("sales", "sales", "Sales");

@@ -684,9 +684,15 @@ export class ProcessRuntime {
 
   project(state) {
     const stage = this.database.prepare(`
-      SELECT 1 FROM stages WHERE id = ? AND process_id = ? AND archived_at IS NULL
+      SELECT driver, is_terminal AS isTerminal FROM stages
+      WHERE id = ? AND process_id = ? AND archived_at IS NULL
     `).get(state.stageId, state.processId);
     if (!stage) throw new Error("The stage does not belong to this process");
+    // Peers and skipped work finish early. Save their completion in the terminal board lane too.
+    if (state.phase === "completed" && stage.driver !== "terminal" && !stage.isTerminal) {
+      const terminal = this.stages(state.processId).find(({ driver, isTerminal }) => driver === "terminal" || isTerminal);
+      if (terminal) state = { ...state, stageId: terminal.id };
+    }
     const result = this.database.prepare(`
       UPDATE work_items SET stage_id = ?, runtime_phase = ?, runtime_attempt = ?,
         runtime_review_cycle = ?, runtime_execution_id = ?, runtime_error = ?, updated_at = ?

@@ -419,14 +419,22 @@ export class ConnectedAccount {
     return results;
   }
 
-  syncCoordination() {
+  syncCoordination(connectionIds = null) {
     if (this.closed) return Promise.resolve([]);
-    // a pass that has not started yet covers every later ask, so a slow pass cannot pile up a backlog
-    if (this.queuedSync) return this.queuedSync;
-    const pending = this.queuedSync = this.syncQueue.then(async () => {
+    // Share one queued pass. Requests arriving after a pass starts get a fresh pass so
+    // records created during its upload are still published before their callers proceed.
+    if (this.queuedSync) {
+      if (!connectionIds) this.queuedSync.connectionIds = null;
+      else for (const id of connectionIds) this.queuedSync.connectionIds?.add(id);
+      return this.queuedSync.promise;
+    }
+    const queued = { connectionIds: connectionIds ? new Set(connectionIds) : null };
+    this.queuedSync = queued;
+    const pending = this.syncQueue.then(async () => {
       this.queuedSync = null;
+      const connections = this.connections().filter(({ id }) => !queued.connectionIds || queued.connectionIds.has(id));
       const results = [];
-      for (const connection of this.connections()) {
+      for (const connection of connections) {
         try {
           const request = (path, options = {}) => this.request(path, {
             ...options, accountUserId: connection.accountUserId
@@ -450,6 +458,7 @@ export class ConnectedAccount {
       }
       return results;
     });
+    queued.promise = pending;
     this.syncQueue = pending.then(() => undefined, () => undefined);
     return pending;
   }

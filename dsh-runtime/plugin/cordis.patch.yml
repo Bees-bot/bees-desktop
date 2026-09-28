@@ -124,37 +124,16 @@
       name: '@bees/dsh-custom-ai'
     - id: bees
       name: '@bees/dsh-plugin'
-      inject: [webServer, agents, agentPresets, sessionPersistence, approval, workspaceRegistry, settings, credentials, agentDefaultModel, llm, skills, tools, agentTeams, tokenMeter, sessions, attachments, jobs, fs]
+      inject: [ webServer, agents, agentPresets, sessionPersistence, approval, workspaceRegistry, settings, credentials, agentDefaultModel, llm, skills, tools, agentTeams, tokenMeter, sessions, attachments, jobs, fs ]
       config:
         localModelCatalog:
-          - id: granite-4-0-h-tiny-q4-k-m
-            name: Granite 4.0 h tiny (Q4_K_M)
-            runsProcesses: true
-            fileName: granite-4.0-h-tiny-Q4_K_M.gguf
-            url: https://huggingface.co/ibm-granite/granite-4.0-h-tiny-GGUF/resolve/main/granite-4.0-h-tiny-Q4_K_M.gguf?download=true
-            bytes: 4230976352
-            sha256: 5a38b08c441ae1adbafb1d2b8a7167e0d48734d83af68b268cefea1eec553dcd
-          - id: lfm2-5-2-6b-q4-k-m
-            name: LFM2.5 2.6B (Q4_K_M)
-            runsProcesses: true
-            fileName: LFM2.5-2.6B-Q4_K_M.gguf
-            url: https://huggingface.co/LiquidAI/LFM2.5-2.6B-GGUF/resolve/main/LFM2.5-2.6B-Q4_K_M.gguf?download=true
-            bytes: 1674455040
-            sha256: 02a8b7e17487d326e46d68ce0ba24211e1b80a14c4cd0597fa73c1cd697f52ed
-          - id: granite-4-2-3b-q4-k-m
-            name: Granite 4.2 3B (Q4_K_M)
-            runsProcesses: false
-            fileName: granite-4.2-3b-Q4_K_M.gguf
-            url: https://huggingface.co/ibm-granite/granite-4.2-3b-GGUF/resolve/main/granite-4.2-3b-Q4_K_M.gguf?download=true
-            bytes: 2244011552
-            sha256: e0406663965846ae22a403456eb826ccce5f450840491f71952f18a7cb78e7d5
           - id: qwen3-4b-instruct-2507-q4-k-m
             name: Qwen3 4B Instruct (Q4_K_M)
-            runsProcesses: false
             fileName: Qwen3-4B-Instruct-2507-Q4_K_M.gguf
             url: https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf?download=true
             bytes: 2497281120
             sha256: 3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597
+            runsProcesses: false
         themePreset: halloween
         colorMode: dark
         darkThemePreset: halloween

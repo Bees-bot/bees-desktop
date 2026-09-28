@@ -15,10 +15,11 @@ const version = "0.10.0";
 
 /** One device-local service; workspace banks and delivery queues remain separate. */
 export class LocalMemory {
-  constructor(settings, preferences, directory) {
+  constructor(settings, preferences, directory, inference) {
     this.settings = settings;
     this.preferences = preferences;
     this.directory = directory;
+    this.inference = inference;
     this.status = "Preparing local memory";
     this.stop = new AbortController();
     this.retryAt = 0;
@@ -189,6 +190,7 @@ export class LocalMemory {
     if (request.method !== "POST" || request.url !== "/v1/chat/completions") { response.writeHead(404).end(); return; }
     const controller = new AbortController();
     response.on("close", () => controller.abort());
+    let release;
     try {
       const chunks = []; let size = 0;
       for await (const chunk of request) {
@@ -201,9 +203,12 @@ export class LocalMemory {
       catch { response.writeHead(400).end(); return; }
       if (!body || typeof body !== "object" || Array.isArray(body)) { response.writeHead(400).end(); return; }
       const target = await this.target();
+      const signal = AbortSignal.any([this.stop.signal, controller.signal]);
+      release = await this.inference?.acquire(target.base, signal, true);
+      signal.throwIfAborted();
       // qwen thinks for 2k to 8k tokens before each fact extraction, past hindsight's timeout, so every retain failed
       const upstream = await fetch(`${target.base}/chat/completions`, { method: "POST", redirect: "error",
-        signal: AbortSignal.any([this.stop.signal, controller.signal, AbortSignal.timeout(300000)]),
+        signal: AbortSignal.any([signal, AbortSignal.timeout(300000)]),
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ ...body, model: target.model, chat_template_kwargs: { ...body.chat_template_kwargs, enable_thinking: false } }) });
       response.writeHead(upstream.status, { "content-type": upstream.headers.get("content-type") || "application/json" });
@@ -211,7 +216,7 @@ export class LocalMemory {
     } catch (error) {
       if (response.headersSent) response.destroy();
       else response.writeHead(503, { "content-type": "application/json" }).end(JSON.stringify({ error: { message: error.message } }));
-    }
+    } finally { release?.(); }
   }
 
   async release() {

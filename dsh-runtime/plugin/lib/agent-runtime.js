@@ -7,6 +7,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { scopeOf } from "@deepseek-ai/dsh-scope";
 import { SessionId } from "@deepseek-ai/dsh-session";
+import { setSandboxMode } from "@deepseek-ai/dsh-sandbox-policy";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { hideAgentBrowser } from "./agent-browser.js";
 import { modelLabel } from "./model-label.js";
@@ -17,13 +18,13 @@ import { installContextPolicy, readToolResult } from "./context-policy.js";
 import { outputFiles, outputLocation, runFiles } from "./product-files.js";
 import { mountRepeatGuard } from "./repeat-guard.js";
 import { FileLocks } from "./file-locks.js";
-import { mountFileLocks } from "./file-lock-tools.js";
+import { FILE_LOCK_INSTRUCTIONS, mountFileLocks } from "./file-lock-tools.js";
 import { sendsOut } from "./spec-from-curl.js";
 import { mountPageFetch } from "./web-page.js";
 import { SKILL_CATALOG } from "./skill-packs.js";
 import { mountToolDiscovery } from "./tool-discovery.js";
 import { WorkContext } from "./work-context.js";
-import { assertPeersSettled, mountPeerCollaboration } from "./peer-collaboration.js";
+import { assertPeersSettled, delegationEvidence, DELEGATION_PROTOCOL, DISCUSSION_PROTOCOL, mountPeerCollaboration } from "./peer-collaboration.js";
 import { currentIdentity, itemContext, mcpGrantFor, message, transaction, userMessage } from "./product-database.js";
 import { authorizeReferences, typedReferences } from "./product-references.js";
 export { authorizeReferences, typedReferences } from "./product-references.js";
@@ -43,8 +44,6 @@ const RUN_STALL_MS = Number(process.env.BEES_RUN_STALL_MS ?? 15 * 60_000);
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
 
 For ordinary runs read inputs from inputs/ and write requested file deliverables under outputs/, as relative paths like outputs/report.md with no leading slash. Anything outside this run is the person's, so ask for it with bees_request_work_review, naming its full path, before you read or write it. The summary is the plain-language, user-facing verdict: say what happened, what the person can use, where any files are, and what is needed next. Keep technical evidence in the evidence record or files instead of making it the summary. To change a file that came from inputs/, write the whole updated file under outputs/ at the same relative path; publishing copies it back over the original. Do not write to mapped company folders directly. If you are provided with granted publication targets, you MUST ALWAYS call bees_publish_outputs to copy finished deliverables to the granted folder after the files are ready; Bees will ask the user for approval. Request approval for protected operations; if approval is denied, report the limitation with bees_submit_stage_result blocked when that tool is available, then stop. Every factual claim must come from the task or a tool result. Take ownership of resolving dependencies: inspect existing inputs, context and the tools bees_find_tools can load, such as a shell to run a script, try relevant alternatives, and use bees_control to set up missing capabilities within the task permissions. A missing MCP, file, account connection or detail is a next step to resolve, not a finished result. Ask for only the next concrete dependency with ask_user_question, explain exactly what the person should connect or provide and why, then verify their answer with tools and continue automatically. Never request secrets in chat; direct credentials to the connection settings. Work through remaining dependencies one at a time, preserve completed work, and do not repeat an ineffective attempt or an already answered question. Use bees_request_work_review for real approvals so there is an actionable approval control; never merely say you are waiting for approval. Stop only when the owner explicitly stops the work or denies a required permission. When the task requires external information, use available tools to obtain relevant evidence and follow its stated source restrictions. If the evidence is insufficient, use another relevant source or ask the owner for missing information. Once the evidence is sufficient for the requested scope, complete and submit the work. For authenticated services, prefer an authorized MCP that supports the operation. Otherwise, when the task supplies API credentials, use the supported API over HTTP; never ask a person to sign in for it. Use the browser for authenticated pages only when no available MCP or API supports the operation. Do not use unauthenticated fetch for a page that requires a signed-in session. If the browser then lands on a login wall, ask the owner with ask_user_question, which offers them the browser to sign in. Neither a robots refusal nor a login wall is a reason to finish the run blocked. When the outcome needs its own process, agents, MCP servers or skills, build them with bees_control when that tool is available. A task or stage that says build, create, set up, schedule or run a process, agent, work item, connection or schedule means creating that thing itself with bees_control; a document that describes one, or delegated work that does its steps, does not complete that stage. A request that says when work repeats, such as every weekday at 8am, asks for a schedule even without that word: create it with create_recurring_work unless a schedule started this run. When the request only asks for future work, do not also perform that work now unless the owner asks for an immediate run. A request for a subagent means tracked peer delegation through bees_delegate_work when that tool is available. Use bees_delegate_work for analysis, discussion and execution. Use bees_share_update for questions and decisions. There is one peer lifecycle; peers finish with bees_submit_stage_result.`;
-
-const DELEGATION_PROTOCOL = `Delegation scheduling: Honor the user's requested delegation count and parallel or sequential execution order, even when saved agent instructions give a different default. For parallel work, put independent assignments together in the items_json array of one bees_delegate_work call, up to the tool's batch limit; use background:true for discussion so you can answer peers while they work. A waiting call may return early for a shared message; inspect statuses rather than assuming the batch finished. Separate blocking calls serialize work. Give each parallel peer distinct output paths. When sequential execution is requested or a task depends on an earlier result, delegate one at a time and inspect the result before launching the next. Otherwise default to running independent assignments together. Inspect every returned result before completing the combined work.`;
 
 const CATALOG_IDS = MCP_CATALOG.filter(({ scopes }) => !scopes).map(({ id }) => id).join(", ");
 const SIGN_IN_LABELS = MCP_CATALOG.filter(({ scopes }) => scopes).map(({ label }) => label).join(", ");
@@ -72,7 +71,7 @@ A stage is a name and nothing else. What the work is goes in the work item you c
 
 You must call bees_propose_changes with reviewable changes. Do not claim that a proposal was applied and do not modify Bees business state through any other route.`;
 
-const REVIEW_PERSONA = `You are a fresh Bees reviewer. Independently inspect the candidate files and evidence in this session workspace. Run relevant checks yourself. Do not trust completion claims from the worker. You may only pass the work or return concrete revision feedback.`;
+const REVIEW_PERSONA = `You are a fresh Bees reviewer. Independently inspect the candidate files and evidence in this session workspace. Run relevant checks yourself. Do not trust completion claims from the worker. You may only pass the work or return concrete revision feedback. Judge the stated requirements without adding stricter ones: parallel delegation does not require a single tool call unless explicitly requested. Use child execution timestamps to assess overlap, not the time a delegation audit was recorded. Check that proposed corrections are possible within the documented tool limits.`;
 
 const HUMAN_INTERACTION_PROTOCOL = `Human interaction protocol:
 - Use ask_user_question only to obtain missing information or ask the human to take an external action, such as signing in.
@@ -228,9 +227,9 @@ const admitsIncompleteCandidate = (summary) =>
   /\b(?:acceptance criteria|requirements?)\b[\s\S]{0,80}\b(?:not (?:fully )?met|unmet|incomplete|outstanding)\b/i.test(summary) ||
   /\b(?:partial|blocked) deliverable\b/i.test(summary);
 const MAX_DELEGATION_DEPTH = 1;
-// Peers delegated together run at once and share the caller's workspace. Four keeps a fan-out
-// useful without a lead spawning a swarm that competes for the same model and the same files.
-const MAX_PARALLEL_PEERS = 4;
+// Match the native team's eight-member bound. Local inference is queued separately,
+// so a five-worker request does not need extra model calls merely to split its batch.
+const MAX_PARALLEL_PEERS = 8;
 
 /** Stage completion is recorded explicitly by bees_submit_stage_result. */
 const STAGE_RESULT_COLUMNS = `
@@ -245,7 +244,7 @@ const resultCallId = (data) => String(data.message.source.callId);
 function reviewTimeline(events) {
   const calls = new Set();
   return events.flatMap((event) => {
-    if (event.type === "tool/call" && ["ask_user_question", WORK_REVIEW_TOOL].includes(event.data.name)) {
+    if (event.type === "tool/call" && ["ask_user_question", WORK_REVIEW_TOOL, "bees_delegate_work", "bees_revise_work", "bees_wait_for_peers"].includes(event.data.name)) {
       calls.add(String(event.data.callId));
       return [{ seq: event.seq, time: event.time, type: event.type,
         tool: event.data.name, callId: event.data.callId, detail: excerpt(event.data.arguments) }];
@@ -1079,6 +1078,7 @@ export class AgentRuntime {
   }
 
   async setup(agentCtx, data, executionId, workspace) {
+    this.guardStageCompletion(agentCtx, executionId);
     const installedApp = data.workItemId ? await this.apps?.executionContext(data.workItemId) : null;
     // The sandbox is mounted from the item's process, so an app agent put on any other process would run unrestricted.
     if (!installedApp && data.agentId && this.database.prepare("SELECT 1 FROM app_agent_owners WHERE agent_id = ?").get(data.agentId))
@@ -1090,6 +1090,12 @@ export class AgentRuntime {
     if (!installedApp) await this.startBrowserIfGranted(data, agentCtx);
     const appInstructions = installedApp ? mountAppTools(agentCtx, this.apps, installedApp, data) : "";
     this.installPolicies(agentCtx, { discovery: !installedApp, data });
+    if (data.mode === "review") agentCtx.on("system-prompt/assemble", async (_assembly, _context, next) => {
+      const assembly = await next();
+      const edits = new Set(["write", "edit", "bees_append_file", "bees_commit_file", "bees_acquire_file_locks", "bees_release_file_locks"]);
+      return { ...assembly, tools: assembly.tools.filter(({ name }) => !edits.has(name)),
+        sections: assembly.sections.filter(({ name }) => !name.startsWith("tool:") || !edits.has(name.slice(5))) };
+    });
     if (data.workItemId && !this.workContext.run(executionId) && this.database.prepare("SELECT 1 FROM work_items WHERE id = ? AND deleted_at IS NULL").get(data.workItemId)) {
       this.workContext.pin(executionId, itemContext(this.database, data.workItemId), {
         instructions: data.instructions ?? "", systemInstructions: this.settings?.get?.()?.systemInstructions ?? ""
@@ -1105,7 +1111,10 @@ export class AgentRuntime {
       systemInstructions ? `System-wide user instructions:\n${systemInstructions}` : "",
       String(data.instructions ?? ""),
       installedApp ? "" : "Choose the most specific available tool that directly supports each part of the task, using its description and input schema. The listed tools are ready to call, but connected MCP tools may require discovery: when a task concerns a service or capability not directly covered by a listed specialized tool, use bees_find_tools with the service or capability words before falling back to a general browser or web tool. A visible browser or web tool is not a reason to skip a relevant connected MCP. Use browser/web tools for public internet research, necessary web interaction, or when no authorized specialized tool supports the operation. Combine specialized tools and web tools when different parts of the task require them; do not invoke irrelevant tools or ask the user to choose when the task and permissions are clear. Newly connected MCPs follow the same description/schema-based selection. When a shortened result lacks what the task needs, read or grep the saved path its notice gives.",
-      !installedApp && data.mode === "work" ? DELEGATION_PROTOCOL : "",
+      !installedApp && data.mode === "work" && data.workItemId && this.peerDepth(data.workItemId) === 0 ? DELEGATION_PROTOCOL : "",
+      data.mode === "review" ? "Candidate files are read-only during review. Inspect them and report any required changes through bees_submit_stage_result with revise; do not perform the worker's assignment again." : FILE_LOCK_INSTRUCTIONS,
+      this.workContext.instructions(executionId),
+      !installedApp && this.workContext.run(executionId) ? DISCUSSION_PROTOCOL : "",
       data.mode === "planning" ? "" : HUMAN_INTERACTION_PROTOCOL,
       installedApp ? "" : "Run files and their text previews are available in bees_read_context; bees_read_work_evidence exposes source results from the same run. Team knowledge search covers work descriptions and mapped team sources, not generated run files.",
       ...(installedApp ? [] : [...this.connectedTools(data), ...this.boundFolders(data)]),
@@ -1346,17 +1355,24 @@ export class AgentRuntime {
         return { result: JSON.stringify({ agents: rows.slice(0, 8), next_offset: rows.length > 8 ? offset + 8 : null }) };
       }
     }));
-    if (!installedApp && data.mode === "work" && data.workItemId)
+    if (!installedApp && data.mode === "work" && data.workItemId && this.peerDepth(data.workItemId) < MAX_DELEGATION_DEPTH)
       agentCtx.tools.register(defineTool({
         name: "bees_delegate_work",
-        description: "Delegate self-contained tasks to independent peer agents. Their work returns directly to you for review; they skip automatic child review. Inspect their summaries, artifacts and source evidence before completing your combined answer. Peers in one call run at the same time. Use background:true for discussions; otherwise the caller waits for completion or a relevant shared message. A returned running status is not a completed result. Group parallel assignments in one call; use separate calls when the user requests sequential execution or work depends on an earlier result.",
+        description: "Launch real subagents as tracked child work items. Required when the task asks for subagents, including trivial contributions. Their work returns directly to you for review; they skip automatic child review. Inspect their summaries, artifacts and source evidence before completing your combined answer. Subagents in one call run at the same time. Use background:true for discussions; otherwise wait for completion or a shared message. A returned running status is not a completed result. Group parallel assignments in one call; use separate calls for requested sequential execution or dependent work.",
         timeoutMs: 2_147_483_647,
         parameters: {
+          items: {
+            type: "array", description: `1 to ${MAX_PARALLEL_PEERS} subagent assignments. Each item launches one subagent.`,
+            items: { type: "object", additionalProperties: false, properties: {
+              title: { type: "string", required: true, description: "Distinct task name." },
+              description: { type: "string", required: true, description: "Exact contribution, outputs/ path and acceptance criteria for this subagent." },
+              agentAssignmentId: { type: "string", description: "Omit to inherit your configuration; otherwise use an enabled agent assignment ID." }
+            } }
+          },
           items_json: {
-            type: "string", required: true,
-            description: `JSON array of 1 to ${MAX_PARALLEL_PEERS} objects shaped {title:string,description?:string,agentAssignmentId?:string}. Use bees_list_execution_agents only when a specific agentAssignmentId is needed. Omit it to inherit the caller. Include output paths and acceptance criteria in description. Peers sent together share one workspace and run at once, so give each its own output paths or they will overwrite each other. Send dependent work or explicitly sequential assignments as separate calls, in order. Analysis, discussion and execution all use this same peer path.`
-          }
-          , background: { type: "boolean", description: "Return peer IDs immediately so you can discuss with them; otherwise wait for results or a shared update." }
+            type: "string", description: "Legacy alternative: JSON text containing the assignments. Prefer the items array; supply only one format."
+          },
+          background: { type: "boolean", description: "Return peer IDs immediately so you can discuss with them; otherwise wait for results or a shared update." }
         },
         output: {
           schema: {
@@ -1370,22 +1386,27 @@ export class AgentRuntime {
         execute: async (args, exec) => {
           if (exec.agent?.session.header?.parentSession) throw new Error("Only the lead work agent can delegate tracked work");
           if (!this.subitemStore) throw new Error("The Bees sub-item store is unavailable");
-          let items;
-          try { items = JSON.parse(args.items_json); }
-          catch { throw new Error("items_json must be valid JSON"); }
+          if (args.items !== undefined && args.items_json !== undefined)
+            throw new Error("Supply only items or items_json, not both");
+          let items = args.items;
+          if (items === undefined) try { items = JSON.parse(args.items_json); }
+          catch { throw new Error("Supply an items array, or valid JSON in items_json"); }
           if (!Array.isArray(items) || !items.length)
-            throw new Error("items_json must contain at least one delegated work item");
+            throw new Error("items must contain at least one delegated work item");
+          if (items.some((item) => !item || typeof item.title !== "string" || !item.title.trim()))
+            throw new Error("Each delegated work item needs a nonempty title");
           if (items.length > MAX_PARALLEL_PEERS)
-            throw new Error(`Delegate at most ${MAX_PARALLEL_PEERS} peers at once; send the rest after these settle`);
+            throw new Error(`Delegate at most ${MAX_PARALLEL_PEERS} peers per call. For a larger parallel group, launch consecutive background:true batches before waiting.`);
           if (this.peerDepth(data.workItemId) >= MAX_DELEGATION_DEPTH)
             throw new Error("This work is already delegated as deep as Bees goes; do it in this run");
           const settled = this.database.prepare("SELECT 1 FROM work_items WHERE parent_id = ? AND deleted_at IS NULL AND runtime_phase = 'completed' AND lower(trim(title)) = lower(trim(?))");
           const done = items.find(({ title }) => settled.get(data.workItemId, String(title ?? "")));
           if (done) throw new Error(`"${done.title}" already ran. Read its result with bees_read_work_evidence, correct it with bees_revise_work, or send only new assignments.`);
+          const requestedAt = new Date().toISOString();
           const created = await this.subitemStore.create({ parentId: data.workItemId, executionId, items });
           const ids = created.map(({ id }) => id);
           const sessionId = String(exec.agent?.session.id ?? "");
-          this.audit("peer-work-delegated", executionId, sessionId, { workItemId: data.workItemId, ids });
+          this.audit("peer-work-delegated", executionId, sessionId, { workItemId: data.workItemId, ids, requestedAt, callId: exec.callId });
           if (args.background === true) return { count: ids.length, ids: ids.join(","), results_json: JSON.stringify(created) };
           try {
             const results = await this.waitForPeers(ids, exec.signal, data.workItemId);
@@ -1607,7 +1628,7 @@ export class AgentRuntime {
           if (resolution !== true) return resolution;
         }
         if (args.outcome !== "blocked") {
-          assertPeersSettled(this, data);
+          assertPeersSettled(this, data, ["candidate", "pass"].includes(args.outcome) ? result.summary : "");
           if (this.pendingJobs(exec.agent).length)
             throw new Error("Background jobs are still running. Collect their results before submitting this stage.");
         }
@@ -1742,6 +1763,7 @@ export class AgentRuntime {
     }
     const files = outputFiles(run.directory).map((path) => `outputs/${path}`);
     return { execution_id: run.executionId, outcome: run.outcome, summary: run.summary,
+      delegation: delegationEvidence(this.database, workItemId),
       artifacts: files.filter((path) => written.has(path) || run.summary.includes(path)),
       evidence: evidence.slice(evidenceOffset, evidenceOffset + 40), evidence_count: evidence.length,
       next_evidence_offset: evidenceOffset + 40 < evidence.length ? evidenceOffset + 40 : null };
@@ -1755,7 +1777,7 @@ export class AgentRuntime {
         AND (execution_id IS NULL OR execution_id != ?) LIMIT 1`) : null;
     const read = this.database.prepare(`
       SELECT w.id, w.title, w.runtime_phase AS status, w.runtime_error AS error,
-             w.updated_at AS settledAt
+             CASE WHEN w.runtime_phase IN ('completed', 'failed', 'cancelled') THEN w.updated_at END AS settledAt
       FROM work_items w WHERE w.id = ? AND w.deleted_at IS NULL
     `);
     const wanted = new Set(ids);
@@ -1780,7 +1802,7 @@ export class AgentRuntime {
         unsubscribe();
         return Promise.all(rows.map(async (row) => ({
           id: row.id, title: row.title, status: row.status, settledAt: row.settledAt,
-          ...await this.workResult(row.id),
+          ...(["completed", "failed", "cancelled"].includes(row.status) ? await this.workResult(row.id) : {}),
           ...(row.error ? { error: row.error } : {})
         })));
       }
@@ -1824,6 +1846,8 @@ export class AgentRuntime {
       handle = await this.ctx.agents.create(options);
     }
     try {
+      // A reviewer verifies the worker's artifact; it must not repair or rewrite it.
+      if (data.mode === "review") setSandboxMode(handle.agent.session, "read-only");
       this.ctx.approval.setPolicy(handle.agent, "ask");
     } catch (error) {
       await handle.dispose().catch(() => undefined);
@@ -2002,6 +2026,24 @@ export class AgentRuntime {
       if (!existed) this.database.prepare("DELETE FROM execution_links WHERE execution_id = ?").run(executionId);
       throw error;
     }
+    // A warm continuation belongs to the existing worker. Replacing its session
+    // here orphaned a still-running agent, doubling inference and tool effects.
+    const live = continuation && !recovery && this.live.get(executionId);
+    if (live) {
+      const submissionId = randomUUID();
+      this.database.prepare(`INSERT INTO dsh_deliveries (delivery_id, execution_id, submission_id, created_at)
+        VALUES (?, ?, ?, ?)`).run(payload.idempotencyKey, executionId, submissionId, new Date().toISOString());
+      try {
+        live.handle.agent.steer(createUserMessage({
+          content: [{ type: "text", text: payload.body }], source: { kind: "user" }
+        }));
+      } catch (error) {
+        this.database.prepare("DELETE FROM dsh_deliveries WHERE submission_id = ?").run(submissionId);
+        throw error;
+      }
+      this.audit("run-continued", executionId, run.currentSessionId, { submissionId, deliveryId: payload.idempotencyKey });
+      return { submissionId, uid: run.instanceUid };
+    }
     const workspace = run.runDirectory;
     const recoveryQuestion = recovery ? this.pendingQuestion(executionId) : null;
     // Each cold continuation gets a fresh writer and client binding. Native history can
@@ -2177,6 +2219,11 @@ export class AgentRuntime {
 
   async finish(executionId, submissionId, sessionId, handle, result) {
     if (this.closing) return;
+    // A stale writer must never settle or dispose a newer incarnation.
+    if (this.run(executionId)?.currentSessionId !== sessionId) {
+      await handle.dispose().catch(() => undefined);
+      return;
+    }
     if (result.outcome === "failed" && result.error) {
       const data = JSON.parse(this.run(executionId)?.configJson ?? "{}");
       const model = data.resolvedModelLabel ?? modelLabel(data.resolvedModel ?? data.model);
@@ -2190,8 +2237,8 @@ export class AgentRuntime {
     }
     const at = new Date().toISOString();
     this.database.prepare(`
-      UPDATE dsh_deliveries SET outcome = ?, error_json = ?, settled_at = ? WHERE submission_id = ?
-    `).run(result.outcome, result.error ? JSON.stringify(result.error) : null, at, submissionId);
+      UPDATE dsh_deliveries SET outcome = ?, error_json = ?, settled_at = ? WHERE execution_id = ? AND outcome IS NULL
+    `).run(result.outcome, result.error ? JSON.stringify(result.error) : null, at, executionId);
     this.setStatus(executionId, result.outcome, at);
     this.checkpoint(executionId, sessionId, result.outcome, {
       pendingInteraction: null,
@@ -2211,6 +2258,13 @@ export class AgentRuntime {
     return this.database.prepare(`
       SELECT outcome, summary FROM bees_stage_results WHERE execution_id = ?
     `).get(executionId);
+  }
+
+  guardStageCompletion(agentCtx, executionId) {
+    // concludeTurn permits pending input to reopen the loop. Stop before time
+    // context or compaction can add more input to an already accepted stage.
+    agentCtx.on("agent/pre-step", (_input, next) => this.stageResult(executionId)
+      ? { kind: "enter", messages: [] } : next(), { prepend: true });
   }
 
   /** A new attempt replaces the last one, whose session would otherwise sit live for good. */
@@ -2400,16 +2454,30 @@ export class AgentRuntime {
                created_at AS createdAt
         FROM dsh_audit_events WHERE execution_id = ? ORDER BY created_at
       `).all(run.executionId).map((row) => ({ ...row, metadata: excerpt(row.metadata) }));
+      // createSubitems can return well after a child starts (or finishes). Audit recording time
+      // is not launch time; preserve each admitted child's own execution/result timestamps.
+      const delegatedWork = this.database.prepare(`
+        SELECT DISTINCT w.id AS workItemId, w.title, e.execution_id AS executionId,
+          e.created_at AS createdAt, r.created_at AS resultSubmittedAt, r.outcome
+        FROM dsh_audit_events a JOIN json_each(a.metadata_json, '$.ids') peer
+        JOIN work_items w ON w.id = peer.value
+        JOIN execution_links e ON e.work_item_id = w.id
+        LEFT JOIN bees_stage_results r ON r.execution_id = e.execution_id
+        WHERE a.execution_id = ? AND a.event_type = 'peer-work-delegated' AND w.parent_id = ?
+          AND e.created_at <= ?
+        ORDER BY e.created_at, e.execution_id
+      `).all(run.executionId, target.workItemId, result?.createdAt ?? new Date().toISOString());
       executions.push({
         executionId: run.executionId, agentName: run.agentName, status: run.status,
         mode: config.mode ?? null, stagePurpose: config.stagePurpose ?? null,
         mcpAccess: config.mcpAccess ?? "all", mcpServers: config.mcpServers ?? [],
-        createdAt: run.createdAt, updatedAt: run.updatedAt, result, sessions, audit
+        createdAt: run.createdAt, updatedAt: run.updatedAt, result, sessions, audit, delegatedWork
       });
     }
     return {
       version: 1, candidateExecutionId: executionId,
-      note: "System-generated from the durable runtime session and Bees audit records; candidate files cannot modify this evidence. A peer-work-settled audit event is emitted only after delegated work reaches a terminal lifecycle state and includes the system-observed result and settlement time. toolCalls counts every tool a run called. The timeline covers only user questions and approvals, so an empty one is not evidence no tool ran. mcpAccess is what the candidate was granted, not what you can reach: none means it had no mcp__ tool at all, and listed means only mcpServers. Judge the candidate against its own grant.",
+      limits: { peersPerDelegationCall: MAX_PARALLEL_PEERS },
+      note: "System-generated from the durable runtime session and Bees audit records; candidate files cannot modify this evidence. delegatedWork records each child's execution creation and result submission times. A peer-work-delegated audit may be recorded after its children finish: its createdAt is not their launch time. Use delegatedWork and the delegation tool-call timeline to assess overlap. The per-call batch limit permits larger parallel groups through multiple background batches; parallel does not imply one tool call. A peer-work-settled audit event is emitted only after delegated work reaches a terminal lifecycle state and includes the system-observed result and settlement time. toolCalls counts every tool a run called. The timeline covers user questions, approvals and peer coordination, so an empty one is not evidence no tool ran. mcpAccess is what the candidate was granted, not what you can reach: none means it had no mcp__ tool at all, and listed means only mcpServers. Judge the candidate against its own grant.",
       executions
     };
   }
