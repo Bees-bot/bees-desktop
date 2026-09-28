@@ -467,7 +467,9 @@ export class ProcessRuntime {
     } catch (error) {
       if (!(error instanceof WorkflowExecutionAlreadyStartedError) && error?.name !== "WorkflowExecutionAlreadyStartedError") {
         await this.claims?.release(claim).catch(() => undefined);
-        this.project({ ...input, phase: "failed", error: String(error?.message ?? error) });
+        // the scheduler's own wording ("Failed to start Workflow") names no next step for the person reading it
+        const reason = String(error?.message ?? error);
+        this.project({ ...input, phase: "failed", error: `Bees could not start this work (${reason}). Try again, and reopen Bees if it keeps failing.` });
         throw error;
       }
       handle = this.client.workflow.getHandle(processWorkflowId(workItemId));

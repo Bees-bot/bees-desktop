@@ -2250,7 +2250,8 @@ export class AgentRuntime {
       const data = JSON.parse(this.run(executionId)?.configJson ?? "{}");
       const model = data.resolvedModelLabel ?? modelLabel(data.resolvedModel ?? data.model);
       const detail = `${data.stagePurpose ?? data.mode ?? "agent"}${data.agentName ? ` (${data.agentName})` : ""}${model ? ` using ${model}` : ""}`;
-      const hint = result.error.code === "TRANSPORT"
+      // a dead socket arrives as the bare "Connection error.", which names nothing a person can act on
+      const hint = result.error.code === "TRANSPORT" || /^connection error\.?$/i.test(String(result.error.message ?? "").trim())
         ? " Check this agent's model under Agents and its connection under Settings → AI connections before retrying."
         : "";
       result = { ...result, error: { ...result.error,
