@@ -4,7 +4,6 @@ import {
   chmodSync,
   closeSync,
   copyFileSync,
-  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -447,6 +446,26 @@ function isMachO(path) {
 // The bundled runtime ships under the app's Resources with its own native addons and CLIs.
 // The bundler signs MacOS, Frameworks, Plugins and the sidecar binaries, not Resources, so
 // without this pass the bundle carries ad-hoc signed code and Apple refuses the lot.
+// Every installer carried every system's native builds. Keep only what this target can load:
+// about 165 MB of the Mac download is Windows, Linux and Intel binaries nothing here runs.
+function pruneForeignBinaries(runtimeRoot) {
+  const nodePlatform = [
+    target.includes("apple-darwin") ? "darwin" : target.includes("windows") ? "win32" : "linux",
+    target.startsWith("aarch64") ? "arm64" : "x64"
+  ].join("-");
+  const nodeModules = join(runtimeRoot, "node_modules");
+  const keepOnly = (parent, keep) => {
+    if (!existsSync(parent)) return;
+    for (const entry of readdirSync(parent)) if (entry !== keep) rmSync(join(parent, entry), { recursive: true, force: true });
+  };
+  const bridge = ["@temporalio", "core-bridge", "releases"];
+  keepOnly(join(nodeModules, ...bridge), target);
+  keepOnly(join(nodeModules, "node-pty", "prebuilds"), nodePlatform);
+  if (!nodePlatform.startsWith("win32")) rmSync(join(nodeModules, "node-pty", "third_party", "conpty"), { recursive: true, force: true });
+  for (const entry of readdirSync(nodeModules))
+    if (entry.startsWith("tree-sitter")) keepOnly(join(nodeModules, entry, "prebuilds"), nodePlatform);
+}
+
 function signMacBundledRuntime(runtimeRoot) {
   // Reads 46k files, so only when there is a real identity to put on them: an ad-hoc pass
   // here buys nothing a local build needs, and notarization refuses ad-hoc code anyway.
@@ -550,12 +569,9 @@ async function prepareMemoryInstaller() {
 
 await prepareMemoryInstaller();
 
-// The memory plugin loads out of node_modules/@bees/dsh-plugin and resolves the installer as a
-// sibling package, so it has to exist there too. Nothing else copies this across.
-const memorySource = resolve(desktopRoot, "dsh-runtime", "memory-runtime");
-const memoryStaged = resolve(desktopRoot, "dsh-runtime", "node_modules", "@bees", "memory-runtime");
-rmSync(memoryStaged, { recursive: true, force: true });
-cpSync(memorySource, memoryStaged, { recursive: true, dereference: true });
+// Builds up to 28 Sept copied the installer beside the plugin as well. Drop that stale copy.
+rmSync(resolve(desktopRoot, "dsh-runtime", "node_modules", "@bees", "memory-runtime"), { recursive: true, force: true });
 
-// Last, so the installer copied just above is covered by the same pass.
+pruneForeignBinaries(resolve(desktopRoot, "dsh-runtime"));
+
 signMacBundledRuntime(resolve(desktopRoot, "dsh-runtime"));
