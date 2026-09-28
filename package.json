@@ -11,7 +11,6 @@
     "postinstall": "node scripts/check-node.mjs && npm ci --omit=dev --prefix dsh-runtime --ignore-scripts --legacy-peer-deps && node scripts/install-dsh-runtime.mjs && npm rebuild --prefix dsh-runtime better-sqlite3 && node scripts/stage-dsh-plugin.mjs",
     "prepare:dsh": "node scripts/install-dsh-runtime.mjs && node scripts/stage-dsh-plugin.mjs && node scripts/prepare-dsh-runtime.mjs",
     "build": "vite build",
-    "build:dsh-client": "node scripts/build-dsh-client.mjs",
     "check:schedules": "node scripts/check-schedules.mjs",
     "check:process-interactions": "node scripts/check-process-interactions.mjs",
     "check:page-fetch": "node scripts/check-page-fetch.mjs",
