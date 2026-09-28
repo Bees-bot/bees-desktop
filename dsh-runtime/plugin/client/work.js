@@ -249,7 +249,10 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
   // a finished item's newest run is the reviewer, which won't edit, so follow-ups default to the worker
   const run = itemRuns.find(({ id }) => id === selectedRun)
     ?? itemRuns.find(({ mode }) => item.runtimePhase === "completed" && mode === "work") ?? itemRuns[0];
-  const pendingRun = itemRuns.find(({ status, sessionId }) => sessionId && ["waiting_for_input", "waiting_for_approval"].includes(status));
+  const asks = ({ status, sessionId }) => sessionId && ["waiting_for_input", "waiting_for_approval"].includes(status);
+  // a helper's question only showed on the helper's own page, which nobody opens, so show it on its parent's too
+  const pendingRun = itemRuns.find(asks)
+    ?? data.runs.find((row) => asks(row) && data.items.some(({ id, parentId }) => id === row.workItemId && parentId === item.id));
   const waiting = useSnapshot(ctx.uiSession.sessionStatus, EMPTY_STATUS);
   const interaction = pendingInteractionFor(waiting, (pendingRun ?? run)?.sessionId, handled);
   // The composer sends into the selected run's own session, not whichever session happens to
@@ -532,7 +535,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
 
   return h(React.Fragment, null,
     boardActions,
-    pendingRun ? h(AgentInteractionPanel, { run: pendingRun, item, interaction, handled,
+    pendingRun ? h(AgentInteractionPanel, { run: pendingRun, item: data.items.find(({ id }) => id === pendingRun.workItemId) ?? item, interaction, handled,
       onAnswered: answered, act, data, onOpenTools: process ? () => {
         setActiveTab("tools");
         // the tab row sits below the question card, often off screen
