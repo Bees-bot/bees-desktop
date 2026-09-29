@@ -11,7 +11,7 @@
   "app": {
     "withGlobalTauri": true,
     "windows": [{
-      "title": "",
+      "title": "Bees",
       "width": 1180,
       "height": 760,
       "maximized": true,

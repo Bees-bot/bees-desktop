@@ -1,7 +1,7 @@
 import {
   h, MarkdownText, NativeUi, React, useEffect, useRef, useState
 } from "./runtime.js";
-import { SharedWorkContext, WorkDiscussion } from "./collaboration.js";
+import { ProcessMemoryPanel, SharedWorkContext, WorkDiscussion } from "./collaboration.js";
 import Cron, { HEADER } from "react-cron-generator";
 import {
   accountLabel, ask, AuditEvent, Button, clip, confirmAction, cronText, Empty, isDone, isScheduleDefinition, PageHead, ProposalCard, request, runTitle, useBeesChangeRevision, useSnapshot, useSubmit, workItemStatus, HelpTooltip, when
@@ -492,6 +492,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
       h("button", { type: "button", role: "tab", id: "bees-tab-chat", className: `bees-clean-tab ${activeTab === "chat" ? "active" : ""}`, "aria-selected": activeTab === "chat", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("chat") }, "Chat"),
       !plan && itemRuns.length ? h("button", { type: "button", role: "tab", id: "bees-tab-context", className: `bees-clean-tab ${activeTab === "context" ? "active" : ""}`, "aria-selected": activeTab === "context", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("context") }, "Context") : null,
       !plan && itemRuns.length ? h("button", { type: "button", role: "tab", id: "bees-tab-discussion", className: `bees-clean-tab ${activeTab === "discussion" ? "active" : ""}`, "aria-selected": activeTab === "discussion", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("discussion") }, "Discussion") : null,
+      !plan && process ? h("button", { type: "button", role: "tab", id: "bees-tab-memory", className: `bees-clean-tab ${activeTab === "memory" ? "active" : ""}`, "aria-selected": activeTab === "memory", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("memory") }, "Memory") : null,
       itemRuns.length ? h("button", { type: "button", role: "tab", id: "bees-tab-runs", className: `bees-clean-tab ${activeTab === "runs" ? "active" : ""}`, "aria-selected": activeTab === "runs", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("runs") }, "Executions") : null,
       itemRuns.length ? h("button", { type: "button", role: "tab", id: "bees-tab-audit", className: `bees-clean-tab ${activeTab === "audit" ? "active" : ""}`, "aria-selected": activeTab === "audit", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("audit") }, "Traces") : null
     ),
@@ -501,7 +502,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
       // DSH's own Chat screen stays mounted here regardless of activeTab; only its CSS
       // visibility follows it, because unmounting it would drop DSH's portal and session state.
       h(DshRunPanels, { key: item.id, ctx, run, item, activeTab }),
-      activeTab === "discussion" ? h(WorkDiscussion, { key: item.id, item, onOpenWork: (id) => { onOpenWork?.(id); setActiveTab("files"); } }) : activeTab === "context" ? h(SharedWorkContext, { key: item.id, item, executionId: run?.id }) : activeTab === "details" ? h(React.Fragment, null,
+      activeTab === "memory" && process ? h(ProcessMemoryPanel, { key: process.id, process, act, onOpenWork })
+      : activeTab === "discussion" ? h(WorkDiscussion, { key: item.id, item, onOpenWork: (id) => { onOpenWork?.(id); setActiveTab("files"); } }) : activeTab === "context" ? h(SharedWorkContext, { key: item.id, item, executionId: run?.id }) : activeTab === "details" ? h(React.Fragment, null,
         plan ? null : h("div", { className: "bees-detail-actions", style: { marginTop: 0 } },
           h("button", { className: "bees-btn-secondary", onClick: edit }, h("span", { className: "bees-btn-icon" }, "✎"), "Edit item"),
           h("button", { className: "bees-btn-secondary", onClick: addSubitem }, h("span", { className: "bees-btn-icon" }, "⑆"), "Delegate work"),

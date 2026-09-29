@@ -1061,7 +1061,7 @@ export class BeesProduct {
 
   async command(input) {
     const action = required(input?.action, "Action");
-    if (["read_work_context", "read_work_discussion", "specialist_feedback_context", "memory_status"].includes(action)) return this.execute(action, input);
+    if (["read_work_context", "read_work_discussion", "read_process_memory", "specialist_feedback_context", "memory_status"].includes(action)) return this.execute(action, input);
     try {
       const result = await this.execute(action, input);
       this.record(action, input, result, "ok");
@@ -1091,6 +1091,8 @@ export class BeesProduct {
     );
     if (["memory_status", "memory_configure", "memory_test", "memory_retry", "memory_edit", "memory_delete"].includes(action))
       return this.memory.command(action, input);
+    if (["read_process_memory", "add_process_memory", "edit_process_memory", "forget_process_memory"].includes(action))
+      return this.workContext.processMemory.command(action, input);
     if (action === "read_work_discussion") return this.workContext.discussion(required(input.itemId, "Work item"), input.before);
     if (action === "read_work_context") return this.workContext.view(required(input.itemId, "Work item"), input.executionId, input.after);
     if (action === "record_owner_message") return this.workContext.recordOwner(required(input.executionId, "Execution"), required(input.text, "Text"));

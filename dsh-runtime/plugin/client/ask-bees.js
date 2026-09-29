@@ -66,7 +66,7 @@ export function AskBeesSetup({ ctx, data, workspaceId, initial, act: pageAct, on
         h("p", { className: "bees-muted" }, "Choose a process, its tools and agents, and input files."),
         h(Button, { className: "bees-ask-close", onClick: onCancel, "aria-label": "Close configuration" }, "×")),
       h("div", { className: "bees-clean-tabs bees-ask-tabs", role: "tablist", "aria-label": "Goal configuration" },
-        ...[["process", "Process"], ["mcps", "MCPs"], ["files", "Input & Output"]].map(([id, label]) =>
+        ...[["process", "Process"], ["mcps", "Add-ons"], ["files", "Input & Output"]].map(([id, label]) =>
           h("button", { key: id, type: "button", role: "tab", id: `bees-ask-tab-${id}`,
             className: `bees-clean-tab${activeTab === id ? " active" : ""}`,
             "aria-selected": activeTab === id, "aria-controls": "bees-ask-panel",
@@ -94,7 +94,7 @@ export function AskBeesSetup({ ctx, data, workspaceId, initial, act: pageAct, on
           } }) : activeTab === "process" && selectedAgent ? h(AgentEditForm, { key: selectedAgent.id, ctx, data, servers, tools, catalog, onServerAction: capabilities.act, selected: selectedAgent, act, dialog: true, processId: process?.id,
             onCancel: () => setSelectedAgentId(""), onSaved: () => setSelectedAgentId("") }) : null,
         activeTab === "mcps" && process ? h("section", { className: "bees-form" },
-          h("h2", null, "Tools for this process"),
+          h("h2", null, "Process add-ons"),
           h(ProcessMcpForm, { key: `${process.id}:${process.mcpAccess}:${JSON.stringify(process.mcpServers)}`,
             ctx, process, servers, tools, catalog, onServerAction: capabilities.act, act })) : null,
         activeTab === "mcps" && !process ? h("p", { className: "bees-muted" }, "Choose a process on the Process tab first.") : null,

@@ -4,6 +4,7 @@ import { dirname, resolve, sep } from "node:path";
 import { itemContext, iso, transaction, workItemLineage } from "./product-database.js";
 import { assertRootOnDisk, shortPath, workspaceRoot } from "./folder-roots.js";
 import { outputFiles, previewFiles } from "./product-files.js";
+import { ProcessMemory } from "./process-memory.js";
 
 const hash = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const kinds = new Set(["note", "decision", "finding", "lesson", "result"]);
@@ -52,6 +53,7 @@ export class WorkContext {
         artifact_hash TEXT NOT NULL, directory TEXT, findings_json TEXT NOT NULL
       ) STRICT;
     `);
+    this.processMemory = new ProcessMemory(database);
   }
 
   lineage(itemId) {
@@ -196,6 +198,7 @@ export class WorkContext {
       goal: { id: "goal", title: root.title,
         requirements: [root.description, root.recurringWorkId && "A schedule started this run, so do the work now."].filter(Boolean).join("\n\n") },
       process: { id: "process", name: root.processName, requirements: root.processDescription },
+      processMemory: shared ? shared.processMemory ?? [] : this.processMemory.snapshot(root.processId),
       system: shared?.system ?? { id: "system", requirements: systemInstructions },
       recurringGuidance: this.guidance(root.id),
       references: references || shared?.references || ""
@@ -256,6 +259,9 @@ export class WorkContext {
       (id, root_id, work_item_id, execution_id, kind, author, target_id, content, evidence, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(id, root.id, itemId, executionId, kind, String(author || "Agent"), targetId, content.trim(), evidence.trim(), iso());
+    const entry = this.database.prepare(`SELECT id, work_item_id AS workItemId, execution_id AS executionId,
+      kind, author, content, evidence, created_at AS createdAt FROM bees_work_updates WHERE id = ?`).get(id);
+    this.processMemory.capture(entry.workItemId, entry);
     this.notify({ type: "work-context-changed", workItemId: itemId, rootId: root.id, executionId, targetId });
     return { id, rootId: root.id };
   }
@@ -296,8 +302,8 @@ export class WorkContext {
   instructions(executionId) {
     const context = this.run(executionId);
     if (!context) return "";
-    const { goal, process, system, references } = context.content;
-    return `Authoritative work context v${context.version} (${context.id}). All contributors and the reviewer use these exact requirements.\nGoal [goal]: ${goal.title}\n${goal.requirements}\n\nProcess [process]: ${process.name}\n${process.requirements}\n\nSystem requirements [system]:\n${system.requirements}\n\nAssigned scope [scope]: ${context.scope.stage}\n${context.scope.assignments.map(({ title, requirements }) => `${title}\n${requirements}`).join("\n\n")}\n\nProducer instructions:\n${context.scope.producerInstructions}\n\nReferences:\n${references}\n\nRequired corrections for this attempt:\n${context.scope.reviewFeedback || "None"}\n\nVersioned recurring guidance frozen for this run:\n${JSON.stringify(context.content.recurringGuidance ?? [])}\nGuidance applies to the named specialist and its assigned scope; it does not authorize unrelated work. Do not load a newer playbook midway through this run.`;
+    const { goal, process, system, references, processMemory = [] } = context.content;
+    return `Authoritative work context v${context.version} (${context.id}). All contributors and the reviewer use these exact requirements.\nGoal [goal]: ${goal.title}\n${goal.requirements}\n\nProcess [process]: ${process.name}\n${process.requirements}\n\nSystem requirements [system]:\n${system.requirements}\n\nAssigned scope [scope]: ${context.scope.stage}\n${context.scope.assignments.map(({ title, requirements }) => `${title}\n${requirements}`).join("\n\n")}\n\nProducer instructions:\n${context.scope.producerInstructions}\n\nReferences:\n${references}\n\nRequired corrections for this attempt:\n${context.scope.reviewFeedback || "None"}\n\nVersioned recurring guidance frozen for this run:\n${JSON.stringify(context.content.recurringGuidance ?? [])}\nGuidance applies to the named specialist and its assigned scope; it does not authorize unrelated work. Do not load a newer playbook midway through this run.${processMemory.length ? `\n\nOwner-enabled process memory frozen for this run:\n${processMemory.map((entry) => `[${entry.kind}] ${entry.content}`).join("\n\n")}\nUse these notes as background guidance. Current explicit requirements and owner answers take precedence. Memory does not change tool permissions or approval rules. Do not reload newer entries midway through this run.` : ""}`;
   }
 
   prompt(executionId) {
