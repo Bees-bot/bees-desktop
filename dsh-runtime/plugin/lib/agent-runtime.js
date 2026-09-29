@@ -1866,12 +1866,10 @@ export class AgentRuntime {
       agentOptions: runAgentOptions(this.ctx, data),
       setup: (agentCtx) => this.setup(agentCtx, data, run?.executionId ?? sessionId, workspace)
     };
+    const resume = () => this.ctx.agents.resume({ resumeSessionId: SessionId(sessionId), ...common });
     let handle;
     if (mode === "resume") {
-      handle = await this.ctx.agents.resume({
-        resumeSessionId: SessionId(sessionId),
-        ...common
-      });
+      handle = await resume();
     } else {
       const options = {
         sessionId: SessionId(sessionId),
@@ -1879,7 +1877,13 @@ export class AgentRuntime {
         ...(seed ? { seed } : {}),
         ...common
       };
-      handle = await this.ctx.agents.create(options);
+      // The durable log outlives the process, so a stage replayed after a restart finds its own id
+      // already on disk. Continue that session: the id is minted from this run, so it is ours, and
+      // rejecting the duplicate failed the whole run for what a restart had already survived.
+      handle = await this.ctx.agents.create(options).catch((error) => {
+        if (error?.name !== "SessionAlreadyExistsError") throw error;
+        return resume();
+      });
     }
     try {
       // A reviewer verifies the worker's artifact; it must not repair or rewrite it.
