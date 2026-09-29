@@ -15,9 +15,8 @@ export declare function authorizeReferences(database: unknown, workspaceId: stri
 export declare function copyOutputs(
   workspace: string,
   location: { id: string; name: string; localPath: string },
-  executionId: string,
   paths?: string[]
-): { files: number; bytes: number; destination: string; existing: boolean };
+): { files: number; bytes: number };
 
 export declare class AgentRuntime {
   constructor(context: unknown, database: unknown, settings?: { get(): { systemInstructions?: string } } | null, notify?: (change: Record<string, unknown>) => void, subscribe?: ((listener: (change: Record<string, any>) => void) => () => void) | null, capabilities?: unknown | null);

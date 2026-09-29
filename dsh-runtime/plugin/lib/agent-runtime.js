@@ -510,7 +510,7 @@ export function copyOutputs(workspace, location, paths) {
     copyFileSync(file.source, target);
   }
   
-  return { files: pending.length, bytes, destination: ".", existing: false };
+  return { files: pending.length, bytes };
 }
 
 export class AgentRuntime {
@@ -1733,9 +1733,7 @@ export class AgentRuntime {
           schema: {
             type: "object", additionalProperties: false, properties: {
               files: { type: "integer", required: true },
-              bytes: { type: "integer", required: true },
-              destination: { type: "string", required: true },
-              existing: { type: "boolean", required: true }
+              bytes: { type: "integer", required: true }
             }
           },
           render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }]
@@ -1753,8 +1751,7 @@ export class AgentRuntime {
           if (outcome !== "allowed-once") throw new Error(`Publication ${outcome}`);
           const result = copyOutputs(workspace, location, args.paths);
           this.audit("outputs-published", executionId, String(exec.agent.session.id), {
-            locationId: location.id, files: result.files, bytes: result.bytes,
-            destination: result.destination, existing: result.existing
+            locationId: location.id, files: result.files, bytes: result.bytes
           });
           return result;
         }
