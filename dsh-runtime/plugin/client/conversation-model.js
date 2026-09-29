@@ -57,7 +57,7 @@ const SUBAGENT_NOTE = /^Background subagent [0-9a-f-]+ finished/;
 const TIME_NOTE = /^Time sampled while preparing turn \d+/;
 const seatName = (name) => /^participant-\d+$/.test(name.trim()) ? "Plan reviewer" : name.trim();
 
-export function conversationMessages(history, runs, assignments, children = [], updates = []) {
+export function conversationMessages(history, runs, assignments, children = []) {
   const agentName = (run) => assignments.find(({ id }) => id === run?.resolvedAgentId)?.name || "Agent";
   const currentRun = runs.find(({ id }) => id === history?.executionId);
   const messages = new Map();
@@ -87,15 +87,6 @@ export function conversationMessages(history, runs, assignments, children = [], 
       label: `${agentName(run)}${child ? ` · ${child.title}` : ""}`,
       outcome: OUTCOME_LABELS[run.resultOutcome],
       timestamp: timestamp(run.resultCreatedAt ?? run.updatedAt) });
-  }
-  const nativeUsers = [...messages.values()].filter(({ role }) => role === "user");
-  for (const entry of updates) {
-    const native = entry.author === "Owner" && entry.executionId === history?.executionId
-      ? nativeUsers.findIndex(({ text }) => text.slice(0, 6000) === entry.content) : -1;
-    if (native >= 0) { nativeUsers.splice(native, 1); continue; }
-    const id = `update:${entry.id}`;
-    messages.set(id, { id, role: "user", text: entry.content, label: entry.label,
-      timestamp: timestamp(entry.createdAt) });
   }
   return [...messages.values()].sort((left, right) => left.timestamp - right.timestamp);
 }

@@ -1,7 +1,7 @@
 import {
   h, MarkdownText, NativeUi, React, useEffect, useRef, useState
 } from "./runtime.js";
-import { ProcessMemoryPanel, SharedWorkContext, WorkDiscussion } from "./collaboration.js";
+import { SharedWorkContext, WorkDiscussion } from "./collaboration.js";
 import Cron, { HEADER } from "react-cron-generator";
 import {
   accountLabel, ask, AuditEvent, Button, clip, confirmAction, cronText, Empty, isDone, isScheduleDefinition, PageHead, ProposalCard, request, runTitle, useBeesChangeRevision, useSnapshot, useSubmit, workItemStatus, HelpTooltip, when
@@ -343,23 +343,23 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
   const typedMention = /^\$([^\s]*)$/.exec(composerText);
   const mentionSuggestions = typedMention ? mentionOptions.filter(({ tag }) => tag.startsWith(typedMention[1].toLocaleLowerCase())).slice(0, 5) : [];
   const composerMention = mentionedRecipient(composerText, mentionOptions);
-  const messages = conversationMessages(visibleHistory, conversationRuns, assignments, subitems,
-    (discussion?.updates ?? []).filter((entry) => ["Owner", "User"].includes(entry.author) && entry.workItemId === item.id)
-      .map((entry) => ({ ...entry, label: entry.author === "Owner" ? null
-        : entry.targetId ? `To: ${discussion.participants.find((peer) => peer.id === entry.targetId)?.title ?? "teammate"}` : "To: everyone" })));
+  const messages = [
+    ...conversationMessages(visibleHistory, conversationRuns, assignments, subitems),
+    ...(discussion?.updates ?? []).filter((entry) => entry.author === "User" && entry.workItemId === item.id)
+      .map((entry) => ({ id: `update:${entry.id}`, role: "user", text: entry.content,
+        label: entry.targetId ? `To: ${discussion.participants.find((peer) => peer.id === entry.targetId)?.title ?? "teammate"}` : "To: everyone",
+        timestamp: new Date(entry.createdAt).getTime() || 0 }))
+  ].sort((left, right) => left.timestamp - right.timestamp);
+  const [showSteps, setShowSteps] = useState(false);
   const teamQuestions = (data.teamQuestions ?? []).filter((question) => question.workItemId === item.id);
   const processExecution = (data.processExecutions ?? []).find((execution) => execution.workItemId === item.id);
-  const pendingKey = interaction?.key ?? pendingRun?.id;
-  const lastPendingKey = useRef(null);
   useEffect(() => {
-    const newRequest = pendingKey && pendingKey !== lastPendingKey.current;
-    lastPendingKey.current = pendingKey;
-    if (isScrolledUpRef.current && !newRequest) return;
-    const scrollToBottom = () => { if (convoRef.current && (!isScrolledUpRef.current || newRequest)) convoRef.current.scrollTop = convoRef.current.scrollHeight; };
+    if (isScrolledUpRef.current && !pendingRun) return;
+    const scrollToBottom = () => { if (convoRef.current && (!isScrolledUpRef.current || pendingRun)) convoRef.current.scrollTop = pendingRun ? 0 : convoRef.current.scrollHeight; };
     scrollToBottom();
     const timer = setTimeout(scrollToBottom, 50);
     return () => clearTimeout(timer);
-  }, [history, discussion, pendingKey, item.runtimePhase]);
+  }, [history, pendingRun, interaction, item.runtimePhase]);
   const convoItems = [h(GoalMessage, { item, key: "start" })];
   for (const message of messages) {
     if (message.role === "user") convoItems.push(h(UserMessage, { key: message.id, label: message.label }, message.text));
@@ -396,11 +396,15 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
           onClick: () => act(plan ? { action: "stop_run", executionId: run.id } : { action: "cancel_item", itemId: item.id }) }, "Stop") : null,
         run && !elsewhere && item.runtimePhase === "waiting" ? h("button", { className: "bees-btn-danger-ghost", onClick: () => act({ action: "cancel_item", itemId: item.id }) }, "Cancel routing") : null,
         run?.status === "completed" && run.outputs?.length ? h("button", { className: "bees-btn-primary", onClick: publish },
-          item.outputLocationId || process?.outputLocationId ? "Publish outputs" : "Save outputs to folder…") : null)),
+          item.outputLocationId || process?.outputLocationId ? "Publish outputs" : "Save outputs to folder…") : null),
+      pendingRun ? h("button", { type: "button", className: "bees-btn-secondary", onClick: () => setShowSteps((value) => !value) },
+        showSteps ? "Hide agent steps" : `Show agent steps (${messages.length})`) : null),
     item.runtimePhase === "failed" ? h("div", { className: "bees-convo-error", role: "alert" },
       h("span", { title: item.runtimeError }, item.runtimeError || "This work failed."),
       !plan && !elsewhere ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "retry_item", itemId: item.id }) },
         latestResult?.resultOutcome === "blocked" ? "Resolve and continue" : "Retry") : null) : null,
+    ...teamQuestions.map((question) => h(TeamQuestionCard, { key: question.id, question, data, act })),
+    // a waiting question goes first and the agent's steps fold away, so nobody scrolls to find it
     h("div", {
       className: "bees-convo-history", ref: convoRef,
       onScroll: (event) => {
@@ -408,15 +412,14 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
         isScrolledUpRef.current = Math.abs(scrollHeight - clientHeight - scrollTop) > 30;
       }
     },
-      ...convoItems,
-      ...(plan ? pendingProposals(data, run) : []).map((proposal) => h(ProposalCard, { key: proposal.id, proposal, onApply: () => apply(proposal),
-        onDismiss: () => act({ action: "reject_proposal", proposalId: proposal.id }) })),
-      ...teamQuestions.map((question) => h(TeamQuestionCard, { key: question.id, question, data, act })),
       pendingRun ? h(AgentInteractionPanel, { run: pendingRun, item: data.items.find(({ id }) => id === pendingRun.workItemId) ?? item,
         interaction, handled, inConversation: true, onAnswered: answered, act, data, onOpenTools: process ? () => {
           setActiveTab("tools");
           document.getElementById("bees-tab-tools")?.scrollIntoView({ behavior: "smooth", block: "start" });
         } : undefined }) : null,
+      ...(!pendingRun || showSteps ? convoItems : []),
+      ...(!pendingRun || showSteps ? (plan ? pendingProposals(data, run) : []) : []).map((proposal) => h(ProposalCard, { key: proposal.id, proposal, onApply: () => apply(proposal),
+        onDismiss: () => act({ action: "reject_proposal", proposalId: proposal.id }) })),
       !pendingRun && isWorking ? h("div", { className: "bees-convo-msg system bees-working-indicator" },
         h("span", { className: "bees-dot-typing-container" }, h("span", { className: "bees-dot-typing-dot" })),
         run?.status === "queued" ? "Agent is starting..." : [...messages].reverse().find((message) => message.pending)?.text ?? "Agent is working...") : null),
@@ -453,9 +456,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
       if (!finished && !activeRun) return;
       setSending(true);
       try {
-        if (finished) {
-          if (!await act({ action: "continue_run", executionId: run.id, text })) return;
-        }
+        if (finished) await act({ action: "continue_run", executionId: run.id, text });
         else {
           // a run's session reaches this list a few seconds after the run starts
           if (!ctx.sessions.list.getSnapshot().byId[activeRun.sessionId]) await ctx.sessions.refresh();
@@ -481,7 +482,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
           h("span", { className: "bees-agent-mention" }, `$${option.tag}`), option.status ? ` · ${option.status}` : ""))) : null,
       h("textarea", {
         className: "bees-composer-input",
-        placeholder: pendingRun ? "Answer the card, or type $ to message a teammate..." : "Message the current agent, or type $ for teammates...",
+        placeholder: pendingRun ? "Answer above, or type $ to message a teammate..." : "Message the current agent, or type $ for teammates...",
         disabled: sending, value: composerText, rows: 2,
         onChange: (event) => setComposerText(event.target.value),
         onKeyDown: (event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); event.target.form.requestSubmit(); } }
@@ -498,7 +499,6 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
       h("button", { type: "button", role: "tab", id: "bees-tab-chat", className: `bees-clean-tab ${activeTab === "chat" ? "active" : ""}`, "aria-selected": activeTab === "chat", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("chat") }, "Chat"),
       !plan && itemRuns.length ? h("button", { type: "button", role: "tab", id: "bees-tab-context", className: `bees-clean-tab ${activeTab === "context" ? "active" : ""}`, "aria-selected": activeTab === "context", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("context") }, "Context") : null,
       !plan && itemRuns.length ? h("button", { type: "button", role: "tab", id: "bees-tab-discussion", className: `bees-clean-tab ${activeTab === "discussion" ? "active" : ""}`, "aria-selected": activeTab === "discussion", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("discussion") }, "Discussion") : null,
-      !plan && process ? h("button", { type: "button", role: "tab", id: "bees-tab-memory", className: `bees-clean-tab ${activeTab === "memory" ? "active" : ""}`, "aria-selected": activeTab === "memory", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("memory") }, "Memory") : null,
       itemRuns.length ? h("button", { type: "button", role: "tab", id: "bees-tab-runs", className: `bees-clean-tab ${activeTab === "runs" ? "active" : ""}`, "aria-selected": activeTab === "runs", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("runs") }, "Executions") : null,
       itemRuns.length ? h("button", { type: "button", role: "tab", id: "bees-tab-audit", className: `bees-clean-tab ${activeTab === "audit" ? "active" : ""}`, "aria-selected": activeTab === "audit", "aria-controls": "bees-detail-panel", onClick: () => setActiveTab("audit") }, "Traces") : null
     ),
@@ -508,8 +508,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
       // DSH's own Chat screen stays mounted here regardless of activeTab; only its CSS
       // visibility follows it, because unmounting it would drop DSH's portal and session state.
       h(DshRunPanels, { key: item.id, ctx, run, item, activeTab }),
-      activeTab === "memory" && process ? h(ProcessMemoryPanel, { key: process.id, process, act, onOpenWork })
-      : activeTab === "discussion" ? h(WorkDiscussion, { key: item.id, item, onOpenWork: (id) => { onOpenWork?.(id); setActiveTab("files"); } }) : activeTab === "context" ? h(SharedWorkContext, { key: item.id, item, executionId: run?.id }) : activeTab === "details" ? h(React.Fragment, null,
+      activeTab === "discussion" ? h(WorkDiscussion, { key: item.id, item, onOpenWork: (id) => { onOpenWork?.(id); setActiveTab("files"); } }) : activeTab === "context" ? h(SharedWorkContext, { key: item.id, item, executionId: run?.id }) : activeTab === "details" ? h(React.Fragment, null,
         plan ? null : h("div", { className: "bees-detail-actions", style: { marginTop: 0 } },
           h("button", { className: "bees-btn-secondary", onClick: edit }, h("span", { className: "bees-btn-icon" }, "✎"), "Edit item"),
           h("button", { className: "bees-btn-secondary", onClick: addSubitem }, h("span", { className: "bees-btn-icon" }, "⑆"), "Delegate work"),
@@ -597,8 +596,7 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onScheduleCre
     }
   }
   const items = data.items.filter(({ id, archivedAt }) => visibleIds.has(id) && !archivedAt);
-  if (!root || root.archivedAt || !data.processes.some(({ id, archivedAt }) => id === root.processId && !archivedAt))
-    return h(Empty, null, "Work item not found");
+  if (!root) return h(Empty, null, "Work item not found");
   const process = data.processes.find(({ id }) => id === root.processId);
   const stages = data.stages.filter(({ processId }) => processId === root.processId);
   const schedulable = stages.length >= 2 && stages.at(-1)?.driver === "terminal" &&
@@ -998,7 +996,7 @@ function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, execu
       h("div", { className: "bees-muted" }, [question.header, questions.length > 1 ? `Question ${index + 1} of ${questions.length}` : ""].filter(Boolean).join(" · ")),
       h("h3", { className: "bees-section-title" }, question.question)),
     question.detail ? h("div", { className: "bees-question-detail" }, h(MarkdownText, { text: question.detail })) : null,
-    h("div", { className: "bees-question-options", role: question.multiSelect === true ? "group" : "radiogroup", "aria-label": question.header || "Answer options" },
+    h("div", { className: "bees-question-options", role: question.multiSelect === true ? "group" : "radiogroup" },
       ...(question.options ?? []).map((option, optionIndex) => {
         const selected = draft.selected.includes(option.label);
         const shown = displayOption(option.label);
@@ -1015,7 +1013,7 @@ function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, execu
             option.description ? h("span", { className: "bees-muted" }, option.description) : null));
       }),
       h("textarea", {
-        className: "bees-textarea", value: draft.custom, disabled: busy, rows: 3, "aria-label": "Your answer",
+        className: "bees-textarea", value: draft.custom, disabled: busy,
         ...( (question.options ?? []).length ? {} : { ref: focusWithoutScroll } ),
         placeholder: (question.options ?? []).length 
           ? (question.multiSelect === true ? "Add another answer (optional)" : "Or type another answer") 
@@ -1274,11 +1272,11 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
   });
   const items = data.items.filter((item) => {
     const process = data.processes.find(({ id }) => id === item.processId);
-    return !item.archivedAt && !process?.archivedAt && workspaceIds.includes(process?.workspaceId) &&
+    return workspaceIds.includes(process?.workspaceId) &&
       (route === "schedules" ? isScheduleDefinition(item) : !isScheduleDefinition(item)) &&
       (route !== "goals" || process?.kind === "goals");
   });
-  const processes = data.processes.filter((process) => !process.archivedAt && workspaceIds.includes(process.workspaceId))
+  const processes = data.processes.filter((process) => workspaceIds.includes(process.workspaceId))
     .sort((left, right) => left.name.localeCompare(right.name));
   const schedulableItems = data.items.filter((item) => {
     if (item.parentId || item.archivedAt || isScheduleDefinition(item)) return false;
@@ -1394,7 +1392,7 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
       layoutId: "work", defaults: WORK_PAGE_LAYOUT, preference, preferences, setPageActions, setPageHeader,
       panels: {
         "active-work": { label: route === "schedules" ? "Schedules" : "Active process runs", minW: 6, minH: 3, content: renderRows(rows.filter((item) => !isDone(item)), route === "schedules" ? "No schedules yet" : "No active process runs match these filters", true, false, plans.filter((run) => !planDone(run))), helpText: route === "schedules" ? "Recurring schedules automatically start process runs at specific times or intervals." : "Process runs and process items that are currently active.", helpExamples: route === "schedules" ? ["A daily schedule to run an 'Inbox Triage' process at 9 AM", "An hourly schedule to check for new GitHub issues"] : [] },
-        "finished-work": { label: "Completed & stopped", minW: 6, minH: 3, content: renderRows(rows.filter(isDone), route === "schedules" ? "No completed or stopped schedules match these filters" : "No completed or stopped process runs match these filters", true, true, plans.filter(planDone)) }
+        "finished-work": { label: "Completed, archived & stopped", minW: 6, minH: 3, content: renderRows(rows.filter(isDone), route === "schedules" ? "No completed, archived, or stopped schedules match these filters" : "No completed, archived, or stopped process runs match these filters", true, true, plans.filter(planDone)) }
       }
     }),
     newSchedule ? h(ScheduleForm, { items: schedulableItems, act, onClose: () => setNewSchedule(false),

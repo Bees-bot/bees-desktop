@@ -1,13 +1,11 @@
 const COLUMNS = 12;
 
 export const DEFAULT_WIDGETS = [
-  { kind: "outcome", x: 0, y: 0, w: 12, h: 4 },
-  { kind: "metrics", x: 0, y: 4, w: 12, h: 2 },
-  { kind: "waiting", x: 0, y: 6, w: 5, h: 6 },
-  { kind: "recent-work", x: 5, y: 6, w: 7, h: 6 },
-  { kind: "completed", x: 0, y: 12, w: 12, h: 6 },
-  { kind: "goals", x: 0, y: 18, w: 6, h: 5 },
-  { kind: "runs", x: 6, y: 18, w: 6, h: 5 }
+  { kind: "metrics", x: 0, y: 0, w: 12, h: 3 },
+  { kind: "outcome", x: 0, y: 3, w: 8, h: 5 },
+  { kind: "quick-actions", x: 8, y: 3, w: 4, h: 5 },
+  { kind: "waiting", x: 0, y: 8, w: 6, h: 4 },
+  { kind: "recent-work", x: 6, y: 8, w: 6, h: 4 }
 ];
 
 const DEFAULT_WORK_ITEM_WIDGETS = [
@@ -75,14 +73,7 @@ export function dashboardsFrom(value) {
       widgets: withoutOverlap(widgets)
     });
   }
-    if (!dashboardIds.has("home")) dashboards.unshift(defaultDashboard());
-  else {
-    const homeDash = dashboards.find(d => d.id === "home");
-    // Force migration if they have the old default layout
-    if (homeDash && (homeDash.widgets.some(w => w.kind === "quick-actions") || homeDash.widgets.find(w => w.kind === "waiting")?.h === 9 || homeDash.widgets.find(w => w.kind === "metrics")?.h === 3 && homeDash.widgets.find(w => w.kind === "outcome")?.h === 4)) {
-      homeDash.widgets = DEFAULT_WIDGETS.map(widget => ({ ...widget }));
-    }
-  }
+  if (!dashboardIds.has("home")) dashboards.unshift(defaultDashboard());
   return dashboards.slice(0, 20);
 }
 

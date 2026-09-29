@@ -172,8 +172,8 @@ export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access,
       // a Google sign-in lands later, so that server shows up to add once it is connected
       onDone: ({ serverName }) => { if (serverName && mode !== "all" && !picked.includes(serverName)) change([...picked, serverName]); setReviewing(""); } }) : h(React.Fragment, null,
       ...(mode === "listed" ? picked : []).map((name) => h("input", { key: name, type: "hidden", name: "mcpServers", value: name })),
-      mode === "all" ? h("div", { className: "bees-muted" }, "All connected add-ons are added, including any connected later")
-        : h(Button, { onClick: () => change([], "all") }, "Add all connected add-ons"),
+      mode === "all" ? h("div", { className: "bees-muted" }, "Uses every add-on, including ones added later")
+        : h(Button, { onClick: () => change([], "all") }, "Use all add-ons"),
       h("input", { className: "bees-input", value: query, placeholder: "Search add-ons or tools", "aria-label": "Search add-ons or tools",
         onChange: (event) => setQuery(event.target.value) }),
       missing.length ? h("div", { className: "bees-mcp-grid" }, ...missing.map((name) => {
@@ -188,7 +188,6 @@ export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access,
             item ? h(Button, { className: "primary", disabled: !onServerAction, onClick: () => setReviewing(item.id) }, "Add") : null,
             h(Button, { onClick: () => change(picked.filter((one) => one !== name)) }, "Remove")));
       })) : null,
-      h("h3", null, "Connected add-ons"),
       h("div", { className: "bees-mcp-grid" },
         ...matching.map((server) => {
           const added = server.enabled && current.includes(server.serverName);
@@ -208,12 +207,9 @@ export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access,
               if (mode !== "all" || added) change(added ? current.filter((name) => name !== server.serverName) : [...picked, server.serverName]);
             } });
         }),
-        matching.length ? null : h("div", { className: "bees-empty" }, "No connected add-on matches that search")),
-      h("h3", null, "Available add-ons"),
-      h("div", { className: "bees-mcp-grid" },
         ...available.map((item) => h(McpCard, { name: item.label, status: "Not added", key: `catalog:${item.id}`,
           icon: item.icon, onOpen: () => setReviewing(item.id) })),
-      available.length ? null : h("div", { className: "bees-empty" }, "No available add-on matches that search"))));
+      matching.length || available.length || missing.length ? null : h("div", { className: "bees-empty" }, "No add-on or tool matches that search"))));
 }
 
 function AgentDialog({ onClose, children }) {
