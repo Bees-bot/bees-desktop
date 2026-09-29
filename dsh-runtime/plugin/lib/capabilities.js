@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as mcpClient from "@deepseek-ai/dsh-mcp-client";
+import { scopeOf } from "@deepseek-ai/dsh-scope";
 import { assertFolderOutsideBees } from "./product-commands.js";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import { browserPort, browserStatePath, closeAgentBrowser, saveBrowserState, startAgentBrowser } from "./agent-browser.js";
@@ -152,7 +153,9 @@ export class Capabilities {
     if (!row.enabled) return;
     const finish = startStep(`mcp.per-run:${row.serverName}`);
     try {
-      await started(agentCtx.plugin(mcpClient, await this.configFor(row, mode)), row.serverName);
+      // a connected tool resolves a relative path against its own process, so give it the run's folder
+      const agent = scopeOf(agentCtx);
+      await started(agentCtx.plugin(mcpClient, await this.configFor(row, mode, agent?.session?.header?.cwd)), row.serverName);
       finish();
     } catch (error) { finish("failed"); throw error; }
   }
@@ -179,7 +182,7 @@ export class Capabilities {
   }
 
   /** Resolve a row's secrets and hand `dsh-mcp-client` the config shape it validates. */
-  async configFor(server, mode = "own") {
+  async configFor(server, mode = "own", cwd) {
     const missing = noFolderReason(server);
     if (missing) throw new Error(missing);
     if (server.transport === "stdio") {
@@ -202,6 +205,7 @@ export class Capabilities {
         command: placed(server.command, mode),
         args: argsFor(server, mode),
         env,
+        ...(cwd ? { cwd } : {}),
         // Without this a dead command activates with no tools and no error, stuck on Starting.
         failOnStartupError: true
       };
