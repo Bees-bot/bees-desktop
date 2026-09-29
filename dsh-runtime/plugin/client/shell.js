@@ -26,10 +26,10 @@ const newDashboardId = () => globalThis.crypto?.randomUUID?.() ?? `dashboard-${D
 function ScopeSwitcher({
   data, organizationId, teamId, connectionId, onChange,
   onCreateOrganization, onCreateTeam, onOpenTeamSettings, onNavigate,
-  route, sectionId, dashboards, activeDashboardId, onOpenDashboard, onCreateDashboard, onRenameDashboard, onDeleteDashboard, organizationColors
+  route, sectionId, dashboards, activeDashboardId, onOpenDashboard, onRenameDashboard, onDeleteDashboard, organizationColors
 }) {
   const [expandedTeams, setExpandedTeams] = useState(() => new Set(teamId ? [teamId] : []));
-  const [expandedMenus, setExpandedMenus] = useState(() => new Set(teamId ? [`${teamId}:home`] : []));
+  const [expandedMenus, setExpandedMenus] = useState(() => new Set());
   useEffect(() => {
     if (!teamId) return;
     setExpandedTeams((current) => current.has(teamId) ? current : new Set([...current, teamId]));
@@ -115,18 +115,33 @@ function ScopeSwitcher({
             "aria-label": `${row.name} settings`, onClick: () => onOpenTeamSettings(row) }, h(SettingsIcon))),
         expanded ? h("nav", { className: "bees-team-nav", "aria-label": `${row.name} navigation` },
           ...NAVIGATION.filter(({ id }) => !["apps", "settings"].includes(id)).map((item) => {
+            if (item.id === "home") return dashboards.map((dashboard) => h("div", { className: "bees-dashboard-item", key: `${row.id}:${dashboard.id}` },
+              h("button", {
+                type: "button", title: dashboard.name,
+                className: `bees-nav-link bees-dashboard-link ${active && route === "home" && dashboard.id === activeDashboardId ? "active" : ""}`,
+                "aria-current": active && route === "home" && dashboard.id === activeDashboardId ? "page" : null,
+                onClick: () => {
+                  if (!active) onChange(`team:${row.id}`, connectionId, false);
+                  onOpenDashboard(dashboard.id);
+                }
+              }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(item.icon)),
+              h("span", null, dashboard.name)),
+              h("button", {
+                type: "button", className: "bees-dashboard-action", title: `Rename ${dashboard.name}`,
+                "aria-label": `Rename ${dashboard.name}`, onClick: () => onRenameDashboard(dashboard)
+              }, h(EditIcon)),
+              dashboard.id !== "home" ? h("button", {
+                type: "button", className: "bees-dashboard-remove bees-dashboard-action", title: `Delete ${dashboard.name}`,
+                "aria-label": `Delete ${dashboard.name}`, onClick: () => onDeleteDashboard(dashboard)
+              }, h(CloseIcon)) : null));
             const menuKey = `${row.id}:${item.id}`;
             const menuExpanded = expandedMenus.has(menuKey);
-            const hasChildren = item.id === "home" || item.children.length > 0;
-            return h(React.Fragment, { key: menuKey },
-            h("div", { className: `bees-nav-menu ${active && sectionId === item.id ? "active" : ""} ${menuExpanded ? "expanded" : ""}` },
+            const hasChildren = item.children.length > 0;
+            return h("div", { key: menuKey, className: `bees-nav-menu ${active && sectionId === item.id ? "active" : ""} ${menuExpanded ? "expanded" : ""}` },
               h("button", { className: `bees-nav-link ${active && sectionId === item.id ? "active" : ""}`,
                 "aria-current": active && sectionId === item.id ? "page" : null,
                 "aria-expanded": hasChildren ? menuExpanded : null, onClick: () => {
-                  if (item.id === "home") {
-                    if (!active) onChange(`team:${row.id}`, connectionId, false);
-                    onOpenDashboard(active ? activeDashboardId : dashboards[0].id);
-                  } else open(item.id);
+                  open(item.id);
                   if (hasChildren) setExpandedMenus((current) => {
                     const next = new Set(current);
                     if (next.has(menuKey)) next.delete(menuKey); else next.add(menuKey);
@@ -135,7 +150,6 @@ function ScopeSwitcher({
                 } },
               h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(item.icon)),
               h("span", null, item.label),
-              item.id === "home" ? h("span", { className: "bees-nav-count", "aria-label": `${dashboards.length} dashboard${dashboards.length === 1 ? "" : "s"}` }, dashboards.length) : null,
               hasChildren ? h("span", { className: `bees-nav-chevron ${menuExpanded ? "expanded" : ""}`, "aria-hidden": "true" }, h(ChevronDownIcon)) : null),
               item.children && item.children.length > 0 && menuExpanded ? h("div", { className: "bees-nav-flyout" },
                 ...item.children.map(([child, label]) => h("div", {
@@ -143,36 +157,8 @@ function ScopeSwitcher({
                   key: `${row.id}:${item.id}:${child}`
                 }, h("button", { className: `bees-nav-link bees-nav-child ${active && route === child ? "active" : ""}`,
                   "aria-current": active && route === child ? "page" : null, onClick: () => open(child) }, label)))
-              ) : null),
-            item.id === "home" && menuExpanded ? h("div", { className: "bees-nav-dashboards" },
-              ...dashboards.map((dashboard) => h("div", { className: "bees-dashboard-item", key: `${row.id}:${dashboard.id}` },
-                h("button", {
-                  type: "button", title: dashboard.name,
-                  className: `bees-nav-link bees-nav-child bees-dashboard-link ${active && route === "home" && dashboard.id === activeDashboardId ? "active" : ""}`,
-                  "aria-current": active && route === "home" && dashboard.id === activeDashboardId ? "page" : null,
-                  onClick: () => {
-                    if (!active) onChange(`team:${row.id}`, connectionId, false);
-                    onOpenDashboard(dashboard.id);
-                  }
-                }, dashboard.name),
-                h("button", {
-                  type: "button", className: "bees-dashboard-action", title: `Rename ${dashboard.name}`,
-                  "aria-label": `Rename ${dashboard.name}`, onClick: () => onRenameDashboard(dashboard)
-                }, h(EditIcon)),
-                dashboard.id !== "home" ? h("button", {
-                  type: "button", className: "bees-dashboard-remove bees-dashboard-action", title: `Delete ${dashboard.name}`,
-                  "aria-label": `Delete ${dashboard.name}`, onClick: () => onDeleteDashboard(dashboard)
-                }, h(CloseIcon)) : null)),
-              h("button", {
-                type: "button", className: "bees-nav-link bees-nav-child bees-dashboard-create",
-                disabled: dashboards.length >= 20, title: dashboards.length >= 20 ? "Dashboard limit reached" : "Create dashboard",
-                onClick: () => {
-                  if (!active) onChange(`team:${row.id}`, connectionId, false);
-                  onCreateDashboard();
-                }
-              }, h("span", { className: "bees-add-icon", "aria-hidden": "true" }, h(CloseIcon)), h("span", null, "New dashboard"))
-            ) : null
-          ); })) : null);
+              ) : null);
+          })) : null);
       })));
 }
 
@@ -705,7 +691,6 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
         onOpenTeamSettings: (team) => { setScope(`team:${team.id}`, connectionId); navigate("team-settings"); },
         onNavigate: (id) => { setVisit((value) => value + 1); navigate(id); }, route, sectionId: section.id, dashboards, activeDashboardId: activeDashboard.id,
         onOpenDashboard: (dashboardId) => { setRoute("home"); void preferences.set("activeDashboardId", dashboardId); },
-        onCreateDashboard: createDashboard,
         onRenameDashboard: renameDashboard,
         onDeleteDashboard: deleteDashboard,
         organizationColors: preference.organizationColors ?? {} }),
@@ -730,7 +715,11 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
       )
     ),
     h("section", { className: "bees-main" },
-      h(AppHeader, { routeLabel, parts, ctx, preferences }),
+      h(AppHeader, { routeLabel, parts, ctx, preferences },
+        route === "home" ? h(Button, {
+          onClick: createDashboard, disabled: dashboards.length >= 20,
+          title: dashboards.length >= 20 ? "Dashboard limit reached" : "Create new Dashboard"
+        }, "Create new Dashboard") : null),
       platform.editing ? h("div", { className: "bees-callout", role: "status", "data-product-defaults": true },
         "Editing product defaults — saved changes apply here and ship in future builds. Personal settings take priority.") : null,
       onboarding.active && route === "home" ? h(GettingStartedBar, { state: onboarding, update: updateOnboarding, navigate, aiStatus: aiReady ? "AI ready" : "AI setup can continue while you explore.", data, openWorkItem: openStarter }) : null,
@@ -743,7 +732,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
   ));
 }
 
-function AppHeader({ routeLabel, parts, ctx, preferences }) {
+function AppHeader({ routeLabel, parts, ctx, preferences, children }) {
   const [header, setHeader] = useState(null);
   const [actions, setActions] = useState(null);
   const scopeName = parts.team?.name ?? parts.organization?.name ?? "";
@@ -759,6 +748,7 @@ function AppHeader({ routeLabel, parts, ctx, preferences }) {
       h("div", { className: "bees-title" }, routeLabel),
       scopeName ? h("div", { className: "bees-context" }, scopeName) : null
     ),
+    children,
     h("div", { className: "bees-grow" }),
     actions,
     h(ThemeToggle, { ctx, preferences })
