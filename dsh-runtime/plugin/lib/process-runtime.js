@@ -711,6 +711,13 @@ export class ProcessRuntime {
         ON CONFLICT(work_item_id) DO UPDATE SET execution_id = excluded.execution_id
       `).run(state.workItemId, state.executionId);
       else this.database.prepare("DELETE FROM bees_stage_waits WHERE work_item_id = ?").run(state.workItemId);
+      // one item runs one execution at a time: an attempt a retry replaced would otherwise sit in
+      // its old waiting state for ever, and the dashboard keeps asking the owner to answer it
+      if (state.executionId) this.database.prepare(`
+        UPDATE execution_links SET status = 'cancelled', updated_at = ?
+        WHERE work_item_id = ? AND execution_id <> ?
+          AND status IN ('running', 'waiting_for_input', 'waiting_for_approval')
+      `).run(new Date().toISOString(), state.workItemId, state.executionId);
     });
     // a scheduled run's first projection means its workflow exists, so its lease can be renewed from here on
     const lease = this.scheduledLeases.get(state.workItemId);

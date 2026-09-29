@@ -159,7 +159,7 @@ const ENTRIES = [
     publisher: "Bees",
     homepage: "https://github.com/Bees-bot/bees-desktop/blob/main/dsh-runtime/plugin/lib/gmail-mcp.js",
     summary: "Search, read, label, draft and send email in your Gmail.",
-    access: "Everything in your mailbox. Every agent set to all MCPs, and any agent you select it for, can "
+    access: "Everything in your mailbox. Every agent set to all add-ons, and any agent you select it for, can "
       + "read, label and draft email as you without asking first, and asks you before each email it sends. An email or page it reads can "
       + "try to steer that agent. The Google sign-in stays on this computer and goes only to Google.",
     scopes: ["https://www.googleapis.com/auth/gmail.modify"],
@@ -177,7 +177,7 @@ const ENTRIES = [
     homepage: "https://github.com/Bees-bot/bees-desktop/blob/main/dsh-runtime/plugin/lib/google-calendar-mcp.js",
     summary: "Find, add, change and answer events in your Google Calendar, and check when people are free.",
     access: "Every calendar you can see or edit, including ones shared with you, and when anyone whose calendar "
-      + "you can see is busy. Every agent set to all MCPs, and any agent you select it for, can read, add, change "
+      + "you can see is busy. Every agent set to all add-ons, and any agent you select it for, can read, add, change "
       + "and delete events and invite people as you without asking first, and Google emails the guests. An event "
       + "or page it reads can try to steer that agent. The Google sign-in stays on this computer and goes only to Google.",
     scopes: [
@@ -200,7 +200,7 @@ const ENTRIES = [
     summary: "Find and read your Google Drive files: Docs, Sheets, Slides, Forms, PDFs and Office files.",
     access: "Every file you can open in Google Drive, including ones shared with you and shared drives, and the "
       + "questions in your Google Forms. It only reads, and cannot change, share or delete anything. Every agent set "
-      + "to all MCPs, and any agent you select it for, can read those files without asking first, and a file it reads "
+      + "to all add-ons, and any agent you select it for, can read those files without asking first, and a file it reads "
       + "can try to steer that agent. The Google sign-in stays on this computer and goes only to Google.",
     scopes: [
       "https://www.googleapis.com/auth/drive.readonly",
@@ -258,7 +258,7 @@ const ENTRIES = [
     publisher: "Bees",
     homepage: "https://github.com/Bees-bot/bees-desktop/blob/main/dsh-runtime/plugin/lib/openapi-mcp.js",
     summary: "Point it at an OpenAPI spec and every endpoint becomes a tool. For services with no "
-    + "MCP server of their own.",
+    + "add-on of their own.",
     access: "Calls the API you name, with the credentials you give it, on the agent's behalf.",
     transport: "stdio",
     command: "{node}",

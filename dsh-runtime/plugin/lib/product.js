@@ -213,13 +213,19 @@ export class BeesProduct {
     const parent = item.parentId ? itemContext(this.database, item.parentId, ["admin", "member"]) : null;
     const executionId = required(stage.executionId, "Execution");
     const reviewer = stage.purpose === "reviewer";
+    const candidateExecutionId = stage.candidateExecutionId
+      ?? (reviewer ? this.workContext.latestCandidate(item.id, executionId) : null);
+    // Without it the reviewer would be sent to a candidate folder that was never staged, and its
+    // verdict could never be recorded.
+    if (reviewer && !candidateExecutionId)
+      throw new Error("This review has no candidate to check yet; retry once the work stage has finished");
     const root = this.workContext.lineage(item.id)[0];
     const runDirectory = this.workContext.directory(item.id);
     let assignment;
     try {
       assignment = resolveStageAgent(this.database, {
         executionId, item, stageId: required(stage.stageId, "Stage"), purpose: stage.purpose,
-        candidateExecutionId: stage.candidateExecutionId, recurringGuidance: this.workContext.guidance(item.id)
+        candidateExecutionId, recurringGuidance: this.workContext.guidance(item.id)
       });
     } catch (error) {
       if (error instanceof AgentCapacityError) return { outcome: "waiting", summary: error.message };
@@ -252,7 +258,7 @@ export class BeesProduct {
     // may call on, and demanding all of them turns a one-line job into a fan-out of child runs.
     const participantIds = stage.driver === "discussion" ? peers.map(({ id }) => id) : [];
     const pinned = this.workContext.pin(executionId, item, {
-      reviewer, candidateExecutionId: stage.candidateExecutionId, references: referenceBrief,
+      reviewer, candidateExecutionId, references: referenceBrief,
       systemInstructions: this.agents.settings?.get?.()?.systemInstructions ?? "",
       instructions: assignment.instructions, stageName: stage.stageName || "Work", feedback: stage.feedback ?? ""
     });
@@ -265,34 +271,36 @@ export class BeesProduct {
     let candidateSummary = "";
     const reviewDirectory = resolve(runDirectory, ".bees-reviews", encodeURIComponent(executionId));
     const reviewPath = `.bees-reviews/${encodeURIComponent(executionId)}`;
-    if (stage.candidateExecutionId) {
+    if (candidateExecutionId) {
       const candidate = this.database.prepare(`
         SELECT resolved(e.run_directory, e.workspace_id) AS runDirectory, r.summary
         FROM execution_links e
         LEFT JOIN bees_stage_results r ON r.execution_id = e.execution_id
         WHERE e.execution_id = ? AND e.work_item_id = ?
-      `).get(stage.candidateExecutionId, item.id);
-      if (!candidate) throw new Error("The review candidate is unavailable");
-      candidateSummary = candidate.summary || "";
+      `).get(candidateExecutionId, item.id);
+      // A lost workflow can leave the run row behind it, so a review stages the frozen candidate
+      // copy the producer's result recorded. A producer stage still needs its own run row.
+      const frozen = reviewer ? this.workContext.candidate(candidateExecutionId) : null;
+      if (!candidate && !frozen?.directory) throw new Error("The review candidate is unavailable");
+      candidateSummary = candidate?.summary || "";
       // the same layout the producer wrote, so outputs/report.md is candidate/outputs/report.md and
       // a reviewer stops guessing paths
       const destination = reviewer
         ? resolve(reviewDirectory, "candidate", "outputs")
         : resolve(runDirectory, "outputs");
       mkdirSync(destination, { recursive: true });
-      const frozen = this.workContext.candidate(stage.candidateExecutionId);
       const source = frozen?.directory ?? resolve(candidate.runDirectory, "outputs");
       if (source !== destination && (reviewer || candidate.runDirectory !== runDirectory))
         stageLocation({ name: "candidate", kind: "folder", localPath: source }, destination, reviewer);
       if (reviewer) {
         const frozenInputs = frozen?.directory && resolve(frozen.directory, "..", "inputs");
         if (frozenInputs && existsSync(frozenInputs)) stageLocation({ name: "source", kind: "folder", localPath: frozenInputs }, resolve(reviewDirectory, "source"));
-        const evidence = await this.agents.reviewEvidence(stage.candidateExecutionId);
+        const evidence = await this.agents.reviewEvidence(candidateExecutionId);
         writeFileSync(resolve(reviewDirectory, "execution-evidence.json"), `${JSON.stringify(evidence, null, 2)}\n`);
       }
     }
     const feedback = stage.feedback ? `\n\nPrior review feedback:\n${stage.feedback}` : "";
-    const handoff = stage.candidateExecutionId && !reviewer
+    const handoff = candidateExecutionId && !reviewer
       ? `\n\nPrior-stage handoff: previous files remain available in the shared outputs/; read one before rewriting it. Continue from them and the prior-stage summary; do not recreate completed work or repeat approvals/actions already recorded. If they already satisfy this stage, preserve them and submit the candidate without redoing the goal.${candidateSummary ? `\n\nPrior-stage summary:\n${candidateSummary}` : ""}`
       : "";
     const shared = " Every item in this process run shares inputs/ and outputs/. Judge only the assigned scope; other items may have contributed files.";
@@ -325,7 +333,7 @@ export class BeesProduct {
         reasoningEffort: assignment?.reasoningEffort || null,
         instructions: assignment?.instructions || "",
         capabilities: agentCapabilities(assignment),
-        contextId: pinned.id, participantIds, candidateExecutionId: stage.candidateExecutionId ?? null, requiresHumanApproval: Boolean(stage.requiresHumanApproval),
+        contextId: pinned.id, participantIds, candidateExecutionId, requiresHumanApproval: Boolean(stage.requiresHumanApproval),
         workspaceId: item.workspaceId, agentPresetId: assignment?.presetId || this.agents.ctx.agentPresets.defaultId,
         ...mcpGrantFor(this.database, assignment?.id, item.runSettings, item.processId),
         grants: reviewer ? [] : [outputLocation(this.database, item.id)].filter(Boolean)
@@ -942,9 +950,9 @@ export class BeesProduct {
       if (change.action === "install_mcp_server") {
         const entry = catalogEntry(change.catalogId);
         if (!entry) throw new Error(`No catalog server is called ${change.catalogId}; the catalog has ${MCP_CATALOG.filter(({ scopes }) => !scopes).map(({ id }) => id).join(", ")}`);
-        if (entry.scopes) throw new Error(`${entry.label} needs the owner to click Connect with Google on the MCP servers page; ask them in ask_user_question`);
+        if (entry.scopes) throw new Error(`${entry.label} needs the owner to click Connect with Google on the Add-ons page; ask them in ask_user_question`);
         // The folder only means something on the computer the server runs on, so a proposal cannot name it.
-        if (entry.requiresDirectory) throw new Error(`${entry.label} is added on the MCP servers page, where the person picks the folder it may reach; ask them in ask_user_question`);
+        if (entry.requiresDirectory) throw new Error(`${entry.label} is added on the Add-ons page, where the person picks the folder it may reach; ask them in ask_user_question`);
         for (const secret of [...entry.env, ...entry.headers])
           if (!secret.optional && !String(change.secrets?.[secret.name] ?? "").trim()) throw new Error(`${entry.label} needs secrets.${secret.name}: ${secret.label}`);
         const given = change.inputs ?? {};

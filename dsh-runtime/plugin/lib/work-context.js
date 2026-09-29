@@ -118,6 +118,17 @@ export class WorkContext {
     return row ? this.run(row.id) : null;
   }
 
+  // Workflow memory carries the candidate between stages, so a review restarted without it has no
+  // candidate id left. The recorded results outlive the run rows, so the newest producer result is
+  // still there to review. Reviewer executions are the only ones named -review-.
+  latestCandidate(itemId, executionId) {
+    const row = this.database.prepare(`SELECT r.execution_id AS id FROM bees_context_results r
+      JOIN bees_context_runs c ON c.execution_id = r.execution_id
+      WHERE c.work_item_id = ? AND r.execution_id NOT LIKE '%-review-%' AND r.execution_id != ?
+      ORDER BY r.rowid DESC LIMIT 1`).get(itemId, executionId);
+    return row?.id ?? null;
+  }
+
   guidance(itemId) {
     const root = this.lineage(itemId)[0];
     const row = this.database.prepare("SELECT content_json AS content FROM bees_work_contexts WHERE root_id = ? ORDER BY version DESC LIMIT 1").get(root.id);
