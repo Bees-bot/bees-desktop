@@ -16,7 +16,7 @@
     "check:page-fetch": "node scripts/check-page-fetch.mjs",
     "release:prepare": "node scripts/release.mjs version",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && node --test dsh-runtime/plugin/client/home.test.js dsh-runtime/plugin/client/work.test.js dsh-runtime/plugin/client/skills.test.js && npm run check:schedules && npm run check:page-fetch && npm run check:process-interactions && npm run check:sync && npm run check:dsh-upgrade && npm run check:file-locks && npm run check:product-defaults && npm run check:local-ai && npm run build",
+    "check": "npm run typecheck && node --test dsh-runtime/plugin/client/basics.test.js dsh-runtime/plugin/client/home.test.js dsh-runtime/plugin/client/work.test.js dsh-runtime/plugin/client/skills.test.js && npm run check:schedules && npm run check:page-fetch && npm run check:process-interactions && npm run check:sync && npm run check:dsh-upgrade && npm run check:file-locks && npm run check:product-defaults && npm run check:local-ai && npm run build",
     "check:sync": "node --test dsh-runtime/plugin/lib/connected-account.test.js",
     "check:local-ai": "node --test dsh-runtime/plugins/local-ai/lib/client.test.js dsh-runtime/plugin/lib/local-inference.test.js",
     "check:product-defaults": "node --test dsh-runtime/plugin/lib/product-defaults.test.js",

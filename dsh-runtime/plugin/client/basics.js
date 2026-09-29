@@ -422,7 +422,7 @@ function SectionCard({ id, icon, title, subtitle, children }) {
         subtitle ? h("p", null, subtitle) : null
       )
     ),
-    h("div", { className: "bb-section-body" }, ...children)
+    h("div", { className: "bb-section-body" }, children)
   );
 }
 
@@ -442,7 +442,7 @@ function FaqItem({ q, children }) {
       h("span", null, q),
       h("span", { className: "bb-faq-chevron", "aria-hidden": "true" }, "▾")
     ),
-    h("div", { className: "bb-faq-body" }, ...children)
+    h("div", { className: "bb-faq-body" }, children)
   );
 }
 

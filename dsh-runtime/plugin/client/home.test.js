@@ -23,7 +23,7 @@ const { renderToStaticMarkup } = require("react-dom/server");
 
 test("dashboard attention rows and count follow the selected team, including plans without work items", () => {
   const data = {
-    workspaces: ["A", "B"].map((id) => ({ id, teamId: `team-${id}` })),
+    teams: [], workspaces: ["A", "B"].map((id) => ({ id, teamId: `team-${id}` })),
     processes: ["A", "B"].map((workspaceId) => ({ id: `process-${workspaceId}`, workspaceId })),
     items: ["A", "B"].flatMap((team) => ["question", "approval", "completed"].map((kind) => ({
       id: `${team}-${kind}`, processId: `process-${team}`, title: `${team} ${kind}`,
