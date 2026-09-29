@@ -837,18 +837,18 @@ function AiStep({ ctx, data, agents, aiReady, aiStatus, testAi, busy, saveAgentM
     h("div", { className: "gs-option-grid" },
       h("button", { type: "button", className: "gs-option", onClick: () => go(1, "local") },
         h("span", { className: "gs-option-icon" }, "💻"),
-        h("strong", null, "AI on this computer"),
-        h("span", null, "Private and offline. Downloads in background.")
+        h("strong", null, "AI on this computer · Recommended"),
+        h("span", null, "Runs here. Nothing leaves this computer.")
       ),
       h("button", { type: "button", className: "gs-option", onClick: () => go(1, "subscriptions") },
         h("span", { className: "gs-option-icon" }, "☁️"),
-        h("strong", null, "Codex or Claude"),
-        h("span", null, "Connect your OpenAI or Anthropic account.")
+        h("strong", null, "Connect Codex or Claude"),
+        h("span", null, "Uses your subscription; messages go to its provider.")
       ),
       h("button", { type: "button", className: "gs-option", onClick: () => go(1, "other") },
         h("span", { className: "gs-option-icon" }, "🔌"),
-        h("strong", null, "Other provider"),
-        h("span", null, "Ollama, OpenRouter, or any API key.")
+        h("strong", null, "Choose another provider"),
+        h("span", null, "Your own API key; provider charges may apply.")
       )
     ),
     // Hint: clicking a card opens AI connections settings
@@ -1263,4 +1263,3 @@ export function GettingStartedBar({ state, update, navigate, aiStatus, data, ope
     )
   );
 }
-
