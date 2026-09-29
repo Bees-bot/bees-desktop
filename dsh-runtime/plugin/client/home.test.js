@@ -55,3 +55,27 @@ test("dashboard attention rows and count follow the selected team, including pla
     assert.match(html, new RegExp(`<strong>${["A", "B"].includes(workspaceId) ? 3 : 0}</strong><span>Needs you</span>`));
   }
 });
+
+test("completed widget excludes cancelled and archived work", () => {
+  const data = {
+    teams: [], workspaces: [{ id: "team", teamId: "team" }],
+    processes: [{ id: "active", workspaceId: "team" }, { id: "archived-process", workspaceId: "team", archivedAt: "today" }],
+    items: [
+      { id: "done", processId: "active", title: "Finished run", runtimePhase: "completed" },
+      { id: "cancelled", processId: "active", title: "Cancelled run", runtimePhase: "cancelled" },
+      { id: "archived", processId: "active", title: "Archived run", runtimePhase: "completed", archivedAt: "today" },
+      { id: "old-process", processId: "archived-process", title: "Archived process run", runtimePhase: "completed" }
+    ], runs: [], proposals: []
+  };
+  const rowsForRoute = (route) => workItemsFor(data, route, ["team"])
+    .map((item) => ({ id: item.id, label: item.title, item }));
+  assert.deepEqual(rowsForRoute("completed").map(({ id }) => id), ["done"]);
+  assert.deepEqual(rowsForRoute("all-work").map(({ id }) => id), []);
+  const html = renderToStaticMarkup(createElement(Home, {
+    ctx: { sessions: {}, uiSession: {} }, data, workspaceId: "team", preferences: {},
+    preference: { dashboards: [{ id: "home", name: "Home", widgets: [{ kind: "completed", w: 12, h: 6 }] }] },
+    rowsForRoute, act() {}, navigate() {}, openWorkItem() {}
+  }));
+  assert(html.includes("Finished run"));
+  for (const title of ["Cancelled run", "Archived run", "Archived process run"]) assert(!html.includes(title));
+});
