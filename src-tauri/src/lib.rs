@@ -681,7 +681,7 @@ fn watch_dsh(app: tauri::AppHandle, window: tauri::WebviewWindow, home: tauri::U
             }
             thread::sleep(Duration::from_secs(2));
         }
-        let _ = window.set_title_bar_style(tauri::TitleBarStyle::Transparent);
+        let _ = window.set_title_bar_style(tauri::TitleBarStyle::Overlay);
         let _ = window.navigate(home);
         WATCHING_DSH.store(false, Ordering::SeqCst);
     });
