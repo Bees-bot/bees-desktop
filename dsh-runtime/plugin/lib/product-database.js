@@ -108,6 +108,17 @@ export function itemContext(database, itemId, roles = ["admin", "member", "viewe
   };
 }
 
+/** An agent retypes an id it was shown and can garble the tail, so the id's first segment is the key. */
+export function resolveItemId(database, value, label = "Work item") {
+  const id = String(required(value, label)).trim();
+  const head = id.split("-")[0];
+  // substr, not GLOB: a stray * in a garbled id would otherwise match whoever came first
+  const lookup = database.prepare("SELECT id FROM work_items WHERE substr(id, 1, ?) = ? AND deleted_at IS NULL LIMIT 2");
+  const rows = head ? lookup.all(head.length, head) : [];
+  if (rows.length === 1) return rows[0].id;
+  throw new Error(rows.length ? `${label} "${id}" matches more than one work item` : `No work item starts with "${id}"; use the id from the tool result`);
+}
+
 export function processContext(database, processId, roles = ["admin", "member", "viewer"]) {
   const row = database.prepare(`
     SELECT id, workspace_id AS workspaceId, name, description, kind,

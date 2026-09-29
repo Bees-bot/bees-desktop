@@ -15,6 +15,20 @@ Notable changes, newest first. Dates are release dates.
 - Only the app's own window can reach the local server that answers Bees.
 - A run that failed no longer keeps showing as running, and Bees stops trying to recover it on
   every start.
+- A run Bees has lost track of no longer hangs for ever. It stops it and says how long it had
+  been quiet.
+- A long answer no longer gets its run stopped. The text a model streams counts as progress, so a
+  worker that is still writing is left to finish.
+- Naming a work item with the wrong ID no longer fails the step. Bees matches the ID it was
+  given and says plainly when nothing matches.
+- A stage that was starting when Bees restarted no longer fails for good. The run picks its
+  conversation back up instead of reporting that the session already exists.
+- A connected tool that saves a file writes it inside the run's own folder rather than next to
+  the app, where the run could not read it back.
+- Adding an API again for a host you already have keeps the key you type, so a connection that
+  needed a fixed header finally works.
+- A schedule that runs on an interval of your own, such as every 5 minutes, keeps that interval
+  when you open and save it, and the minutes are editable on the form.
 - Upgrade the bundled DeepSeek Harness from 0.1.7-alpha.1 to 0.1.7-rc.2.
 - Wait for owned background jobs before settling a stage. Model output limits now
   report a recoverable failure instead of reporting successful completion.
