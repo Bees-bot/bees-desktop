@@ -66,7 +66,7 @@ tool("read_thread", "Read a whole email conversation: each message's sender, rec
     }));
   });
 
-tool("send_email", "Send an email from this Gmail account right away.", email,
+tool("send_email", "Send an email from this Gmail account right away. Only when the person asked for this email to go out; anything you write on your own goes to create_draft.", email,
   async (input) => gmail("messages/send", { method: "POST", data: await mime(input) }));
 
 tool("create_draft", "Save an email as a Gmail draft for the owner to review and send.", email,
