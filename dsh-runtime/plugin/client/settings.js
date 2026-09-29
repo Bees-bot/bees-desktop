@@ -42,10 +42,8 @@ function AiSettings({ ctx, modelSettings, preferences, systemDefault, reload, pr
   );
 }
 
-function AppearanceSettings({ ctx, preferences, productSettings }) {
+function AppearanceSettings({ ctx, preferences }) {
   const preference = usePreference(preferences);
-  const chat = React.useMemo(() => productSettings.scope("ui-chat", ctx.configForms.get("ui-chat")), [ctx, productSettings]);
-  const chatPreference = usePreference(chat);
   const theme = ctx.get?.("theme") ?? ctx.theme;
   const preset = THEME_PRESETS.some(({ id }) => id === preference.themePreset)
     ? preference.themePreset : "halloween";
@@ -68,13 +66,6 @@ function AppearanceSettings({ ctx, preferences, productSettings }) {
     if (!preferences.productDefaults) theme.setTheme(nextMode);
   };
   return h("div", { className: "bees-stack" },
-    h("section", { className: "bees-box" }, h("h3", null, "Conversation details"),
-      h("label", null, "Work process display", h("select", { className: "bees-select",
-        value: ({ normal: "standard", expanded: "detailed" })[chatPreference.transcriptView] ?? chatPreference.transcriptView ?? "compact",
-        disabled: chat.getSnapshot().status !== "ready",
-        onChange: (event) => void chat.set("transcriptView", event.target.value) },
-      ...[["compact", "Compact"], ["standard", "Standard"], ["detailed", "Detailed"], ["verbose", "Fully expanded while running"]]
-        .map(([value, label]) => h("option", { value, key: value }, label))))),
     h("section", { className: "bees-box bees-appearance-card" }, 
       h("h3", { className: "bees-section-title" }, "Theme defaults"),
       h("p", { className: "bees-muted" }, "Choose which palettes the header button uses when switching between dark and light."),
@@ -817,7 +808,7 @@ export function SettingsPage({
         h("input", { type: "checkbox", role: "switch", checked: platform.editing, disabled: platform.busy || !platform.editable,
           onChange: (event) => void productSettings.toggle(event.target.checked) }), "Edit product defaults"),
       h("p", { className: "bees-muted" }, platform.editable
-        ? "Use the existing AI, appearance and layout controls. Changes save immediately into the product for future builds. Turn this off to return to personal settings."
+        ? "Use the existing AI, appearance and layout controls. Saved defaults apply here immediately and ship in future builds. Personal settings take priority. Other installations need an updated build."
         : "Editing product defaults requires the Bees development build with a writable source checkout."))
       : h(Empty, null, "Platform administrator access is unavailable.")
     : route === "personal-ai"
@@ -826,7 +817,7 @@ export function SettingsPage({
         catalog: data.localModelCatalog })
     : route === "system-instructions"
       ? h(SystemInstructionsSettings, { preferences, instructions: preference.systemInstructions ?? "" })
-    : route === "appearance" ? h(AppearanceSettings, { ctx, preferences, productSettings })
+    : route === "appearance" ? h(AppearanceSettings, { ctx, preferences })
     : route === "data-folder" ? h(DataFolderSettings, { ctx, data, act })
     : route === "removing-bees" ? h(RemoveBeesSettings, { dataFolder: data.dataFolder })
     : route === "organizations" ? h(OrganizationsSettings)

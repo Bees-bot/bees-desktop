@@ -136,8 +136,8 @@
             runsProcesses: false
         themePreset: halloween
         colorMode: dark
-        darkThemePreset: halloween
-        lightThemePreset: bumblebee
+        darkThemePreset: business
+        lightThemePreset: cmyk
         dashboards:
           - id: home
             name: Home

@@ -2,9 +2,11 @@ import { createHash } from "node:crypto";
 import { access, readFile } from "node:fs/promises";
 import { constants, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseDocument, isSeq } from "yaml";
 import { z } from "zod";
 import { withFileLock, writeFileAtomic } from "@deepseek-ai/dsh-atomic-write";
+import { loadOverlayPatches, readProfilePatches, reconcileProfilePatches } from "@deepseek-ai/dsh-app-boot";
 
 const id = z.string().min(1).max(120).regex(/^[a-zA-Z0-9_.-]+$/);
 const label = z.string().min(1).max(200);
@@ -80,11 +82,34 @@ export const shippedModelCatalog = snapshot(
   readFileSync(new URL("../cordis.patch.yml", import.meta.url), "utf8")
 ).values.bees.localModelCatalog;
 
+// Re-read the bundle underneath the user's profile through DSH's normal reload
+// path. Writing personal settings here would turn defaults into user overrides.
+export async function refreshProductDefaults(ctx, text, path = fileURLToPath(new URL("../cordis.patch.yml", import.meta.url))) {
+  const profile = ctx.get("profileContext");
+  const refresh = () => withFileLock(join(profile.dir, "package.json"), async () => {
+    const before = await readFile(path, "utf8");
+    const patches = readProfilePatches("bees", profile);
+    await writeFileAtomic(path, text, { mode: 0o644 });
+    try {
+      loadOverlayPatches("bees", path);
+      await reconcileProfilePatches(ctx.root, readProfilePatches("bees", profile), "bees");
+    } catch (error) {
+      await writeFileAtomic(path, before, { mode: 0o644 });
+      await reconcileProfilePatches(ctx.root, patches, "bees");
+      throw error;
+    }
+  });
+  const hmr = ctx.get("hmr");
+  await (hmr ? hmr.runExclusive(refresh) : refresh());
+}
+
 export class ProductDefaults {
-  constructor(connected, root = process.env.BEES_PRODUCT_SOURCE) {
+  constructor(connected, root = process.env.BEES_PRODUCT_SOURCE, apply = async () => {}) {
     this.connected = connected;
     this.root = root;
     this.path = root ? join(root, "dsh-runtime/plugin/cordis.patch.yml") : null;
+    this.apply = apply;
+    this.catalog = shippedModelCatalog;
   }
   async authorize(accountUserId) {
     if (!accountUserId || !this.connected.account(accountUserId)?.enabled) fail("Platform administrator access required", 403);
@@ -133,6 +158,12 @@ export class ProductDefaults {
         (selected.provider === "claude-code" && !result.values["bees-subscriptions"].models.includes(selected.model)))
         fail("Choose another product default model before removing this model");
       await writeFileAtomic(this.path, next, { mode: 0o644 });
+      try { await this.apply(next); }
+      catch (error) {
+        await writeFileAtomic(this.path, text, { mode: 0o644 });
+        throw error;
+      }
+      this.catalog = result.values.bees.localModelCatalog;
       return result;
     });
   }

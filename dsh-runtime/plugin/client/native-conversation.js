@@ -1,6 +1,12 @@
 import { createPortal, h, NativeUi, React, useEffect, useState } from "./runtime.js";
 import { loadLocationFile, loadRunFile } from "./run-file-preview.js";
+import { usePreference } from "./shared.js";
 import { sessionFileAddress } from "@deepseek-ai/dsh-util-workspace-path";
+
+const WORK_DETAIL_MODES = [
+  ["compact", "Compact"], ["standard", "Standard"], ["detailed", "Detailed"],
+  ["verbose", "Fully expanded while running"]
+];
 
 const listeners = new Set();
 let embedding = { target: null, debug: false };
@@ -27,6 +33,10 @@ export function NativeContentHost({ content, kind }) {
 export function DshRunPanels({ ctx, run, item = {}, activeTab }) {
   const [error, setError] = useState("");
   const [opening, setOpening] = useState(true);
+  const chatSettings = React.useMemo(() => ctx.configForms.get("ui-chat"), [ctx]);
+  const chatPreference = usePreference(chatSettings);
+  const transcriptView = ({ normal: "standard", expanded: "detailed" })[chatPreference.transcriptView]
+    ?? chatPreference.transcriptView ?? "compact";
   const main = React.useRef(null);
   const rightbar = React.useRef(null);
   const sessionId = run?.ranElsewhere ? null : run?.sessionId;
@@ -59,6 +69,13 @@ export function DshRunPanels({ ctx, run, item = {}, activeTab }) {
     : !sessionId ? "The conversation will appear when this run starts." : null;
   return h("div", { className: "bees-dsh-tab", style: { display: activeTab === "chat" ? "flex" : "none", flexDirection: "column", height: "100%" } },
     empty ? h("p", { role: "status" }, empty) : h(React.Fragment, null,
+      h("div", { className: "bees-work-details-toolbar" },
+        h("label", null, "Work process display · all conversations",
+          h("select", { className: "bees-select", value: transcriptView,
+            disabled: chatSettings.getSnapshot().status !== "ready",
+            onChange: (event) => void chatSettings.set("transcriptView", event.target.value).catch((reason) =>
+              setError(reason instanceof Error ? reason.message : String(reason))) },
+          ...WORK_DETAIL_MODES.map(([value, label]) => h("option", { key: value, value }, label))))),
       opening && !error ? h("p", { role: "status" }, "Waiting for this run's conversation…") : null,
       h("div", { className: "bees-native-widgets" },
         h("div", { ref: main, className: "bees-native-main" }),
