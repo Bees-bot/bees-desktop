@@ -105,17 +105,6 @@ try {
   const schemas = [];
   const ctx = { on() {}, tools: { schemas: () => schemas }, logger: { warn() {} } };
   const runtime = new AgentRuntime(ctx, database);
-  // Retention markers are runtime context, while the original human messages stay visible.
-  const typedMarker = "[Earlier runtime context superseded by the latest snapshot.]";
-  append(user(typedMarker));
-  const history = await runtime.history.call({ database,
-    run: () => ({ status: "running" }),
-    live: new Map([[session.id, { handle: { agent: { session } } }]])
-  }, session.id);
-  const { conversationMessages } = await import("../dsh-runtime/plugin/client/conversation-model.js");
-  assert.deepEqual(conversationMessages({ ...history, executionId: session.id }, [], [])
-    .filter(({ role }) => role === "user").map(({ text }) => text),
-    ["Create five contributions, preserving every entry.", "Use the current run filename.", typedMarker]);
   // A review, including a recovery seed with workspace-write, cannot mutate its
   // candidate. Worker sessions keep their existing file policy.
   for (const mode of ["review", "work"]) {
@@ -166,34 +155,6 @@ try {
   assert(submitted);
   assert.equal(calls, 1);
   assert(loopAgent.session.snapshotEvents().filter((event) => event.type === "turn/end").every((event) => event.data.reason.kind === "completed"));
-
-  // Exercise a real follow-up turn with an old completed result, through setup's guard selection.
-  const followupProcess = database.prepare("SELECT id, workspace_id AS workspaceId FROM processes WHERE kind = 'goals'").get();
-  const firstStage = database.prepare("SELECT id FROM stages WHERE process_id = ? ORDER BY position LIMIT 1").get(followupProcess.id);
-  database.prepare(`INSERT INTO work_items (id, process_id, stage_id, title, runtime_phase, created_at, updated_at)
-    VALUES ('followup-item', ?, ?, 'Finished task', 'completed', 'now', 'now')`).run(followupProcess.id, firstStage.id);
-  let followupCalls = 0;
-  loopContext.llm.registerAdapter(["followup-test"], new class extends LlmAdapter {
-    async *stream() {
-      followupCalls++;
-      yield { type: "block-start", index: 0, blockType: "text" };
-      yield { type: "block-end", index: 0, block: { type: "text", text: "Here is the answer about your finished task." } };
-      yield { type: "finish", reason: { kind: "stop" } };
-    }
-  });
-  const followupAgent = await harness.create("finished-followup", { provider: "followup-test", model: "test" });
-  const originalResult = runtime.stageResult, originalPolicies = runtime.installPolicies;
-  runtime.stageResult = () => ({ outcome: "candidate", summary: "Earlier completed result" });
-  runtime.installPolicies = () => {};
-  ctx.agentPresets = { mount() {} };
-  await runtime.setup(followupAgent.ctx, { mode: "work", workItemId: "followup-item", workspaceId: followupProcess.workspaceId,
-    agentPresetId: "standard", mcpAccess: "none", mcpServers: [], instructions: "" }, "finished-followup", root);
-  followupAgent.followup(user("What did you finish?"));
-  await followupAgent.whenIdle();
-  assert.equal(followupCalls, 1, "completed work must accept a new model request");
-  assert(followupAgent.session.snapshotEvents().some((event) => event.type === "user/message" && event.data.content[0]?.text === "What did you finish?"));
-  assert(followupAgent.session.snapshotEvents().some((event) => event.type === "assistant/message"));
-  runtime.stageResult = originalResult; runtime.installPolicies = originalPolicies;
   await loopContext.fiber.dispose();
   const grant = { mcpAccess: "listed", mcpServers: ["sales"] };
   const servers = database.prepare("INSERT INTO mcp_servers (id, server_name, label, transport, created_at) VALUES (?, ?, ?, 'stdio', 'now')");

@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { ApplicationFailure, Context } from "@temporalio/activity";
 import {
-  Client, Connection, WorkflowExecutionAlreadyStartedError, WorkflowFailedError, WorkflowNotFoundError
+  Client, Connection, WorkflowExecutionAlreadyStartedError, WorkflowNotFoundError
 } from "@temporalio/client";
 import { NativeConnection, Worker } from "@temporalio/worker";
 import { iso, message, transaction } from "./product-database.js";
@@ -71,18 +71,13 @@ export class ProcessRuntime {
       WHERE event_type = 'peer-work-correction' AND json_extract(metadata_json, '$.workItemId') = ?
       ORDER BY rowid DESC LIMIT 1
     `).get(item.id) : null;
-    const restart = this.database.prepare(`SELECT metadata_json AS metadata FROM dsh_audit_events
-      WHERE event_type = 'work-restarted' AND json_extract(metadata_json, '$.workItemId') = ?
-        AND json_extract(metadata_json, '$.attempt') = ? ORDER BY rowid DESC LIMIT 1`)
-      .get(item.id, item.attempt);
     return {
       workItemId: item.id, processId: item.processId, stageId: item.stageId,
       accountUserId: item.accountUserId ?? "", stages, maxAttempts: 3,
       parentReview: Boolean(item.parentId),
       // Its own field so runs already in flight replay on the path they started with.
       peerAssignment: Boolean(item.parentId),
-      ...(restart ? { restart: JSON.parse(restart.metadata) }
-        : correction ? { correction: JSON.parse(correction.metadata) } : {})
+      ...(correction ? { correction: JSON.parse(correction.metadata) } : {})
     };
   }
 
@@ -531,45 +526,6 @@ export class ProcessRuntime {
     });
     await this.startItem(workItemId);
     return { id: workItemId };
-  }
-
-  async restartItem(workItemId, text, requestId) {
-    if (typeof text !== "string" || text.length > 8000 || typeof requestId !== "string" || !requestId.trim())
-      throw new Error("A restart needs a request ID and instructions under 8,000 characters");
-    const receiptId = `work-restart:${requestId}`;
-    const receipt = this.database.prepare("SELECT metadata_json AS metadata FROM dsh_audit_events WHERE id = ?").get(receiptId);
-    const item = this.item(workItemId);
-    if (receipt) {
-      const saved = JSON.parse(receipt.metadata);
-      if (saved.workItemId !== workItemId || saved.text !== text) throw new Error("This restart belongs to another request");
-      if (item.runtimePhase === "ready") await this.startItem(workItemId);
-      return { id: workItemId };
-    }
-    if (!this.isAutomatic(item.processId) || item.archivedAt || !["completed", "failed", "cancelled"].includes(item.runtimePhase))
-      throw new Error("Only finished automatic work can be restarted");
-    const handle = this.client.workflow.getHandle(processWorkflowId(workItemId));
-    if (item.runtimePhase === "failed") {
-      if (item.executionId) this.abortAgent?.(item.executionId);
-      await handle.cancel();
-    }
-    await handle.result().catch((error) => { if (!(error instanceof WorkflowFailedError)) throw error; });
-    await this.claimWatchers.get(`work-item:${workItemId}`)?.settled;
-    const first = this.stages(item.processId)[0];
-    transaction(this.database, () => {
-      const current = this.item(workItemId);
-      if (current.attempt !== item.attempt || current.archivedAt || !["completed", "failed", "cancelled"].includes(current.runtimePhase))
-        throw new Error("This task already started another attempt");
-      const attempt = Number(item.attempt) + 1;
-      this.database.prepare(`INSERT INTO dsh_audit_events (id, event_type, metadata_json, created_at)
-        VALUES (?, 'work-restarted', ?, ?)`)
-        .run(receiptId, JSON.stringify({ workItemId, attempt, text }), iso());
-      this.database.prepare(`UPDATE work_items SET stage_id = ?, runtime_phase = 'ready', runtime_attempt = ?,
-        runtime_review_cycle = 0, runtime_execution_id = NULL, runtime_error = NULL, updated_at = ? WHERE id = ?`)
-        .run(first.id, attempt, iso(), workItemId);
-      this.database.prepare("DELETE FROM bees_stage_waits WHERE work_item_id = ?").run(workItemId);
-    });
-    const started = await this.startItem(workItemId);
-    return { id: workItemId, ...started };
   }
 
   /** Recover a failed child explicitly, preserving the failure and replacement in the audit log. */

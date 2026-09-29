@@ -10,17 +10,13 @@
   },
   "app": {
     "withGlobalTauri": true,
-    "macOSPrivateApi": true,
     "windows": [{
-      "title": "Bees",
+      "title": "",
       "width": 1180,
       "height": 760,
       "maximized": true,
       "minWidth": 820,
-      "minHeight": 560,
-      "transparent": true,
-      "titleBarStyle": "Overlay",
-      "windowEffects": { "effects": ["windowBackground", "mica"] }
+      "minHeight": 560
     }],
     "security": {
       "csp": "default-src 'self'; connect-src 'self' ipc: http://127.0.0.1:*; style-src 'self' 'unsafe-inline'"

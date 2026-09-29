@@ -9,10 +9,6 @@ export interface PinnedWorkContext {
   memories: Array<Record<string, any>>;
 }
 export declare class WorkContext {
-  processMemory: {
-    command(action: string, input: Record<string, any>): Record<string, any>;
-    snapshot(processId: string): Array<Record<string, any>>;
-  };
   constructor(database: unknown, notify?: (event: Record<string, any>) => void);
   lineage(itemId: string): Array<Record<string, any>>;
   resources(itemId: string): { rootId: string; directory: string | null; memories: string | null };

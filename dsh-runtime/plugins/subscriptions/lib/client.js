@@ -120,12 +120,9 @@ window.__ModuleLoader__.load({
       const defaultGuard = "Choose another System default above before removing or turning off this connection.";
 
       return h("section", { "data-bees-plugin": "@bees/dsh-subscriptions" },
-        h("div", { className: "bees-ai-head", style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "14px", marginBottom: "16px" } },
-          h("div", null,
-            h("h3", { className: "bees-section-title" }, "AI subscriptions"),
-            h("p", { className: "bees-muted", style: { margin: 0 } }, "Use subscriptions you already pay for. Bees keeps each provider's normal sign-in and account controls.")
-          )
-        ),
+        h("h2", { className: "bees-section-title" }, "AI subscriptions"),
+        h("p", { className: "bees-muted" }, "Use subscriptions you already pay for. Bees keeps each provider's normal sign-in and account controls."),
+        h("p", { className: "bees-muted" }, "Uses your existing subscription. Your messages go to that provider's servers."),
         h("div", { className: "bees-subscriptions" },
           h("section", { className: "bees-box bees-subscription", "data-subscription": "codex" },
             h("div", { className: "bees-subscription-main" }, h("h3", null, "Codex"),
@@ -133,8 +130,8 @@ window.__ModuleLoader__.load({
                 : status.codex ? "Available models refresh automatically. Models you remove stay hidden."
                   : "Sign in with ChatGPT; no API key is required."),
               status.codexModelError ? h("p", { className: "bees-muted", role: "status" }, status.codexModelError) : null,
-              (status.codex || productDefaults) ? h("div", { className: "bees-subscription-models", style: { display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center", marginTop: "8px" } },
-                ...(codexModels.length ? codexModels.map((model) => h("span", { className: "bees-badge", key: model.id, style: { display: "inline-flex", alignItems: "center", gap: "4px" } }, model.id,
+              (status.codex || productDefaults) ? h("div", { className: "bees-subscription-models" },
+                ...(codexModels.length ? codexModels.map((model) => h("span", { className: "bees-badge", key: model.id }, model.id,
                   h(Button, { title: protects("openai-codex", model.id) ? defaultGuard : `Remove ${model.id}`,
                     "aria-label": `Remove ${model.id}`, disabled: Boolean(busy) || (!productDefaults && codexModels.length <= 1) || protects("openai-codex", model.id),
                     onClick: () => removeCodexModel(model.id) }, "×")))
@@ -159,8 +156,8 @@ window.__ModuleLoader__.load({
               h("p", { className: "bees-muted" }, productDefaults ? "Models included in new installations." : claude.configured
                 ? claude.version || "Claude Code is ready"
                 : "Uses the Claude Code already installed on this computer."),
-              claude.configured ? h("div", { className: "bees-subscription-models", style: { display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center", marginTop: "8px" } },
-                ...claude.models.map((id) => h("span", { className: "bees-badge", key: id, style: { display: "inline-flex", alignItems: "center", gap: "4px" } }, id,
+              claude.configured ? h("div", { className: "bees-subscription-models" },
+                ...claude.models.map((id) => h("span", { className: "bees-badge", key: id }, id,
                   h(Button, { title: protects("claude-code", id) ? defaultGuard : `Remove ${id}`, "aria-label": `Remove ${id}`,
                     disabled: Boolean(busy) || claude.models.length <= 1 || protects("claude-code", id),
                     onClick: () => saveClaudeModels(claude.models.filter((model) => model !== id)) }, "×"))),

@@ -1,8 +1,7 @@
 import "./build-dsh-client.mjs";
-import { cpSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Script } from "node:vm";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const plugins = [
@@ -12,11 +11,6 @@ const plugins = [
   ["plugins/custom-ai", "dsh-custom-ai"],
   ["plugins/subscriptions", "dsh-subscriptions"]
 ];
-
-for (const [sourceName] of plugins) {
-  const filename = resolve(root, "dsh-runtime", sourceName, "lib", "client.js");
-  new Script(readFileSync(filename, "utf8"), { filename });
-}
 
 for (const [sourceName, packageName] of plugins) {
   const source = resolve(root, "dsh-runtime", sourceName);
