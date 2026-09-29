@@ -66,7 +66,7 @@ export function AskBeesSetup({ ctx, data, workspaceId, initial, act: pageAct, on
         h("p", { className: "bees-muted" }, "Choose a process, its tools and agents, and input files."),
         h(Button, { className: "bees-ask-close", onClick: onCancel, "aria-label": "Close configuration" }, "×")),
       h("div", { className: "bees-clean-tabs bees-ask-tabs", role: "tablist", "aria-label": "Goal configuration" },
-        ...[["process", "Process"], ["mcps", "MCPs"], ["files", "Input & Output"]].map(([id, label]) =>
+        ...[["process", "Process"], ["mcps", "Add-ons"], ["files", "Input & Output"]].map(([id, label]) =>
           h("button", { key: id, type: "button", role: "tab", id: `bees-ask-tab-${id}`,
             className: `bees-clean-tab${activeTab === id ? " active" : ""}`,
             "aria-selected": activeTab === id, "aria-controls": "bees-ask-panel",

@@ -72,9 +72,9 @@ const argsFor = (server, mode = "own") => server.args.map((arg) => arg === FOLDE
 const noFolderReason = (server) => {
   if (!needsFolder(server.catalogId)) return "";
   const folder = serverFolder(server.id);
-  if (!folder) return `${server.label} has no folder on this computer. Choose one on the MCP servers page.`;
+  if (!folder) return `${server.label} has no folder on this computer. Choose one on the Add-ons page.`;
   if (!existsSync(folder)) return `${folder} is the folder you gave ${server.label}, and it is not on this computer. `
-    + "Reconnect it, or choose another on the MCP servers page.";
+    + "Reconnect it, or choose another on the Add-ons page.";
   return "";
 };
 
@@ -581,9 +581,9 @@ export class Capabilities {
   async install(input, signIn) {
     const entry = catalogEntry(required(input.catalogId, "Catalog entry"));
     if (!entry) throw new Error("That catalog entry is unavailable");
-    if (entry.scopes && !signIn) throw new Error(`${entry.label} needs the owner to click Connect with Google on the MCP servers page`);
+    if (entry.scopes && !signIn) throw new Error(`${entry.label} needs the owner to click Connect with Google on the Add-ons page`);
     // Which folder a server may reach is a person's choice on the machine it runs on, so a run cannot make it
-    if (input.viaAgent && entry.requiresDirectory) throw new Error(`${entry.label} is added on the MCP servers page, where the person picks the folder it may reach`);
+    if (input.viaAgent && entry.requiresDirectory) throw new Error(`${entry.label} is added on the Add-ons page, where the person picks the folder it may reach`);
     const directory = String(input.directory ?? "").trim();
     if (entry.requiresDirectory && !directory) throw new Error(`${entry.label} needs a folder`);
     assertFolderOutsideBees(directory, this.defaultWorkspace, entry.label);
@@ -596,7 +596,7 @@ export class Capabilities {
     const given = { ...(input.inputs ?? {}) };
     // a run could aim a bridge at this computer's own ports or the router, so only the person adds one of those
     const personOnly = async (address) => {
-      if (input.viaAgent && await privateAddress(address)) throw new Error(`${address} is on this computer or a private network, so the person adds it on the MCP servers page`);
+      if (input.viaAgent && await privateAddress(address)) throw new Error(`${address} is on this computer or a private network, so the person adds it on the Add-ons page`);
     };
     await personOnly(given.apiBaseUrl);
     await personOnly(given.openapiSpec);

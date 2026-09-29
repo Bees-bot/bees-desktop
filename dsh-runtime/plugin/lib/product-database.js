@@ -1140,7 +1140,7 @@ export function mcpGrantFor(database, agentAssignmentId, runSettings = {}, proce
     `${row.name} cannot run on this computer.`,
     named.length ? `It needs ${named.join(", ")}, which ${named.length === 1 ? "is" : "are"} not set up here.` : "",
     gone.length ? `It lists ${gone.length} MCP server${gone.length === 1 ? "" : "s"} that ${gone.length === 1 ? "was" : "were"} set up on another computer, so there is no name to show here.` : "",
-    "Add what is missing on the MCP servers page, or update the process or agent MCP selection."
+    "Add what is missing on the Add-ons page, or update the process or agent add-on selection."
   ].filter(Boolean).join(" "));
   return { mcpAccess: "listed", mcpServers: rows.filter(({ enabled }) => enabled).map(({ name }) => name) };
 }

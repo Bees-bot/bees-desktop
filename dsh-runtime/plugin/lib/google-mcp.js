@@ -5,7 +5,7 @@ import { OAuth2Client } from "google-auth-library";
 /** A Bees Google server: runs on the sign-in that connect left in its env and calls one Google API. */
 export function googleServer(label, base) {
   const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN } = process.env;
-  const again = `Connect ${label} again on the MCP servers page with the same Google account.`;
+  const again = `Connect ${label} again on the Add-ons page with the same Google account.`;
   if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REFRESH_TOKEN) {
     console.error(`${label} has no Google sign-in. ${again}`);
     process.exit(1);

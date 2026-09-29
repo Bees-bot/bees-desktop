@@ -942,9 +942,9 @@ export class BeesProduct {
       if (change.action === "install_mcp_server") {
         const entry = catalogEntry(change.catalogId);
         if (!entry) throw new Error(`No catalog server is called ${change.catalogId}; the catalog has ${MCP_CATALOG.filter(({ scopes }) => !scopes).map(({ id }) => id).join(", ")}`);
-        if (entry.scopes) throw new Error(`${entry.label} needs the owner to click Connect with Google on the MCP servers page; ask them in ask_user_question`);
+        if (entry.scopes) throw new Error(`${entry.label} needs the owner to click Connect with Google on the Add-ons page; ask them in ask_user_question`);
         // The folder only means something on the computer the server runs on, so a proposal cannot name it.
-        if (entry.requiresDirectory) throw new Error(`${entry.label} is added on the MCP servers page, where the person picks the folder it may reach; ask them in ask_user_question`);
+        if (entry.requiresDirectory) throw new Error(`${entry.label} is added on the Add-ons page, where the person picks the folder it may reach; ask them in ask_user_question`);
         for (const secret of [...entry.env, ...entry.headers])
           if (!secret.optional && !String(change.secrets?.[secret.name] ?? "").trim()) throw new Error(`${entry.label} needs secrets.${secret.name}: ${secret.label}`);
         const given = change.inputs ?? {};
