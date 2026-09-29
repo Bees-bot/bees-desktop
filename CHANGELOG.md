@@ -17,6 +17,8 @@ Notable changes, newest first. Dates are release dates.
   every start.
 - A run Bees has lost track of no longer hangs for ever. It stops it and says how long it had
   been quiet.
+- A retry no longer leaves the run it replaced on the dashboard, still asking to be approved or
+  stopped.
 - A long answer no longer gets its run stopped. The text a model streams counts as progress, so a
   worker that is still writing is left to finish.
 - Naming a work item with the wrong ID no longer fails the step. Bees matches the ID it was
