@@ -177,6 +177,9 @@ export const css = `
 /* DSH's own conversation screen, hosted inside the Details "Chat" tab. It stays mounted even
    when another Details tab is active (see DshRunPanels); only this display toggle follows it. */
 .bees-dsh-tab{min-height:0}
+.bees-work-details-toolbar{display:flex;justify-content:flex-end;padding:8px 12px;border-bottom:1px solid var(--dsw-alias-border-l1);flex:none}
+.bees-work-details-toolbar label{display:flex;align-items:center;gap:8px;color:var(--dsw-alias-label-secondary);font-size:12px}
+.bees-work-details-toolbar select{width:auto;font-size:12px}
 .bees-app [hidden]{display:none!important}
 .bees-ask-setup{max-width:none;margin:0;padding:4px 0;min-width:0}
 .bees-ask-heading{padding:14px 0 12px}.bees-ask-heading h1{font-size:28px;margin:6px 0 6px}.bees-ask-heading h1:focus{outline:none}

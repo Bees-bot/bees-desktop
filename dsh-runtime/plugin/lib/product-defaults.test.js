@@ -5,15 +5,15 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
-import { ProductDefaults, shippedModelCatalog } from "./product-defaults.js";
+import { ProductDefaults, refreshProductDefaults, shippedModelCatalog } from "./product-defaults.js";
 import { ProductSettings } from "../client/product-settings.js";
 import { Config } from "./index.js";
 import { Config as SubscriptionConfig } from "../../plugins/subscriptions/lib/index.js";
 import { workItemLayoutFrom } from "../client/dashboard-model.js";
-import { composeEntries, loadOverlayPatches } from "@deepseek-ai/dsh-app-boot";
+import { boot, composeEntries, loadOverlayPatches, readProfilePatches } from "@deepseek-ai/dsh-app-boot";
 
 const shippedPath = new URL("../cordis.patch.yml", import.meta.url);
-async function fixture(t) {
+async function fixture(t, apply) {
   const root = await mkdtemp(join(tmpdir(), "bees-product-defaults-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(join(root, "dsh-runtime/plugin"), { recursive: true });
@@ -30,9 +30,79 @@ async function fixture(t) {
       return { user: { id: account.userId }, isPlatformAdmin: this.allowed };
     }
   };
-  const service = new ProductDefaults(connected, root);
+  const service = new ProductDefaults(connected, root, apply);
   return { root, service, connected, account };
 }
+
+test("saving defaults applies the saved document and rolls back a failed runtime refresh", async (t) => {
+  let applied, broken = false;
+  const { service } = await fixture(t, async (text) => {
+    assert.equal(await readFile(service.path, "utf8"), text);
+    if (broken) throw new Error("Runtime refresh failed");
+    applied = text;
+  });
+  let state = await service.status();
+  state = await service.update({ accountUserId: "admin", namespace: "bees", key: "darkThemePreset", value: "night", revision: state.revision });
+  state = await service.update({ accountUserId: "admin", namespace: "bees", key: "localModelCatalog",
+    value: state.values.bees.localModelCatalog.map((model) => ({ ...model, name: `${model.name} updated` })), revision: state.revision });
+  const catalog = state.values.bees.localModelCatalog;
+  state = await service.update({ accountUserId: "admin", namespace: "agent-default-model", key: "selection",
+    value: { provider: `local-openai-${catalog[0].id}`, model: "active" }, revision: state.revision });
+  const entries = composeEntries([[{ insert: [{ id: "agent-default-model", name: "@deepseek-ai/dsh-agent-default-model" }] }], loadOverlayPatches("bees", service.path)]);
+  assert.equal(entries.find((row) => row.id === "bees").config.darkThemePreset, "night");
+  assert.equal(entries.find((row) => row.id === "agent-default-model").config.provider, `local-openai-${catalog[0].id}`);
+  assert.deepEqual(service.catalog, catalog);
+  broken = true;
+  await assert.rejects(service.update({ accountUserId: "admin", namespace: "bees", key: "colorMode", value: "light", revision: state.revision }), /Runtime refresh failed/);
+  assert.equal(await readFile(service.path, "utf8"), applied);
+  assert.equal((await service.status()).revision, state.revision);
+});
+
+test("runtime refresh updates fresh settings and preserves personal themes and model selection", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "bees-defaults-reload-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const dir = join(root, "profile"), bundle = join(dir, "node_modules/defaults-test");
+  await mkdir(bundle, { recursive: true });
+  await writeFile(join(dir, "package.json"), JSON.stringify({ dsh: { profile: { bundles: ["defaults-test"] } } }));
+  await writeFile(join(bundle, "package.json"), JSON.stringify({ name: "defaults-test", version: "1.0.0", dsh: { bundle: { patch: "defaults.yml" } } }));
+  const path = join(bundle, "defaults.yml");
+  const plugin = join(root, "preferences.mjs");
+  await writeFile(plugin, `import { Config } from ${JSON.stringify(new URL("./index.js", import.meta.url).href)};
+export { Config };
+export function apply() {}`);
+  const modelPlugin = fileURLToPath(import.meta.resolve("@deepseek-ai/dsh-agent-default-model"));
+  const defaults = (theme, provider) => JSON.stringify([{ insert: [
+    { id: "bees", name: plugin, config: { darkThemePreset: theme, lightThemePreset: "cmyk" } },
+    { id: "agent-default-model", name: modelPlugin, config: { provider, model: "active" } }
+  ] }]);
+  const profile = { dir, home: root, installAnchor: join(dir, "package.json"), patchPath: join(dir, "cordis.patch.yml"), overlays: [] };
+  await writeFile(profile.patchPath, "[]\n");
+  await writeFile(path, defaults("halloween", "local-openai"));
+  const config = join(root, "base.yml");
+  await writeFile(config, "[]\n");
+  const ctx = await boot("bees-test", config, readProfilePatches("bees-test", profile), (host) => host.provide("profileContext", profile));
+  t.after(() => ctx.fiber.dispose());
+  const themes = () => [...ctx.loader.entries()].find((entry) => entry.options.id === "bees").fiber.config;
+  await refreshProductDefaults(ctx, defaults("business", "local-openai-qwen"), path);
+  assert.equal(themes().darkThemePreset.get(), "business");
+  assert.equal(themes().lightThemePreset.get(), "cmyk");
+  assert.equal(ctx.agentDefaultModel.currentSelection().provider, "local-openai-qwen");
+  assert.equal(await readFile(profile.patchPath, "utf8"), "[]\n");
+  const personal = JSON.stringify([
+    { id: "bees", config: { darkThemePreset: "night", lightThemePreset: "bumblebee" } },
+    { id: "agent-default-model", config: { provider: "personal", model: "mine" } }
+  ]);
+  await writeFile(profile.patchPath, personal);
+  await refreshProductDefaults(ctx, defaults("forest", "local-openai-another"), path);
+  assert.equal(themes().darkThemePreset.get(), "night");
+  assert.equal(themes().lightThemePreset.get(), "bumblebee");
+  assert.equal(ctx.agentDefaultModel.currentSelection().provider, "personal");
+  assert.equal(await readFile(profile.patchPath, "utf8"), personal);
+  const saved = await readFile(path, "utf8");
+  await assert.rejects(refreshProductDefaults(ctx, "invalid: [yaml", path));
+  assert.equal(await readFile(path, "utf8"), saved);
+  assert.equal(ctx.agentDefaultModel.currentSelection().provider, "personal");
+});
 
 test("remote admin verification gates reads and every write, including revocation and offline", async (t) => {
   const { service, connected, account } = await fixture(t);
