@@ -39,7 +39,8 @@ const CONTROL_ACTIONS = {
 
 // A turn that stops emitting events never ends on its own, and nothing else ends the run: the
 // Temporal activity keeps heartbeating, so it never times out, and each restart spawns another
-// replacement session that stalls the same way. A working model streams events, so silence is death.
+// replacement session that stalls the same way. A model also goes quiet for a minute or two inside
+// one reasoning step, so the threshold has to sit above the slowest real step.
 const RUN_STALL_MS = Number(process.env.BEES_RUN_STALL_MS ?? 15 * 60_000);
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
@@ -2227,6 +2228,7 @@ export class AgentRuntime {
 
   async untilIdle(executionId, handle) {
     let tick = performance.now();
+    const startedAt = tick;
     while (!this.closing) {
       const idle = await Promise.race([handle.agent.whenIdle().then(() => true, () => true), delay(5_000).then(() => false)]);
       // macos clocks keep counting through sleep, so a loop that froze for 30s+ means the mac slept, not the model
@@ -2254,8 +2256,11 @@ export class AgentRuntime {
       // A tool that has not returned may be waiting on a person or on a peer, and a question
       // re-presented after a restart sends nothing either. Only a silently generating turn stalls.
       const waiting = live?.openTools.size || this.pendingInteraction(executionId);
-      if (!waiting && performance.now() - (live?.lastEventAt ?? performance.now()) > RUN_STALL_MS)
-        throw new Error(`The run stopped making progress for ${Math.round(RUN_STALL_MS / 60_000)} minutes.`);
+      // a run with no live entry has nothing to date its silence from, and measuring that from
+      // `now` left the watchdog unable to fire on exactly the runs it exists for
+      const silence = performance.now() - (live?.lastEventAt ?? startedAt);
+      if (!waiting && silence > RUN_STALL_MS)
+        throw new Error(`The run stopped making progress for ${Math.max(1, Math.round(silence / 60_000))} minutes.`);
     }
   }
 
