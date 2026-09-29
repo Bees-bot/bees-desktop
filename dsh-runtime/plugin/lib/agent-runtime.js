@@ -645,6 +645,12 @@ export class AgentRuntime {
       try { this.onSessionEvent(session, event); }
       catch (error) { ctx.logger.warn(`bees: session event ${event?.type} failed: ${message(error)}`); }
     }, { global: true });
+    // A long model answer streams for minutes and writes no session event until it ends, so the stall
+    // watchdog would kill a run that is working. The chunks it is streaming are progress too.
+    ctx.on("agent/assistant-stream", ({ agent }) => {
+      for (const live of this.live.values())
+        if (live.handle.agent.session.id === agent.session.id) live.lastEventAt = performance.now();
+    }, { global: true });
     // dsh's seatbelt profile only fences writes; the patch in scripts/install-dsh-runtime.mjs reads this to shut the rest
     globalThis.__beesReadFence = readFence;
     // every email send asks first, drafts stay free, and with no window to ask in the answer is no

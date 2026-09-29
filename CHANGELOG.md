@@ -15,6 +15,8 @@ Notable changes, newest first. Dates are release dates.
 - Only the app's own window can reach the local server that answers Bees.
 - A run that failed no longer keeps showing as running, and Bees stops trying to recover it on
   every start.
+- A long answer no longer gets its run stopped. The text a model streams counts as progress, so a
+  worker that is still writing is left to finish.
 - Adding an API again for a host you already have keeps the key you type, so a connection that
   needed a fixed header finally works.
 - A schedule that runs on an interval of your own, such as every 5 minutes, keeps that interval
