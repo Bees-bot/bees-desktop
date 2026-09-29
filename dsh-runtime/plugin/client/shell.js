@@ -520,20 +520,11 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
     setError(id && unstarted.current.id === id ? unstarted.current.note : ""); setRoute("all-work"); setProcessId(""); setWorkItemId(id ?? "");
     setWorkProcessId(processForWork); setCreating(id ? "" : processForWork ? "run" : "work");
   };
-  // A question waiting for you is not a workspace thing, so that route covers every workspace. The
-  // Needs you count and the page it opens both read this, or the number and the list disagree.
-  const scopeFor = (targetRoute) => targetRoute === "waiting" ? (data.workspaces ?? []).map(({ id }) => id) : workspaceIds;
   const rowsForRoute = (targetRoute) => {
     const target = sectionFor(targetRoute);
     const openRoute = () => navigate(targetRoute);
-    if (target.id === "work") return workItemsFor(viewData, targetRoute, scopeFor(targetRoute))
-      .map((item) => ({ id: item.id, label: item.title, item, open: () => {
-        // a waiting row can belong to another team, so open it inside that team
-        const workspace = data.workspaces.find(({ id }) => id === data.processes.find(({ id }) => id === item.processId)?.workspaceId);
-        if (workspace && workspace.id !== parts.workspaceId)
-          setScope(`team:${workspace.teamId}`, connectionIdForScope(data, `team:${workspace.teamId}`, connectionId));
-        openWorkItem(item.id);
-      } }));
+    if (target.id === "work") return workItemsFor(viewData, targetRoute, workspaceIds)
+      .map((item) => ({ id: item.id, label: item.title, item, open: () => openWorkItem(item.id) }));
     if (target.id === "processes") {
       if (targetRoute === "templates") return (data.templates ?? []).filter((row) => workspaceIds.includes(row.workspaceId))
         .map((row) => ({ id: row.id, label: row.name, open: openRoute }));
@@ -657,10 +648,10 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
     : route === "guide" ? h(GuidePage)
     : route === "accounts" ? h(AccountsPage, { reload: load })
     : route === "apps" ? h(AppsPage, { key: `${parts.workspaceId}:${connectionId}`, workspaceId: parts.workspaceId, connectionId, openWorkItem })
-    : section.id === "work" ? h(WorkPage, { ctx, data: viewData, route, workspaceIds: scopeFor(route), workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, setWorkProcessId, act, capabilities, preference, preferences, setPageActions, setPageHeader })
+    : section.id === "work" ? h(WorkPage, { ctx, data: viewData, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, setWorkProcessId, act, capabilities, preference, preferences, setPageActions, setPageHeader })
       : section.id === "processes" ? h(ProcessesPage, { ctx, data: viewData, servers: capabilities.data?.servers ?? [], tools: capabilities.data?.tools ?? [], catalog: capabilities.data?.catalog ?? [], onServerAction: capabilities.act, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act, preference, preferences, setPageActions, setPageHeader })
-        : route === "skills" ? h(SkillsPage, { capabilities })
-        : route === "mcp" ? h(McpPage, { ctx, capabilities })
+        : route === "skills" ? h(SkillsPage, { capabilities, preference, preferences, setPageActions })
+        : route === "mcp" ? h(McpPage, { ctx, capabilities, preference, preferences, setPageActions })
         : section.id === "agents" ? h(AgentsPage, { ctx, data: viewData, servers: capabilities.data?.servers ?? [], tools: capabilities.data?.tools ?? [], catalog: capabilities.data?.catalog ?? [], onServerAction: capabilities.act, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings"), preference, preferences, setPageActions, setPageHeader })
           : section.id === "files" ? h(FilesPage, { ctx, data: viewData, teamId: parts.teamId, act })
             : section.id === "activity" ? h(ActivityPage, { data: viewData, route, workspaceIds, openWorkItem, openProcess })

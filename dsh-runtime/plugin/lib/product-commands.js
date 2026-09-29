@@ -681,6 +681,10 @@ export async function executeProductCommand(action, input) {
       `).get(specialization.id, specialization.revision);
       return savePlaybook(this.database, specialization, prior?.playbook ?? "", "undo");
     });
+    if (action === "restart_item") {
+      const item = itemContext(this.database, input.itemId, ["admin", "member"]);
+      return this.processes.restartItem(item.id, input.text ?? "", input.requestId ?? randomUUID());
+    }
     if (["start_item", "pause_item", "resume_item", "retry_item", "cancel_item"].includes(action)) {
       const item = itemContext(this.database, input.itemId, ["admin", "member"]);
       return this.processes.signal(item.id, action.replace("_item", ""));
@@ -1266,7 +1270,7 @@ export async function executeProductCommand(action, input) {
       return this.database.prepare(`
         SELECT w.id, w.title, p.name AS process, s.name AS stage, w.runtime_phase AS phase, w.updated_at AS updatedAt
         FROM work_items w JOIN processes p ON p.id = w.process_id JOIN stages s ON s.id = w.stage_id
-        WHERE p.workspace_id = ? AND w.archived_at IS NULL AND w.deleted_at IS NULL
+        WHERE p.workspace_id = ? AND p.archived_at IS NULL AND w.archived_at IS NULL AND w.deleted_at IS NULL
         ORDER BY w.updated_at DESC LIMIT 200
       `).all(workspace.id);
     }

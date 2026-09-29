@@ -1,5 +1,17 @@
 import { h, React, useEffect, useRef, useState } from "./runtime.js";
 import { Button, confirmAction, Empty, McpCard, openExternal, request, useSubmit } from "./shared.js";
+import { GridStackPage } from "./flexible-grid.js";
+
+const SKILLS_LAYOUT = [
+  { kind: "skills", x: 0, y: 0, w: 12, h: 6 },
+  { kind: "install", x: 0, y: 6, w: 12, h: 4 },
+  { kind: "tools", x: 0, y: 10, w: 12, h: 6 }
+];
+const MCP_LAYOUT = [
+  { kind: "connected", x: 0, y: 0, w: 12, h: 5 },
+  { kind: "available", x: 0, y: 5, w: 12, h: 8 },
+  { kind: "registry", x: 0, y: 13, w: 12, h: 5 }
+];
 
 const STATUS_LABEL = {
   connected: "Connected", "per run": "Per run", failed: "Not running", starting: "Starting…", off: "Turned off"
@@ -103,7 +115,7 @@ function SkillPack({ pack, act }) {
       ? h(Empty, null, "This collection publishes no skills right now") : null);
 }
 
-export function SkillsPage({ capabilities }) {
+export function SkillsPage({ capabilities, preference, preferences, setPageActions }) {
   const { data, error, act } = capabilities;
   const [query, setQuery] = useState("");
   if (error && !data) return h(Empty, null, error);
@@ -114,11 +126,7 @@ export function SkillsPage({ capabilities }) {
   const builtIn = tools.filter(({ serverName }) => !serverName);
   const fromServers = tools.filter(({ serverName }) => serverName);
   const mcpGroups = [...new Map(fromServers.map((tool) => [tool.serverName, tool.serverLabel])).entries()];
-  return h("div", { className: "bees-stack" },
-    error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
-    h(Filter, { value: query, onChange: setQuery, placeholder: "Search skills and tools" }),
-    h("section", { className: "bees-box" },
-      h("h3", null, `Skills (${skills.length})`),
+  const skillList = h("div", null,
       data.skillsComplete ? null : h("p", { className: "bees-muted" },
         "No preset could be read, so this list may be short."),
       ...(skills.length ? skills.map((skill) => h("div", { className: "bees-row bees-capability-row", key: skill.name },
@@ -132,15 +140,13 @@ export function SkillsPage({ capabilities }) {
           onClick: async () => (await confirmAction(`Remove ${skill.name} from ${data.skillsRoot}?`))
             && act({ action: "remove_skill", name: skill.name })
         }, "Remove") : null))
-        : [h(Empty, { key: "empty" }, needle ? "No skill matches that" : "No skills installed yet")])),
-    h("details", { className: "bees-box bees-capability-manage" },
-      h("summary", null, "Install more skills"),
+        : [h(Empty, { key: "empty" }, needle ? "No skill matches that" : "No skills installed yet")]));
+  const installSkills = h("div", { className: "bees-capability-manage" },
       h("p", { className: "bees-muted" },
         "Expand a collection to see its available skills. Review a skill before installing it."),
       ...(data.skillPacks ?? []).map((pack) => h(SkillPack, { pack, act, key: pack.repo })),
-      h(AddRepo, { act, key: "add-repo" })),
-    h("section", { className: "bees-box" },
-      h("h3", null, `Tools (${tools.length})`),
+      h(AddRepo, { act, key: "add-repo" }));
+  const toolList = h("div", null,
       ...mcpGroups.map(([serverName, serverLabel]) => {
         const own = fromServers.filter((tool) => tool.serverName === serverName);
         return h("details", {
@@ -164,8 +170,18 @@ export function SkillsPage({ capabilities }) {
             h("div", { className: "bees-row-title" }, tool.name),
             h("div", { className: "bees-muted bees-capability-description", title: tool.description },
               tool.description || "No description"))))) : null,
-      !tools.length ? h(Empty, null, needle ? "No tool matches that" : "No tools are available") : null)
-  );
+      !tools.length ? h(Empty, null, needle ? "No tool matches that" : "No tools are available") : null);
+  return h("div", { className: "bees-stack bees-flex-page" },
+    error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
+    h(Filter, { value: query, onChange: setQuery, placeholder: "Search skills and tools" }),
+    h(GridStackPage, {
+      layoutId: "skills", defaults: SKILLS_LAYOUT, preference, preferences, setPageActions,
+      panels: {
+        skills: { label: `Skills (${skills.length})`, minW: 4, minH: 3, content: skillList },
+        install: { label: "Install more skills", minW: 4, minH: 3, content: installSkills },
+        tools: { label: `Tools (${tools.length})`, minW: 4, minH: 3, content: toolList }
+      }
+    }));
 }
 
 /**
@@ -337,7 +353,7 @@ function ManualServerForm({ onCancel, act, initial }) {
       h("button", { className: "bees-btn primary", disabled: busy }, busy ? "Connecting…" : "Connect"))));
 }
 
-export function McpPage({ ctx, capabilities }) {
+export function McpPage({ ctx, capabilities, preference, preferences, setPageActions }) {
   const { data, error, act, reload } = capabilities;
   const [reviewing, setReviewing] = useState("");
   const [manual, setManual] = useState(false);
@@ -398,32 +414,16 @@ export function McpPage({ ctx, capabilities }) {
     })));
   };
 
-  return h("div", { className: "bees-stack" },
-    manual ? h(ManualServerForm, { onCancel: () => setManual(false), act, initial: manual }) : null,
-    entry ? h(CatalogReview, {
-      ctx, entry, onCancel: () => setReviewing(""),
-      onDone: () => { setReviewing(""); void reload({ quiet: true }); }
-    }) : null,
-    error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
-    h("p", { className: "bees-mcp-intro" }, "Connect add-ons to give your agents tools from other apps and services."),
-    h("div", { className: "bees-detail-actions", style: { justifyContent: "flex-end", marginTop: 0 } },
-      h(Button, { className: "primary", onClick: () => setManual({}) }, "Connect Add-on")),
-    h("section", { className: "bees-box bees-mcp-section" },
-      h("div", { className: "bees-mcp-section-head" },
-        h("div", null, h("h3", null, "Connected add-ons"),
-          h("div", { className: "bees-muted" }, `${data.servers.filter(({ enabled }) => enabled).length} on · ${data.servers.filter(({ enabled }) => !enabled).length} off`))),
-      data.servers.length ? h("div", { className: "bees-mcp-grid bees-mcp-page-grid" }, ...serverCards)
-        : h(Empty, null, "No add-ons connected yet")),
-    h("section", { className: "bees-box bees-mcp-section" },
-      h("div", { className: "bees-mcp-section-head" },
-        h("div", null, h("h3", null, "Available add-ons"),
-          h("div", { className: "bees-muted" }, "Curated servers you can connect"))),
-      h(Filter, { value: query, onChange: setQuery, placeholder: "Search available add-ons" }),
-      renderCatalog()),
-    h("section", { className: "bees-box bees-mcp-section bees-mcp-community" },
-    h("div", { className: "bees-mcp-section-head" }, h("div", null,
-      h("h3", null, "Community registry"),
-      h("div", { className: "bees-muted" }, "Search unreviewed public add-ons when the curated list does not have what you need."))),
+  const connected = h("div", null,
+    h("p", { className: "bees-muted" }, `${data.servers.filter(({ enabled }) => enabled).length} on · ${data.servers.filter(({ enabled }) => !enabled).length} off`),
+    data.servers.length ? h("div", { className: "bees-mcp-grid bees-mcp-page-grid" }, ...serverCards)
+      : h(Empty, null, "No add-ons connected yet"));
+  const available = h("div", null,
+    h("p", { className: "bees-muted" }, "Curated servers you can connect"),
+    h(Filter, { value: query, onChange: setQuery, placeholder: "Search available add-ons" }),
+    renderCatalog());
+  const community = h("div", { className: "bees-mcp-community" },
+    h("p", { className: "bees-muted" }, "Search unreviewed public add-ons when the curated list does not have what you need."),
     h("form", {
       className: "bees-search",
       onSubmit: (event) => { event.preventDefault(); void searchRegistry(new FormData(event.currentTarget).get("q")); }
@@ -439,6 +439,24 @@ export function McpPage({ ctx, capabilities }) {
         h("div", { className: "bees-detail-actions" },
           h(Button, { className: "primary", onClick: () => setManual(row) }, "Review and connect"))))) : null,
     registry.results && !registry.results.length
-      ? h(Empty, null, "The registry returned no server for that") : null)
-  );
+      ? h(Empty, null, "The registry returned no server for that") : null);
+
+  return h("div", { className: "bees-stack bees-flex-page" },
+    manual ? h(ManualServerForm, { onCancel: () => setManual(false), act, initial: manual }) : null,
+    entry ? h(CatalogReview, {
+      ctx, entry, onCancel: () => setReviewing(""),
+      onDone: () => { setReviewing(""); void reload({ quiet: true }); }
+    }) : null,
+    error ? h("div", { className: "bees-error", role: "alert" }, error) : null,
+    h("div", { className: "bees-detail-actions", style: { justifyContent: "flex-end", marginTop: 0 } },
+      h(Button, { className: "primary", onClick: () => setManual({}) }, "Connect Add-on")),
+    h("p", { className: "bees-mcp-intro" }, "Connect add-ons to give your agents tools from other apps and services."),
+    h(GridStackPage, {
+      layoutId: "mcp", defaults: MCP_LAYOUT, preference, preferences, setPageActions,
+      panels: {
+        connected: { label: "Connected add-ons", minW: 4, minH: 3, content: connected },
+        available: { label: "Available add-ons", minW: 4, minH: 3, content: available },
+        registry: { label: "Community registry", minW: 4, minH: 3, content: community }
+      }
+    }));
 }

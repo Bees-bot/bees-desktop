@@ -54,6 +54,7 @@ export function assertPeersSettled(runtime, data, summary = "") {
 
 export const DISCUSSION_PROTOCOL = `Shared discussion protocol:
 The Discussion tab shows the actual shared work-item journal to the user. Use bees_share_update to communicate; a private thought, a final document, or a status change is not a message to another agent. Never fabricate another agent's reply or manufacture chatter to appear collaborative.
+Save information this process will need later with bees_share_update kind:lesson and supporting evidence. Lessons, user responses, feedback and results are saved in process memory for the owner to review; only owner-enabled entries guide future runs. Use granted memory MCP tools when the process explicitly requests an external memory service.
 The current context already includes participant work-item IDs and recent messages. Use bees_read_context when older or full messages are needed; page with next when a page contains 40 updates. Address target_id to a participant work-item ID, not an agent-assignment ID; omit it for a useful broadcast. Reply to the sender's workItemId, identifying the question you are answering. User messages have no executionId; reply in the shared journal so the user can see your answer.
 When the assignment explicitly asks agents to discuss, start by sharing a concrete proposal or question, invite the relevant peers' input, respond to their actual contributions, and summarize the resulting decision before preparing the final deliverable. Otherwise communicate when you need another agent's input, find a conflict or blocker, or make a decision that affects their work. Do not impose discussion rounds, unanimous agreement, or mandatory status chatter.
 Delegate discussion contributions with background:true so you remain available to answer. Use bees_wait_for_peers only while another peer can make progress. If a delegation or correction returns while peers are still running, it was interrupted by a message, not completed: read and answer relevant updates, then continue waiting or working. Stop waiting on no-progress; resolve the dependency or report the blocker.
@@ -80,7 +81,7 @@ export function mountPeerCollaboration(runtime, agentCtx, data, executionId, { t
   }));
   agentCtx.tools.register(defineTool({
     name: "bees_share_update",
-    description: "Post an actual question, reply, proposal, decision, finding, or evidence-backed lesson to the shared journal visible to peers and the user. Address target_id to a work-item id or omit to broadcast. This does not finish your work or authorize new requirements. Complete your contribution with bees_submit_stage_result.",
+    description: "Post an actual question, reply, proposal, decision, finding, or evidence-backed lesson to the shared journal visible to peers and the user. Lessons are also saved in process memory for owner review and future reuse. Address target_id to a work-item id or omit to broadcast. This does not finish your work or authorize new requirements. Complete your contribution with bees_submit_stage_result.",
     parameters: {
       kind: { type: "string", required: true, enum: ["note", "decision", "finding", "lesson"] },
       content: { type: "string", required: true, description: "Message or decision, at most 6000 characters." },

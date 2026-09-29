@@ -26,6 +26,7 @@ export declare class ProcessRuntime {
   reconcile(): Promise<void>;
   wakeStage(executionId: string): Promise<void>;
   startItem(workItemId: string): Promise<any>;
+  restartItem(workItemId: string, text: string, requestId: string): Promise<any>;
   reviseItem(workItemId: string, feedback: string, requestId: string, signal?: AbortSignal): Promise<{ id: string }>;
   resolveFailedItem(workItemId: string, reason: string, requestId: string, replacementWorkItemId?: string | null, signal?: AbortSignal): Promise<{ id: string; action: string; replacementWorkItemId: string | null }>;
   signal(workItemId: string, type: "pause" | "resume" | "retry" | "cancel"): Promise<any>;
