@@ -218,9 +218,11 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
   }, [accountsKey, productSettings]);
   // Approval/question waterfalls need a retained session even when its Chat tab is closed.
   const interactionSessions = useRef(new Map());
+  const reportedSessions = useRef(new Set());
   useEffect(() => {
-    const wanted = new Set((data?.runs ?? []).filter((run) => !run.ranElsewhere && run.sessionId &&
-      ["running", "waiting_for_input", "waiting_for_approval"].includes(run.status)).map((run) => run.sessionId));
+    const runs = new Map((data?.runs ?? []).filter((run) => !run.ranElsewhere && run.sessionId &&
+      ["running", "waiting_for_input", "waiting_for_approval"].includes(run.status)).map((run) => [run.sessionId, run]));
+    const wanted = new Set(runs.keys());
     for (const id of wanted) {
       if (interactionSessions.current.has(id)) continue;
       let reference;
@@ -230,7 +232,15 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
       reference.ready.catch((reason) => {
         if (interactionSessions.current.get(id) !== reference) return;
         interactionSessions.current.delete(id); reference.release();
-        setError(`Could not load the agent's request: ${reason instanceof Error ? reason.message : String(reason)}`);
+        // the 30s reload retries it; say which work it is, and only once
+        if (reportedSessions.current.has(id)) return;
+        reportedSessions.current.add(id);
+        const itemId = runs.get(id)?.workItemId;
+        const item = data.items.find(({ id }) => id === itemId);
+        const process = data.processes.find(({ id }) => id === item?.processId);
+        const team = data.workspaces.find(({ id }) => id === process?.workspaceId);
+        const where = [item?.title && `"${item.title}"`, process?.name, team?.name && `team ${team.name}`].filter(Boolean).join(", ");
+        setError(`Could not load the agent's request${where ? ` for ${where}` : ""}: ${reason instanceof Error ? reason.message : String(reason)}`);
       });
     }
     for (const [id, reference] of interactionSessions.current) if (!wanted.has(id)) {
@@ -678,7 +688,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
         h("span", null, "Bees"),
         h("div", { className: "bees-brand-settings" },
           h("button", { type: "button",
-            className: `bees-brand-settings-button ${section.id === "settings" && !["accounts", "team-settings", "team-members", "team-invitations", "team-memory", "team-folders"].includes(route) ? "active" : ""}`,
+            className: `bees-brand-settings-button ${section.id === "settings" && !["accounts", "team-settings", "team-members", "team-invitations", "team-memory", "team-folders", "team-browser"].includes(route) ? "active" : ""}`,
             title: "Global and organization settings", "aria-label": "Global and organization settings",
             onClick: () => navigate("personal-ai") }, h(SettingsIcon)))),
       h(ScopeSwitcher, { data, organizationId: parts.organizationId, teamId: parts.teamId, connectionId,
@@ -713,8 +723,8 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
     h("section", { className: "bees-main" },
       h(AppHeader, { routeLabel, parts, ctx, preferences }),
       platform.editing ? h("div", { className: "bees-callout", role: "status", "data-product-defaults": true },
-        "Editing product defaults — model lists, layouts and appearance save immediately for future builds.") : null,
-      onboarding.active && route !== "getting-started" ? h(GettingStartedBar, { state: onboarding, update: updateOnboarding, navigate, aiStatus: aiReady ? "AI ready" : "AI setup can continue while you explore.", data, openWorkItem: openStarter }) : null,
+        "Editing product defaults — saved changes apply here and ship in future builds. Personal settings take priority.") : null,
+      onboarding.active && route === "home" ? h(GettingStartedBar, { state: onboarding, update: updateOnboarding, navigate, aiStatus: aiReady ? "AI ready" : "AI setup can continue while you explore.", data, openWorkItem: openStarter }) : null,
       error ? h("div", { className: "bees-error", role: "alert", style: { display: "flex", alignItems: "center", gap: "12px" } },
         h("span", { style: { flex: 1, minWidth: 0, overflowWrap: "anywhere" } }, error),
         h(Button, { onClick: () => setError(""), "aria-label": "Dismiss error" }, "Dismiss")) : null,

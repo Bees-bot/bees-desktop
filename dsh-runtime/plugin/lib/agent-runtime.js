@@ -9,7 +9,7 @@ import { scopeOf } from "@deepseek-ai/dsh-scope";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { setSandboxMode } from "@deepseek-ai/dsh-sandbox-policy";
 import { defineTool } from "@deepseek-ai/dsh-tools";
-import { hideAgentBrowser } from "./agent-browser.js";
+import { browserModeFor, hideAgentBrowser } from "./agent-browser.js";
 import { modelLabel } from "./model-label.js";
 import { assertRootOnDisk, serverFolder, shortPath } from "./folder-roots.js";
 import { isBrowserCatalog, MCP_CATALOG } from "./mcp-catalog.js";
@@ -26,7 +26,7 @@ import { SKILL_CATALOG } from "./skill-packs.js";
 import { mountToolDiscovery } from "./tool-discovery.js";
 import { WorkContext } from "./work-context.js";
 import { assertPeersSettled, delegationEvidence, DELEGATION_PROTOCOL, DISCUSSION_PROTOCOL, mountPeerCollaboration } from "./peer-collaboration.js";
-import { currentIdentity, itemContext, mcpGrantFor, message, transaction, userMessage } from "./product-database.js";
+import { currentIdentity, itemContext, mcpGrantFor, message, resolveItemId, transaction, userMessage } from "./product-database.js";
 import { authorizeReferences, typedReferences } from "./product-references.js";
 export { authorizeReferences, typedReferences } from "./product-references.js";
 
@@ -39,7 +39,8 @@ const CONTROL_ACTIONS = {
 
 // A turn that stops emitting events never ends on its own, and nothing else ends the run: the
 // Temporal activity keeps heartbeating, so it never times out, and each restart spawns another
-// replacement session that stalls the same way. A working model streams events, so silence is death.
+// replacement session that stalls the same way. A model also goes quiet for a minute or two inside
+// one reasoning step, so the threshold has to sit above the slowest real step.
 const RUN_STALL_MS = Number(process.env.BEES_RUN_STALL_MS ?? 15 * 60_000);
 
 const RUN_PERSONA = `You are a Bees work agent. Follow the immutable task configuration for this run.
@@ -63,6 +64,8 @@ A schedule that watches for new things (new mail, new jobs, new tickets) is not 
 Resolved references in the request are stable identities. Use their ids when selecting an existing process or agent. A human or work reference supplies context; it does not authorize a notification or a change to that resource. A file reference already supplies the exact file as an input snapshot; do not attach its whole parent folder. A process-template reference supplies the saved stages: only instantiate it when requested, using create_process with template set to its id. References are preserved through Apply even if you summarize the request.
 
 Build the whole setup: propose every MCP connection a stage needs, install_skill for each skill that helps a stage do its work better and is not installed yet (bees_list_skill_pack names them), and a schedule when the person specifies recurrence. A request only to configure a resource does not also need a work item. Reuse the configured model; do not invent a provider/model or require a second provider. Model connections and local model downloads are managed through the model settings screen, not proposal actions. The selected model follows the resulting work; never claim an unavailable connection is usable. Explain any missing access in the proposal.
+
+Applying a proposal sets the work up and starts nothing, so never say in a summary or a question that a run begins when the plan is applied.
 
 A run only sees the team folders attached to its item: when the outcome reads or changes files in a team folder listed in the brief, the create_item or create_goal must carry that folder in inputLocations and, if files change, as outputLocation. Attach a folder only when the outcome is about the files in it; most outcomes need none.
 
@@ -608,7 +611,9 @@ export class AgentRuntime {
       SELECT e.execution_id, e.current_session_id, e.status, i.runtime_phase AS item_phase,
         i.archived_at IS NOT NULL OR i.runtime_phase IN ('completed', 'cancelled')
           OR i.runtime_phase = 'failed' AND lower(coalesce(i.runtime_error, '')) NOT LIKE '%heartbeat timeout%'
-          AS item_done
+          -- an item runs one execution at a time, so a link the item has moved past is over
+          OR i.runtime_execution_id IS NOT NULL AND i.runtime_execution_id <> e.execution_id
+          AS finished
       FROM execution_links e LEFT JOIN work_items i ON i.id = e.work_item_id
       WHERE e.status IN ('running', 'waiting_for_approval', 'waiting_for_input')
     `).all();
@@ -625,8 +630,8 @@ export class AgentRuntime {
       const sessionId = String(run.current_session_id);
       const pending = this.pendingInteraction(executionId);
       // a finished work item has nobody left to answer, so close its link instead of leaving it waiting for ever
-      if (run.item_done) this.setStatus(executionId, ["completed", "failed", "cancelled"].includes(run.item_phase) ? run.item_phase : "cancelled");
-      if (run.item_done || (run.status === "cancelled" && !pending)) continue;
+      if (run.finished) this.setStatus(executionId, ["completed", "failed", "cancelled"].includes(run.item_phase) ? run.item_phase : "cancelled");
+      if (run.finished || (run.status === "cancelled" && !pending)) continue;
       const status = String(run.status);
       this.recovery.add(executionId);
       this.checkpoint(executionId, sessionId, "recovery_needed", {
@@ -644,6 +649,12 @@ export class AgentRuntime {
     ctx.on("session/event", (session, event) => {
       try { this.onSessionEvent(session, event); }
       catch (error) { ctx.logger.warn(`bees: session event ${event?.type} failed: ${message(error)}`); }
+    }, { global: true });
+    // A long model answer streams for minutes and writes no session event until it ends, so the stall
+    // watchdog would kill a run that is working. The chunks it is streaming are progress too.
+    ctx.on("agent/assistant-stream", ({ agent }) => {
+      for (const live of this.live.values())
+        if (live.handle.agent.session.id === agent.session.id) live.lastEventAt = performance.now();
     }, { global: true });
     // dsh's seatbelt profile only fences writes; the patch in scripts/install-dsh-runtime.mjs reads this to shut the rest
     globalThis.__beesReadFence = readFence;
@@ -958,7 +969,8 @@ export class AgentRuntime {
           idempotencyKey: `${pending.kind}-${answered ? "answered" : "cancelled"}:${sessionId}:${callId}`
         });
         this.audit(`${pending.kind}-${answered ? "answered" : "cancelled"}`, executionId, sessionId, { callId });
-        this.track(hideAgentBrowser());
+        // the run's own browser, not the other team's, or the window it raised stays on screen
+        this.track(hideAgentBrowser(browserModeFor(this.database, this.live.get(executionId)?.data?.workspaceId)));
       }
       const output = {
         sessionId,
@@ -1045,10 +1057,11 @@ export class AgentRuntime {
         (mcpAccess === "all" || mcpServers.includes(name)));
   }
 
-  /** Mounts this run's own browser. Chrome waits for the Open browser action, not for every run. */
+  /** Mounts this run's own browser. The browser waits for the Open browser action, not for every run. */
   async startBrowserIfGranted(data, agentCtx) {
     if (!this.grantedBrowser(data)) return;
-    await this.capabilities.mountBrowserFor(agentCtx, data.mcpAccess === "listed" ? data.mcpServers : null)
+    await this.capabilities.mountBrowserFor(agentCtx, data.mcpAccess === "listed" ? data.mcpServers : null,
+      browserModeFor(this.database, data.workspaceId))
       .catch((error) => this.ctx.logger.warn(`bees: this run got no browser: ${message(error)}`));
   }
 
@@ -1276,7 +1289,7 @@ export class AgentRuntime {
           input.itemId ??= data.workItemId;
           input.requestId = `${executionId}:${exec.callId}`;
         }
-        if (args.action === "create_recurring_work" && !input.itemId) input.itemId = root.id;
+        if (args.action === "create_recurring_work") input.itemId = input.itemId ? resolveItemId(this.database, input.itemId, "Scheduled item") : root.id;
         if (args.action === "create_process") {
           // a process a run builds works in the run's folders, and can read what it wrote there before
           input.outputLocationId ??= outputLocation(this.database, data.workItemId) ?? undefined;
@@ -1288,7 +1301,8 @@ export class AgentRuntime {
         const result = await (capability ? this.capabilities.command(payload) : this.command(payload)).catch((error) => { throw new Error(userMessage(error)); });
         if (["install_mcp_server", "add_mcp_server"].includes(args.action)) {
           if (!result?.id) throw new Error(`${args.action} did not return a server`);
-          await this.capabilities.mountFor(agentCtx, this.capabilities.row(result.id));
+          // an agent that installs the browser server itself gets the run's browser, not Bees' own
+          await this.capabilities.mountFor(agentCtx, this.capabilities.row(result.id), browserModeFor(this.database, data.workspaceId));
         } else if (args.action === "create_process" && result?.id) {
           // Stage ids are otherwise invisible to the model, which needs them for set_stage_route.
           result.stages = this.database.prepare(
@@ -1458,14 +1472,15 @@ export class AgentRuntime {
         if (exec.agent?.session.header?.parentSession) throw new Error("Only the lead can request a child correction");
         if (!this.subitemStore?.revise || !exec.callId) throw new Error("Child correction is unavailable");
         exec.signal?.throwIfAborted();
-        await this.subitemStore.revise({ parentId: data.workItemId, workItemId: args.work_item_id,
+        const childId = resolveItemId(this.database, args.work_item_id, "Child work item");
+        await this.subitemStore.revise({ parentId: data.workItemId, workItemId: childId,
           feedback: args.feedback, requestId: `${executionId}:${exec.callId}`, signal: exec.signal });
         try {
-          const results = await this.waitForPeers([args.work_item_id], exec.signal, data.workItemId);
+          const results = await this.waitForPeers([childId], exec.signal, data.workItemId);
           this.audit(results.every(({ status }) => ["completed", "failed", "cancelled"].includes(status)) ? "peer-work-settled" : "peer-work-updated", executionId, String(exec.agent?.session.id ?? ""), { workItemId: data.workItemId, results });
           return { result_json: JSON.stringify(results[0]) };
         } catch (error) {
-          await this.subitemStore.cancel(args.work_item_id).catch(() => undefined);
+          await this.subitemStore.cancel(childId).catch(() => undefined);
           throw error;
         }
       }
@@ -1488,7 +1503,10 @@ export class AgentRuntime {
         if (!this.subitemStore?.resolveFailed || !exec.callId) throw new Error("Child recovery is unavailable");
         exec.signal?.throwIfAborted();
         const resolution = await this.subitemStore.resolveFailed({ parentId: data.workItemId,
-          workItemId: args.work_item_id, reason: args.reason, replacementWorkItemId: args.replacement_work_item_id,
+          workItemId: resolveItemId(this.database, args.work_item_id, "Failed child work item"),
+          reason: args.reason,
+          replacementWorkItemId: args.replacement_work_item_id
+            ? resolveItemId(this.database, args.replacement_work_item_id, "Replacement work item") : undefined,
           requestId: `${executionId}:${exec.callId}`, signal: exec.signal });
         const results = await this.waitForPeers([resolution.replacementWorkItemId ?? resolution.id], exec.signal, data.workItemId);
         return { result_json: JSON.stringify({ ...resolution, result: results[0] }) };
@@ -1515,7 +1533,8 @@ export class AgentRuntime {
         }
       },
       execute: async (args) => {
-        const item = this.database.prepare("SELECT id, parent_id AS parentId, process_id AS processId FROM work_items WHERE id = ? AND deleted_at IS NULL").get(args.work_item_id);
+        const item = this.database.prepare("SELECT id, parent_id AS parentId, process_id AS processId FROM work_items WHERE id = ? AND deleted_at IS NULL")
+          .get(resolveItemId(this.database, args.work_item_id, "Evidence item"));
         const owner = this.database.prepare("SELECT process_id AS processId FROM work_items WHERE id = ?").get(data.workItemId);
         if (!item || !owner || item.processId !== owner.processId ||
             this.workContext.lineage(item.id)[0].id !== this.workContext.lineage(data.workItemId)[0].id)
@@ -1858,12 +1877,10 @@ export class AgentRuntime {
       agentOptions: runAgentOptions(this.ctx, data),
       setup: (agentCtx) => this.setup(agentCtx, data, run?.executionId ?? sessionId, workspace)
     };
+    const resume = () => this.ctx.agents.resume({ resumeSessionId: SessionId(sessionId), ...common });
     let handle;
     if (mode === "resume") {
-      handle = await this.ctx.agents.resume({
-        resumeSessionId: SessionId(sessionId),
-        ...common
-      });
+      handle = await resume();
     } else {
       const options = {
         sessionId: SessionId(sessionId),
@@ -1871,7 +1888,13 @@ export class AgentRuntime {
         ...(seed ? { seed } : {}),
         ...common
       };
-      handle = await this.ctx.agents.create(options);
+      // The durable log outlives the process, so a stage replayed after a restart finds its own id
+      // already on disk. Continue that session: the id is minted from this run, so it is ours, and
+      // rejecting the duplicate failed the whole run for what a restart had already survived.
+      handle = await this.ctx.agents.create(options).catch((error) => {
+        if (error?.name !== "SessionAlreadyExistsError") throw error;
+        return resume();
+      });
     }
     try {
       // A reviewer verifies the worker's artifact; it must not repair or rewrite it.
@@ -1955,7 +1978,9 @@ export class AgentRuntime {
     this.starting.add(executionId);
     const start = this.admit("bees-run", executionId, JSON.parse(queued.payloadJson)).catch((error) => {
       const run = this.run(executionId);
-      if (run?.status === "queued") {
+      // a failed start leaves no session, so a live status would be a lie: a recovery that refused
+      // to continue kept the run showing as running for good
+      if (["queued", "running"].includes(run?.status)) {
         const at = new Date().toISOString();
         this.setStatus(executionId, "failed", at);
         this.database.prepare("DELETE FROM bees_run_queue WHERE execution_id = ?").run(executionId);
@@ -2217,6 +2242,7 @@ export class AgentRuntime {
 
   async untilIdle(executionId, handle) {
     let tick = performance.now();
+    const startedAt = tick;
     while (!this.closing) {
       const idle = await Promise.race([handle.agent.whenIdle().then(() => true, () => true), delay(5_000).then(() => false)]);
       // macos clocks keep counting through sleep, so a loop that froze for 30s+ means the mac slept, not the model
@@ -2244,8 +2270,11 @@ export class AgentRuntime {
       // A tool that has not returned may be waiting on a person or on a peer, and a question
       // re-presented after a restart sends nothing either. Only a silently generating turn stalls.
       const waiting = live?.openTools.size || this.pendingInteraction(executionId);
-      if (!waiting && performance.now() - (live?.lastEventAt ?? performance.now()) > RUN_STALL_MS)
-        throw new Error(`The run stopped making progress for ${Math.round(RUN_STALL_MS / 60_000)} minutes.`);
+      // a run with no live entry has nothing to date its silence from, and measuring that from
+      // `now` left the watchdog unable to fire on exactly the runs it exists for
+      const silence = performance.now() - (live?.lastEventAt ?? startedAt);
+      if (!waiting && silence > RUN_STALL_MS)
+        throw new Error(`The run stopped making progress for ${Math.max(1, Math.round(silence / 60_000))} minutes.`);
     }
   }
 
@@ -2260,7 +2289,8 @@ export class AgentRuntime {
       const data = JSON.parse(this.run(executionId)?.configJson ?? "{}");
       const model = data.resolvedModelLabel ?? modelLabel(data.resolvedModel ?? data.model);
       const detail = `${data.stagePurpose ?? data.mode ?? "agent"}${data.agentName ? ` (${data.agentName})` : ""}${model ? ` using ${model}` : ""}`;
-      const hint = result.error.code === "TRANSPORT"
+      // a dead socket arrives as the bare "Connection error.", which names nothing a person can act on
+      const hint = result.error.code === "TRANSPORT" || /^connection error\.?$/i.test(String(result.error.message ?? "").trim())
         ? " Check this agent's model under Agents and its connection under Settings → AI connections before retrying."
         : "";
       result = { ...result, error: { ...result.error,

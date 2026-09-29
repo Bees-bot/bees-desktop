@@ -472,7 +472,9 @@ export class ProcessRuntime {
     } catch (error) {
       if (!(error instanceof WorkflowExecutionAlreadyStartedError) && error?.name !== "WorkflowExecutionAlreadyStartedError") {
         await this.claims?.release(claim).catch(() => undefined);
-        this.project({ ...input, phase: "failed", error: String(error?.message ?? error) });
+        // the scheduler's own wording ("Failed to start Workflow") names no next step for the person reading it
+        const reason = String(error?.message ?? error);
+        this.project({ ...input, phase: "failed", error: `Bees could not start this work (${reason}). Try again, and reopen Bees if it keeps failing.` });
         throw error;
       }
       handle = this.client.workflow.getHandle(processWorkflowId(workItemId));
@@ -753,6 +755,13 @@ export class ProcessRuntime {
         ON CONFLICT(work_item_id) DO UPDATE SET execution_id = excluded.execution_id
       `).run(state.workItemId, state.executionId);
       else this.database.prepare("DELETE FROM bees_stage_waits WHERE work_item_id = ?").run(state.workItemId);
+      // one item runs one execution at a time: an attempt a retry replaced would otherwise sit in
+      // its old waiting state for ever, and the dashboard keeps asking the owner to answer it
+      if (state.executionId) this.database.prepare(`
+        UPDATE execution_links SET status = 'cancelled', updated_at = ?
+        WHERE work_item_id = ? AND execution_id <> ?
+          AND status IN ('running', 'waiting_for_input', 'waiting_for_approval')
+      `).run(new Date().toISOString(), state.workItemId, state.executionId);
     });
     // a scheduled run's first projection means its workflow exists, so its lease can be renewed from here on
     const lease = this.scheduledLeases.get(state.workItemId);

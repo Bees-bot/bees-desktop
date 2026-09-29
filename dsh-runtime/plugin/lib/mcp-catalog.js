@@ -241,9 +241,10 @@ const ENTRIES = [
     + "there, including any session someone has signed in to.",
     transport: "stdio",
     command: "npx",
-    // Attach to Bees' own Chrome. Left to itself this server starts one with --enable-automation
-    // and a mock keychain, and Google refuses every sign-in in that one.
-    args: ["-y", "chrome-devtools-mcp@latest", "--browserUrl", "http://127.0.0.1:9333"],
+    // Attach to the window Bees opened, which is the person's own browser on a team that asked for it.
+    // Left to itself this server starts one with --enable-automation and a mock keychain, and Google
+    // refuses every sign-in in that one.
+    args: ["-y", "chrome-devtools-mcp@latest", "--browserUrl", "{browserUrl}"],
     env: [],
     headers: []
   },

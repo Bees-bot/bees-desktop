@@ -89,7 +89,7 @@ export function mountFileLocks(ctx, owner, locks, fs = ctx.fs, sandboxPolicy = c
   }));
   ctx.tools.register(defineTool({
     name: "bees_release_file_locks",
-    description: "Release this agent's entire file lock set after its file work is finished. Also release after an error, before delegating or waiting for another agent, or before requesting a different set. Never release while a shell job is still preparing the file.",
+    description: "Release this agent's entire file lock set after its file work is finished. Releasing a token already released by this agent succeeds without changing any current locks, including after bees_append_file released it automatically. Also release after an error, before delegating or waiting for another agent, or before requesting a different set. Never release while a shell job is still preparing the file.",
     parameters: { token: { type: "string", required: true } },
     output,
     execute: async ({ token }, exec) => {

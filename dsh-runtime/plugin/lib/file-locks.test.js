@@ -85,10 +85,13 @@ test("five single-call appends preserve every contribution and release their loc
   assert.deepEqual((await readFile(path, "utf8")).trim().split("\n").sort(), [...words].sort());
   assert.equal(locks.owners.size, 0);
   const a = agent(root, fs, locks);
-  await a.lock([path]);
+  const { token } = await a.lock([path]);
   await a.call("bees_append_file", { file_path: path, content: "sixth\n" });
   assert(!locks.owners.has(a.owner), "an existing exclusive lock is reused and released");
   const before = await readFile(path, "utf8");
+  await a.unlock(token);
+  await a.unlock(token);
+  assert.equal(await readFile(path, "utf8"), before);
   const controller = new AbortController();
   fs.internals.inspectTemp = async () => controller.abort();
   await assert.rejects(a.call("bees_append_file", { file_path: path, content: "cancelled\n" }, controller.signal), /abort/i);
@@ -164,7 +167,14 @@ test("ownership, fresh reads, canonical aliases, independent files and cancellat
   await a.call("edit", { file_path: path, old_string: "original", new_string: "updated" });
   assert.equal(await readFile(alias, "utf8"), "updated");
   await a.unlock(token);
-  await assert.rejects(a.unlock(token), /does not belong/);
+  await a.unlock(token);
+  await assert.rejects(b.unlock(token), /does not belong/);
+  await assert.rejects(a.unlock("unknown-token"), /does not belong/);
+  const newer = await a.lock([path]);
+  await a.unlock(token);
+  assert.equal(locks.owners.get(a.owner).token, newer.token);
+  await assert.rejects(a.unlock("unknown-token"), /does not belong/);
+  await a.unlock(newer.token);
   const next = await b.lock([path]);
   await assert.rejects(b.call("edit", { file_path: path, old_string: "updated", new_string: "stale" }), /Read the current file/);
   await b.unlock(next.token);
@@ -269,7 +279,7 @@ test("a killed process leaves the old destination intact and its locks recover",
     import { FileLocks } from ${JSON.stringify(new URL("./file-locks.js", import.meta.url).href)};
     import { commitFile } from ${JSON.stringify(new URL("./file-lock-tools.js", import.meta.url).href)};
     const locks = new FileLocks(${JSON.stringify(locks.directory)});
-    await locks.acquire("child", [${JSON.stringify(path)}]);
+    await locks.acquire({}, [${JSON.stringify(path)}]);
     await commitFile(${JSON.stringify(source)}, ${JSON.stringify(path)}, undefined, async () => {
       process.stdout.write("staged");
       await new Promise(() => { setInterval(() => {}, 1000); });
@@ -279,8 +289,9 @@ test("a killed process leaves the old destination intact and its locks recover",
   await once(child.stdout, "data");
   assert.equal(await readFile(path, "utf8"), "old");
   const exited = once(child, "exit"); child.kill("SIGKILL"); await exited;
-  const { token } = await locks.acquire("parent", [path]);
+  const owner = {};
+  const { token } = await locks.acquire(owner, [path]);
   await commitFile(source, path);
-  await locks.release("parent", token);
+  await locks.release(owner, token);
   assert.equal(await readFile(path, "utf8"), "complete new file");
 });

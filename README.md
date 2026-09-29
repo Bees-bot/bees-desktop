@@ -162,7 +162,7 @@ DSH releases are upgraded as one pinned set through the [DSH upgrade checklist](
 
 In a development build, sign in with a platform admin account. **Global Settings → Platform Admin** appears only after the server confirms the role. Turn on **Edit product defaults**, then use the existing model, appearance, and layout controls. Turning it off returns those controls to your personal settings.
 
-Changes save directly to the existing `dsh-runtime/plugin/cordis.patch.yml` in this checkout. The next build includes them as defaults; personal overrides remain personal. Credentials, downloads, and running models are device settings and are never written into the shipped configuration. There is no publish step or remote configuration store. Admin verification requires connectivity; ordinary installations use the bundled defaults offline. Release builds cannot edit the source checkout.
+Changes save directly to the existing `dsh-runtime/plugin/cordis.patch.yml` in this checkout and refresh the development runtime's bundled defaults immediately. Personal overrides take priority when editing is turned off. The next build includes the saved defaults; already-installed copies on other computers need that updated build. Credentials, downloads, and running models are device settings and are never written into the shipped configuration. There is no publish step or remote configuration store. Admin verification requires connectivity; ordinary installations use the bundled defaults offline. Release builds cannot edit the source checkout.
 
 ### The Apps catalog
 

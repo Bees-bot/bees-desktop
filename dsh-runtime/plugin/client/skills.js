@@ -185,6 +185,17 @@ export function SkillsPage({ capabilities, preference, preferences, setPageActio
 }
 
 /**
+ * A placeholder stands for a path or a url this machine fills in per run, so it reads as noise here,
+ * and the flag it belongs to goes with it rather than dangling at the end of the line. Only a
+ * trailing flag is dropped, so nothing in the middle of a command moves.
+ */
+const shownArgs = (args = []) => {
+  const kept = args.filter((arg) => !arg.startsWith("{"));
+  while (kept.length && kept[kept.length - 1].startsWith("--")) kept.pop();
+  return kept;
+};
+
+/**
  * The review screen for one catalog entry. Nothing installs until the publisher, the reach, and the
  * inputs have all been shown once, because installing runs someone else's program on this machine.
  */
@@ -203,7 +214,7 @@ export function CatalogReview({ ctx, entry, onCancel, onDone }) {
   const ready = !busy && !incomplete;
   const runtime = entry.scopes ? "Connects through Google in your browser."
     : entry.command === "{node}" ? "Runs on this computer, as part of Bees."
-    : entry.transport === "stdio" ? `Runs locally: ${entry.command} ${(entry.args ?? []).join(" ")}`.trim()
+    : entry.transport === "stdio" ? `Runs locally: ${[entry.command, ...shownArgs(entry.args)].join(" ")}`.trim()
     : `Connects to ${entry.url}`;
   const pick = async () => {
     const path = await ctx.uiWorkspace.pickDirectory();

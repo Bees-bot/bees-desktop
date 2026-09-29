@@ -9,7 +9,7 @@ import { testOnboardingModel, testPlanningModels } from "./onboarding.js";
 import { AgentRuntime } from "./agent-runtime.js";
 import { Capabilities } from "./capabilities.js";
 import { ConnectedAccount } from "./connected-account.js";
-import { ProductDefaults, shippedModelCatalog } from "./product-defaults.js";
+import { ProductDefaults, refreshProductDefaults } from "./product-defaults.js";
 import { appDirectory, sharedFolder } from "./data-folder.js";
 import { mountEvidenceCapture } from "./evidence-capture.js";
 import { GoogleDriveConnection } from "./google-drive.js";
@@ -288,7 +288,10 @@ export async function apply(ctx, config = {}, internals = {}) {
   void step("background.team-sync.initial", syncTick).catch((error) => ctx.logger.warn?.(`bees: initial team sync failed: ${userMessage(error)}`));
 
   const server = ctx.webServer.server;
-  const productDefaults = new ProductDefaults(connected);
+  const productDefaults = new ProductDefaults(connected, undefined, async (text) => {
+    await refreshProductDefaults(ctx, text);
+    notify({ type: "product-defaults" });
+  });
   if (!server?.prependListener) throw new Error("bees: agent runtime webserver seam changed");
   // the cookie rides along from a page on any 127.0.0.1 port, so a call another page started is refused
   const allowed = (req) => (req.headers.origin === undefined || req.headers.origin === `http://${req.headers.host}`)
@@ -397,7 +400,7 @@ export async function apply(ctx, config = {}, internals = {}) {
   } });
   register(ctx, { kind: "exact", path: "/bees-api/snapshot", handler: async (_req, res) => {
     try { reply(res, 200, { ...await product.snapshot(), systemDefaultModel: ctx.agentDefaultModel.currentSelection(),
-      localModelCatalog: shippedModelCatalog }); }
+      localModelCatalog: productDefaults.catalog }); }
     catch (error) { reply(res, 409, { error: userMessage(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/product-defaults", handler: async (req, res) => {

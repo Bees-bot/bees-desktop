@@ -1,4 +1,5 @@
 import { dataDirectory, sharedFolder } from "./data-folder.js";
+import { defaultBrowser, ownBrowserTeams } from "./agent-browser.js";
 import { assertRootOnDisk, folderChoices, rootOnDisk, workspaceRoot } from "./folder-roots.js";
 import { WorkContext } from "./work-context.js";
 import { DELEGATION_PROTOCOL, PARENT_EXECUTION_STEP } from "./peer-collaboration.js";
@@ -624,6 +625,8 @@ export class BeesProduct {
         .sort((left, right) =>
         String(right.updatedAt).localeCompare(String(left.updatedAt))),
       proposals, browserEnabled: this.capabilities?.browserEnabled() ?? false,
+      // the person's own browser, and the teams that asked Bees not to use it
+      defaultBrowser: { name: defaultBrowser()?.name ?? "", offTeams: ownBrowserTeams() },
       folders: workspaces.flatMap(({ id }) => folderChoices(this.database, id).map((choice) => ({ ...choice, workspaceId: id }))),
       dataFolder: { path: dataDirectory(), shared: sharedFolder() }
     };

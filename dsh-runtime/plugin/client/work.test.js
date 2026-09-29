@@ -36,7 +36,10 @@ test("pending questions, approvals and reviews follow history in the conversatio
       status: kind === "approval" ? "waiting_for_approval" : "waiting_for_input", pendingInteraction: kind };
     const interaction = { key: "request", kind: kind === "approval" ? kind : "question", toolName: "Write file",
       questions: [{ id: "q", header: "Next step", question: "Please confirm the next step" }] };
-    const ctx = { uiSession: { sessionStatus: { getSnapshot: () => new Map([["session", { pendingInteraction: interaction }]]) } } };
+    const ctx = {
+      uiSession: { sessionStatus: { getSnapshot: () => new Map([["session", { pendingInteraction: interaction }]]) } },
+      configForms: { get: () => ({ getSnapshot: () => ({ status: "ready", value: {} }) }) }
+    };
     const data = { items: [item, ...(delegated ? [{ id: "child", title: "Helper", parentId: item.id }] : [])],
       runs: [run], processes: [{ id: "process", workspaceId: "workspace" }], stages: [], assignments: [],
       workspaces: [{ id: "workspace" }], attachments: [], locations: [], proposals: [],

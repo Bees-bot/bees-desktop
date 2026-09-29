@@ -8,6 +8,8 @@ const BASE_TOOLS = new Set([
   "bees_append_file", "bees_acquire_file_locks", "bees_release_file_locks", "bees_commit_file",
   "bees_find_tools", "bees_read_tool_result", "bees_submit_stage_result", "bees_propose_changes", "bees_search_mcp_registry", "bees_list_skill_pack",
   "ask_user_question", "bees_request_work_review", "bees_wait_for_peers", "bees_read_context", "bees_share_update",
+  // the brief tells a team run to ask its team with this, so it must be visible where it is registered
+  "bees_ask_team",
   "web_search", "web_fetch", "bees_fetch_page", "bees_search_news", "bees_search_web", "read", "read_image", "write", "present",
   "bees_control", "bees_publish_outputs", "bees_delegate_work", "bees_revise_work", "bees_resolve_failed_work", "bees_read_work_evidence", "bees_search_knowledge", "bees_read_knowledge"
 ]);

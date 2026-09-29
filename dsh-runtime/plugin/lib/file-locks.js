@@ -8,6 +8,7 @@ const deferred = () => Promise.withResolvers();
 /** One lock set per agent; sorted acquisition prevents cycles across any number of files. */
 export class FileLocks {
   owners = new Map();
+  releasedTokens = new WeakMap();
 
   constructor(directory) { this.directory = directory; }
 
@@ -76,6 +77,8 @@ export class FileLocks {
   }
 
   async release(owner, token) {
+    // Retrying an old release must never affect a newer lock held by this agent.
+    if (this.releasedTokens.get(owner)?.has(token)) return;
     const record = this.owners.get(owner);
     if (!record || record.token !== token) throw new Error("This file lock token does not belong to this agent.");
     record.closing = true;
@@ -83,6 +86,8 @@ export class FileLocks {
     await Promise.allSettled([...record.active]);
     record.released.resolve();
     await record.done;
+    if (!this.releasedTokens.has(owner)) this.releasedTokens.set(owner, new Set());
+    this.releasedTokens.get(owner).add(token);
   }
 
   async releaseOwner(owner) {
