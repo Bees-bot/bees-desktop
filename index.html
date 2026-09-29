@@ -3,16 +3,21 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="color-scheme" content="dark light">
+    <meta name="color-scheme" content="light dark">
     <title></title>
     <style>
-      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #111315; color: #f5f5f5; font: 15px system-ui; }
-      main { text-align: center; }
-      .mark { margin: 0 auto 18px; width: 54px; height: 54px; display: block; border-radius: 16px; object-fit: cover; animation: hover 1.8s ease-in-out infinite; }
-      strong { display: block; font-size: 20px; }
-      p { max-width: 420px; color: #a8abb0; }
+      :root { color-scheme: light dark; --ink: #222b3a; --muted: #596574; --edge: #cbd0d7; --button: #ffffffa8; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: transparent; color: var(--ink); font: 15px system-ui; }
+      main { width: min(360px, calc(100vw - 40px)); text-align: center; }
+      .mark { margin: 0 auto; width: 82px; height: 82px; display: block; object-fit: contain; animation: hover 1.8s ease-in-out infinite; }
+      p { margin: 0; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
+      p:not(:empty) { margin-top: 20px; }
       p:empty { display: none; }
-      button { margin-top: 14px; padding: 7px 14px; border: 1px solid #3a3d42; border-radius: 8px; color: inherit; background: #1c1f23; font: inherit; cursor: pointer; }
+      button { margin-top: 18px; padding: 8px 16px; border: 1px solid var(--edge); border-radius: 10px; color: inherit; background: var(--button); font: inherit; cursor: pointer; }
+      button:focus-visible { outline: 2px solid #4084dd; outline-offset: 3px; }
+      @media (prefers-color-scheme: dark) {
+        :root { --ink: #f5f6f8; --muted: #b4bdc9; --edge: #ffffff24; --button: #ffffff16; }
+      }
       @keyframes hover { 50% { transform: translateY(-6px); } }
       @media (prefers-reduced-motion: reduce) { .mark { animation: none; } }
     </style>
