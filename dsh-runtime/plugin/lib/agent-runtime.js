@@ -26,7 +26,7 @@ import { SKILL_CATALOG } from "./skill-packs.js";
 import { mountToolDiscovery } from "./tool-discovery.js";
 import { WorkContext } from "./work-context.js";
 import { assertPeersSettled, delegationEvidence, DELEGATION_PROTOCOL, DISCUSSION_PROTOCOL, mountPeerCollaboration } from "./peer-collaboration.js";
-import { currentIdentity, itemContext, mcpGrantFor, message, transaction, userMessage } from "./product-database.js";
+import { currentIdentity, itemContext, mcpGrantFor, message, resolveItemId, transaction, userMessage } from "./product-database.js";
 import { authorizeReferences, typedReferences } from "./product-references.js";
 export { authorizeReferences, typedReferences } from "./product-references.js";
 
@@ -1278,7 +1278,7 @@ export class AgentRuntime {
         const capability = CONTROL_ACTIONS.capability.includes(args.action);
         if (!capability && !CONTROL_ACTIONS.product.includes(args.action)) throw new Error(`bees_control cannot ${args.action}`);
         const root = this.workContext.lineage(data.workItemId)[0];
-        if (args.action === "create_recurring_work" && !input.itemId) input.itemId = root.id;
+        if (args.action === "create_recurring_work") input.itemId = input.itemId ? resolveItemId(this.database, input.itemId, "Scheduled item") : root.id;
         if (args.action === "create_process") {
           // a process a run builds works in the run's folders, and can read what it wrote there before
           input.outputLocationId ??= outputLocation(this.database, data.workItemId) ?? undefined;
@@ -1461,14 +1461,15 @@ export class AgentRuntime {
         if (exec.agent?.session.header?.parentSession) throw new Error("Only the lead can request a child correction");
         if (!this.subitemStore?.revise || !exec.callId) throw new Error("Child correction is unavailable");
         exec.signal?.throwIfAborted();
-        await this.subitemStore.revise({ parentId: data.workItemId, workItemId: args.work_item_id,
+        const childId = resolveItemId(this.database, args.work_item_id, "Child work item");
+        await this.subitemStore.revise({ parentId: data.workItemId, workItemId: childId,
           feedback: args.feedback, requestId: `${executionId}:${exec.callId}`, signal: exec.signal });
         try {
-          const results = await this.waitForPeers([args.work_item_id], exec.signal, data.workItemId);
+          const results = await this.waitForPeers([childId], exec.signal, data.workItemId);
           this.audit(results.every(({ status }) => ["completed", "failed", "cancelled"].includes(status)) ? "peer-work-settled" : "peer-work-updated", executionId, String(exec.agent?.session.id ?? ""), { workItemId: data.workItemId, results });
           return { result_json: JSON.stringify(results[0]) };
         } catch (error) {
-          await this.subitemStore.cancel(args.work_item_id).catch(() => undefined);
+          await this.subitemStore.cancel(childId).catch(() => undefined);
           throw error;
         }
       }
@@ -1491,7 +1492,10 @@ export class AgentRuntime {
         if (!this.subitemStore?.resolveFailed || !exec.callId) throw new Error("Child recovery is unavailable");
         exec.signal?.throwIfAborted();
         const resolution = await this.subitemStore.resolveFailed({ parentId: data.workItemId,
-          workItemId: args.work_item_id, reason: args.reason, replacementWorkItemId: args.replacement_work_item_id,
+          workItemId: resolveItemId(this.database, args.work_item_id, "Failed child work item"),
+          reason: args.reason,
+          replacementWorkItemId: args.replacement_work_item_id
+            ? resolveItemId(this.database, args.replacement_work_item_id, "Replacement work item") : undefined,
           requestId: `${executionId}:${exec.callId}`, signal: exec.signal });
         const results = await this.waitForPeers([resolution.replacementWorkItemId ?? resolution.id], exec.signal, data.workItemId);
         return { result_json: JSON.stringify({ ...resolution, result: results[0] }) };
@@ -1518,7 +1522,8 @@ export class AgentRuntime {
         }
       },
       execute: async (args) => {
-        const item = this.database.prepare("SELECT id, parent_id AS parentId, process_id AS processId FROM work_items WHERE id = ? AND deleted_at IS NULL").get(args.work_item_id);
+        const item = this.database.prepare("SELECT id, parent_id AS parentId, process_id AS processId FROM work_items WHERE id = ? AND deleted_at IS NULL")
+          .get(resolveItemId(this.database, args.work_item_id, "Evidence item"));
         const owner = this.database.prepare("SELECT process_id AS processId FROM work_items WHERE id = ?").get(data.workItemId);
         if (!item || !owner || item.processId !== owner.processId ||
             this.workContext.lineage(item.id)[0].id !== this.workContext.lineage(data.workItemId)[0].id)
