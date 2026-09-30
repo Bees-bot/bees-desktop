@@ -461,6 +461,11 @@ export class ProcessRuntime {
   async startItemOnce(workItemId) {
     const input = this.input(workItemId);
     if (!this.isAutomatic(input.processId)) return { automatic: false };
+    // only the device that parked a run holds its question, another would rerun the stage cold
+    const { runtimePhase, executionId } = this.item(workItemId);
+    if (["waiting", "paused"].includes(runtimePhase) && executionId &&
+      !this.database.prepare("SELECT 1 FROM execution_links WHERE execution_id = ?").get(executionId))
+      return { automatic: true, claimed: false, waitingFor: "This work is waiting on the device that paused it" };
     const readiness = await this.canStart(workItemId);
     if (!readiness?.ready) return {
       automatic: true, claimed: false, waitingFor: readiness?.reason ?? "This device is not ready"
