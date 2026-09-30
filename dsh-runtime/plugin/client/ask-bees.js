@@ -14,6 +14,8 @@ export function workFromOutcome(outcome, target, resources = {}) {
 export function AskBeesSetup({ ctx, data, workspaceId, initial, act: pageAct, onCancel, onSave, capabilities }) {
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState("process");
+  const tabs = [["process", "Process"], ["mcps", "Add-ons"], ["files", "Input & Output"]];
+  const tabIndex = tabs.findIndex(([id]) => id === activeTab);
   const act = (command, context, onError = setError) => { setError(""); return pageAct(command, context, onError); };
   const [processId, setProcessId] = useState(initial?.processId ?? "");
   const [selectedAgentId, setSelectedAgentId] = useState("");
@@ -66,7 +68,7 @@ export function AskBeesSetup({ ctx, data, workspaceId, initial, act: pageAct, on
         h("p", { className: "bees-muted" }, "Choose a process, its tools and agents, and input files."),
         h(Button, { className: "bees-ask-close", onClick: onCancel, "aria-label": "Close configuration" }, "×")),
       h("div", { className: "bees-clean-tabs bees-ask-tabs", role: "tablist", "aria-label": "Goal configuration" },
-        ...[["process", "Process"], ["mcps", "Add-ons"], ["files", "Input & Output"]].map(([id, label]) =>
+        ...tabs.map(([id, label]) =>
           h("button", { key: id, type: "button", role: "tab", id: `bees-ask-tab-${id}`,
             className: `bees-clean-tab${activeTab === id ? " active" : ""}`,
             "aria-selected": activeTab === id, "aria-controls": "bees-ask-panel",
@@ -107,6 +109,9 @@ export function AskBeesSetup({ ctx, data, workspaceId, initial, act: pageAct, on
         selectedAgent || creatingStage ? h("p", { className: "bees-muted" }, "Save or close the agent settings before saving this configuration.") : null),
       h("footer", { className: "bees-detail-actions bees-ask-actions" },
           error ? h("p", { className: "bees-error", role: "alert" }, error) : null,
-          h(Button, { onClick: onCancel }, "Cancel"),
-          h(Button, { className: "primary", disabled: !allowed || !process || Boolean(selectedAgent || creatingStage), onClick: () => onSave({ processId: process.id, inputLocationIds, outputLocationId }) }, "Save")));
+          tabIndex > 0 ? h(Button, { onClick: () => setActiveTab(tabs[tabIndex - 1][0]) }, "Back") : null,
+          h(Button, { className: "primary", disabled: tabIndex === tabs.length - 1 && (!allowed || !process || Boolean(selectedAgent || creatingStage)),
+            onClick: () => tabIndex === tabs.length - 1
+              ? onSave({ processId: process.id, inputLocationIds, outputLocationId })
+              : setActiveTab(tabs[tabIndex + 1][0]) }, tabIndex === tabs.length - 1 ? "Done" : "Next")));
 }
