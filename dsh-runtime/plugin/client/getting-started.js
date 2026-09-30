@@ -94,7 +94,7 @@ export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiSta
       step === 1 ? h("div", { className: "bees-stack" },
         h("p", null, "Use AI on this computer, connect Codex or Claude, or choose another provider. Downloads can continue while you finish setup."),
         h("div", { className: "bees-question-options" },
-          ...[["local", "Use AI on this computer", "Runs on this Mac. Nothing leaves it."],
+          ...[["local", "Use AI on this computer", "Runs on this computer. Your messages don't go to an AI company."],
             ["subscriptions", "Connect Codex or Claude", "Uses your existing subscription. Your messages go to that provider's servers."],
             ["other", "Choose another provider", "Your own API key. Your messages go to that provider and may cost money."]]
             .map(([id, label, copy], index) => h("button", { type: "button", key: id, className: "bees-choice", onClick: () => go(1, id) },
