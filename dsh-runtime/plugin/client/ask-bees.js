@@ -94,7 +94,7 @@ export function AskBeesSetup({ ctx, data, workspaceId, initial, act: pageAct, on
           } }) : activeTab === "process" && selectedAgent ? h(AgentEditForm, { key: selectedAgent.id, ctx, data, servers, tools, catalog, onServerAction: capabilities.act, selected: selectedAgent, act, dialog: true, processId: process?.id,
             onCancel: () => setSelectedAgentId(""), onSaved: () => setSelectedAgentId("") }) : null,
         activeTab === "mcps" && process ? h("section", { className: "bees-form" },
-          h("h2", null, "Tools for this process"),
+          h("h2", null, "Process add-ons"),
           h(ProcessMcpForm, { key: `${process.id}:${process.mcpAccess}:${JSON.stringify(process.mcpServers)}`,
             ctx, process, servers, tools, catalog, onServerAction: capabilities.act, act })) : null,
         activeTab === "mcps" && !process ? h("p", { className: "bees-muted" }, "Choose a process on the Process tab first.") : null,

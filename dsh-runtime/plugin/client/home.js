@@ -216,7 +216,7 @@ export function Home({ ctx, data, workspaceId, act, openWorkItem, navigate, rows
     event.currentTarget.closest("details")?.removeAttribute("open");
   };
   const availableWidgets = WIDGETS.filter(({ kind }) => !dashboard.widgets.some((widget) => widget.kind === kind));
-  const queue = useNeedsYouQueue(ctx, data, (data.workspaces ?? []).map(({ id }) => id), "", false);
+  const queue = useNeedsYouQueue(ctx, data, workspaceId ? [workspaceId] : [], "", false);
   const widgetProps = { ctx, data, workspaceId, act, openWorkItem, navigate, rowsForRoute, queue, capabilities,
     records: needsYouRows(queue, data, rowsForRoute), createWork, createProcess, createRun, createAgent,
     outcome, setOutcome, configuration: outcomeConfiguration, configureGoal: () => setSetup(true),

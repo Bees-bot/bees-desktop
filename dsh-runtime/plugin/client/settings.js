@@ -9,13 +9,208 @@ import {
 import { MemorySettings } from "./collaboration.js";
 import { SystemDefaultSettings } from "./agents.js";
 
+const AI_PAGE_CSS = `
+  /* Consistent outer layout for every sub-section */
+  .bees-ai-page > section[data-bees-plugin],
+  .bees-ai-page > fieldset > section[data-bees-plugin] {
+    margin-top: 24px;
+    border: 1px solid var(--dsw-alias-border-l1);
+    border-radius: 12px;
+    background: var(--dsw-alias-bg-base);
+    padding: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+  }
+
+  /* System default special style */
+  .bees-ai-page .bees-system-default {
+    border: 2px solid var(--bees-accent, #f2b84b) !important;
+    background: var(--dsw-alias-bg-base) !important;
+    border-radius: 12px !important;
+    padding: 20px 24px !important;
+    margin-bottom: 24px !important;
+    box-shadow: 0 4px 12px rgba(242, 184, 75, 0.1) !important;
+  }
+
+  /* Reset inner boxes so we don't have nested borders */
+  .bees-ai-page .bees-box:not(.bees-system-default) {
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Subscriptions layout */
+  .bees-ai-page .bees-subscriptions > section.bees-box {
+    border-bottom: 1px solid var(--dsw-alias-border-l1) !important;
+    margin-bottom: 16px !important;
+    padding-bottom: 16px !important;
+  }
+  .bees-ai-page .bees-subscriptions > section.bees-box:last-child {
+    border-bottom: none !important;
+    margin-bottom: 0 !important;
+    padding-bottom: 0 !important;
+  }
+
+  /* Make the Add provider grids 5 cards per row */
+  .bees-ai-page .bees-provider-grid,
+  .bees-ai-page .bees-general-grid {
+    grid-template-columns: repeat(5, 1fr) !important;
+    gap: 12px !important;
+    margin-top: 16px;
+    margin-bottom: 16px;
+  }
+
+  /* Modern info showing cards */
+  .bees-ai-page .bees-provider-card,
+  .bees-ai-page .bees-general-card {
+    min-height: 75px !important;
+    padding: 12px 14px !important;
+    border: 1px solid var(--dsw-alias-border-l2) !important;
+    border-radius: 10px !important;
+    transition: all 0.2s ease;
+    background: var(--dsw-specific-sidebar-fill) !important;
+  }
+  .bees-ai-page .bees-provider-card:hover,
+  .bees-ai-page .bees-general-card:hover {
+    border-color: var(--bees-accent, #f2b84b) !important;
+    background: color-mix(in srgb, var(--bees-accent, #f2b84b) 8%, var(--dsw-specific-sidebar-fill)) !important;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+  }
+  .bees-ai-page .bees-provider-card.active,
+  .bees-ai-page .bees-general-card.active {
+    border-color: var(--bees-accent, #f2b84b) !important;
+    background: color-mix(in srgb, var(--bees-accent, #f2b84b) 12%, var(--dsw-specific-sidebar-fill)) !important;
+    box-shadow: inset 0 0 0 1px var(--bees-accent, #f2b84b);
+  }
+
+  /* Callout box (Suggested models, info cards) */
+  .bees-ai-page .bees-callout {
+    border: 1px solid color-mix(in srgb, var(--bees-accent, #f2b84b) 40%, transparent) !important;
+    border-left: 4px solid var(--bees-accent, #f2b84b) !important;
+    border-radius: 8px !important;
+    background: color-mix(in srgb, var(--bees-accent, #f2b84b) 5%, var(--dsw-alias-bg-base)) !important;
+    padding: 16px 20px !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.02) !important;
+  }
+
+  /* Badges (Model names in subscriptions/custom ai) */
+  .bees-ai-page .bees-badge {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    padding: 4px 10px !important;
+    border-radius: 99px !important;
+    background: color-mix(in srgb, var(--bees-accent, #f2b84b) 12%, var(--dsw-alias-bg-base)) !important;
+    border: 1px solid color-mix(in srgb, var(--bees-accent, #f2b84b) 30%, transparent) !important;
+    font-size: 12px !important;
+    font-weight: 500 !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+    color: var(--dsw-alias-label-primary) !important;
+  }
+
+  .bees-ai-page .bees-badge button {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 -2px 0 2px !important;
+    min-width: 16px !important;
+    min-height: 16px !important;
+    width: 16px !important;
+    height: 16px !important;
+    border-radius: 50% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    color: var(--dsw-alias-label-secondary) !important;
+    font-size: 16px !important;
+    line-height: 1 !important;
+    cursor: pointer !important;
+  }
+  .bees-ai-page .bees-badge button:hover {
+    background: rgba(0,0,0,0.1) !important;
+    color: var(--dsw-alias-label-primary) !important;
+  }
+
+  /* Section headers */
+  .bees-ai-page .bees-section-title {
+    font-size: 14px !important;
+    font-weight: 700 !important;
+    text-transform: none !important;
+    letter-spacing: normal !important;
+    color: var(--dsw-alias-label-primary) !important;
+    margin: 0 0 6px 0 !important;
+  }
+
+  /* Main title */
+  .bees-ai-page > .bees-main-heading {
+    font-size: 18px !important;
+    font-weight: 700 !important;
+    color: var(--dsw-alias-label-primary) !important;
+    margin: 16px 0 8px 0 !important;
+  }
+
+  /* Tables */
+  .bees-ai-page table {
+    min-width: 0 !important;
+    width: 100% !important;
+    margin-top: 16px;
+  }
+  .bees-ai-page .bees-free-table,
+  .bees-ai-page .bees-general-table,
+  .bees-ai-page .bees-local-model-table {
+    border: 1px solid var(--dsw-alias-border-l1) !important;
+    background: var(--dsw-specific-sidebar-fill) !important;
+    border-radius: 8px !important;
+    overflow: hidden !important;
+  }
+
+  /* Empty state styling */
+  .bees-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 16px;
+    text-align: center;
+    color: var(--dsw-alias-label-secondary);
+    background: var(--dsw-specific-sidebar-fill);
+    border: 1px dashed var(--dsw-alias-border-l2);
+    border-radius: 8px;
+    margin-top: 16px;
+  }
+  .bees-empty-state svg {
+    width: 32px;
+    height: 32px;
+    margin-bottom: 12px;
+    opacity: 0.5;
+  }
+
+  /* Bottom padding for the page */
+  .bees-ai-page {
+    padding-bottom: 64px;
+  }
+`;
+
+function ensureAiPageCss() {
+  if (document.getElementById("bees-ai-page-styles")) return;
+  const el = document.createElement("style");
+  el.id = "bees-ai-page-styles";
+  el.textContent = AI_PAGE_CSS;
+  document.head.appendChild(el);
+}
+
 function AiSettings({ ctx, modelSettings, preferences, systemDefault, reload, productSettings, catalog }) {
   const preference = usePreference(preferences);
   const generation = productSettings.generation;
   const isOnboarding = preference.onboarding?.active;
   const [modelsChanged, setModelsChanged] = useState(0);
 
-  return h("div", { className: "bees-stack" },
+  useEffect(() => { ensureAiPageCss(); }, []);
+
+  return h("div", { className: "bees-stack bees-ai-page" },
     isOnboarding ? h("section", { className: "bees-callout" },
       h("h2", null, "Choose how Bees thinks"),
       h("p", null, "Connect or start a model below, save it as your system default, then return to setup to test it. You can continue setup during a download.")
@@ -27,17 +222,19 @@ function AiSettings({ ctx, modelSettings, preferences, systemDefault, reload, pr
       defaultModelLists: preferences.productDefaults ? { codex: preference.codexModels,
         claude: productSettings.state.values["bees-subscriptions"].models } : undefined }),
 
+    h("h2", { className: "bees-main-heading" }, "Connection AI sources"),
+
     h(SubscriptionSettings, { modelSettings, preferences, systemDefault, ask, openExternal, Button,
       productDefaults: preferences.productDefaults ? {
         claudeModels: productSettings.state.values["bees-subscriptions"].models,
         saveClaudeModels: (models) => productSettings.save("bees-subscriptions", "models", models, generation)
       } : null,
       onChange: () => setModelsChanged((count) => count + 1) }),
-    h("fieldset", { disabled: preferences.productDefaults, style: { border: 0, padding: 0, minWidth: 0 } },
+    h("fieldset", { disabled: preferences.productDefaults, style: { border: 0, padding: 0, minWidth: 0, marginTop: "16px", borderTop: "1px solid var(--dsw-alias-border-l1)", paddingTop: "16px" } },
       h(FreeAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button })),
     h(CustomAiSettings, { ctx, modelSettings, preferences, systemDefault, ask, confirmAction, openExternal, Button }),
     h(LocalAiSettings, { modelSettings, preferences, systemDefault, ask, confirmAction, Button, catalog }),
-    h("fieldset", { disabled: preferences.productDefaults, style: { border: 0, padding: 0, minWidth: 0 } },
+    h("fieldset", { disabled: preferences.productDefaults, style: { border: 0, padding: 0, minWidth: 0, marginTop: "16px", borderTop: "1px solid var(--dsw-alias-border-l1)", paddingTop: "16px" } },
       h(ExternalLocalAiSettings, { modelSettings, preferences, systemDefault, ask, Button }))
   );
 }
@@ -761,11 +958,13 @@ function SettingsLayout({ route, navigate, organization, team, platform, childre
             className: route === id ? "active" : "", "aria-current": route === id ? "page" : null,
             onClick: () => navigate(id) }, label)),
           organization ? h(SettingsGroup, { label: organization.name, routes: ORGANIZATION_SETTINGS, route, navigate,
-            role: organization.role, connected: organization.connected }) : null),
-      // no auto-update yet, so point people at the releases page instead of leaving them on an old build silently
-      h(Button, { onClick: () => void openExternal("https://github.com/Bees-bot/bees-desktop/releases") },
-        "Bees does not update itself yet. Watch the releases page for new versions.")),
-    h("section", { className: "bees-settings-content" }, children));
+            role: organization.role, connected: organization.connected }) : null)),
+    h("section", { className: "bees-settings-content" },
+      h("div", { className: "bees-callout", style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px", marginBottom: "24px" } },
+        h("div", null, "Bees does not update itself yet. Watch the releases page for new versions."),
+        h(Button, { onClick: () => void openExternal("https://github.com/Bees-bot/bees-desktop/releases") }, "Releases on GitHub")
+      ),
+      children));
 }
 
 export function SettingsPage({

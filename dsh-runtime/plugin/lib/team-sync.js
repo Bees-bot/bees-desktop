@@ -63,7 +63,7 @@ function teamRecords(database, organizationId, connectionId = "", includeAppDefi
   for (const row of database.prepare(`
     SELECT p.id, w.team_id AS teamId, p.name, p.description, p.kind,
            p.output_location_id AS outputLocationId, p.mcp_access AS mcpAccess,
-           p.mcp_servers_json AS mcpServers, p.archived_at AS archivedAt,
+           p.mcp_servers_json AS mcpServers, p.account_user_id AS accountUserId, p.archived_at AS archivedAt,
            p.created_at AS createdAt, p.updated_at AS updatedAt
     FROM processes p JOIN workspaces w ON w.id = p.workspace_id
     JOIN teams t ON t.id = w.team_id WHERE t.organization_id = ?
@@ -97,6 +97,7 @@ function teamRecords(database, organizationId, connectionId = "", includeAppDefi
     records.push(record("team_process", row, {
       ...owner('app_process_owners', 'process_id', row.id),
       teamId: row.teamId, name: row.name, description: row.description, kind: row.kind,
+      accountUserId: row.accountUserId,
       outputLocationId: row.outputLocationId, mcpAccess: row.mcpAccess, mcpServers: json(row.mcpServers),
       inputLocations: inputLocations(database, "process_locations", "process_id", row.id),
       stages, archivedAt: timestamp(row.archivedAt), createdAt: timestamp(row.createdAt),
@@ -357,14 +358,15 @@ function applyProcess(database, record, authoritativeApps = false) {
   const policy = normalizeRunSettings({ mcpAccess: p.mcpAccess ?? "none", mcpServers: p.mcpServers ?? [] });
   database.prepare(`
     INSERT INTO processes
-      (id, workspace_id, name, description, kind, output_location_id, mcp_access, mcp_servers_json, archived_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id, workspace_id, name, description, kind, output_location_id, mcp_access, mcp_servers_json, account_user_id, archived_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description,
       kind = excluded.kind, output_location_id = excluded.output_location_id,
       mcp_access = excluded.mcp_access, mcp_servers_json = excluded.mcp_servers_json,
+      account_user_id = coalesce(excluded.account_user_id, processes.account_user_id),
       archived_at = excluded.archived_at, updated_at = excluded.updated_at
   `).run(record.recordId, workspaceId, p.name, p.description, p.kind, p.outputLocationId,
-    policy.mcpAccess, JSON.stringify(policy.mcpServers), p.archivedAt, p.createdAt, p.updatedAt);
+    policy.mcpAccess, JSON.stringify(policy.mcpServers), p.accountUserId ?? null, p.archivedAt, p.createdAt, p.updatedAt);
   database.prepare("UPDATE stages SET position = -rowid WHERE process_id = ? AND archived_at IS NULL")
     .run(record.recordId);
   const stageIds = [];

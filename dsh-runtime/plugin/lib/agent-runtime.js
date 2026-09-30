@@ -33,7 +33,7 @@ export { authorizeReferences, typedReferences } from "./product-references.js";
 /** What a run may build for itself; everything else stays with the screens. */
 const CONTROL_ACTIONS = {
   product: ["list_items", "list_processes", "list_agents", "create_process", "create_item", "create_goal", "create_recurring_work",
-    "add_agent_assignment", "edit_agent_assignment", "set_stage_route"],
+    "add_agent_assignment", "edit_agent_assignment", "set_stage_route", "restart_item"],
   capability: ["search_mcp_registry", "install_mcp_server", "add_mcp_server", "list_skill_pack", "install_skill"]
 };
 
@@ -297,7 +297,7 @@ function messageParts(content) {
 const STAGE_BRIEF = /^(Current work item: |Complete only the |Complete this work item\.|Independently review the candidate |Resume this |Plan this outcome |Publish the finished files |The user requested a retry\. |You ended without a successful bees_submit_stage_result)/;
 function internalPromptLabel(message) {
   const source = message?.source;
-  if (source?.kind === "skill-catalog" || source?.kind === "runtime-context") return `Context injection · ${source.kind}`;
+  if (["skill-catalog", "runtime-context", "bees-context-retention"].includes(source?.kind)) return `Context injection · ${source.kind}`;
   return STAGE_BRIEF.test(textBlocks(message?.content)[0] ?? "") ? "Bees stage brief" : null;
 }
 
@@ -1109,7 +1109,7 @@ export class AgentRuntime {
   }
 
   async setup(agentCtx, data, executionId, workspace) {
-    this.guardStageCompletion(agentCtx, executionId);
+    if (data.stagePurpose) this.guardStageCompletion(agentCtx, executionId);
     const installedApp = data.workItemId ? await this.apps?.executionContext(data.workItemId) : null;
     // The sandbox is mounted from the item's process, so an app agent put on any other process would run unrestricted.
     if (!installedApp && data.agentId && this.database.prepare("SELECT 1 FROM app_agent_owners WHERE agent_id = ?").get(data.agentId))
@@ -1145,6 +1145,7 @@ export class AgentRuntime {
       !installedApp && data.mode === "work" && data.workItemId && this.peerDepth(data.workItemId) === 0 ? DELEGATION_PROTOCOL : "",
       data.mode === "review" ? "Candidate files are read-only during review. Inspect them and report any required changes through bees_submit_stage_result with revise; do not perform the worker's assignment again." : FILE_LOCK_INSTRUCTIONS,
       this.workContext.instructions(executionId),
+      !data.stagePurpose && this.stageResult(executionId) ? `This is a follow-up conversation after the task completed. Answer the current message and carry out new inputs using the existing history and files; do not repeat the original task or submit its stage result again. If the user asks to start, restart or rerun this same task, call bees_control with action restart_item and input_json containing itemId ${JSON.stringify(data.workItemId)} and text with the user's request. That resets this task to its first stage and starts a fresh workflow attempt. Report that it started and let the workflow perform its stages.` : "",
       !installedApp && this.workContext.run(executionId) ? DISCUSSION_PROTOCOL : "",
       data.mode === "planning" ? "" : HUMAN_INTERACTION_PROTOCOL,
       installedApp ? "" : "Run files and their text previews are available in bees_read_context; bees_read_work_evidence exposes source results from the same run. Team knowledge search covers work descriptions and mapped team sources, not generated run files.",
@@ -1264,6 +1265,7 @@ export class AgentRuntime {
         + "create_process {name, description, stages: [\"Stage name\", ...] or [{name, driver?: agent|discussion|review|terminal, requiresHumanApproval?: true}]} -> {id, stages: [{id, name}]}. create_item {processId or process: its exact name, title, description, stageId?, agentIds?} -> {id}; the item starts at once and runs on its own in its process, writing its files to its own run rather than your outputs/, so report it as started, follow it with list_items and never redo its stages here. create_goal {title, description} -> {id}. create_recurring_work {name, itemId?, description?, frequency: hourly|daily|weekly|monthly|advanced, everyMinutes?, hour?, minute?, timezone?, dayOfWeek?: day name, dayOfMonth?, cronExpression?} schedules itemId, or this run's primary work item without it, starts active, and returns {id, sourceWorkItemId, timezone, nextRunAt}; an item has one schedule, so scheduling it again replaces its timing and description. Every scheduled run repeats description, or that item's description without it, and none of this run's answers, so put in description everything each run needs; when this run sets up a process for repeating work, create_item in that process with what each run does and schedule that item. "
         + "add_agent_assignment {presetId: \"standard\", name, description, instructions, model?, mcpAccess: all|listed, mcpServers?} -> {id}; give it all unless the task limits it, so it reaches every server the team has. edit_agent_assignment {agent, description?, instructions?, model?, mcpAccess?, mcpServers?} changes an agent that already exists; never clone one under a new name. set_stage_route {stageId, agentIds: [assignment ids]}. "
         + `search_mcp_registry {query}, only for a service no catalogId covers. install_mcp_server {catalogId: one of ${CATALOG_IDS}, inputs?: {curl | apiBaseUrl | openapiSpec}, secrets: {NAME: value}}, where catalogId openapi-bridge with inputs {curl} turns any REST API into tools (write a per-call id in the path as {name}), and another curl to the same API adds its endpoints and query parameters to that server with the saved credential, so add a missing endpoint or parameter yourself; ${SIGN_IN_LABELS} come only from the owner's own Google sign-in on the Add-ons page and ${FOLDER_LABELS} from a person there who picks the folder it may reach, so ask for one there when the task needs it, never a registry stand-in; add_mcp_server {serverName, transport: stdio|streamable-http, command?, args?: [one argument per item], url?, secrets: {NAME: value}} -> {id}; a server you install is usable in this run at once as mcp__<serverName>__ tools. `
+        + "restart_item {itemId, text?} starts the same finished task again from its first stage, preserving its history and files. Use only when the user asks to restart or rerun it, and put their request in text. "
         + "list_skill_pack {repo}. install_skill {repo, directory}. When the task gives an API key or token, connect that API here or call it over HTTP; never ask a person to sign in for it.",
       parameters: {
         action: { type: "string", required: true, description: "One of the actions above." },
@@ -1283,6 +1285,10 @@ export class AgentRuntime {
         const capability = CONTROL_ACTIONS.capability.includes(args.action);
         if (!capability && !CONTROL_ACTIONS.product.includes(args.action)) throw new Error(`bees_control cannot ${args.action}`);
         const root = this.workContext.lineage(data.workItemId)[0];
+        if (args.action === "restart_item") {
+          input.itemId ??= data.workItemId;
+          input.requestId = `${executionId}:${exec.callId}`;
+        }
         if (args.action === "create_recurring_work") input.itemId = input.itemId ? resolveItemId(this.database, input.itemId, "Scheduled item") : root.id;
         if (args.action === "create_process") {
           // a process a run builds works in the run's folders, and can read what it wrote there before
@@ -2072,7 +2078,11 @@ export class AgentRuntime {
     }
     // A warm continuation belongs to the existing worker. Replacing its session
     // here orphaned a still-running agent, doubling inference and tool effects.
-    const live = continuation && !recovery && this.live.get(executionId);
+    // Explicit follow-ups keep the immutable stage result as history, not as a stop condition.
+    const completedStage = continuation && this.stageResult(executionId);
+    if (completedStage) data = { ...data, stagePurpose: undefined };
+    const current = continuation && !recovery && this.live.get(executionId);
+    const live = current && (!completedStage || !current.data.stagePurpose) ? current : null;
     if (live) {
       const submissionId = randomUUID();
       this.database.prepare(`INSERT INTO dsh_deliveries (delivery_id, execution_id, submission_id, created_at)
