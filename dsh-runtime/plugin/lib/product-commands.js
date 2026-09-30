@@ -2,7 +2,7 @@ import { catalogEntry } from "./mcp-catalog.js";
 import { appDirectory, useDataFolder } from "./data-folder.js";
 import { rootForWorkspace, setFolderRoot, workspaceRoot } from "./folder-roots.js";
 import { randomUUID } from "node:crypto";
-import { browserModeFor, hideAgentBrowser, navigateAgentBrowser, setUsesDefaultBrowser, showAgentBrowser } from "./agent-browser.js";
+import { browserModeFor, hideAgentBrowser, setUsesDefaultBrowser, showAgentBrowser } from "./agent-browser.js";
 
 import { existsSync, mkdirSync } from "node:fs";
 import { resolve, sep } from "node:path";
@@ -1328,12 +1328,13 @@ export async function executeProductCommand(action, input) {
     }
     if (action === "open_agent_browser") {
       const executionId = required(input.executionId, "Execution");
-      const { data } = runContext(this.database, executionId);
+      const { data, status } = runContext(this.database, executionId);
+      // answered or ended already, so nothing would ever put the window away again
+      if (status !== "waiting_for_input") return { opened: false };
       // When the agent supplies a URL (e.g. a login page), navigate the run's browser there directly
       // so the user sees the actual page rather than the initial about:blank tab.
       const url = typeof input.url === "string" && input.url.startsWith("https://") ? input.url : null;
-      const mode = browserModeFor(this.database, data.workspaceId);
-      await (url ? navigateAgentBrowser(mode, url) : showAgentBrowser(mode));
+      await showAgentBrowser(browserModeFor(this.database, data.workspaceId), executionId, url);
       return { opened: true };
     }
 
@@ -1355,7 +1356,7 @@ export async function executeProductCommand(action, input) {
     }
     if (action === "stop_run") {
       const executionId = required(input.executionId, "Execution");
-      const { status, data } = runContext(this.database, executionId);
+      const { status } = runContext(this.database, executionId);
       const stopped = this.agents.abort(executionId);
       // a queued or parked run has nothing live to abort; dropping its queue row stops a start in flight
       if (!stopped && ["queued", "waiting_for_input", "waiting_for_approval"].includes(status)) {
@@ -1363,7 +1364,7 @@ export async function executeProductCommand(action, input) {
         this.agents.setStatus(executionId, "cancelled");
       }
       // Nothing is waiting on a sign-in any more, so the window it raised has no reason to stay up.
-      this.agents.track(hideAgentBrowser(browserModeFor(this.database, data.workspaceId)));
+      this.agents.track(hideAgentBrowser(executionId));
       return { stopped };
     }
     if (action === "provide_run_input") {

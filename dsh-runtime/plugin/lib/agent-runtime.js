@@ -969,8 +969,8 @@ export class AgentRuntime {
           idempotencyKey: `${pending.kind}-${answered ? "answered" : "cancelled"}:${sessionId}:${callId}`
         });
         this.audit(`${pending.kind}-${answered ? "answered" : "cancelled"}`, executionId, sessionId, { callId });
-        // the run's own browser, not the other team's, or the window it raised stays on screen
-        this.track(hideAgentBrowser(browserModeFor(this.database, this.live.get(executionId)?.data?.workspaceId)));
+        // the window this run raised, and it stays up while another run is still signing in on it
+        this.track(hideAgentBrowser(executionId));
       }
       const output = {
         sessionId,
@@ -2303,6 +2303,8 @@ export class AgentRuntime {
     const live = this.live.get(executionId);
     live?.approvalAbort.abort();
     this.live.delete(executionId);
+    // a run that ended mid sign-in would otherwise keep the window up for every run after it
+    this.track(hideAgentBrowser(executionId));
     await handle.dispose().catch(() => undefined);
   }
 

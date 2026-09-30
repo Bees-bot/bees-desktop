@@ -1,5 +1,5 @@
 import { execFile, execFileSync, spawn } from "node:child_process";
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -51,11 +51,13 @@ const signInFiles = (folder) => [
 /** No cookies, in the shape playwright reads. What a run that cannot read the browser gets. */
 const NO_COOKIES = { cookies: [], origins: [] };
 
-/** mode -> the browser running for it, and mode -> the launch in flight. */
+/** mode -> the browser running for it, and mode -> the last launch or swap queued for it. */
 const children = new Map();
-const starting = new Map();
+const queued = new Map();
 /** mode -> the profile folder inside its copy of the person's profile. */
 const copiedFolders = new Map();
+/** run -> the browser it brought up to sign in on, so only its own answer puts that window away. */
+const signingIn = new Map();
 
 let looked = false;
 let found = null;
@@ -63,6 +65,13 @@ let found = null;
 const profileOf = (spec) => join(stateDirectory(), spec.profile);
 const base = (spec) => `http://127.0.0.1:${spec.port}`;
 const running = (mode) => children.get(mode)?.exitCode === null && children.get(mode)?.signalCode === null;
+
+/** One launch or swap per browser at a time, so two clicks cannot start two browsers on one profile. */
+function serially(mode, work) {
+  const next = (queued.get(mode) ?? Promise.resolve()).then(work);
+  queued.set(mode, next.catch(() => {}));
+  return next;
+}
 
 /**
  * The person's default browser, when Bees can drive it. Asked once per launch of the app: the answer
@@ -93,7 +102,7 @@ function askMacOs() {
 }
 
 /** Which browser one team's runs drive. */
-export const browserMode = (teamId) => teamId && usesDefaultBrowser(teamId) && defaultBrowser() ? "personal" : "own";
+const browserMode = (teamId) => teamId && usesDefaultBrowser(teamId) && defaultBrowser() ? "personal" : "own";
 
 /** Which browser one run drives: the team that owns its workspace decides, and a run with no team
  *  gets Bees' own rather than a copy of a person's profile it has no setting for. */
@@ -123,7 +132,7 @@ function offTeams() {
   } catch { return []; }
 }
 
-export const usesDefaultBrowser = (teamId) => !offTeams().includes(teamId);
+const usesDefaultBrowser = (teamId) => !offTeams().includes(teamId);
 
 /** The teams that asked for Bees' own browser, which is what their settings page shows switched off. */
 export const ownBrowserTeams = () => offTeams();
@@ -186,19 +195,18 @@ const browserArgs = (pid) => new Promise((resolve) => execFile("/bin/ps", ["-o",
   { timeout: PATIENCE }, (_, out) => resolve(out ?? "")));
 
 /**
- * Whether the browser on this port is the one this Bees started. Two installs on one Mac, a dev build
- * and the released app, both want the same port, and the one that starts second would otherwise drive
- * the other's browser and read a profile it never copied.
+ * What the browser on this port was started with, or nothing when this Bees did not start it, so a
+ * second install (dev and released) on the same port does not drive a browser it never copied.
  */
 async function ours(spec) {
   const pid = await browserPid(spec);
-  if (!pid) return false;
-  return (await browserArgs(pid)).includes(`--user-data-dir=${profileOf(spec)}`);
+  const args = pid ? await browserArgs(pid) : "";
+  return args.includes(`--user-data-dir=${profileOf(spec)}`) ? args : "";
 }
 
 const macApp = (pid, call) => new Promise((resolve) => execFile("osascript", ["-l", "JavaScript", "-e",
   `ObjC.import("AppKit"); const app = $.NSRunningApplication.runningApplicationWithProcessIdentifier(${pid}); app && app.${call};`],
-  () => resolve()));
+  { timeout: PATIENCE }, () => resolve()));
 
 /** In front of the person, for the one thing only they can do: sign in. Activating unhides the app and
  *  raises its windows, and it has to ignore whoever is in front already: macOS hands focus only to an
@@ -227,9 +235,9 @@ async function putAway(spec) {
 }
 
 /**
- * The person's sign-ins live in the browser they use, so their copy is taken fresh each time Bees
- * opens it, and is thrown away first: a copy that only ever grows keeps sign-ins the person has since
- * removed, and holds the profile lock a killed browser left behind.
+ * The person's sign-ins live in the browser they use, so their copy is taken fresh the first time
+ * each Bees opens it, and is thrown away first: a copy that only ever grows keeps sign-ins the person
+ * has since removed, and holds the profile lock a killed browser left behind.
  */
 function copyProfile(mode, spec) {
   const profile = profileOf(spec);
@@ -297,30 +305,35 @@ async function launch(mode, visible, takeCopy = true) {
   try { await openWindow(spec); } finally { await putAway(spec); }
 }
 
-/** The port stops answering while the browser that held it goes, so the next launch is not refused by
- *  the dying one, which still answers for a moment. */
-async function untilFree(spec) {
-  const deadline = Date.now() + PATIENCE * 2;
-  while (await answering(spec)) {
-    if (Date.now() > deadline) return;
+/** Whether the process has exited, giving it a moment. */
+async function gone(pid) {
+  const deadline = Date.now() + PATIENCE;
+  for (;;) {
+    try { process.kill(pid, 0); } catch { return true; }
+    if (Date.now() > deadline) return false;
     await delay(100);
   }
+}
+
+/** Closed, not killed, so it writes out its cookies, and found by port since an earlier Bees' has no handle here. */
+async function quit(spec) {
+  const pid = await browserPid(spec);
+  if (!pid) return;
+  await cdp(spec, "Browser.close", {}).catch(() => {});
+  if (await gone(pid)) return;
+  try { process.kill(pid, "SIGKILL"); } catch { /* it went on its own after all */ }
+  await gone(pid);
 }
 
 /** Swap the two shapes of the same browser. Both work on the same profile, so the sign-in the person
  *  just did, and every cookie in it, is there for whichever one comes up. */
 async function relaunch(mode, visible) {
   const spec = target(mode);
-  if (running(mode)) children.get(mode).kill();
+  await quit(spec);
   children.delete(mode);
-  await untilFree(spec);
+  // the old browser still holding the profile would take the new launch over, so it has to be gone
+  if (await answering(spec)) throw new Error(`The agent's browser port ${spec.port} is still in use`);
   await launch(mode, visible, false);
-}
-
-/** The browser a person signs in on, which is the one with a window. */
-async function makeVisible(mode) {
-  const spec = target(mode);
-  if (await headless(spec)) await relaunch(mode, true);
 }
 
 /**
@@ -342,17 +355,16 @@ export function browserStatePath(mode = "own") {
  * Anything the browser cannot answer for hands this run no cookies at all: the last run's jar is not
  * this run's, and a sign-in the person has since removed must not come back with it.
  */
-export async function saveBrowserState(mode = "own") {
+export const saveBrowserState = (mode = "own") => serially(mode, async () => {
   const spec = target(mode);
   // ours, not running: a browser started by an earlier Bees is still the one holding the cookies,
   // and its process handle died with the old Bees.
   const state = await ours(spec) ? await cookiesOf(spec) : NO_COOKIES;
   const path = browserStatePath(mode);
-  // this file holds the person's live sign-ins, so only they can read it
-  writeFileSync(path, JSON.stringify(state), { mode: 0o600 });
-  // the mode above counts only when the write creates the file, and an earlier Bees left it open
-  chmodSync(path, 0o600);
-}
+  // only the person can read their live sign-ins, and a run starting mid-write reads the old file whole
+  writeFileSync(`${path}.writing`, JSON.stringify(state), { mode: 0o600 });
+  renameSync(`${path}.writing`, path);
+});
 
 /** The cookies the browser holds, in the shape playwright's --storage-state reads. */
 async function cookiesOf(spec) {
@@ -369,64 +381,69 @@ async function cookiesOf(spec) {
   };
 }
 
-/** Bring the browser up. Cheap once it runs; one launch at a time, however many ask. */
-export function startAgentBrowser(mode = "own") {
-  if (running(mode) || starting.has(mode)) return starting.get(mode) ?? Promise.resolve();
-  const launched = launchIfAbsent(mode).finally(() => { starting.delete(mode); });
-  starting.set(mode, launched);
-  return launched;
-}
+/** Bring the browser up, or back after a crash or a quit. Cheap once it runs. */
+export const startAgentBrowser = (mode = "own") => serially(mode, () => launchIfAbsent(mode));
 
 async function launchIfAbsent(mode) {
+  if (running(mode)) return;
   const spec = target(mode);
   // a browser an earlier Bees left on this port still holds the sign-ins, and taking a fresh copy of
   // the person's profile would pull it out from under that browser, so it is adopted as it stands.
-  if (await ours(spec)) return;
+  const args = await ours(spec);
+  if (args) {
+    // a swap has to reopen the profile it opened, and only the old Bees knew which
+    const folder = args.match(/--profile-directory=(.+?) --remote-debugging-port=/)?.[1];
+    if (folder) copiedFolders.set(mode, folder);
+    return;
+  }
   // anything else on the port is not ours to read from or to drive, and saying which process holds
   // it saves whoever has to sort this out a hunt for a second Bees that may not be there
   if (await answering(spec)) {
     const pid = await browserPid(spec);
     throw new Error(`Something else is using the agent's browser port ${spec.port}${pid ? ` (process ${pid})` : ""}`);
   }
-  await launch(mode, false);
+  // one that crashed comes back on the copy it had, with whatever the person signed in to since
+  await launch(mode, false, !copiedFolders.has(mode));
 }
 
-/** Put the browser in front so a person can sign in, and land on the tab the agent is reading. */
-export async function showAgentBrowser(mode = "own", url) {
-  if (url) return navigateAgentBrowser(mode, url);
-  await startAgentBrowser(mode);
-  await makeVisible(mode);
-  const spec = target(mode);
-  await openWindow(spec);
-  await bringUp(spec);
+/** Put the browser in front so a person can sign in for this run, on the page the agent hit when it says which. */
+export function showAgentBrowser(mode, runId, url) {
+  // marked before its turn, so an answer that lands before the window is up still counts
+  signingIn.set(runId, mode);
+  return serially(mode, async () => {
+    // answered while it waited its turn, so there is nothing left to sign in to
+    if (!signingIn.has(runId)) return;
+    await launchIfAbsent(mode);
+    const spec = target(mode);
+    if (await headless(spec)) await relaunch(mode, true);
+    if (url) {
+      // own tab brought to the front, so the person sees the sign-in page and the agent's tab is left alone
+      try {
+        const pages = await fetch(`${base(spec)}/json/list`, { signal: AbortSignal.timeout(PATIENCE) }).then((r) => r.json());
+        // chrome unescapes the whole query, and a bare # would end the address before its fragment
+        const open = pages.find((page) => page.type === "page" && page.url === url)
+          ?? await fetch(`${base(spec)}/json/new?${encodeURIComponent(url)}`, { method: "PUT", signal: AbortSignal.timeout(PATIENCE) })
+            .then((r) => r.json());
+        await fetch(`${base(spec)}/json/activate/${open.id}`, { signal: AbortSignal.timeout(PATIENCE) });
+      } catch { /* the window still comes up, and the person can type the address themselves */ }
+    } else await openWindow(spec);
+    await bringUp(spec);
+  });
 }
 
-/**
- * Navigate the agent's browser to a specific URL and bring it forward. Used when an agent hits a
- * login wall so the person lands directly on the sign-in page rather than about:blank.
- */
-export async function navigateAgentBrowser(mode = "own", url) {
-  await startAgentBrowser(mode);
-  await makeVisible(mode);
-  const spec = target(mode);
-  // own tab brought to the front, so the person sees the sign-in page and the agent's tab is left alone
-  try {
-    const pages = await fetch(`${base(spec)}/json/list`, { signal: AbortSignal.timeout(PATIENCE) }).then((r) => r.json());
-    const open = pages.find((page) => page.type === "page" && page.url === url)
-      ?? await fetch(`${base(spec)}/json/new?${encodeURI(url)}`, { method: "PUT" }).then((r) => r.json());
-    await fetch(`${base(spec)}/json/activate/${open.id}`);
-  } catch { /* the window still comes up, and the person can type the address themselves */ }
-  await bringUp(spec);
-}
-
-/** Back out of the person's way once they have answered. Ours, not running: a browser an earlier Bees
- *  started is still the window on screen, and its process handle died with the old Bees. */
-export async function hideAgentBrowser(mode = "own") {
-  const spec = target(mode);
-  if (!(await ours(spec))) return;
-  await putAway(spec);
-  // nobody is signing in any more, so the window, and the Dock icon that comes with it, both go
-  if (!(await headless(spec))) await relaunch(mode, false);
+/** Out of the person's way once every run signing in on it has its answer, on the browser the run showed. */
+export async function hideAgentBrowser(runId) {
+  const mode = signingIn.get(runId);
+  // a run that never raised the window has nothing to put away
+  if (!signingIn.delete(runId)) return;
+  await serially(mode, async () => {
+    const spec = target(mode);
+    // ours, not running: a browser an earlier Bees started is still the window on screen
+    if ([...signingIn.values()].includes(mode) || !(await ours(spec))) return;
+    await putAway(spec);
+    // nobody is signing in any more, so the window, and the Dock icon that comes with it, both go
+    if (!(await headless(spec))) await relaunch(mode, false);
+  });
 }
 
 /** Bees is going away and no browser has an owner left, so neither would sit there as an orphan window. */
