@@ -88,10 +88,14 @@ export function MemorySettings({ workspace, canManage = false }) {
   const [state, setState] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const seq = React.useRef(0);
   useEffect(() => {
     let active = true;
-    const load = () => command("memory_status", { workspaceId: workspace.id }).then((value) => active && setState(value))
-      .catch((reason) => active && setError(reason.message));
+    const load = () => {
+      const mine = ++seq.current;
+      return command("memory_status", { workspaceId: workspace.id }).then((value) => active && mine === seq.current && setState(value))
+        .catch((reason) => active && setError(reason.message));
+    };
     void load();
     const timer = setInterval(load, 10000);
     return () => { active = false; clearInterval(timer); };
@@ -101,6 +105,7 @@ export function MemorySettings({ workspace, canManage = false }) {
     setBusy(true);
     try {
       const value = await command(action, { workspaceId: workspace.id, ...input });
+      seq.current += 1;
       setState((previous) => ({ ...previous, ...value })); setError(""); return true;
     } catch (reason) { setError(reason.message); return false; }
     finally { setBusy(false); }

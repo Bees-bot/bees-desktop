@@ -141,17 +141,19 @@ export function AccountsPage({ reload }) {
     try { setData(await collaboration()); setError(""); }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
-  useEffect(() => { void refresh(); }, []);
+  const mounted = React.useRef(true);
+  useEffect(() => { mounted.current = true; void refresh(); return () => { mounted.current = false; }; }, []);
   const browserAuth = async (action, values) => {
     setBusy(true);
     try {
       const before = new Map((data?.accounts ?? []).map(({ userId, updatedAt }) => [userId, updatedAt]));
       const { url } = await collaboration(action, values);
       await openExternal(url);
-      for (let attempt = 0; attempt < 120; attempt += 1) {
+      for (let attempt = 0; attempt < 120 && mounted.current; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 1_000));
+        if (!mounted.current) return;
         const next = await collaboration();
-        if ((next.accounts ?? []).some(({ userId, updatedAt }) =>
+        if (mounted.current && (next.accounts ?? []).some(({ userId, updatedAt }) =>
           before.get(userId) !== updatedAt)) {
           setData(next); setError(""); await reload(); return;
         }
