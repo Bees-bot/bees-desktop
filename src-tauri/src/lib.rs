@@ -1028,8 +1028,19 @@ pub fn run() {
             // Tauri exits the process directly on quit, so the children are dropped by hand here.
             if matches!(event, tauri::RunEvent::Exit) {
                 if let Some(dsh) = handle.try_state::<DshManager>() {
-                    if let Ok(mut managed) = dsh.0.lock() {
-                        managed.take();
+                    // startup holds this lock through its waits; give up after ~2 s and let the next launch reap
+                    for _ in 0..20 {
+                        match dsh.0.try_lock() {
+                            Ok(mut managed) => {
+                                managed.take();
+                                break;
+                            }
+                            Err(std::sync::TryLockError::Poisoned(poisoned)) => {
+                                poisoned.into_inner().take();
+                                break;
+                            }
+                            Err(std::sync::TryLockError::WouldBlock) => thread::sleep(Duration::from_millis(100)),
+                        }
                     }
                 }
                 if let Some(models) = handle.try_state::<LocalModelManager>() {
