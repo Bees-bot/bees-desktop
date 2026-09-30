@@ -9,7 +9,7 @@ for (const name of ["BEES_APP_DATA", "BEES_DATA_DIR", "BEES_STATE_DIR"]) process
 process.env.BEES_DEFAULT_WORKSPACE = root;
 writeFileSync(join(root, "device-id"), "interaction-check-device");
 try {
-  const { initializeProductDatabase, itemContext } = await import("../dsh-runtime/plugin/lib/product-database.js");
+  const { initializeProductDatabase, itemContext, resolveItemId } = await import("../dsh-runtime/plugin/lib/product-database.js");
   const { AgentRuntime } = await import("../dsh-runtime/plugin/lib/agent-runtime.js");
   const { assertPeersSettled } = await import("../dsh-runtime/plugin/lib/peer-collaboration.js");
   const { executeProductCommand } = await import("../dsh-runtime/plugin/lib/product-commands.js");
@@ -45,6 +45,8 @@ try {
   database.prepare(`INSERT INTO work_items (id, process_id, stage_id, kind, title, description, runtime_phase, created_at, updated_at)
     VALUES ('item', ?, ?, 'goal', 'Draft posts', 'Draft from the supplied brief', 'running', ?, ?)`)
     .run(processRow.id, stage.id, at, at);
+  assert.equal(resolveItemId(database, "item-retyped"), "item");
+  assert.throws(() => resolveItemId(database, "missing"), /No work item starts/);
   database.prepare(`INSERT INTO execution_links (execution_id, workspace_id, work_item_id, agent_name, current_session_id,
     instance_uid, run_directory, config_json, status, created_at, updated_at) VALUES ('run', ?, 'item', 'Writer', 'session', 'instance', ?, ?, 'running', ?, ?)`)
     .run(processRow.workspaceId, "runs/check", JSON.stringify({ workspaceId: processRow.workspaceId }), at, at);

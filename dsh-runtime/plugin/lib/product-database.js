@@ -108,6 +108,16 @@ export function itemContext(database, itemId, roles = ["admin", "member", "viewe
   };
 }
 
+/** Resolve an agent's retyped work item id by its unique first segment. */
+export function resolveItemId(database, value, label = "Work item") {
+  const id = String(required(value, label)).trim();
+  const head = id.split("-")[0];
+  const rows = head ? database.prepare("SELECT id FROM work_items WHERE substr(id, 1, ?) = ? AND deleted_at IS NULL LIMIT 2")
+    .all(head.length, head) : [];
+  if (rows.length === 1) return rows[0].id;
+  throw new Error(rows.length ? `${label} "${id}" matches more than one work item` : `No work item starts with "${id}"; use the id from the tool result`);
+}
+
 export function processContext(database, processId, roles = ["admin", "member", "viewer"]) {
   const row = database.prepare(`
     SELECT id, workspace_id AS workspaceId, name, description, kind,

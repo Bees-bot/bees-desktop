@@ -443,7 +443,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
       team = nextConnectionId
         ? await collaboration("create_team", { name: "Default", connectionId: nextConnectionId })
         : await act({ action: "create_team", organizationId, name: "Default" }, {});
-      if (!team?.id) throw new Error("Workspace created. Open it and add a team to continue.");
+      if (!team?.id) throw new Error("Work organization created. Open it and add a team to continue.");
       await load();
     }
     setScope(team ? `team:${team.id}` : `organization:${organizationId}`, nextConnectionId);
@@ -642,7 +642,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
         }, go: goSetup, start: startFirstTask, openWorkItem: openStarter, navigate })
     : route === "create-organization" ? h(CreateOrganizationPage, { reload: load, createLocal: createLocalOrganization, onboarding: onboarding.active, onCreated: finishOrganization })
     : route === "basics" ? h(BasicsPage, { navigate, onStart: async () => {
-        await updateOnboarding({ active: true, step: parts.teamId ? 3 : 0 });
+        await updateOnboarding({ active: true, finished: false, step: parts.teamId ? 3 : 0 });
         navigate("getting-started");
       } })
     : route === "guide" ? h(GuidePage)
@@ -701,7 +701,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
         onDeleteDashboard: deleteDashboard,
         organizationColors: preference.organizationColors ?? {} }),
       h("div", { className: "bees-sidebar-foot" },
-        h("button", { className: `bees-nav-link bees-utility-link ${route === "getting-started" ? "active" : ""}`, "aria-current": route === "getting-started" ? "page" : null, onClick: () => { void updateOnboarding({ active: true }); navigate("getting-started"); } }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(BookIcon)), h("span", null, "Getting started")),
+        h("button", { className: `bees-nav-link bees-utility-link ${route === "getting-started" ? "active" : ""}`, "aria-current": route === "getting-started" ? "page" : null, onClick: () => { void updateOnboarding({ active: true, finished: false }); navigate("getting-started"); } }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(BookIcon)), h("span", null, "Getting started")),
         h("button", { className: `bees-nav-link bees-utility-link ${route === "basics" ? "active" : ""}`, "aria-current": route === "basics" ? "page" : null, onClick: () => navigate("basics") }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(KnowledgeIcon)), h("span", null, "Bees basics")),
         h("button", { className: `bees-nav-link bees-utility-link bees-accounts-link ${route === "accounts" ? "active" : ""}`, "aria-current": route === "accounts" ? "page" : null, onClick: () => navigate("accounts") },
           (() => {
@@ -724,7 +724,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
       h(AppHeader, { routeLabel, parts, ctx, preferences }),
       platform.editing ? h("div", { className: "bees-callout", role: "status", "data-product-defaults": true },
         "Editing product defaults — saved changes apply here and ship in future builds. Personal settings take priority.") : null,
-      onboarding.active && route === "home" ? h(GettingStartedBar, { state: onboarding, update: updateOnboarding, navigate, aiReady, aiStatus: aiReady ? "AI ready" : "AI setup can continue while you explore.", data, openWorkItem: openStarter }) : null,
+      onboarding.version && !onboarding.finished ? h(GettingStartedBar, { state: onboarding, update: updateOnboarding, navigate, aiReady, aiStatus: aiReady ? "AI ready" : "AI setup can continue while you explore.", data, openWorkItem: openStarter }) : null,
       error ? h("div", { className: "bees-error", role: "alert", style: { display: "flex", alignItems: "center", gap: "12px" } },
         h("span", { style: { flex: 1, minWidth: 0, overflowWrap: "anywhere" } }, error),
         h(Button, { onClick: () => setError(""), "aria-label": "Dismiss error" }, "Dismiss")) : null,
@@ -760,7 +760,7 @@ function AppHeader({ routeLabel, parts, ctx, preferences }) {
 
 
 function CreateOrganizationPage({ reload, createLocal, onboarding, onCreated }) {
-  const [name, setName] = useState(onboarding ? "My workspace" : "");
+  const [name, setName] = useState(onboarding ? "My work organization" : "");
   const [isLocal, setIsLocal] = useState(false);
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
@@ -822,7 +822,7 @@ function CreateOrganizationPage({ reload, createLocal, onboarding, onCreated }) 
   const accounts = (data?.accounts ?? []).filter(({ enabled }) => enabled !== false);
 
   return h("div", { className: "bees-stack", style: { maxWidth: 540, margin: "0 auto", padding: "32px 0" } },
-    h("h2", { style: { textAlign: "center", marginBottom: "24px" } }, "Create Organization"),
+    h("h2", { style: { textAlign: "center", marginBottom: "24px" } }, onboarding ? "Create work organization" : "Create Organization"),
     
     h("section", { className: "bees-box" },
       h("h3", null, "Organization Details"),
