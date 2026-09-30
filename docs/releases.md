@@ -44,6 +44,10 @@ tag runs the release pipeline. No scheduled releases or builds on every commit.
    commit, run `git tag -a v0.2.1 -m 'Bees 0.2.1'` then `git push origin v0.2.1`.
    These are maintainer actions; the preparation command never commits or pushes.
 
+Once the repository is public, `scripts/launch-release.sh prepare 0.2.0` runs step 2 and opens
+the PR for step 4. After that PR merges, `scripts/launch-release.sh ship 0.2.0` tags main, waits for the build and
+checks the release is visible to people who are not signed in. It refuses to run while the repo is private.
+
 ## What happens automatically
 
 The pipeline checks the app, rejects mismatched versions or missing notes, and creates a
