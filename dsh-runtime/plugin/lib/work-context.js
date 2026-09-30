@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
-import { itemContext, iso, transaction, workItemLineage } from "./product-database.js";
+import { itemContext, iso, resolveItemId, transaction, workItemLineage } from "./product-database.js";
 import { assertRootOnDisk, shortPath, workspaceRoot } from "./folder-roots.js";
 import { outputFiles, previewFiles } from "./product-files.js";
 import { ProcessMemory } from "./process-memory.js";
@@ -118,6 +118,17 @@ export class WorkContext {
     const row = this.database.prepare(`SELECT execution_id AS id FROM bees_context_runs
       WHERE work_item_id = ? ORDER BY rowid DESC LIMIT 1`).get(itemId);
     return row ? this.run(row.id) : null;
+  }
+
+  // Workflow memory carries the candidate between stages, so a review restarted without it has no
+  // candidate id left. The recorded results outlive the run rows, so the newest producer result is
+  // still there to review. Reviewer executions are the only ones named -review-.
+  latestCandidate(itemId, executionId) {
+    const row = this.database.prepare(`SELECT r.execution_id AS id FROM bees_context_results r
+      JOIN bees_context_runs c ON c.execution_id = r.execution_id
+      WHERE c.work_item_id = ? AND r.execution_id NOT LIKE '%-review-%' AND r.execution_id != ?
+      ORDER BY r.rowid DESC LIMIT 1`).get(itemId, executionId);
+    return row?.id ?? null;
   }
 
   guidance(itemId) {
@@ -252,17 +263,18 @@ export class WorkContext {
         typeof evidence !== "string" || evidence.length > 6000) throw new Error("Updates need a supported kind and at most 6000 characters of text and evidence");
     if (["finding", "lesson"].includes(kind) && !evidence.trim()) throw new Error("Findings and lessons need supporting evidence");
     const root = this.lineage(itemId)[0];
-    if (targetId && this.lineage(targetId)[0].id !== root.id) throw new Error("Messages belong to the same primary work item");
+    const target = targetId ? resolveItemId(this.database, targetId, "Update target") : null;
+    if (target && this.lineage(target)[0].id !== root.id) throw new Error("Messages belong to the same primary work item");
     const prior = this.database.prepare("SELECT root_id AS rootId, content FROM bees_work_updates WHERE id = ?").get(id);
     if (prior && (prior.rootId !== root.id || prior.content !== content.trim())) throw new Error("Update id already used");
     this.database.prepare(`INSERT OR IGNORE INTO bees_work_updates
       (id, root_id, work_item_id, execution_id, kind, author, target_id, content, evidence, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(id, root.id, itemId, executionId, kind, String(author || "Agent"), targetId, content.trim(), evidence.trim(), iso());
+      .run(id, root.id, itemId, executionId, kind, String(author || "Agent"), target, content.trim(), evidence.trim(), iso());
     const entry = this.database.prepare(`SELECT id, work_item_id AS workItemId, execution_id AS executionId,
       kind, author, content, evidence, created_at AS createdAt FROM bees_work_updates WHERE id = ?`).get(id);
     this.processMemory.capture(entry.workItemId, entry);
-    this.notify({ type: "work-context-changed", workItemId: itemId, rootId: root.id, executionId, targetId });
+    this.notify({ type: "work-context-changed", workItemId: itemId, rootId: root.id, executionId, targetId: target });
     return { id, rootId: root.id };
   }
 

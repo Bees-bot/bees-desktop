@@ -1,5 +1,4 @@
 import { h, useEffect, useState } from "./runtime.js";
-import { Button } from "./shared.js";
 import { AgentModelSelect } from "./agents.js";
 
 const SAMPLE_BRIEF = `Project: launch a neighborhood repair café in four weeks.\nBudget: $600. Venue: library meeting room, free on Saturdays.\nPeople: Maya coordinates volunteers, Jules handles publicity, Sam manages supplies.\nWe have five volunteers, but only two have confirmed availability.\nBring small household items; exclude mains electrical repairs until a qualified person joins.\nNeed a booking form, safety checklist, supply list, and an announcement.\nOpen questions: insurance requirements, opening hours, and how many bookings we can safely accept.`;
@@ -156,19 +155,20 @@ const GETTING_STARTED_CSS = `
   z-index: 0;
   pointer-events: none;
 }
-/* Filled progress overlay – same positioning, width driven by JS */
+/* Filled progress overlay */
 .gs-stepper-progress {
   position: absolute;
   top: 17px;
-  left: var(--gs-rail-inset, calc(12.5% + 18px));
+  left: var(--gs-rail-inset);
+  right: var(--gs-rail-inset);
   height: 2px;
   background: var(--bees-accent);
   border-radius: 1px;
   z-index: 1;
   pointer-events: none;
-  /* width set inline as a percentage of the TRACK width,
-     but we translate from step index to track fraction below */
-  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: scaleX(var(--gs-progress));
+  transform-origin: left;
+  transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .gs-step-btn {
   position: relative;
@@ -736,33 +736,18 @@ function ExternalIcon() {
 
 // ─── Step Rail ───────────────────────────────────────────────────────────
 
-const STEP_LABELS = ["Workspace", "AI setup", "Files", "First result"];
-
-// The progress bar overlays the track.
-// track width = container − 2×inset.  inset = 12.5% + 18px.
-// We can't measure that in CSS without JS, so we express the filled fraction
-// relative to the full container width by undoing the inset:
-//   filled% of track = step / 3   (0→0, 1→1/3, 2→2/3, 3→1)
-// In container space: start = inset, end = 100% - inset
-// filled container width = inset + (100% - 2*inset) * fraction
-// We express this as a calc() driven only by step index.
-function trackFillStyle(step) {
-  // For 4 steps the inset is css var --gs-rail-inset = calc(12.5% + 18px).
-  // filled width in px/% terms = (100% - 2*inset) * step/3
-  // But since the element is positioned at left: inset, width is fraction of (100% - 2*inset).
-  // Step 0 → 0%, step 1 → 33.33%, step 2 → 66.67%, step 3 → 100%
-  const pct = step === 0 ? 0 : Math.round((step / 3) * 10000) / 100;
-  return { width: `${pct}%` };
-}
+const STEPS = [
+  { label: "Workspace", icon: "🏢", title: "Make space for your work", desc: "Choose or create a workspace for your team." },
+  { label: "AI setup", icon: "🤖", title: "Connect your AI", desc: "Pick an AI model to power your agents." },
+  { label: "Files", icon: "📂", title: "Give Bees context", desc: "Attach files or use a sample brief." },
+  { label: "First result", icon: "✨", title: "Create your first result", desc: "Choose a task and let Bees do the work." }
+];
 
 function StepRail({ step, done, onStep }) {
   return h("nav", { className: "gs-stepper-wrap", "aria-label": "Setup steps" },
     h("div", { className: "gs-stepper" },
-      // background track via ::before in CSS (exact left/right from --gs-rail-inset)
-      // filled progress bar
-      h("div", { className: "gs-stepper-progress", style: trackFillStyle(step) }),
-      // step buttons
-      ...STEP_LABELS.map((label, index) => {
+      h("div", { className: "gs-stepper-progress", style: { "--gs-progress": step / (STEPS.length - 1) } }),
+      ...STEPS.map(({ label }, index) => {
         const isDone = done[index] && index < step;
         const isActive = index === step;
         const cls = isActive ? "gs-step-active" : isDone ? "gs-step-done" : "";
@@ -837,18 +822,18 @@ function AiStep({ ctx, data, agents, aiReady, aiStatus, testAi, busy, saveAgentM
     h("div", { className: "gs-option-grid" },
       h("button", { type: "button", className: "gs-option", onClick: () => go(1, "local") },
         h("span", { className: "gs-option-icon" }, "💻"),
-        h("strong", null, "AI on this computer"),
-        h("span", null, "Private and offline. Downloads in background.")
+        h("strong", null, "AI on this computer · Recommended"),
+        h("span", null, "Runs here. Nothing leaves this computer.")
       ),
       h("button", { type: "button", className: "gs-option", onClick: () => go(1, "subscriptions") },
         h("span", { className: "gs-option-icon" }, "☁️"),
-        h("strong", null, "Codex or Claude"),
-        h("span", null, "Connect your OpenAI or Anthropic account.")
+        h("strong", null, "Connect Codex or Claude"),
+        h("span", null, "Uses your subscription; messages go to its provider.")
       ),
       h("button", { type: "button", className: "gs-option", onClick: () => go(1, "other") },
         h("span", { className: "gs-option-icon" }, "🔌"),
-        h("strong", null, "Other provider"),
-        h("span", null, "Ollama, OpenRouter, or any API key.")
+        h("strong", null, "Choose another provider"),
+        h("span", null, "Your own API key; provider charges may apply.")
       )
     ),
     // Hint: clicking a card opens AI connections settings
@@ -983,13 +968,6 @@ export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiSta
   const firstItem = data.items.find(({ id, runtimePhase }) => id === state.workItemId && runtimePhase !== "cancelled");
   const failed = firstItem?.runtimePhase === "failed";
   const isComplete = done[3];
-
-  const STEPS = [
-    { icon: "🏢", title: "Make space for your work",   desc: "Choose or create a workspace for your team." },
-    { icon: "🤖", title: "Connect your AI",            desc: "Pick an AI model to power your agents." },
-    { icon: "📂", title: "Give Bees context",          desc: "Attach files or use a sample brief." },
-    { icon: "✨", title: "Create your first result",   desc: "Choose a task and let Bees do the work." },
-  ];
 
   // Footer nav visibility
   // Step 0: skip shown only when no own button is available
@@ -1162,11 +1140,7 @@ export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiSta
 }
 
 // ─── GettingStartedBar ────────────────────────────────────────────────────
-// Shown on EVERY screen while onboarding is active (except the getting-started
-// page itself). Gives the user step context, clickable step tabs, Back/Next
-// controls, and a quick way back to the full setup page.
-
-export function GettingStartedBar({ state, update, navigate, aiStatus, data, openWorkItem }) {
+export function GettingStartedBar({ state, update, navigate, aiReady, aiStatus, data, openWorkItem }) {
   ensureGsCss();
   const item = data.items.find(({ id }) => id === state.workItemId);
   const [download, setDownload] = useState("");
@@ -1185,14 +1159,7 @@ export function GettingStartedBar({ state, update, navigate, aiStatus, data, ope
     return () => { active = false; unlisten?.(); };
   }, []);
 
-  // Step names and done-check icons
-  const STEPS = ["Workspace", "AI setup", "Files", "First result"];
-  const done = [
-    Boolean(data.teams.find((t) => t.id === state.teamId)),
-    Boolean(state.aiTested),
-    Boolean(state.filesChoice),
-    Boolean(state.workItemId && data.items.find((i) => i.id === state.workItemId && i.runtimePhase !== "cancelled" && (i.completed || i.runtimePhase === "completed")))
-  ];
+  const done = onboardingProgress(data, state.teamId, state, aiReady);
 
   // Navigate to a step on the getting-started page
   const goStep = (i) => { update({ step: i, active: true }); navigate("getting-started"); };
@@ -1210,7 +1177,7 @@ export function GettingStartedBar({ state, update, navigate, aiStatus, data, ope
 
     // Step tabs
     h("div", { className: "gs-bar-steps" },
-      ...STEPS.flatMap((label, i) => [
+      ...STEPS.flatMap(({ label }, i) => [
         i > 0 ? h("span", { key: `chev-${i}`, className: "gs-bar-chev" }, "›") : null,
         h("button", {
           type: "button",
@@ -1239,14 +1206,14 @@ export function GettingStartedBar({ state, update, navigate, aiStatus, data, ope
 
       // Back step
       h("button", { type: "button", className: "gs-bar-nav-btn", disabled: step === 0,
-        title: step > 0 ? `Back to step ${step}: ${STEPS[step - 1]}` : undefined,
+        title: step > 0 ? `Back to step ${step}: ${STEPS[step - 1].label}` : undefined,
         onClick: () => { update({ step: step - 1, active: true }); navigate("getting-started"); }
       }, "← Back"),
 
       // Next / open setup
       step < 3
         ? h("button", { type: "button", className: "gs-bar-nav-btn gs-bar-primary",
-          title: `Go to step ${step + 2}: ${STEPS[step + 1]}`,
+          title: `Go to step ${step + 2}: ${STEPS[step + 1].label}`,
           onClick: () => { update({ step: step + 1, active: true }); navigate("getting-started"); }
         }, "Next →")
         : h("button", { type: "button", className: "gs-bar-nav-btn gs-bar-primary",
@@ -1263,4 +1230,3 @@ export function GettingStartedBar({ state, update, navigate, aiStatus, data, ope
     )
   );
 }
-

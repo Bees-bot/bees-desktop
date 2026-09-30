@@ -1597,7 +1597,7 @@ export function workItemsFor(data, route, workspaceIds) {
       description: run.purpose,
       runtimePhase: run.status
     }));
-  let rows = [...data.items.filter((item) => workspaceIds.includes(data.processes.find(({ id }) => id === item.processId)?.workspaceId)), ...plans];
+  let rows = [...data.items.filter((item) => !item.archivedAt && workspaceIds.includes(data.processes.find(({ id, archivedAt }) => id === item.processId && !archivedAt)?.workspaceId)), ...plans];
   rows = rows.filter((item) => route === "schedules" ? isScheduleDefinition(item) : !isScheduleDefinition(item));
   if (route === "goals") rows = rows.filter((item) => item.kind === "goal" ||
     (item.kind === "run" && data.processes.find(({ id }) => id === item.processId)?.kind === "goals"));
@@ -1605,7 +1605,7 @@ export function workItemsFor(data, route, workspaceIds) {
     !isDone(item) && (["waiting", "failed"].includes(item.runtimePhase) || data.runs.some((run) =>
       run.workItemId === item.id && ["waiting_for_input", "waiting_for_approval"].includes(run.status))));
   if (route === "waiting") return rows;
-  return rows.filter((item) => route === "completed" ? isDone(item) : !isDone(item));
+  return rows.filter((item) => route === "completed" ? item.runtimePhase !== "cancelled" && isDone(item) : !isDone(item));
 }
 
 export const headerEmitter = {

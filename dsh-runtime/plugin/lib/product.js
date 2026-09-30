@@ -517,9 +517,9 @@ export class BeesProduct {
              schedule_kind AS scheduleKind, schedule_json AS schedule,
              timezone, temporal_schedule_id AS temporalScheduleId,
              status, next_run_at AS nextRunAt, created_at AS createdAt, updated_at AS updatedAt
-      FROM recurring_work WHERE workspace_id IN (SELECT value FROM json_each(?))
+      FROM recurring_work WHERE process_id IN (SELECT value FROM json_each(?))
       ORDER BY created_at DESC
-    `).all(JSON.stringify(workspaceIds)).map((row) => ({
+    `).all(JSON.stringify(processIds)).map((row) => ({
       ...row, schedule: JSON.parse(row.schedule)
     })) : [];
     const recurringExecutors = recurringWork.length ? this.database.prepare(`
@@ -564,9 +564,10 @@ export class BeesProduct {
       LEFT JOIN agent_dispatches d ON d.execution_id = e.execution_id
       LEFT JOIN bees_stage_results r ON r.execution_id = e.execution_id
       LEFT JOIN work_items i ON i.id = e.work_item_id
-      WHERE e.workspace_id IN (SELECT value FROM json_each(?)) AND (i.id IS NULL OR i.archived_at IS NULL AND i.deleted_at IS NULL)
+      WHERE e.workspace_id IN (SELECT value FROM json_each(?)) AND (i.id IS NULL OR i.archived_at IS NULL AND i.deleted_at IS NULL
+        AND i.process_id IN (SELECT value FROM json_each(?)))
       ORDER BY e.updated_at DESC LIMIT 200
-    `).all(JSON.stringify(workspaceIds)).map(({ runDirectory, resolvedAgentIds, ...run }) => {
+    `).all(JSON.stringify(workspaceIds), JSON.stringify(processIds)).map(({ runDirectory, resolvedAgentIds, ...run }) => {
       const outputsDir = resolve(runDirectory, "outputs");
       return {
         ...run, processRunId: itemRunIds.get(run.workItemId), resolvedAgentIds: JSON.parse(resolvedAgentIds || "[]"),
@@ -593,7 +594,7 @@ export class BeesProduct {
       JOIN work_items i ON i.id = r.work_item_id
       JOIN processes p ON p.id = i.process_id
       WHERE p.workspace_id IN (SELECT value FROM json_each(?))
-        AND i.archived_at IS NULL AND i.deleted_at IS NULL
+        AND i.archived_at IS NULL AND i.deleted_at IS NULL AND p.archived_at IS NULL
       ORDER BY r.updated_at DESC LIMIT 200
     `).all(JSON.stringify(workspaceIds)).map((run) => ({
       ...run, resolvedAgentIds: JSON.parse(run.resolvedAgentIds || "[]"),
@@ -662,7 +663,7 @@ export class BeesProduct {
       JOIN work_items w ON w.id = bees_search.ref_id
       JOIN processes p ON p.id = w.process_id
       WHERE bees_search MATCH ? AND bees_search.kind = 'item'
-        AND p.workspace_id = ? AND w.deleted_at IS NULL
+        AND p.workspace_id = ? AND p.archived_at IS NULL AND w.archived_at IS NULL AND w.deleted_at IS NULL
       ORDER BY bm25(bees_search) LIMIT 50
     `).all(terms.map((term) => `"${term}"*`).join(" "), workspace.id);
     let files = [];
@@ -688,7 +689,7 @@ export class BeesProduct {
     const item = this.database.prepare(`
       SELECT w.id, w.title, w.description FROM work_items w
       JOIN processes p ON p.id = w.process_id
-      WHERE w.id = ? AND p.workspace_id = ? AND w.deleted_at IS NULL
+      WHERE w.id = ? AND p.workspace_id = ? AND p.archived_at IS NULL AND w.archived_at IS NULL AND w.deleted_at IS NULL
     `).get(resultId, workspace.id);
     // a follow-up run cannot open another run's folder, so the finished result comes back here
     if (item) return { kind: "item", id: item.id, title: item.title, content: item.description ?? "",
@@ -806,7 +807,7 @@ export class BeesProduct {
     const schedules = this.database.prepare(`
       SELECT r.name, r.status, p.name AS process, w.title AS work FROM recurring_work r
       JOIN processes p ON p.id = r.process_id JOIN work_items w ON w.id = r.source_work_item_id
-      WHERE r.workspace_id = ? ORDER BY r.name
+      WHERE r.workspace_id = ? AND p.archived_at IS NULL AND w.archived_at IS NULL ORDER BY r.name
     `).all(workspaceId);
     const presets = await this.capabilities?.presetTools?.() ?? [];
     // Presets share skills, so listing them per preset repeated the same five skills eleven times.

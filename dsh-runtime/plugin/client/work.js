@@ -591,7 +591,8 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onScheduleCre
     }
   }
   const items = data.items.filter(({ id, archivedAt }) => visibleIds.has(id) && !archivedAt);
-  if (!root) return h(Empty, null, "Work item not found");
+  if (!root || root.archivedAt || !data.processes.some(({ id, archivedAt }) => id === root.processId && !archivedAt))
+    return h(Empty, null, "Work item not found");
   const process = data.processes.find(({ id }) => id === root.processId);
   const stages = data.stages.filter(({ processId }) => processId === root.processId);
   const schedulable = stages.length >= 2 && stages.at(-1)?.driver === "terminal" &&
@@ -1267,11 +1268,11 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
   });
   const items = data.items.filter((item) => {
     const process = data.processes.find(({ id }) => id === item.processId);
-    return workspaceIds.includes(process?.workspaceId) &&
+    return !item.archivedAt && !process?.archivedAt && workspaceIds.includes(process?.workspaceId) &&
       (route === "schedules" ? isScheduleDefinition(item) : !isScheduleDefinition(item)) &&
       (route !== "goals" || process?.kind === "goals");
   });
-  const processes = data.processes.filter((process) => workspaceIds.includes(process.workspaceId))
+  const processes = data.processes.filter((process) => !process.archivedAt && workspaceIds.includes(process.workspaceId))
     .sort((left, right) => left.name.localeCompare(right.name));
   const schedulableItems = data.items.filter((item) => {
     if (item.parentId || item.archivedAt || isScheduleDefinition(item)) return false;
@@ -1387,7 +1388,7 @@ export function WorkPage({ ctx, data, route, workspaceIds, workspaceId, teamId, 
       layoutId: "work", defaults: WORK_PAGE_LAYOUT, preference, preferences, setPageActions, setPageHeader,
       panels: {
         "active-work": { label: route === "schedules" ? "Schedules" : "Active process runs", minW: 6, minH: 3, content: renderRows(rows.filter((item) => !isDone(item)), route === "schedules" ? "No schedules yet" : "No active process runs match these filters", true, false, plans.filter((run) => !planDone(run))), helpText: route === "schedules" ? "Recurring schedules automatically start process runs at specific times or intervals." : "Process runs and process items that are currently active.", helpExamples: route === "schedules" ? ["A daily schedule to run an 'Inbox Triage' process at 9 AM", "An hourly schedule to check for new GitHub issues"] : [] },
-        "finished-work": { label: "Completed, archived & stopped", minW: 6, minH: 3, content: renderRows(rows.filter(isDone), route === "schedules" ? "No completed, archived, or stopped schedules match these filters" : "No completed, archived, or stopped process runs match these filters", true, true, plans.filter(planDone)) }
+        "finished-work": { label: "Completed & stopped", minW: 6, minH: 3, content: renderRows(rows.filter(isDone), route === "schedules" ? "No completed or stopped schedules match these filters" : "No completed or stopped process runs match these filters", true, true, plans.filter(planDone)) }
       }
     }),
     newSchedule ? h(ScheduleForm, { items: schedulableItems, act, onClose: () => setNewSchedule(false),

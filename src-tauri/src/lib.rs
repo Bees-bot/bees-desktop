@@ -681,6 +681,7 @@ fn watch_dsh(app: tauri::AppHandle, window: tauri::WebviewWindow, home: tauri::U
             }
             thread::sleep(Duration::from_secs(2));
         }
+        let _ = window.set_title_bar_style(tauri::TitleBarStyle::Overlay);
         let _ = window.navigate(home);
         WATCHING_DSH.store(false, Ordering::SeqCst);
     });
@@ -706,6 +707,7 @@ async fn ensure_dsh_runtime(
     app.add_capability(tauri::ipc::CapabilityBuilder::new("dsh-ui").remote(runtime.base_url.clone()).window("main")
         .permission("allow-bees-ui").permission("core:default").permission("dialog:allow-open"))
         .map_err(|error| error.to_string())?;
+    let _ = window.set_title_bar_style(tauri::TitleBarStyle::Visible);
     startup::step("ui.navigate", || window.navigate(url))
         .map_err(|error| format!("Could not open the local Bees interface: {error}"))?;
     watch_dsh(app, window, home);
