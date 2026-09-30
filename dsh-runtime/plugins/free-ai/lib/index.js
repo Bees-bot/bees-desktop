@@ -27,7 +27,8 @@ async function requestBody(req) {
 }
 
 function upstreamError(value, fallback) {
-  return value?.error?.message ?? value?.error ?? value?.message ?? fallback;
+  const found = value?.error?.message ?? value?.error ?? value?.message;
+  return typeof found === "string" && found ? found : fallback;
 }
 
 async function freeRequest(runtime, path, options = {}) {
@@ -68,9 +69,15 @@ function keyId(value) {
 /** The banner lands on either stream and can be split across writes, so match the key itself. */
 async function hideBootstrapKey(work) {
   const original = { out: process.stdout.write, err: process.stderr.write };
-  const hide = (write) => function (chunk, ...args) {
-    if (/freellmapi-[A-Za-z0-9_-]{8,}/.test(String(chunk))) return true;
-    return write.call(this, chunk, ...args);
+  const hide = (write) => {
+    let tail = "";
+    return function (chunk, ...args) {
+      // the last 200 characters of the previous write join this one, so a key split across writes still matches
+      const seen = tail + String(chunk);
+      tail = seen.slice(-200);
+      if (/freellmapi-[A-Za-z0-9_-]{8,}/.test(seen)) return (tail = "", true);
+      return write.call(this, chunk, ...args);
+    };
   };
   process.stdout.write = hide(original.out);
   process.stderr.write = hide(original.err);

@@ -111,10 +111,12 @@ export function itemContext(database, itemId, roles = ["admin", "member", "viewe
 /** An agent retypes an id it was shown and can garble the tail, so the id's first segment is the key. */
 export function resolveItemId(database, value, label = "Work item") {
   const id = String(required(value, label)).trim();
+  if (database.prepare("SELECT 1 FROM work_items WHERE id = ? AND deleted_at IS NULL").get(id)) return id;
   const head = id.split("-")[0];
   // substr, not GLOB: a stray * in a garbled id would otherwise match whoever came first
-  const lookup = database.prepare("SELECT id FROM work_items WHERE substr(id, 1, ?) = ? AND deleted_at IS NULL LIMIT 2");
-  const rows = head ? lookup.all(head.length, head) : [];
+  const lookup = database.prepare("SELECT id FROM work_items WHERE substr(id, 1, 8) = ? AND deleted_at IS NULL LIMIT 2");
+  // a shorter head than the uuid's 8-character first segment could name the wrong item
+  const rows = head.length === 8 ? lookup.all(head) : [];
   if (rows.length === 1) return rows[0].id;
   throw new Error(rows.length ? `${label} "${id}" matches more than one work item` : `No work item starts with "${id}"; use the id from the tool result`);
 }
@@ -818,11 +820,6 @@ export function initializeProductDatabase(database) {
     }
     database.exec("PRAGMA user_version = 22");
   });
-  if (version < 24) database.exec(`
-    DROP TABLE IF EXISTS bees_run_limit_requests;
-    DROP TABLE IF EXISTS bees_run_limit_sessions;
-    PRAGMA user_version = 24;
-  `);
   // Agent pools are gone: a stage names its agents directly, so the column, the tables and the
   // dispatch target they supported go with them.
   if (version < 23) {
@@ -867,6 +864,12 @@ export function initializeProductDatabase(database) {
   `));
     database.exec("PRAGMA foreign_keys = ON");
   }
+  // after the v23 rewrite, so a failed v23 is retried instead of skipped
+  if (version < 24) database.exec(`
+    DROP TABLE IF EXISTS bees_run_limit_requests;
+    DROP TABLE IF EXISTS bees_run_limit_sessions;
+    PRAGMA user_version = 24;
+  `);
   // Starter templates stored bare stage names; every other template stored shaped ones. The
   // rewrite has to move updated_at too, or the server keeps the old shape at the newer version.
   if (version < 25) transaction(database, () => {
@@ -1059,6 +1062,35 @@ export function initializeProductDatabase(database) {
     }
     database.exec("PRAGMA user_version = 37");
   });
+  // v30 only renamed agent grants; process grants and work overrides still held row ids. An id that
+  // does not resolve may be a teammate's server, so it stays. updated_at moves so the names sync out.
+  if (version < 38) transaction(database, () => {
+    const clean = (list) => [...new Set(serverNames(database, list))];
+    const later = (updatedAt) => new Date(Math.max(Date.now(), (Date.parse(updatedAt) || 0) + 1)).toISOString();
+    for (const table of ["agent_assignments", "processes"]) {
+      for (const row of database.prepare(`SELECT id, mcp_servers_json AS servers, updated_at AS updatedAt FROM ${table} WHERE mcp_servers_json != '[]'`).all()) {
+        let wanted;
+        try { wanted = JSON.parse(row.servers); } catch { continue; }
+        if (!Array.isArray(wanted)) continue;
+        const named = clean(wanted);
+        if (JSON.stringify(named) !== JSON.stringify(wanted))
+          database.prepare(`UPDATE ${table} SET mcp_servers_json = ?, updated_at = ? WHERE id = ?`)
+            .run(JSON.stringify(named), later(row.updatedAt), row.id);
+      }
+    }
+    for (const row of database.prepare(`
+      SELECT id, run_settings_json AS settings, updated_at AS updatedAt FROM work_items WHERE run_settings_json LIKE '%mcpServers%'
+    `).all()) {
+      let settings;
+      try { settings = JSON.parse(row.settings); } catch { continue; }
+      if (!Array.isArray(settings?.mcpServers)) continue;
+      const named = clean(settings.mcpServers);
+      if (JSON.stringify(named) !== JSON.stringify(settings.mcpServers))
+        database.prepare("UPDATE work_items SET run_settings_json = ?, updated_at = ? WHERE id = ?")
+          .run(JSON.stringify({ ...settings, mcpServers: named }), later(row.updatedAt), row.id);
+    }
+    database.exec("PRAGMA user_version = 38");
+  });
   // every stored folder is read against the root this computer keeps for that workspace
   refreshFolderRoots(database);
   database.function("resolved", (path, workspaceId) => path && resolveStored(workspaceId, path));
@@ -1109,13 +1141,13 @@ export function initializeProductDatabase(database) {
     insertDefaultWorkspace(database, teamId, { id: workspaceId, at });
   });
 }
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Server names for a stored list. Names are the same on every computer that installed the server;
  * row ids are not, so an older list, or one synced from a peer that has not migrated, still resolves.
  */
-function serverNames(database, values = []) {
+export function serverNames(database, values = []) {
   const byId = new Map(database.prepare(`
     SELECT id, server_name AS name FROM mcp_servers WHERE id IN (SELECT value FROM json_each(?))
   `).all(JSON.stringify(values)).map(({ id, name }) => [id, name]));

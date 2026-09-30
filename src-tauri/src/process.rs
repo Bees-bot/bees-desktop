@@ -5,7 +5,7 @@ use std::path::Path;
 use std::process::Child;
 use std::thread;
 use std::time::Duration;
-use sysinfo::{Process, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+use sysinfo::{Pid, Process, ProcessRefreshKind, ProcessesToUpdate, Signal, System, UpdateKind};
 
 /// A loopback listener on whichever ephemeral port the OS handed out, and that port.
 pub fn bind_loopback() -> Result<(TcpListener, u16), String> {
@@ -75,12 +75,47 @@ pub fn reap_orphan_llama_servers() {
 /// End the browsers the agent browses in: Bees' own, and the copy of the person's default browser a
 /// team asked for. DSH starts them, but DSH is hard-killed on quit so its own cleanup never runs, and
 /// a browser left behind sits in the Dock and holds the profile lock. Matched on the exact profile
-/// argument, so the browser the person is using themselves is left alone.
+/// argument, so the browser the person is using themselves is left alone. Each is asked to quit first,
+/// so it writes out the cookies it holds, and killed only if it is still there a few seconds later.
 pub fn reap_agent_browsers(state: &Path) {
-    for profile in ["browser-profile", "browser-profile-personal"] {
-        let expected = format!("--user-data-dir={}", state.join(profile).display());
-        reap(|_, process| process.cmd().iter().any(|arg| arg == expected.as_str()));
+    let profiles = ["browser-profile", "browser-profile-personal"]
+        .map(|profile| format!("--user-data-dir={}", state.join(profile).display()));
+    let ours = |_: &System, process: &Process| {
+        process
+            .cmd()
+            .iter()
+            .any(|arg| profiles.iter().any(|profile| arg == profile.as_str()))
+    };
+    let mut system = System::new();
+    system.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::nothing().with_cmd(UpdateKind::Always),
+    );
+    // the main process only: its helpers carry the same profile, and one of them holds the cookie store
+    let browsers: Vec<Pid> = system
+        .processes()
+        .values()
+        .filter(|process| {
+            ours(&system, process)
+                && !process
+                    .cmd()
+                    .iter()
+                    .any(|arg| arg.to_string_lossy().starts_with("--type="))
+        })
+        .map(|process| {
+            process.kill_with(Signal::Term);
+            process.pid()
+        })
+        .collect();
+    for _ in 0..30 {
+        system.refresh_processes(ProcessesToUpdate::Some(&browsers), true);
+        if browsers.iter().all(|pid| system.process(*pid).is_none()) {
+            break;
+        }
+        thread::sleep(Duration::from_millis(100));
     }
+    reap(ours);
 }
 
 /// A child process that is killed and reaped when it goes out of scope, so dropping whatever

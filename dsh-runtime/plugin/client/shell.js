@@ -264,8 +264,16 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
   const [workProcessId, setWorkProcessId] = useState("");
   const setPageActions = (actions) => headerEmitter.setActions(actions);
   const setPageHeader = (header) => headerEmitter.setHeader(header);
+  const loadSeq = useRef(0);
+  const noticeTimer = useRef(0);
+  useEffect(() => () => clearTimeout(noticeTimer.current), []);
   const load = async () => {
-    try { const value = await request("/bees-api/snapshot"); setData(value); return value; }
+    const seq = ++loadSeq.current;
+    try {
+      const value = await request("/bees-api/snapshot");
+      if (seq === loadSeq.current) setData(value);
+      return value;
+    }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); return null; }
   };
   const retryStartup = async () => {
@@ -402,7 +410,8 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
       }
       if (result?.learnedChange !== undefined) {
         setNotice(`Updated ${result.name}:\n${result.learnedChange || "No specialist guidance"}`);
-        window.setTimeout(() => setNotice(""), 10_000);
+        clearTimeout(noticeTimer.current);
+        noticeTimer.current = window.setTimeout(() => setNotice(""), 10_000);
       }
       return result;
     }
@@ -764,6 +773,8 @@ function CreateOrganizationPage({ reload, createLocal, onboarding, onCreated }) 
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   useEffect(() => {
     let active = true;
@@ -789,14 +800,16 @@ function CreateOrganizationPage({ reload, createLocal, onboarding, onCreated }) 
   const browserAuth = async (action, values) => {
     setBusy(true);
     try {
-      const before = new Map((data?.accounts ?? []).map(({ userId, updatedAt }) => [userId, updatedAt]));
+      const before = new Set((data?.accounts ?? []).map(({ userId }) => userId));
       const { url } = await collaboration(action, values);
       await openExternal(url);
-      for (let attempt = 0; attempt < 120; attempt += 1) {
+      for (let attempt = 0; attempt < 120 && mounted.current; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 1_000));
+        if (!mounted.current) return;
         const next = await collaboration();
-        const newAccount = (next.accounts ?? []).find(({ userId, updatedAt }) =>
-          before.get(userId) !== updatedAt);
+        // a token refresh only bumps updatedAt, so a new sign-in is an id we did not have
+        const newAccount = (next.accounts ?? []).find(({ userId }) => !before.has(userId));
+        if (!mounted.current) return;
         if (newAccount) {
           await createWithAccount(newAccount.userId);
           return;

@@ -128,21 +128,17 @@ export class Capabilities {
       && (!granted || granted.includes(serverName)));
     if (!row) return;
     await this.mountFor(agentCtx, row, mode);
-    // Sync cookies and start Chrome lazily — only when the agent actually calls a browser tool.
-    // This avoids spawning Chrome for runs that have browser access but never browse anything.
-    let browserReady = false;
+    // Chrome starts on the first browser call, not with the run, since most runs never browse.
+    let synced;
     agentCtx.on("tools/pre-execute", async (exec, next) => {
       if (!exec.name.startsWith(`mcp__${row.serverName}__`)) return next();
-      if (!browserReady) {
-        browserReady = true;
-        // The browser came up on a copy of the person's sign-ins, so it has to be up before they are
-        // read: devtools attaches to it, and the headless session starts with what it holds. It
-        // starts out hidden, so the person sees nothing until a sign-in asks for them.
-        await startAgentBrowser(mode).catch((error) =>
-          this.ctx.logger.warn(`bees: the agent's browser did not start for ${exec.name}: ${message(error)}`));
-        await saveBrowserState(mode).catch((error) =>
-          this.ctx.logger.warn(`bees: this run starts signed out, cookies could not be read: ${message(error)}`));
-      }
+      // it has to be up before its sign-ins are read; devtools drives it on every call, so a crashed one comes back
+      if (!synced || row.catalogId === "chrome-devtools") await startAgentBrowser(mode).catch((error) =>
+        this.ctx.logger.warn(`bees: the agent's browser did not start for ${exec.name}: ${message(error)}`));
+      // shared, so a second call landing mid-copy waits for the cookies instead of starting without them
+      synced ??= saveBrowserState(mode).catch((error) =>
+        this.ctx.logger.warn(`bees: this run starts signed out, cookies could not be read: ${message(error)}`));
+      await synced;
       return next();
     });
   }

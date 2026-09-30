@@ -313,6 +313,13 @@ window.__ModuleLoader__.load({
       const [error, setError] = useState("");
       // llama.cpp, LM Studio and Ollama want no auth, but pi-ai refuses a provider with neither.
       const authorized = (profile) => ({ ...profile, headers: { authorization: "Bearer local" } });
+      // llama.cpp reports its real window at /props; LM Studio and Ollama do not, so they keep the default
+      const modelEntry = async (id, baseURL) => {
+        const n = await fetch(`${baseURL.replace(/\/v1\/?$/, "")}/props`, { signal: AbortSignal.timeout(2000) })
+          .then((res) => res.json()).then((body) => body?.default_generation_settings?.n_ctx).catch(() => 0);
+        const contextWindow = Number.isInteger(n) && n > 0 ? n : 32768;
+        return { id, name: id, contextWindow, maxTokens: Math.min(8192, contextWindow) };
+      };
       const saveProfile = async (profile) => {
         await preferences.set("externalLocalAiProfile", profile);
         if (enabled) await modelSettings.set("providers", { ...config.providers, "external-local-ai": authorized(profile) });
@@ -326,7 +333,7 @@ window.__ModuleLoader__.load({
           let models = local.models ?? [];
           if (!models.length) {
             const id = (await ask("Model ID", "active"))?.trim(); if (!id) return;
-            models = [{ id, name: id, contextWindow: 32768, maxTokens: 8192 }];
+            models = [await modelEntry(id, url.toString())];
           }
           const profile = {
             ...local, displayName: "Another local AI server", api: local.api ?? "openai-completions", baseURL: url.toString().replace(/\/$/, ""),
@@ -341,7 +348,7 @@ window.__ModuleLoader__.load({
         try {
           const id = (await ask("Model ID", ""))?.trim(); if (!id) return;
           if (local.models?.some((entry) => entry.id === id)) throw new Error(`${id} is already connected`);
-          await saveProfile({ ...local, models: [...(local.models ?? []), { id, name: id, contextWindow: 32768, maxTokens: 8192 }] });
+          await saveProfile({ ...local, models: [...(local.models ?? []), await modelEntry(id, local.baseURL ?? "")] });
           setError("");
         } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
       };

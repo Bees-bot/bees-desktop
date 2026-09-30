@@ -143,17 +143,13 @@ export async function processWorkflow(input) {
           const observedChanges = stageChanges;
           const message = retryMessage;
           retryMessage = "";
-          try {
-            result = await durableActivities.runDshStage({
-              ...state, purpose, driver: stage.driver,
-              ...(message ? { retryMessage: message } : {}),
-              requiresHumanApproval: Boolean(stage.requiresHumanApproval),
-              stageName: stage.name, candidateExecutionId, feedback,
-              durableWaits: true
-            });
-          } catch (error) {
-            throw error;
-          }
+          result = await durableActivities.runDshStage({
+            ...state, purpose, driver: stage.driver,
+            ...(message ? { retryMessage: message } : {}),
+            requiresHumanApproval: Boolean(stage.requiresHumanApproval),
+            stageName: stage.name, candidateExecutionId, feedback,
+            durableWaits: true
+          });
           if (result.outcome !== "suspended") break;
           await project("waiting", null, true);
           // Signals are recorded by Temporal; no activity or heartbeat stays alive for a human wait.

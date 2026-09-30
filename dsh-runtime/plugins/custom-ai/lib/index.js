@@ -55,7 +55,8 @@ function upstreamReason(text) {
   try { value = JSON.parse(text); } catch { return ""; }
   const candidates = [value?.error?.message, value?.error, value?.message, value?.detail, value?.title];
   const message = candidates.find((candidate) => typeof candidate === "string" && candidate.trim());
-  return message ? message.replace(/\s+/g, " ").trim().slice(0, 200) : "";
+  // providers quote the bad key back ("Incorrect API key provided: sk-..."), so mask key-like tokens
+  return message ? message.replace(/\s+/g, " ").replace(/\b[A-Za-z0-9_-]*[-_][A-Za-z0-9_-]{16,}\b|\b[A-Za-z0-9]{32,}\b/g, "[hidden]").trim().slice(0, 200) : "";
 }
 
 // A 200 alone is not a working key: a captive portal or a proxy error page answers 200 too, and dsh
@@ -74,7 +75,7 @@ function providerFailure(status, text) {
   if (status === 401 || status === 403) return `${reason} Check the key was copied whole, with no spaces.`;
   if (status === 402) return `${reason} Add credit on the provider's website, then test again.`;
   if (status === 404) return `${reason} Check the model ID.`;
-  if (status === 429) return `${reason} Wait a minute, then test again.`;
+  if (status === 429) return `${reason} The provider is limiting requests. Wait, or check the plan's usage limit, then test again.`;
   if (status >= 500) return `${reason} Try again in a few minutes.`;
   return reason;
 }
