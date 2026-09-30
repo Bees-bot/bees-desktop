@@ -15,6 +15,8 @@ export const recurringScheduleId = (recurringWorkId, accountUserId = "") =>
 
 const automaticDrivers = new Set(["agent", "discussion", "review", "terminal"]);
 
+const isScheduleMissing = (error) => error?.name === "ScheduleNotFoundError";
+
 export class ProcessRuntime {
   constructor(database, options = {}) {
     this.database = database;
@@ -26,6 +28,7 @@ export class ProcessRuntime {
     this.notify = options.notify ?? (() => {});
     this.claimWatchers = new Map();
     this.scheduledLeases = new Map();
+    this.startingItems = new Set();
     this.needsRecovery = options.needsRecovery ?? (() => false);
     this.pendingInteraction = options.pendingInteraction ?? (() => null);
     this.canStart = options.canStart ?? (() => ({ ready: true }));
@@ -271,7 +274,9 @@ export class ProcessRuntime {
         state: { ...previous.state, paused: recurring.status === "paused" },
         memo: options.memo
       }));
-    } catch {
+    } catch (error) {
+      // a network blip is not a missing schedule, and creating again would double it
+      if (!isScheduleMissing(error)) throw error;
       await this.client.schedule.create(options);
     }
     return this.refreshNextRun(recurring.id, accountUserId, handle);
@@ -285,8 +290,14 @@ export class ProcessRuntime {
     `).all(recurringWorkId);
     for (const executor of existing) if (!eligible.has(executor.accountUserId)) {
       // The person is off the run now, so the schedule and its row both go.
-      await this.client.schedule.getHandle(executor.temporalScheduleId).delete()
-        .catch((error) => { this.logger.warn?.(`bees: a Temporal schedule would not delete: ${message(error)}`); });
+      try { await this.client.schedule.getHandle(executor.temporalScheduleId).delete(); }
+      catch (error) {
+        // keep the row so the next reconcile tries again, or the schedule keeps firing unowned
+        if (!isScheduleMissing(error)) {
+          this.logger.warn?.(`bees: a Temporal schedule would not delete: ${message(error)}`);
+          continue;
+        }
+      }
       this.database.prepare(`
         DELETE FROM bees_recurring_executors WHERE recurring_work_id = ? AND account_user_id = ?
       `).run(recurringWorkId, executor.accountUserId);
@@ -438,6 +449,16 @@ export class ProcessRuntime {
   }
 
   async startItem(workItemId) {
+    const key = `work-item:${workItemId}`;
+    // reconcile and a user Start can both get past the watcher check while awaiting
+    if (this.claimWatchers.has(key) || this.startingItems.has(key))
+      return { automatic: true, workflowId: processWorkflowId(workItemId), claimed: true };
+    this.startingItems.add(key);
+    try { return await this.startItemOnce(workItemId); }
+    finally { this.startingItems.delete(key); }
+  }
+
+  async startItemOnce(workItemId) {
     const input = this.input(workItemId);
     if (!this.isAutomatic(input.processId)) return { automatic: false };
     const readiness = await this.canStart(workItemId);
@@ -576,6 +597,7 @@ export class ProcessRuntime {
 
   watchClaim(key, claim, handle) {
     if (claim.local || !this.claims || typeof handle?.result !== "function") return;
+    clearInterval(this.claimWatchers.get(key)?.heartbeat);
     let renewing = false;
     const heartbeat = setInterval(async () => {
       if (renewing) return;

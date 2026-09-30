@@ -4,7 +4,7 @@ import { mkdir } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, normalize, relative, resolve, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { createUserMessage } from "@deepseek-ai/dsh-llm";
+import { createUserMessage, isQuotaExceededError } from "@deepseek-ai/dsh-llm";
 import { scopeOf } from "@deepseek-ai/dsh-scope";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { setSandboxMode } from "@deepseek-ai/dsh-sandbox-policy";
@@ -416,11 +416,12 @@ export function safeRecoverySeed(events) {
   });
 }
 
-// a restart mid-call is no reason to stop the run: these only look, delegating again reuses peers by title, and app records upsert by key
+// a restart mid-call is no reason to stop the run: these only look, delegating again reuses peers by title, app records upsert by key, and a stage result commits in one transaction that a resubmit finds
 const REPEATABLE_TOOLS = ["read", "read_image", "glob", "grep", "web_search", "web_fetch", "bees_fetch_page",
   "bees_search_web", "bees_search_news", "bees_search_knowledge", "bees_read_knowledge", "bees_read_context",
   "bees_read_tool_result", "bees_read_work_evidence", "bees_find_tools", "bees_search_mcp_registry", "bees_list_skill_pack", "bees_wait_for_peers",
-  "bees_delegate_work", "bees_app_read", "bees_app_query", "bees_app_receipt", "bees_app_source", "bees_app_record"];
+  "bees_delegate_work", "bees_app_read", "bees_app_query", "bees_app_receipt", "bees_app_source", "bees_app_record",
+  "bees_submit_stage_result"];
 
 /** DSH seeds only complete turns. Preserve completed tools in the interrupted turn as evidence. */
 export function recoveryToolContext(events, pending, ownerChecked = false) {
@@ -1669,9 +1670,15 @@ export class AgentRuntime {
         }
         if (args.outcome !== "blocked") {
           // a lead told to wait often just ends its turn, which failed the whole run, so wait for running children here
+          const parked = ["completed", "cancelled", "failed", "waiting", "paused"];
           const running = data.workItemId ? delegationEvidence(this.database, data.workItemId).peers
-            .filter(({ phase }) => !["completed", "cancelled", "failed", "waiting", "paused"].includes(phase)).map(({ id }) => id) : [];
-          if (running.length) await this.waitForPeers(running, exec.signal, data.workItemId);
+            .filter(({ phase }) => !parked.includes(phase)).map(({ id }) => id) : [];
+          // a peer's note must not end this wait and fail the submit, and a child waiting on this lead gets no-progress, not a deadlock
+          if (running.length) {
+            this.peerWaiters.add(data.workItemId);
+            try { await this.waitForPeers(running, exec.signal, null, parked); }
+            finally { this.peerWaiters.delete(data.workItemId); }
+          }
           assertPeersSettled(this, data, ["candidate", "pass"].includes(args.outcome) ? result.summary : "");
           if (this.pendingJobs(exec.agent).length)
             throw new Error("Background jobs are still running. Collect their results before submitting this stage.");
@@ -1810,7 +1817,7 @@ export class AgentRuntime {
       next_evidence_offset: evidenceOffset + 40 < evidence.length ? evidenceOffset + 40 : null };
   }
 
-  async waitForPeers(ids, signal, callerId) {
+  async waitForPeers(ids, signal, callerId, settled = ["completed", "failed", "cancelled"]) {
     const pinned = callerId ? this.workContext.latest(callerId) : null;
     const cursor = pinned ? this.database.prepare("SELECT coalesce(max(seq), 0) AS seq FROM bees_work_updates WHERE root_id = ?").get(pinned.rootId).seq : null;
     const messageArrived = pinned ? this.database.prepare(`SELECT 1 FROM bees_work_updates
@@ -1838,7 +1845,7 @@ export class AgentRuntime {
         unsubscribe();
         throw new Error("Delegated work disappeared");
       }
-      if (rows.every(({ status }) => ["completed", "failed", "cancelled"].includes(status)) ||
+      if (rows.every(({ status }) => settled.includes(status)) ||
           messageArrived?.get(pinned.rootId, cursor, callerId, pinned.executionId)) {
         unsubscribe();
         return Promise.all(rows.map(async (row) => ({
@@ -1847,11 +1854,14 @@ export class AgentRuntime {
           ...(row.error ? { error: row.error } : {})
         })));
       }
+      // the losing 5 s timer and its abort listener stay alive unless this cancels them
+      const tick = new AbortController();
       try {
         await (this.subscribe
-          ? Promise.race([changed, delay(5_000, undefined, signal ? { signal } : undefined)])
+          ? Promise.race([changed, delay(5_000, undefined, { signal: signal ? AbortSignal.any([signal, tick.signal]) : tick.signal })])
           : changed);
       } finally {
+        tick.abort();
         unsubscribe();
       }
     }
@@ -2283,8 +2293,14 @@ export class AgentRuntime {
       const hint = result.error.code === "TRANSPORT" || /^connection error\.?$/i.test(String(result.error.message ?? "").trim())
         ? " Check this agent's model under Agents and its connection under Settings → AI connections before retrying."
         : "";
-      result = { ...result, error: { ...result.error,
-        message: `${detail}: ${result.error.message}${hint}` } };
+      const raw = String(result.error.message ?? "");
+      // CLI providers word it their own way ("usage limit has been reached", "hit your weekly limit · resets 12:45pm")
+      const quota = ["QUOTA", "ACCOUNT_QUOTA"].includes(result.error.code) || isQuotaExceededError(raw) ||
+        /\busage limit\b|\bhit your (?:[\w-]+ )?limit\b|\b(?:weekly|daily|monthly|\d+-hour) limit\b/i.test(raw);
+      const reset = raw.match(/\b(?:resets?|try again at)\b[^.\n|]*/i)?.[0].trim();
+      result = { ...result, error: quota
+        ? { ...result.error, code: "QUOTA", providerMessage: raw, message: `${detail}: ${model ? String(model).split(" · ")[0] : "The model provider"} is out of quota${reset ? ` (${reset})` : ""}. Try again after it resets, or pick another model for this agent under Agents.` }
+        : { ...result.error, message: `${detail}: ${raw}${hint}` } };
       this.ctx.logger?.warn?.(`bees: execution=${executionId} session=${sessionId} code=${result.error.code ?? "unknown"}: ${result.error.message}`);
     }
     const at = new Date().toISOString();

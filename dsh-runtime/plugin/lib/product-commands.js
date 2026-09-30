@@ -10,7 +10,7 @@ import {
   agentIds as normalizeAgentIds, assertMcpAccess, assignment, capabilities, currentIdentity, DEFAULT_WORKSPACE_NAME, insertDefaultWorkspace, insertProcess, iso,
   itemContext, normalizeRunSettings, optionalModelRoute, optionalReasoningEffort,
   parentFor, processContext, processStages,
-  message, requireTeam, required, stableUuid, transaction, workspaceContext, workRunItems
+  message, requireTeam, required, stableUuid, transaction, UUID, workspaceContext, workRunItems
 } from "./product-database.js";
 import {
   canonicalMapping, inputManifest, logicalRelativePath, mappedLocation, outputLocation, stageInputLocations
@@ -118,10 +118,11 @@ export function checkMcpServers(database, policy, keep = []) {
   const servers = policy.servers.map((wanted) => {
     const row = rows.find(({ names }) => names.includes(String(wanted).toLocaleLowerCase()));
     if (row) return row.name;
-    if (kept.has(String(wanted).toLocaleLowerCase())) return String(wanted);
+    if (kept.has(String(wanted).toLocaleLowerCase())) return UUID.test(wanted) ? null : String(wanted);
     throw new Error(`No MCP server matches ${wanted}`);
   });
-  return { access: policy.access, servers: [...new Set(servers)] };
+  // a kept row id that resolves to nothing is dropped, so saving clears what a run would refuse
+  return { access: policy.access, servers: [...new Set(servers.filter(Boolean))] };
 }
 
 /** Proposals can reuse active resources, but only within their own workspace. */
@@ -312,6 +313,8 @@ function producerSpecialization(database, executionId, itemId) {
   return database.prepare("SELECT specialization_id AS specializationId FROM agent_dispatches WHERE work_item_id = ? AND execution_id = ?")
     .get(itemId, current.candidateExecutionId)?.specializationId;
 }
+
+const continuing = new Set();
 
 export async function executeProductCommand(action, input) {
     const at = iso();
@@ -508,7 +511,7 @@ export async function executeProductCommand(action, input) {
       const invocationText = rawDescription.trim() ? rawDescription : rawTitle;
       const invocation = leadingAgentInvocation(invocationText);
       const explicitIds = Array.isArray(input.agentIds) ? normalizeAgentIds(input.agentIds)
-        : input.agentAssignmentId ? [required(input.agentAssignmentId, "Agent")] : [];
+        : input.agentAssignmentId ? [required(input.agentAssignmentId, "Agent")] : item.agentIds;
       const selectedAgentIds = invocation?.agents.map(({ id }) => id) ?? explicitIds;
       for (const agentId of selectedAgentIds) if (!assignment(this.database, agentId, item.workspaceId))
         throw new Error("Agent assignment is not in this team");
@@ -516,10 +519,11 @@ export async function executeProductCommand(action, input) {
         ? leadingAgentInvocation(rawTitle) : null;
       const title = titleInvocation?.request.split("\n")[0].trim() || rawTitle;
       const description = invocation ? `${invocation.reference} ${invocation.request}` : rawDescription;
+      const owner = input.owner === undefined ? item.owner : input.owner;
       this.database.prepare(`
         UPDATE work_items SET title = ?, description = ?, owner = ?, agent_assignment_id = ?, agent_ids_json = ?,
           priority = ?, parent_id = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL
-      `).run(title, description, input.owner ? String(input.owner) : null,
+      `).run(title, description, owner ? String(owner) : null,
         selectedAgentIds[0] ?? null, JSON.stringify(selectedAgentIds), priorityOf(input.priority ?? item.priority), parentId, at, item.id);
       for (const location of referenceInputs(this.database, item.workspaceId, [...titleReferences.references, ...descriptionReferences.references]))
         this.database.prepare("INSERT OR IGNORE INTO work_item_locations VALUES (?, ?, ?)").run(item.id, location.id, location.relativePath);
@@ -1052,8 +1056,9 @@ export async function executeProductCommand(action, input) {
             SELECT l.id, m.absolute_path AS path 
             FROM team_locations l
             LEFT JOIN device_location_mappings m ON m.location_id = l.id AND m.device_id = ?
-            WHERE l.team_id = ? AND (lower(l.name) = lower(?) OR m.absolute_path = ?)
-          `).get(deviceId, teamId, name, canonical);
+            WHERE l.team_id = ? AND l.archived_at IS NULL AND (lower(l.name) = lower(?) OR m.absolute_path = ?)
+            ORDER BY m.absolute_path = ? DESC
+          `).get(deviceId, teamId, name, canonical, canonical);
           if (existing && existing.path === canonical) return { id: existing.id, reused: true };
         }
 
@@ -1362,6 +1367,9 @@ export async function executeProductCommand(action, input) {
       if (!stopped && ["queued", "waiting_for_input", "waiting_for_approval"].includes(status)) {
         this.database.prepare("DELETE FROM bees_run_queue WHERE execution_id = ?").run(executionId);
         this.agents.setStatus(executionId, "cancelled");
+      } else if (!stopped && status === "running" && !this.agents.closing) {
+        // a run left 'running' after a crash has nothing live; while shutting down it is a restart, so it stays
+        this.agents.setStatus(executionId, "cancelled");
       }
       // Nothing is waiting on a sign-in any more, so the window it raised has no reason to stay up.
       this.agents.track(hideAgentBrowser(executionId));
@@ -1385,21 +1393,26 @@ export async function executeProductCommand(action, input) {
       const executionId = required(input.executionId, "Execution");
       const text = required(input.text, "Text");
       const { uid, item, runtimePhase } = runContext(this.database, executionId);
-      const result = item && runtimePhase === "failed" ? await this.processes.signal(item.id, "retry", text)
-        : await this.agents.admit("bees-run", executionId, {
-          idempotencyKey: `continue:${executionId}:${Date.now()}`,
-          uid, ownerChecked: true,
-          body: text
-        });
-      this.workContext.recordOwner(executionId, text);
-      return result;
+      // a double click would otherwise start two continuations
+      if (continuing.has(executionId)) throw new Error("This run is already being continued");
+      continuing.add(executionId);
+      try {
+        const result = item && runtimePhase === "failed" ? await this.processes.signal(item.id, "retry", text)
+          : await this.agents.admit("bees-run", executionId, {
+            idempotencyKey: `continue:${executionId}:${Date.now()}`,
+            uid, ownerChecked: true,
+            body: text
+          });
+        this.workContext.recordOwner(executionId, text);
+        return result;
+      } finally { continuing.delete(executionId); }
     }
     if (action === "publish_run") {
       const executionId = required(input.executionId, "Execution");
       const { uid, data } = runContext(this.database, executionId);
       const locationId = required(input.locationId, "Location");
       const granted = data.workItemId ? outputLocation(this.database, data.workItemId) === locationId
-        : data.grants.includes(locationId);
+        : (data.grants ?? []).includes(locationId);
       if (!granted)
         throw new Error("That location was not granted to this run");
       return this.agents.admit("bees-run", executionId, {
