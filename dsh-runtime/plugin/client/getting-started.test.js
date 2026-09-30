@@ -21,7 +21,7 @@ const { createElement } = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
 globalThis.document = { createElement: () => ({}), head: { appendChild() {} } };
 
-test("setup strip offers Finished only after the first result is ready", () => {
+test("setup strip allows Finished before the first result is ready", () => {
   const data = {
     teams: [{ id: "team" }], locations: [],
     items: [{ id: "first", runtimePhase: "running" }], runs: []
@@ -30,10 +30,8 @@ test("setup strip offers Finished only after the first result is ready", () => {
     state: { teamId: "team", workItemId: "first", step: 3 },
     data, aiReady: true, aiStatus: "AI ready", update() {}, navigate() {}, openWorkItem() {}
   }));
-  assert.match(render(), /Open setup/);
-  assert.doesNotMatch(render(), /Finished/);
+  assert.match(render(), /Finished/);
   data.items[0].runtimePhase = "completed";
   data.runs.push({ workItemId: "first", outputs: ["first-result.md"] });
   assert.match(render(), /Finished/);
-  assert.doesNotMatch(render(), /Open setup/);
 });

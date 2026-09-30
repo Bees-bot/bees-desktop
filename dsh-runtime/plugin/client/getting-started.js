@@ -967,9 +967,7 @@ export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiSta
   const isComplete = done[3];
 
   // Footer nav visibility
-  // Step 0: skip shown only when no own button is available
-  const stepZeroHasOwnButton = done[0] || (!parts.team && parts.organizationId);
-  const showSkip  = step < 3 && (step > 0 || !stepZeroHasOwnButton);
+  const showSkip  = step < 3;
   const showBack  = step > 0;
 
   return h("div", { className: "gs-page" },
@@ -983,8 +981,8 @@ export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiSta
       h("div", { className: "gs-header-actions" },
         h("button", { type: "button", className: "gs-outline-btn", onClick: () => navigate("basics") }, "Bees basics"),
         h("button", { type: "button", className: "gs-skip-btn",
-          onClick: () => { update({ active: false }); navigate("home"); }
-        }, "Set up later")
+          onClick: () => { update({ active: false, finished: true }); navigate("home"); }
+        }, "Finish setup")
       )
     ),
 
@@ -1208,7 +1206,7 @@ export function GettingStartedBar({ state, update, navigate, aiReady, aiStatus, 
       }, "← Back"),
 
       // Next / finish / open setup
-      done[3]
+      done[3] || step === 3
         ? h("button", { type: "button", className: "gs-bar-nav-btn gs-bar-primary",
           onClick: () => { update({ active: false, finished: true }); navigate("home"); }
         }, "Finished")
