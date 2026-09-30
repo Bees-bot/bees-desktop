@@ -1207,7 +1207,7 @@ export async function executeProductCommand(action, input) {
           }
           if (change.action === "create_recurring_work") {
             // a planned schedule repeats its planned item, so a stray description must not replace it
-            Object.assign(payload, { itemId: idOf("item", change.item), paused: true, description: undefined });
+            Object.assign(payload, { itemId: idOf("item", change.item), description: undefined });
             // planning a schedule again, or re-applying after a failure, updates it instead of adding a copy
             const existing = this.database.prepare(`
               SELECT r.id, r.source_work_item_id AS definition FROM recurring_work r JOIN work_items w ON w.id = ?
@@ -1269,11 +1269,12 @@ export async function executeProductCommand(action, input) {
     if (action === "list_items") {
       const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);
       return this.database.prepare(`
-        SELECT w.id, w.title, p.name AS process, s.name AS stage, w.runtime_phase AS phase, w.updated_at AS updatedAt
+        SELECT w.id, w.title, substr(w.description, 1, 400) AS description, p.name AS process, s.name AS stage,
+          w.runtime_phase AS phase, w.updated_at AS updatedAt
         FROM work_items w JOIN processes p ON p.id = w.process_id JOIN stages s ON s.id = w.stage_id
-        WHERE p.workspace_id = ? AND w.archived_at IS NULL AND w.deleted_at IS NULL
+        WHERE p.workspace_id = ? AND w.archived_at IS NULL AND w.deleted_at IS NULL AND (? IS NULL OR lower(p.name) = lower(?))
         ORDER BY w.updated_at DESC LIMIT 200
-      `).all(workspace.id);
+      `).all(workspace.id, ...Array(2).fill(typeof input.process === "string" ? input.process : null));
     }
     if (action === "list_agents") {
       const workspace = workspaceContext(this.database, input.workspaceId, ["admin", "member"]);
