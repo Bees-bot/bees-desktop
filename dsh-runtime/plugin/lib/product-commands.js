@@ -412,7 +412,7 @@ export async function executeProductCommand(action, input) {
     }
     if (["create_item", "create_run", "create_goal"].includes(action)) {
       const created = transaction(this.database, () => {
-      // a watcher knows its pipeline by name only, and an empty pipeline shows up nowhere else
+      // a run knows a process by name only, and an empty process shows up nowhere else
       let processId = input.processId ? required(input.processId, "Process")
         : input.process ? proposalResource(this.database, input.workspaceId, "process", String(input.process).trim()).id : null;
       if (action === "create_goal") {
@@ -437,9 +437,10 @@ export async function executeProductCommand(action, input) {
       const inputLocationIds = locationIds(this.database, process.workspaceId, input.inputLocationIds);
       const outputLocationId = locationIds(this.database, process.workspaceId,
         input.outputLocationId ? [input.outputLocationId] : [], true)[0] ?? null;
+      // a run knows stages by name only, so a finder can file each record past its own stage
       const stageId = input.stageId || this.database.prepare(`
-        SELECT id FROM stages WHERE process_id = ? AND archived_at IS NULL ORDER BY position LIMIT 1
-      `).get(processId)?.id;
+        SELECT id FROM stages WHERE process_id = ? AND archived_at IS NULL AND (? IS NULL OR lower(name) = lower(?)) ORDER BY position LIMIT 1
+      `).get(processId, ...Array(2).fill(input.stage ? String(input.stage).trim() : null))?.id;
       if (!stageId || !this.database.prepare(`
         SELECT 1 FROM stages WHERE id = ? AND process_id = ? AND archived_at IS NULL
       `).get(stageId, processId)) throw new Error("Process has no matching stage");
