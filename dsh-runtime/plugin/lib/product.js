@@ -881,12 +881,12 @@ export class BeesProduct {
       if (!set.has(name.toLocaleLowerCase())) return proposalResource(this.database, workspaceId, kind, name);
     };
     const added = changes.filter((change) => change?.action === "add_agent_assignment").length;
-    // new processes may staff each stage, plus a watcher that feeds them
-    const processes = changes.filter((change) => change?.action === "create_process");
-    const most = Math.max(4, processes.reduce((sum, { stages }) => sum + (Array.isArray(stages) ? stages.length : 0), 0) + 1);
+    // a new process may staff each stage
+    const stages = changes.find((change) => change?.action === "create_process")?.stages;
+    const most = Math.max(4, Array.isArray(stages) ? stages.length : 0);
     if (added > most) throw new Error(`This plan adds ${added} agents; add at most ${most}, one per stage, and reuse the team's agents for the rest`);
-    if (processes.length > 2)
-      throw new Error("Propose at most two processes: the one that handles the work and, when it watches a source, the one that watches; anything more is a separate request");
+    if (changes.filter((change) => change?.action === "create_process").length > 1)
+      throw new Error("Propose one process that holds every step, from finding to the last action; a second one is a separate request");
     const normalized = changes.map((change) => {
       if (!change || typeof change !== "object" || Array.isArray(change)) throw new Error("Proposal changes must be objects");
       if (change.action === "create_goal") {
