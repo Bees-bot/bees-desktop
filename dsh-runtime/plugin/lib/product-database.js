@@ -1038,6 +1038,27 @@ export function initializeProductDatabase(database) {
       PRAGMA user_version = 36;
     `);
   });
+  if (version < 37) transaction(database, () => {
+    // Fingerprints of the exact shipped prompts before this upgrade; preserve personal edits.
+    const previous = {
+      CEO: "050a4c9184d8df089716373bf09dd8c507223c970320e15cd39cb88a214baa02",
+      CTO: "f649a4a678a817b582b74c4a9d0a652503c1f56f3112cd128c9e1d1b56e3172d",
+      CMO: "13f503bd6c7453d19d6a8c34d8cd720a8ce9654876e5c541196c4538de1d75e9",
+      CRO: "7f7f560b5fcc9b3fa78c374e56ffdae9b2459704a62c971888a8144c43d1306b"
+    };
+    for (const row of database.prepare(`
+      SELECT id, workspace_id AS workspaceId, name, instructions, updated_at AS updatedAt
+      FROM agent_assignments WHERE archived_at IS NULL AND system_role IS NULL
+    `).all()) {
+      if (!previous[row.name] || row.id !== stableUuid(`${row.workspaceId}:executive:${row.name}`)
+        || createHash("sha256").update(row.instructions).digest("hex") !== previous[row.name]) continue;
+      const agent = EXECUTIVE_AGENTS.find(({ name }) => name === row.name);
+      const at = new Date(Math.max(Date.now(), (Date.parse(row.updatedAt) || 0) + 1)).toISOString();
+      database.prepare("UPDATE agent_assignments SET instructions = ?, updated_at = ? WHERE id = ?")
+        .run(agent.instructions, at, row.id);
+    }
+    database.exec("PRAGMA user_version = 37");
+  });
   // every stored folder is read against the root this computer keeps for that workspace
   refreshFolderRoots(database);
   database.function("resolved", (path, workspaceId) => path && resolveStored(workspaceId, path));
