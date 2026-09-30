@@ -1,4 +1,4 @@
-import { normalizeRunSettings, stableUuid, transaction } from "./product-database.js";
+import { normalizeRunSettings, serverNames, stableUuid, transaction } from "./product-database.js";
 
 const TYPES = [
   "team_location", "agent", "team_process", "process_template",
@@ -55,7 +55,7 @@ function teamRecords(database, organizationId, connectionId = "", includeAppDefi
     teamId: row.teamId, name: row.name, description: row.description, instructions: row.instructions,
     presetId: row.presetId, model: row.model, reasoningEffort: row.reasoningEffort,
     systemRole: row.systemRole, capabilities: json(row.capabilities), enabled: Boolean(row.enabled), archivedAt: timestamp(row.archivedAt),
-    maxConcurrency: row.maxConcurrency, mcpAccess: row.mcpAccess, mcpServers: json(row.mcpServers),
+    maxConcurrency: row.maxConcurrency, mcpAccess: row.mcpAccess, mcpServers: serverNames(database, json(row.mcpServers)),
     inputLocations: inputLocations(database, "agent_locations", "agent_assignment_id", row.id),
     createdAt: timestamp(row.createdAt), updatedAt: timestamp(row.updatedAt)
   }));
@@ -98,7 +98,7 @@ function teamRecords(database, organizationId, connectionId = "", includeAppDefi
       ...owner('app_process_owners', 'process_id', row.id),
       teamId: row.teamId, name: row.name, description: row.description, kind: row.kind,
       accountUserId: row.accountUserId,
-      outputLocationId: row.outputLocationId, mcpAccess: row.mcpAccess, mcpServers: json(row.mcpServers),
+      outputLocationId: row.outputLocationId, mcpAccess: row.mcpAccess, mcpServers: serverNames(database, json(row.mcpServers)),
       inputLocations: inputLocations(database, "process_locations", "process_id", row.id),
       stages, archivedAt: timestamp(row.archivedAt), createdAt: timestamp(row.createdAt),
       updatedAt: timestamp(row.updatedAt)
@@ -506,16 +506,16 @@ export function applyTeamRecords(database, organizationId, records, authoritativ
   // The server can refuse one record and keep its neighbours, so a record can arrive before, or
   // without, the rows it points at. Every reference here is a foreign key, so let SQLite say which
   // ones are not ready rather than listing them, and leave those for a later pass.
-  const attempt = (work) => {
+  const attempt = (work, entry) => {
     database.exec("SAVEPOINT record");
     try { work(); database.exec("RELEASE record"); return; }
     catch (error) {
       database.exec("ROLLBACK TO record");
       database.exec("RELEASE record");
-      // Only a missing reference is worth waiting for. Anything else will fail again next pass and
-      // has to stay loud rather than pin the cursor for good.
-      if (!/FOREIGN KEY constraint failed/i.test(String(error?.message ?? error))) throw error;
-      deferred = true;
+      // Only a missing reference is worth waiting for. Any other error would fail on every pass,
+      // so skip that record and log it rather than pin the cursor for good.
+      if (/FOREIGN KEY constraint failed/i.test(String(error?.message ?? error))) deferred = true;
+      else console.error(`team sync skipped ${entry.recordType} ${entry.recordId}: ${error?.message ?? error}`);
     }
   };
   transaction(database, () => {
@@ -527,7 +527,7 @@ export function applyTeamRecords(database, organizationId, records, authoritativ
       else if (entry.recordType === "recurring_work") applyRecurring(database, entry);
       else if (entry.recordType === "team_work_item") applyItem(database, entry);
       else if (entry.recordType === "team_run") applyRun(database, entry);
-    });
+    }, entry);
     for (const entry of applicable.filter(({ recordType }) => recordType === "team_work_item")) {
       if (!entry.payload.parentId) continue;
       if (database.prepare(
@@ -542,18 +542,23 @@ export function applyTeamRecords(database, organizationId, records, authoritativ
   return deferred;
 }
 
+const MAX_PULL_PAGES = 1000;
+
 /** Applies everything past `cursor` and commits it, whatever the push after it does. */
 async function pull(database, request, organizationId, connectionId, cursor) {
   const records = [];
   let next = cursor;
   let more = true;
-  while (more) {
+  for (let pages = 0; more; pages++) {
+    if (pages >= MAX_PULL_PAGES) throw new Error("Team sync pull did not finish");
     const page = await request(
       `/api/sync/pull?cursor=${encodeURIComponent(next)}&capabilities=apps-v1`, { organizationId }
     );
     // Applied as one batch: a work item and the process it needs can fall either side of a page
     // boundary, and applyTeamRecords only orders what it is handed.
-    records.push(...page.records);
+    for (const item of page.records ?? []) records.push(item);
+    // a server repeating more:true on the same cursor would loop forever
+    if (page.more && String(page.cursor) === String(next)) throw new Error("Team sync cursor did not advance");
     next = page.cursor;
     more = page.more;
   }
@@ -581,13 +586,17 @@ export async function syncTeamRecords(database, request, organizationId, connect
   const outgoing = teamRecords(database, organizationId, connectionId)
     .filter(({ recordType, recordId }) => recordType !== "team_work_item" || !waiting.has(recordId));
   const rejected = [];
+  let pushError = null;
   for (let index = 0; index < outgoing.length; index += PUSH_LIMIT) {
-    const result = await request("/api/sync/push", {
-      method: "POST", organizationId, body: { records: outgoing.slice(index, index + PUSH_LIMIT) }
-    });
-    rejected.push(...(result.rejected ?? []));
+    const chunk = outgoing.slice(index, index + PUSH_LIMIT);
+    try {
+      const result = await request("/api/sync/push", { method: "POST", organizationId, body: { records: chunk } });
+      rejected.push(...(result.rejected ?? []));
+    } catch (error) { pushError = error; break; }
   }
+  // still pull what the server has, then fail so the caller sees the push did not finish
   const settled = await pull(database, request, organizationId, connectionId, incoming.cursor);
+  if (pushError) throw pushError;
   return {
     pushed: outgoing.length - rejected.length,
     rejected,

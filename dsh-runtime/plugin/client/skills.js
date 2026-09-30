@@ -24,14 +24,22 @@ export function useCapabilities(route) {
   // Leaving the page is how you dismiss a message; it must not follow you to the next one.
   useEffect(() => setError(""), [route]);
   // A refresh must never wipe a message the person has not read yet, so only their own action clears it.
+  const seq = useRef(0);
+  const starting = useRef(true);
   const load = async ({ quiet = false } = {}) => {
-    try { setValue(await request("/bees-api/capabilities")); if (!quiet) setError(""); }
+    const mine = ++seq.current;
+    try {
+      const next = await request("/bees-api/capabilities");
+      if (mine !== seq.current) return;
+      starting.current = (next.servers ?? []).some(({ status }) => status === "starting");
+      setValue(next); if (!quiet) setError("");
+    }
     catch (reason) { console.error("Could not load capabilities:", reason); setError("Could not load skills and add-ons. Try again."); }
   };
   useEffect(() => {
     void load();
     // A server that is still starting has no tools yet, so the page has to look again.
-    const timer = setInterval(() => void load({ quiet: true }), 4000);
+    const timer = setInterval(() => { if (starting.current) void load({ quiet: true }); }, 4000);
     return () => clearInterval(timer);
   }, []);
   const act = async (command) => {

@@ -694,9 +694,6 @@ const GETTING_STARTED_CSS = `
 .gs-bar-nav-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .gs-bar-nav-btn.gs-bar-primary { background: var(--bees-accent); color: var(--bees-accent-contrast); border-color: var(--bees-accent); }
 .gs-bar-nav-btn.gs-bar-primary:hover:not(:disabled) { filter: brightness(1.07); }
-.gs-bar-divider { width: 1px; height: 20px; background: var(--dsw-alias-border-l1); flex-shrink: 0; margin: 0 2px; }
-.gs-bar-later { border: 0; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 12px; cursor: pointer; padding: 4px 6px; transition: color 0.15s; }
-.gs-bar-later:hover { color: var(--dsw-alias-label-primary); }
 @media (max-width: 700px) { .gs-bar-step-name { display: none; } .gs-bar-chev { display: none; } }
 
 /* ── Responsive ── */
@@ -737,10 +734,10 @@ function ExternalIcon() {
 // ─── Step Rail ───────────────────────────────────────────────────────────
 
 const STEPS = [
-  { label: "Workspace", icon: "🏢", title: "Make space for your work", desc: "Choose or create a workspace for your team." },
+  { label: "Work organization", icon: "🏢", title: "Set up your work organization", desc: "Choose or create a work organization for your team." },
   { label: "AI setup", icon: "🤖", title: "Connect your AI", desc: "Pick an AI model to power your agents." },
   { label: "Files", icon: "📂", title: "Give Bees context", desc: "Attach files or use a sample brief." },
-  { label: "First result", icon: "✨", title: "Create your first result", desc: "Choose a task and let Bees do the work." }
+  { label: "First result", icon: "✨", title: "Create your first result", desc: "Start a process run and let Bees do the work." }
 ];
 
 function StepRail({ step, done, onStep }) {
@@ -780,31 +777,31 @@ function WorkspaceStep({ parts, done, busy, ensureTeam, update, go, navigate }) 
         ),
         h("div", { style: { display: "flex", gap: "8px", flexWrap: "wrap" } },
           h("button", { type: "button", className: "gs-btn-primary", onClick: () => update({ step: 1 }) }, "Continue to AI setup →"),
-          h("button", { type: "button", className: "gs-btn-secondary", onClick: () => go(0) }, "Create another workspace")
+          h("button", { type: "button", className: "gs-btn-secondary", onClick: () => go(0) }, "Create another work organization")
         )
       )
       : h("div", { style: { display: "grid", gap: "12px" } },
         h("p", { style: { margin: 0, fontSize: "13px", color: "var(--dsw-alias-label-secondary)", lineHeight: "1.55" } },
           parts.team
-            ? `You're in ${parts.organization?.name || "an organization"} › ${parts.team.name}. You can use this workspace or create a new one.`
-            : "Give your organization a name and we'll create a Default team for your first task."
+            ? `You're in ${parts.organization?.name || "a work organization"} › ${parts.team.name}. You can use this work organization or create a new one.`
+            : "Give your work organization a name and we'll create a Default team for your first task."
         ),
         h("div", { className: "gs-option-grid" },
           !parts.team && parts.organizationId
             ? h("button", { type: "button", className: "gs-option", disabled: busy, onClick: ensureTeam },
               h("span", { className: "gs-option-icon" }, "🏗️"),
               h("strong", null, "Create Default team"),
-              h("span", null, "Set up a team in your current organization")
+              h("span", null, "Set up a team in your current work organization")
             ) : null,
           h("button", { type: "button", className: "gs-option", onClick: () => go(0) },
             h("span", { className: "gs-option-icon" }, "➕"),
-            h("strong", null, "Create workspace"),
-            h("span", null, "Start fresh with a new organization and team")
+            h("strong", null, "Create work organization"),
+            h("span", null, "Start fresh with a new work organization and team")
           ),
           h("button", { type: "button", className: "gs-option", onClick: () => navigate("accounts") },
             h("span", { className: "gs-option-icon" }, "🔗"),
-            h("strong", null, "Join an organization"),
-            h("span", null, "Connect to an existing Bees organization")
+            h("strong", null, "Join a work organization"),
+            h("span", null, "Connect to an existing Bees work organization")
           )
         )
       )
@@ -823,7 +820,7 @@ function AiStep({ ctx, data, agents, aiReady, aiStatus, testAi, busy, saveAgentM
       h("button", { type: "button", className: "gs-option", onClick: () => go(1, "local") },
         h("span", { className: "gs-option-icon" }, "💻"),
         h("strong", null, "AI on this computer · Recommended"),
-        h("span", null, "Runs here. Nothing leaves this computer.")
+        h("span", null, "Runs on this computer. Your messages don't go to an AI company.")
       ),
       h("button", { type: "button", className: "gs-option", onClick: () => go(1, "subscriptions") },
         h("span", { className: "gs-option-icon" }, "☁️"),
@@ -981,7 +978,7 @@ export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiSta
     h("div", { className: "gs-header" },
       h("div", { className: "gs-header-content" },
         h("h1", null, "Your first result starts here"),
-        h("p", null, "Set up your workspace, choose AI, and watch Bees turn a brief into a useful file.")
+        h("p", null, "Set up your work organization, choose AI, and watch Bees turn a brief into a useful file.")
       ),
       h("div", { className: "gs-header-actions" },
         h("button", { type: "button", className: "gs-outline-btn", onClick: () => navigate("basics") }, "Bees basics"),
@@ -1133,8 +1130,8 @@ export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiSta
         "You've created your first result with Bees."
       ),
       h("button", { type: "button", className: "gs-btn-primary",
-        onClick: () => { update({ active: false }); navigate("home"); }
-      }, "Go to dashboard →")
+        onClick: () => { update({ active: false, finished: true }); navigate("home"); }
+      }, "Finished")
     ) : null
   );
 }
@@ -1210,23 +1207,19 @@ export function GettingStartedBar({ state, update, navigate, aiReady, aiStatus, 
         onClick: () => { update({ step: step - 1, active: true }); navigate("getting-started"); }
       }, "← Back"),
 
-      // Next / open setup
-      step < 3
+      // Next / finish / open setup
+      done[3]
+        ? h("button", { type: "button", className: "gs-bar-nav-btn gs-bar-primary",
+          onClick: () => { update({ active: false, finished: true }); navigate("home"); }
+        }, "Finished")
+        : step < 3
         ? h("button", { type: "button", className: "gs-bar-nav-btn gs-bar-primary",
           title: `Go to step ${step + 2}: ${STEPS[step + 1].label}`,
           onClick: () => { update({ step: step + 1, active: true }); navigate("getting-started"); }
         }, "Next →")
         : h("button", { type: "button", className: "gs-bar-nav-btn gs-bar-primary",
           onClick: () => navigate("getting-started")
-        }, "Open setup"),
-
-      h("div", { className: "gs-bar-divider" }),
-
-      // Dismiss
-      h("button", { type: "button", className: "gs-bar-later",
-        title: "Dismiss setup bar (you can reopen it from the sidebar)",
-        onClick: () => update({ active: false })
-      }, "Later")
+        }, "Open setup")
     )
   );
 }

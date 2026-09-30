@@ -6,7 +6,7 @@ import { delimiter, join } from "node:path";
 import { spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 import { isDeepStrictEqual } from "node:util";
-import { LlmAdapter, LlmError } from "@deepseek-ai/dsh-llm";
+import { LlmAdapter, LlmError, QUOTA_EXCEEDED_CODE } from "@deepseek-ai/dsh-llm";
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import { OPENAI_CODEX_MODELS } from "@earendil-works/pi-ai/providers/openai-codex.models";
 import z from "@deepseek-ai/schemastery";
@@ -323,14 +323,18 @@ function runClaude(command, model, effort, input, signal, schema, system) {
       if (signal?.aborted) return reject(new LlmError("Claude Code was cancelled", "ABORTED"));
       if (early) return resolve({ text: String(early.structured.text ?? ""), structured: early.structured, usage: early.usage });
       if (overflow) return reject(new LlmError("Claude Code returned too much output", "OUTPUT_LIMIT"));
-      if (timedOut) return reject(new LlmError("Claude Code timed out after 15 minutes", "TIMEOUT"));
+      if (timedOut) return reject(new LlmError("Claude Code timed out after 15 minutes", "CLAUDE_CODE_TIMEOUT"));
       try {
         if (!final) throw new Error(stderr.trim() || `Claude Code exited with code ${code} without JSON output`);
         const structured = schema ? structuredOutput(final) : null;
+        const said = String(final.result ?? "").trim();
+        // a plan limit arrives as a short plain result, so it must not be stored as an answer
+        if (/hit your[\w\s-]*limit|usage limit reached/i.test(said) && (final.is_error || said.length < 300))
+          throw new LlmError(said, QUOTA_EXCEEDED_CODE);
         if (code !== 0 || final.is_error || (schema ? !structured : !String(final.result ?? "").trim())) {
           throw new Error(final.result || stderr.trim() || `Claude Code exited with code ${code}`);
         }
-        resolve({ text: String(final.result ?? ""), structured, usage: final.usage ?? {} });
+        resolve({ text: String(final.result ?? ""), structured, usage: final.usage ?? {}, stopReason: final.stop_reason });
       } catch (error) {
         reject(error instanceof LlmError ? error : new LlmError(error.message, "CLAUDE_CODE"));
       }
@@ -392,7 +396,7 @@ export function claudeChunks(result, tools = []) {
     { type: "text-delta", index: 0, text },
     { type: "block-end", index: 0, block: { type: "text", text } },
     usage,
-    { type: "finish", reason: { kind: "stop" } }
+    { type: "finish", reason: { kind: result.stopReason === "max_tokens" ? "max-tokens" : "stop" } }
   ];
 }
 
@@ -573,7 +577,7 @@ export async function apply(ctx, config) {
         return json(res, 200, { models: mergeCodexModels(input.models.map((id) => ({ id })), codexModels, excluded) });
       }
       if (input.action === "codex_logout") {
-        await refreshingCodex;
+        await refreshingCodex?.catch(() => {});
         await ctx.credentials.unset(CODEX_OAUTH_REF);
         await ctx.credentials.unset(CODEX_ACCESS_REF);
         codexModels = DEFAULT_CODEX_MODELS;

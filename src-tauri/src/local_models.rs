@@ -589,10 +589,14 @@ fn local_model_status_inner(app: &AppHandle, spec: &ModelSpec) -> Result<LocalMo
         .map(runtime_is_running)
         .transpose()?
         .unwrap_or(false);
+    // dropped after the lock is released, since dropping a llama child can wait up to a second
+    let mut stale = None;
     if !running {
-        runtimes.by_id.remove(&spec.id);
+        stale = runtimes.by_id.remove(&spec.id);
         repair_active_runtime(&mut runtimes);
     }
+    drop(runtimes);
+    drop(stale);
     let complete = is_complete(&path, spec.bytes);
     let bytes = downloaded_bytes(&path, &part, spec.bytes);
     let state = if running {
@@ -662,7 +666,7 @@ fn sha256(path: &Path) -> Result<String, String> {
 
 fn finalize_download(part: &Path, target: &Path, spec: &ModelSpec) -> Result<(), String> {
     if let Some(expected) = &spec.sha256 {
-        if &sha256(part)? != expected {
+        if !sha256(part)?.eq_ignore_ascii_case(expected.trim()) {
             let _ = fs::remove_file(part);
             return Err("The downloaded model failed its SHA-256 integrity check".into());
         }
@@ -1030,6 +1034,7 @@ fn start_local_model_blocking_inner(
     if cancelled.load(Ordering::Relaxed) {
         return Err("Model start cancelled".into());
     }
+    let mut stale = None;
     {
         let mut runtimes = manager.runtimes.lock().map_err(|error| error.to_string())?;
         if let Some(current) = runtimes.by_id.get_mut(&spec.id) {
@@ -1037,9 +1042,10 @@ fn start_local_model_blocking_inner(
                 runtimes.active_id = Some(spec.id.clone());
                 return Ok(running_status(&spec.id, size));
             }
-            runtimes.by_id.remove(&spec.id);
+            stale = runtimes.by_id.remove(&spec.id);
         }
     }
+    drop(stale);
 
     let executable = bundled_llama_server(app)?;
     let working_directory = executable
@@ -1135,6 +1141,7 @@ fn start_local_model_blocking_inner(
                 return Err("Model start cancelled".into());
             }
             let mut runtimes = manager.runtimes.lock().map_err(|error| error.to_string())?;
+            let mut stale = None;
             if let Some(current) = runtimes.by_id.get_mut(&spec.id) {
                 if runtime_is_running(current)? {
                     runtimes.active_id = Some(spec.id.clone());
@@ -1142,7 +1149,7 @@ fn start_local_model_blocking_inner(
                     drop(child);
                     return Ok(running_status(&spec.id, size));
                 }
-                runtimes.by_id.remove(&spec.id);
+                stale = runtimes.by_id.remove(&spec.id);
             }
             runtimes.by_id.insert(
                 spec.id.clone(),
@@ -1153,6 +1160,8 @@ fn start_local_model_blocking_inner(
                 },
             );
             runtimes.active_id = Some(spec.id.clone());
+            drop(runtimes);
+            drop(stale);
             return Ok(running_status(&spec.id, size));
         }
         thread::sleep(Duration::from_millis(250));

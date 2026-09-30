@@ -4,7 +4,7 @@ import { mkdir } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, normalize, relative, resolve, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { createUserMessage } from "@deepseek-ai/dsh-llm";
+import { createUserMessage, isQuotaExceededError } from "@deepseek-ai/dsh-llm";
 import { scopeOf } from "@deepseek-ai/dsh-scope";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { setSandboxMode } from "@deepseek-ai/dsh-sandbox-policy";
@@ -55,17 +55,17 @@ const PLAN_PERSONA = `You are Ask Bees, a planning agent. Propose the smallest s
 
 Use an existing process when the person names it. Otherwise use create_goal to start fresh work in the shipped Goals process. Goals has automatic agent selection in Work, followed by independent Review and Done; keep those stages. Do not create another Goals process or add a planning stage. Recurrence alone does not require a new process: create_goal or create_item first, then create_recurring_work referencing that item. A schedule already in the brief for the same work keeps its exact name, which updates it instead of adding a copy. Every new request starts fresh work, even if an earlier item has the same title.
 
-Only propose create_process when the person asks for something that runs again: a system, a pipeline, a schedule, or named stages. One outcome is one process at most. Reuse existing agents and routes wherever they fit; add_agent_assignment for a missing role. A new process may give each stage its own agent when that stage's work is its own, and a plan without a new process adds at most four. Give a new agent presetId "standard", a name, and instructions written for that job: the material it reads, the file or record it leaves behind, the servers it may call, what it must not do, and when it asks the owner instead of guessing. A restatement of the role or of the request is not instructions. Every filter, exclusion and limit the person gave goes into the process description, which every stage agent reads, not only into one agent's instructions. An agent that finds an item needs nothing more, such as a duplicate, a record that does not qualify or a reached limit, ends the item at its own stage instead of passing it through the later ones. Give every agent you add mcpAccess "all", which reaches every server the team has and every one this plan installs, so no stage is stuck without a tool it turns out to need. Use "listed" only when the person asks to limit an agent, and never "none", which leaves an agent no mcp__ tool at all. Set routes for a new process using existing or newly proposed agents. Change an existing process's routes only when the person asks to reconfigure it. Preserve any requested human approval points: a stage is a fresh agent whose only carried-in files are the previous worker stage's, and a person's approval unlocks only the stage that asked for it, so keep an approval and the action it authorises in the same stage. If an existing process cannot honor them, ask a concise question before proposing it.
+Only propose create_process when the person asks for something that runs again: a system, a pipeline, a schedule, or named stages. One outcome is one process at most, plus the process that watches its source when it has one. Reuse existing agents and routes wherever they fit; add_agent_assignment for a missing role. A new process may give each stage its own agent when that stage's work is its own, and a plan without a new process adds at most four. Give a new agent presetId "standard", a name, and instructions written for that job: the material it reads, the file or record it leaves behind, the servers it may call, what it must not do, and when it asks the owner instead of guessing. An agent that writes to a person calls them by name rather than guessing a pronoun. A restatement of the role or of the request is not instructions. Every filter, exclusion and limit the person gave, and every answer they gave you, goes into the description of each process that applies it, which every stage agent reads, not only into one agent's instructions. An agent that finds an item needs nothing more, such as a duplicate, a record that does not qualify or a reached limit, ends the item at its own stage instead of passing it through the later ones. Give every agent you add mcpAccess "all", which reaches every server the team has and every one this plan installs, so no stage is stuck without a tool it turns out to need. Use "listed" only when the person asks to limit an agent, and never "none", which leaves an agent no mcp__ tool at all. Set routes for a new process using existing or newly proposed agents. Change an existing process's routes only when the person asks to reconfigure it. Preserve any requested human approval points: a stage is a fresh agent whose only carried-in files are the previous worker stage's, and a person's approval unlocks only the stage that asked for it, so keep an approval and the action it authorises in the same stage. If an existing process cannot honor them, ask a concise question before proposing it.
 
-Before proposing a new process, ask the owner about every decision that shapes it which the request left open and your tools cannot find, in one ask_user_question with one entry per decision: what counts as a match (kinds, keywords to include and to exclude, budget, location, language), how many to handle per run, where results go, which actions wait for their approval, how often it runs, and which accounts it uses. Offer your best guess as the first option of each entry. Ask again when an answer opens a decision you could not see before, and stop once nothing left open would change the process. Never ask what the person already said.
+Before proposing a new process, ask the owner about every decision that shapes it which the request left open and your tools cannot find, in one ask_user_question with one entry per decision: what counts as a match (kinds, keywords to include and to exclude, budget, location, language), how many to handle per run, where results go, which actions wait for their approval, how often it runs, which accounts it uses, and, for anything sent in the owner's name, what it may say about them; their own account already shows who it is from, so nothing asks for their name or pronouns and drafts end without a signed name. Offer your best guess as the first option of each entry. Ask again when an answer opens a decision you could not see before, and stop once nothing left open would change the process. Never ask what the person already said.
 
-A schedule that watches for new things (new mail, new jobs, new tickets) is not the pipeline that handles them. Give the handling its own process with its stages and approval point, and schedule a watcher goal (create_goal with agents naming the agent that watches, then create_recurring_work) that checks the source, remembers what it already saw, and creates one item per new thing with bees_control create_item, naming that process exactly as process. An empty check then ends after one stage instead of walking every stage and asking the owner to approve nothing, and each new thing shows up on its own in the owner's attention list. The owner can also start a run in that process by hand, and without being told otherwise it would ask them which record to handle, so always end that process's description with this sentence, filled in for the source: "A run started here by hand, with no record in it, takes the next new <thing> from <source> that matches these filters and is not yet under <the key the watcher remembers filed things under>, adds it there, and continues with it."
+Work that finds its own records in a source that keeps changing (new mail, new jobs, new posts, new tickets) needs a watcher even when the person never said how often, so ask how often it runs and do not stop at the process that handles one record. The watcher is not the pipeline that handles them. Give the handling its own process with its stages and approval point, and give the watching its own process too, never Goals: one stage named for the check and routed to the agent that watches, a create_item in it, then create_recurring_work on that item. The watcher checks the source, skips what the handling process already holds (bees_control list_items with that process, since each scheduled run starts in a fresh folder), and creates one item per new thing with bees_control create_item, naming the handling process exactly as process. It files anyone whose own words show the need, not only those who ask outright, leaves each filter a later stage checks to that stage, and tries new wording until it fills the run's number or searches stop turning up anyone new. An empty check then ends after one stage instead of walking every stage and asking the owner to approve nothing, and each new thing shows up on its own in the owner's attention list. The owner can also start a run in that process by hand, and without being told otherwise it would ask them which record to handle, so always end that process's description with this sentence, filled in for the source: "A run started here by hand, with no record in it, takes the next new <thing> from <source> that matches these filters and is not yet under <the key the watcher remembers filed things under>, adds it there, and continues with it."
 
 Resolved references in the request are stable identities. Use their ids when selecting an existing process or agent. A human or work reference supplies context; it does not authorize a notification or a change to that resource. A file reference already supplies the exact file as an input snapshot; do not attach its whole parent folder. A process-template reference supplies the saved stages: only instantiate it when requested, using create_process with template set to its id. References are preserved through Apply even if you summarize the request.
 
 Build the whole setup: propose every MCP connection a stage needs, install_skill for each skill that helps a stage do its work better and is not installed yet (bees_list_skill_pack names them), and a schedule when the person specifies recurrence. A request only to configure a resource does not also need a work item. Reuse the configured model; do not invent a provider/model or require a second provider. Model connections and local model downloads are managed through the model settings screen, not proposal actions. The selected model follows the resulting work; never claim an unavailable connection is usable. Explain any missing access in the proposal.
 
-Applying a proposal sets the work up and starts nothing, so never say in a summary or a question that a run begins when the plan is applied.
+Applying a proposal starts no run: its schedules are on and first run at their next time, so never say in a summary or a question that a run begins when the plan is applied.
 
 A run only sees the team folders attached to its item: when the outcome reads or changes files in a team folder listed in the brief, the create_item or create_goal must carry that folder in inputLocations and, if files change, as outputLocation. Attach a folder only when the outcome is about the files in it; most outcomes need none.
 
@@ -416,11 +416,12 @@ export function safeRecoverySeed(events) {
   });
 }
 
-// a restart mid-call is no reason to stop the run: these only look, delegating again reuses peers by title, and app records upsert by key
+// a restart mid-call is no reason to stop the run: these only look, delegating again reuses peers by title, app records upsert by key, and a stage result commits in one transaction that a resubmit finds
 const REPEATABLE_TOOLS = ["read", "read_image", "glob", "grep", "web_search", "web_fetch", "bees_fetch_page",
   "bees_search_web", "bees_search_news", "bees_search_knowledge", "bees_read_knowledge", "bees_read_context",
   "bees_read_tool_result", "bees_read_work_evidence", "bees_find_tools", "bees_search_mcp_registry", "bees_list_skill_pack", "bees_wait_for_peers",
-  "bees_delegate_work", "bees_app_read", "bees_app_query", "bees_app_receipt", "bees_app_source", "bees_app_record"];
+  "bees_delegate_work", "bees_app_read", "bees_app_query", "bees_app_receipt", "bees_app_source", "bees_app_record",
+  "bees_submit_stage_result"];
 
 /** DSH seeds only complete turns. Preserve completed tools in the interrupted turn as evidence. */
 export function recoveryToolContext(events, pending, ownerChecked = false) {
@@ -969,8 +970,8 @@ export class AgentRuntime {
           idempotencyKey: `${pending.kind}-${answered ? "answered" : "cancelled"}:${sessionId}:${callId}`
         });
         this.audit(`${pending.kind}-${answered ? "answered" : "cancelled"}`, executionId, sessionId, { callId });
-        // the run's own browser, not the other team's, or the window it raised stays on screen
-        this.track(hideAgentBrowser(browserModeFor(this.database, this.live.get(executionId)?.data?.workspaceId)));
+        // the window this run raised, and it stays up while another run is still signing in on it
+        this.track(hideAgentBrowser(executionId));
       }
       const output = {
         sessionId,
@@ -1261,7 +1262,7 @@ export class AgentRuntime {
     }));
     if (!installedApp && data.mode === "work" && this.command && this.capabilities) agentCtx.tools.register(defineTool({
       name: "bees_control",
-      description: "Build Bees itself when the task needs more than this run: processes with stages, work items in them, agents with their own instructions, MCP servers and skills. When a task or stage says build, create, set up, schedule or run one of those, calling this tool is the deliverable; writing a document about it is not. Same actions and inputs the Bees screens send; the team is filled in for you. list_items {} -> the team's work items with title, process, stage, phase and updatedAt; read this before reporting on what the team did. list_processes {} -> each process with its output folder, stages, the agents routed to each stage, and its schedules; read it to check what you built before you submit. list_agents {} -> the team's agents with id, name and description; check it before adding one. This tool is the only way into Bees, so never read or change its data folder, database or local server from a shell. "
+      description: "Build Bees itself when the task needs more than this run: processes with stages, work items in them, agents with their own instructions, MCP servers and skills. When a task or stage says build, create, set up, schedule or run one of those, calling this tool is the deliverable; writing a document about it is not. Same actions and inputs the Bees screens send; the team is filled in for you. list_items {process?: its exact name} -> the team's work items, or that process's, with title, description, process, stage, phase and updatedAt; read this before reporting on what the team did. list_processes {} -> each process with its output folder, stages, the agents routed to each stage, and its schedules; read it to check what you built before you submit. list_agents {} -> the team's agents with id, name and description; check it before adding one. This tool is the only way into Bees, so never read or change its data folder, database or local server from a shell. "
         + "create_process {name, description, stages: [\"Stage name\", ...] or [{name, driver?: agent|discussion|review|terminal, requiresHumanApproval?: true}]} -> {id, stages: [{id, name}]}. create_item {processId or process: its exact name, title, description, stageId?, agentIds?} -> {id}; the item starts at once and runs on its own in its process, writing its files to its own run rather than your outputs/, so report it as started, follow it with list_items and never redo its stages here. create_goal {title, description} -> {id}. create_recurring_work {name, itemId?, description?, frequency: hourly|daily|weekly|monthly|advanced, everyMinutes?, hour?, minute?, timezone?, dayOfWeek?: day name, dayOfMonth?, cronExpression?} schedules itemId, or this run's primary work item without it, starts active, and returns {id, sourceWorkItemId, timezone, nextRunAt}; an item has one schedule, so scheduling it again replaces its timing and description. Every scheduled run repeats description, or that item's description without it, and none of this run's answers, so put in description everything each run needs; when this run sets up a process for repeating work, create_item in that process with what each run does and schedule that item. "
         + "add_agent_assignment {presetId: \"standard\", name, description, instructions, model?, mcpAccess: all|listed, mcpServers?} -> {id}; give it all unless the task limits it, so it reaches every server the team has. edit_agent_assignment {agent, description?, instructions?, model?, mcpAccess?, mcpServers?} changes an agent that already exists; never clone one under a new name. set_stage_route {stageId, agentIds: [assignment ids]}. "
         + `search_mcp_registry {query}, only for a service no catalogId covers. install_mcp_server {catalogId: one of ${CATALOG_IDS}, inputs?: {curl | apiBaseUrl | openapiSpec}, secrets: {NAME: value}}, where catalogId openapi-bridge with inputs {curl} turns any REST API into tools (write a per-call id in the path as {name}), and another curl to the same API adds its endpoints and query parameters to that server with the saved credential, so add a missing endpoint or parameter yourself; ${SIGN_IN_LABELS} come only from the owner's own Google sign-in on the Add-ons page and ${FOLDER_LABELS} from a person there who picks the folder it may reach, so ask for one there when the task needs it, never a registry stand-in; add_mcp_server {serverName, transport: stdio|streamable-http, command?, args?: [one argument per item], url?, secrets: {NAME: value}} -> {id}; a server you install is usable in this run at once as mcp__<serverName>__ tools. `
@@ -1342,7 +1343,7 @@ export class AgentRuntime {
       description: "Submit a reviewable Bees proposal. This stores a preview only; the user must apply it in Bees.",
       parameters: {
         proposal_title: { type: "string", required: true, description: "Short proposal title." },
-        proposal_summary: { type: "string", required: true, description: "Why these changes meet the outcome, and which schedules the owner resumes: planned schedules start paused." },
+        proposal_summary: { type: "string", required: true, description: "Why these changes meet the outcome, and when each schedule first runs: planned schedules are on." },
         changes_json: {
           type: "string", required: true,
           description: "JSON array, applied in order. Kinds: {action:'create_goal',title,description,agents?:[agent name],inputLocations?:[folder name],outputLocation?:folder name}; {action:'create_process',name,description,template?:template name or id,stages:['Stage name'] or [{name,driver?:'agent'|'discussion'|'review'|'terminal',requiresHumanApproval?:true}]}; {action:'create_item',process,title,description,inputLocations?:[folder name],outputLocation?:folder name}; {action:'add_agent_assignment',presetId:'standard',name,description,instructions,model?,mcpAccess?:'all'|'listed',mcpServers?:[server name]}; {action:'edit_agent_assignment',agent,description?,instructions?,model?,mcpAccess?,mcpServers?} for an agent that already exists, instead of a copy under a new name; {action:'set_stage_route',process,stage,agents:[agent name]}; {action:'install_mcp_server',catalogId,inputs?:{curl|apiBaseUrl|openapiSpec},secrets:{NAME:value}}; {action:'add_mcp_server',serverName,transport:'stdio'|'streamable-http',command?,args?:[argument],url?,secrets:{NAME:value}}; {action:'install_skill',repo,directory}; {action:'create_recurring_work',item,name,frequency,...} where frequency 'hourly' is an interval and takes everyMinutes (5 for every five minutes), 'daily'|'weekly'|'monthly' take hour, minute?, timezone? (default: this device's) and dayOfWeek? or dayOfMonth?, 'advanced' takes cronExpression. A stage is just its name. Put reusable workflow instructions and completion criteria in the process description, shared with every assigned agent; put each run's requested outcome in the item's description. inputLocations and outputLocation name team folders from the brief; set both when the outcome reads or changes files in one. mcpServers names installed servers from the brief or the catalogId of one installed in this proposal, except openapi-bridge, which is named after its API host (https://api.open-meteo.com gives open-meteo); the filesystem and git servers are added by the person on the Add-ons page, where they pick the folder it may reach, so ask them there when the work needs one rather than proposing it. Give every agent mcpAccess all, which reaches every server the team has and every one this proposal installs; listed only when the person asks to limit an agent, and never none, which leaves it no mcp__ tool at all. process and agents reference active resources from the brief by exact name or id, or resources created earlier in this array. stage names a stage in that process. item must name a create_goal or create_item earlier in the array; put its schedule afterwards. Default example: [{action:'create_goal',title:'Morning brief',description:'Read the requested sources and summarize them.'},{action:'create_recurring_work',item:'Morning brief',name:'Daily brief',frequency:'daily',hour:9}]. Only for an explicitly requested new reusable workflow, example: [{action:'add_agent_assignment',presetId:'standard',name:'Researcher',description:'Finds sources',instructions:'Only cite pages you opened.'},{action:'create_process',name:'Weekly brief',description:'...',stages:['Research','Approve','Publish']},{action:'set_stage_route',process:'Weekly brief',stage:'Research',agents:['Researcher']},{action:'create_item',process:'Weekly brief',title:'First brief',description:'...'}]."
@@ -1616,11 +1617,14 @@ export class AgentRuntime {
         const findings = args.outcome === "revise" ? this.workContext.findings(executionId, args.findings_json) : [];
         if (findings.length) result.summary += "\nRequired corrections:\n" + findings.map((f) => `- ${f.evidence} Fix: ${f.change}`).join("\n");
         if (result.summary.length > 6000) throw new Error("Keep review findings and summary within 6000 characters");
+        const review = result.summary;
         // Keep the deliverable visible in the final reviewed result shown to the user.
         if (data.stagePurpose === "reviewer" && args.outcome === "pass") {
           const candidate = this.stageResult(data.candidateExecutionId);
-          if (candidate?.summary && !result.summary.includes(candidate.summary))
-            result.summary = `${candidate.summary}\n\nReview: ${result.summary}`.slice(0, 6000);
+          // the verdict stays whole, so a long deliverable is the part that gets cut
+          const room = 6000 - `\n\nReview: ${review}`.length;
+          if (candidate?.summary && room > 0 && !review.includes(candidate.summary))
+            result.summary = `${candidate.summary.slice(0, room)}\n\nReview: ${review}`;
         }
         // a model may claim files it never wrote; only a candidate's claims are checked, not blocked reports or reviewers
         const files = workspace && !installedApp && data.stagePurpose !== "reviewer" && args.outcome === "candidate"
@@ -1672,9 +1676,15 @@ export class AgentRuntime {
         }
         if (args.outcome !== "blocked") {
           // a lead told to wait often just ends its turn, which failed the whole run, so wait for running children here
+          const parked = ["completed", "cancelled", "failed", "waiting", "paused"];
           const running = data.workItemId ? delegationEvidence(this.database, data.workItemId).peers
-            .filter(({ phase }) => !["completed", "cancelled", "failed", "waiting", "paused"].includes(phase)).map(({ id }) => id) : [];
-          if (running.length) await this.waitForPeers(running, exec.signal, data.workItemId);
+            .filter(({ phase }) => !parked.includes(phase)).map(({ id }) => id) : [];
+          // a peer's note must not end this wait and fail the submit, and a child waiting on this lead gets no-progress, not a deadlock
+          if (running.length) {
+            this.peerWaiters.add(data.workItemId);
+            try { await this.waitForPeers(running, exec.signal, null, parked); }
+            finally { this.peerWaiters.delete(data.workItemId); }
+          }
           assertPeersSettled(this, data, ["candidate", "pass"].includes(args.outcome) ? result.summary : "");
           if (this.pendingJobs(exec.agent).length)
             throw new Error("Background jobs are still running. Collect their results before submitting this stage.");
@@ -1687,8 +1697,8 @@ export class AgentRuntime {
           if (pinned && args.outcome === "pass" && this.memory) {
             const candidate = this.stageResult(data.candidateExecutionId);
             this.memory.remember(data.workspaceId,
-              (`Task: ${pinned.content.goal.title}\nAccepted outcome: ${candidate?.summary ?? result.summary}`).slice(0, 12000),
-              ("Independent review " + executionId + ": " + result.summary).slice(0, 6000), "review-" + executionId);
+              (`Task: ${pinned.content.goal.title}\nAccepted outcome: ${candidate?.summary ?? review}`).slice(0, 12000),
+              ("Independent review " + executionId + ": " + review).slice(0, 6000), "review-" + executionId);
           }
         });
         if (pinned && args.outcome === "pass" && this.memory) {
@@ -1813,7 +1823,7 @@ export class AgentRuntime {
       next_evidence_offset: evidenceOffset + 40 < evidence.length ? evidenceOffset + 40 : null };
   }
 
-  async waitForPeers(ids, signal, callerId) {
+  async waitForPeers(ids, signal, callerId, settled = ["completed", "failed", "cancelled"]) {
     const pinned = callerId ? this.workContext.latest(callerId) : null;
     const cursor = pinned ? this.database.prepare("SELECT coalesce(max(seq), 0) AS seq FROM bees_work_updates WHERE root_id = ?").get(pinned.rootId).seq : null;
     const messageArrived = pinned ? this.database.prepare(`SELECT 1 FROM bees_work_updates
@@ -1841,7 +1851,7 @@ export class AgentRuntime {
         unsubscribe();
         throw new Error("Delegated work disappeared");
       }
-      if (rows.every(({ status }) => ["completed", "failed", "cancelled"].includes(status)) ||
+      if (rows.every(({ status }) => settled.includes(status)) ||
           messageArrived?.get(pinned.rootId, cursor, callerId, pinned.executionId)) {
         unsubscribe();
         return Promise.all(rows.map(async (row) => ({
@@ -1850,11 +1860,14 @@ export class AgentRuntime {
           ...(row.error ? { error: row.error } : {})
         })));
       }
+      // the losing 5 s timer and its abort listener stay alive unless this cancels them
+      const tick = new AbortController();
       try {
         await (this.subscribe
-          ? Promise.race([changed, delay(5_000, undefined, signal ? { signal } : undefined)])
+          ? Promise.race([changed, delay(5_000, undefined, { signal: signal ? AbortSignal.any([signal, tick.signal]) : tick.signal })])
           : changed);
       } finally {
+        tick.abort();
         unsubscribe();
       }
     }
@@ -2290,8 +2303,14 @@ export class AgentRuntime {
       const hint = result.error.code === "TRANSPORT" || /^connection error\.?$/i.test(String(result.error.message ?? "").trim())
         ? " Check this agent's model under Agents and its connection under Settings → AI connections before retrying."
         : "";
-      result = { ...result, error: { ...result.error,
-        message: `${detail}: ${result.error.message}${hint}` } };
+      const raw = String(result.error.message ?? "");
+      // CLI providers word it their own way ("usage limit has been reached", "hit your weekly limit · resets 12:45pm")
+      const quota = ["QUOTA", "ACCOUNT_QUOTA"].includes(result.error.code) || isQuotaExceededError(raw) ||
+        /\busage limit\b|\bhit your (?:[\w-]+ )?limit\b|\b(?:weekly|daily|monthly|\d+-hour) limit\b/i.test(raw);
+      const reset = raw.match(/\b(?:resets?|try again at)\b[^.\n|]*/i)?.[0].trim();
+      result = { ...result, error: quota
+        ? { ...result.error, code: "QUOTA", providerMessage: raw, message: `${detail}: ${model ? String(model).split(" · ")[0] : "The model provider"} is out of quota${reset ? ` (${reset})` : ""}. Try again after it resets, or pick another model for this agent under Agents.` }
+        : { ...result.error, message: `${detail}: ${raw}${hint}` } };
       this.ctx.logger?.warn?.(`bees: execution=${executionId} session=${sessionId} code=${result.error.code ?? "unknown"}: ${result.error.message}`);
     }
     const at = new Date().toISOString();
@@ -2310,6 +2329,8 @@ export class AgentRuntime {
     const live = this.live.get(executionId);
     live?.approvalAbort.abort();
     this.live.delete(executionId);
+    // a run that ended mid sign-in would otherwise keep the window up for every run after it
+    this.track(hideAgentBrowser(executionId));
     await handle.dispose().catch(() => undefined);
   }
 

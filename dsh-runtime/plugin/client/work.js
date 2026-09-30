@@ -265,6 +265,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
   // have a pending question — those can differ once a work item has more than one execution.
   const activeRun = run?.ranElsewhere ? null : run?.sessionId ? run : itemRuns.find(({ sessionId }) => sessionId);
   const liveRevision = useBeesChangeRevision();
+  const itemIdRef = useRef(item.id);
+  itemIdRef.current = item.id;
   useEffect(() => {
     setSelectedRun(""); setHandled(new Set()); setActiveTab("files");
     setHistory(null); setComposerText(""); setDiscussion(null);
@@ -291,7 +293,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
       },
       onError: (error) => setHistoryError(error instanceof Error ? error.message : String(error))
     });
-  }, [run?.id, refreshCount, liveRevision]);
+  // pollConversation repolls every 2s by itself, and a change event here would abort the request in flight
+  }, [run?.id, refreshCount]);
   const isScrolledUpRef = React.useRef(false);
   useEffect(() => { isScrolledUpRef.current = false; }, [item.id]);
   const edit = async () => { /* reuse edit logic */
@@ -428,6 +431,8 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
       const mention = composerMention;
       if (!text || sending || (!mention && run?.ranElsewhere)) return;
       isScrolledUpRef.current = false;
+      // the reply can land after the person opened another item, so drop it then
+      const stale = () => itemIdRef.current !== item.id;
       setSendError(""); setSendNotice("");
       if (mention) {
         if (!mention.body) { setSendError("Add a message after the teammate tag."); return; }
@@ -438,6 +443,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
             targetId: mention.recipient.targetId
           }) });
           const updated = await request("/bees-api/command", { method: "POST", body: JSON.stringify({ action: "read_work_discussion", itemId: item.id }) });
+          if (stale()) return;
           setDiscussion(updated); setComposerText("");
           const recipients = mention.recipient.id === "everyone" ? updated.participants
             : mention.recipient.targetId ? updated.participants.filter((peer) => peer.id === mention.recipient.targetId)
@@ -445,7 +451,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
           setSendNotice(recipients.some((peer) => ["ready", "queued", "running", "waiting"].includes(peer.status))
             ? "Shared with the team. Active agents can read it on their next step."
             : "Saved to Discussion. This teammate has finished; the message will not restart them. Arrange a follow-up to get a reply.");
-        } catch (reason) { setSendError(reason instanceof Error ? reason.message : String(reason)); }
+        } catch (reason) { if (!stale()) setSendError(reason instanceof Error ? reason.message : String(reason)); }
         finally { setSending(false); }
         return;
       }
@@ -465,10 +471,11 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
           if (!result.ok) throw result.error;
           await request("/bees-api/command", { method: "POST", body: JSON.stringify({ action: "record_owner_message", executionId: activeRun.id, text }) });
         }
-        setComposerText("");
-      } catch (reason) { setSendError(reason instanceof Error ? reason.message : String(reason)); }
+        if (!stale()) setComposerText("");
+      } catch (reason) { if (!stale()) setSendError(reason instanceof Error ? reason.message : String(reason)); }
       finally {
         setSending(false);
+        if (stale()) return;
         setRefreshCount((count) => count + 1);
         setTimeout(() => setRefreshCount((count) => count + 1), 500);
       }
