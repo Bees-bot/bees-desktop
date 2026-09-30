@@ -1610,11 +1610,14 @@ export class AgentRuntime {
         const findings = args.outcome === "revise" ? this.workContext.findings(executionId, args.findings_json) : [];
         if (findings.length) result.summary += "\nRequired corrections:\n" + findings.map((f) => `- ${f.evidence} Fix: ${f.change}`).join("\n");
         if (result.summary.length > 6000) throw new Error("Keep review findings and summary within 6000 characters");
+        const review = result.summary;
         // Keep the deliverable visible in the final reviewed result shown to the user.
         if (data.stagePurpose === "reviewer" && args.outcome === "pass") {
           const candidate = this.stageResult(data.candidateExecutionId);
-          if (candidate?.summary && !result.summary.includes(candidate.summary))
-            result.summary = `${candidate.summary}\n\nReview: ${result.summary}`.slice(0, 6000);
+          // the verdict stays whole, so a long deliverable is the part that gets cut
+          const room = 6000 - `\n\nReview: ${review}`.length;
+          if (candidate?.summary && room > 0 && !review.includes(candidate.summary))
+            result.summary = `${candidate.summary.slice(0, room)}\n\nReview: ${review}`;
         }
         // a model may claim files it never wrote; only a candidate's claims are checked, not blocked reports or reviewers
         const files = workspace && !installedApp && data.stagePurpose !== "reviewer" && args.outcome === "candidate"
@@ -1681,8 +1684,8 @@ export class AgentRuntime {
           if (pinned && args.outcome === "pass" && this.memory) {
             const candidate = this.stageResult(data.candidateExecutionId);
             this.memory.remember(data.workspaceId,
-              (`Task: ${pinned.content.goal.title}\nAccepted outcome: ${candidate?.summary ?? result.summary}`).slice(0, 12000),
-              ("Independent review " + executionId + ": " + result.summary).slice(0, 6000), "review-" + executionId);
+              (`Task: ${pinned.content.goal.title}\nAccepted outcome: ${candidate?.summary ?? review}`).slice(0, 12000),
+              ("Independent review " + executionId + ": " + review).slice(0, 6000), "review-" + executionId);
           }
         });
         if (pinned && args.outcome === "pass" && this.memory) {

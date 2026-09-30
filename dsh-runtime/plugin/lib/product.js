@@ -214,11 +214,10 @@ export class BeesProduct {
     const executionId = required(stage.executionId, "Execution");
     const reviewer = stage.purpose === "reviewer";
     const candidateExecutionId = stage.candidateExecutionId
-      ?? (reviewer ? this.workContext.latestCandidate(item.id, executionId) : null);
-    // Without it the reviewer would be sent to a candidate folder that was never staged, and its
-    // verdict could never be recorded.
+      ?? (reviewer ? this.workContext.latestCandidate(item.id) : null);
+    // a retry would land on this same review, so send it back to the work stage instead of failing
     if (reviewer && !candidateExecutionId)
-      throw new Error("This review has no candidate to check yet; retry once the work stage has finished");
+      return { outcome: "revise", summary: "Nothing has been produced to review yet. Do the work first, then send it for review." };
     const root = this.workContext.lineage(item.id)[0];
     const runDirectory = this.workContext.directory(item.id);
     let assignment;
