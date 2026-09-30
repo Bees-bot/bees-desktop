@@ -225,8 +225,8 @@ window.__ModuleLoader__.load({
       const lowMemory = recommended && !recommendedStatus?.running && hardware &&
         recommended.bytes + 2 * 1024 ** 3 > hardware.availableMemory;
       return h("div", { className: "bees-stack" },
-        productDefaults ? null : h("section", { className: "bees-callout" },
-          h("h3", null, recommended ? `Suggested for this computer: ${recommended.name}` : "Bees AI setup"),
+        productDefaults ? null : h("section", { className: "bees-callout", style: { marginBottom: "24px" } },
+          h("h4", { style: { margin: "0 0 8px 0" } }, recommended ? `Suggested for this computer: ${recommended.name}` : "Bees AI setup"),
           h("p", { className: "bees-muted" }, hardware
             ? `${bytes(hardware.totalMemory)} memory · ${bytes(hardware.availableMemory)} estimated available · ${hardware.availableDisk == null ? "Free disk space unavailable" : `${bytes(hardware.availableDisk)} free disk space`}`
             : `Bees could not read this computer's memory${hardwareError ? `: ${hardwareError}` : ""}. Choose an installed model or review the sizes below.`),
@@ -238,8 +238,9 @@ window.__ModuleLoader__.load({
           recommended ? h(Button, { className: "primary", disabled: Boolean(recommendedStatus?.running) || busy.some((key) => key.endsWith(`:${recommended.id}`)),
             onClick: () => run(recommended) }, recommendedStatus?.running ? "Model running"
               : recommendedStatus?.state === "ready" ? "Use installed model" : `Download and use · ${bytes(recommended.bytes)}`) : null),
-        h("div", { className: "bees-local-model-head" },
-          h("p", { className: "bees-muted" }, productDefaults ? "Models listed here ship in the Bees catalog. Downloads and running models remain personal." : "Models stay private on this device. Run as many as this computer's memory can hold."),
+        h("div", { className: "bees-ai-head", style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "14px", marginBottom: "16px" } }, h("div", null,
+          h("h3", { className: "bees-section-title", style: { marginBottom: "4px" } }, "Bees AI — local models"),
+          h("p", { className: "bees-muted", style: { margin: 0 } }, productDefaults ? "Models listed here ship in the Bees catalog. Downloads and running models remain personal." : "Models stay private on this device. Run as many as this computer's memory can hold.")),
           productDefaults ? h(Button, { className: "primary", onClick: addModel }, "Add a model") : null),
         h("div", { className: "bees-local-model-table" }, h("table", null,
           h("thead", null, h("tr", null,
@@ -296,9 +297,9 @@ window.__ModuleLoader__.load({
 
     function LocalAiSettings({ modelSettings, preferences, catalog, ask, confirmAction, Button }) {
       return h("section", { "data-bees-plugin": "@bees/dsh-local-ai" },
-        h("h2", { className: "bees-section-title" }, "Bees AI"),
-        h("p", { className: "bees-muted" }, "Bees downloads and starts GGUF models for you. Use the switches to keep a model downloaded or run it."),
-        h("p", { className: "bees-muted" }, "Runs on this Mac. Nothing leaves it."),
+        h("div", { className: "bees-ai-head", style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "14px", marginBottom: "16px" } }, h("div", null,
+          h("h3", { className: "bees-section-title", style: { marginBottom: "4px" } }, "BEES AI"),
+          h("p", { className: "bees-muted", style: { margin: 0 } }, "Run AI completely locally on your hardware."))),
         h(LocalModels, { modelSettings, preferences, catalog, ask, Button, confirmAction }));
     }
 
@@ -368,13 +369,13 @@ window.__ModuleLoader__.load({
         await modelSettings.set("providers", providers);
       };
       return h("section", { "data-bees-plugin": "@bees/dsh-local-ai-external" },
-        h("h2", { className: "bees-section-title" }, "Another local AI server"),
-        h("p", { className: "bees-muted" }, "Connect LM Studio, Ollama, llama.cpp, or another OpenAI-compatible server that you run separately."),
-        h("p", { className: "bees-muted" }, "Runs on a server you control. Nothing goes through Bees."),
+        h("div", { className: "bees-ai-head", style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "14px", marginBottom: "16px" } }, h("div", null,
+          h("h3", { className: "bees-section-title", style: { marginBottom: "4px" } }, "Another local AI server"),
+          h("p", { className: "bees-muted", style: { margin: 0 } }, "Connect LM Studio, Ollama, llama.cpp, or another OpenAI-compatible server that you run separately."))),
         h("section", { className: "bees-box bees-subscription" }, h("div", null, h("h3", null, local.displayName ?? "OpenAI-compatible local server"),
           h("p", { className: "bees-muted" }, local.baseURL ? `${local.baseURL} · ${local.models?.length ?? 0} model${local.models?.length === 1 ? "" : "s"}` : "Not connected"),
-          local.baseURL ? h("div", { className: "bees-local-server-models" },
-            ...(local.models ?? []).map((model) => h("span", { className: "bees-badge", key: model.id }, model.id,
+          local.baseURL ? h("div", { className: "bees-local-server-models", style: { display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center", marginTop: "8px" } },
+            ...(local.models ?? []).map((model) => h("span", { className: "bees-badge", key: model.id, style: { display: "inline-flex", alignItems: "center", gap: "4px" } }, model.id,
               h(Button, { title: protects(model.id) ? defaultGuard : `Delete ${model.id}`, "aria-label": `Delete ${model.id}`,
                 disabled: local.models.length <= 1 || protects(model.id),
                 onClick: () => removeModel(model.id) }, "×"))),

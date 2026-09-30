@@ -35,7 +35,7 @@ export function referenceRows(database, workspaceId) {
       WHERE tm.user_id IS NOT NULL OR om.role IN ('owner', 'admin')`).all(workspace.teamId, workspace.teamId),
     ...database.prepare(`SELECT w.id, w.title AS label, 'work-item' AS kind, w.description,
         w.runtime_phase AS phase, p.name AS process FROM work_items w JOIN processes p ON p.id = w.process_id
-      WHERE p.workspace_id = ? AND w.deleted_at IS NULL`).all(workspaceId),
+      WHERE p.workspace_id = ? AND p.archived_at IS NULL AND w.archived_at IS NULL AND w.deleted_at IS NULL`).all(workspaceId),
     ...database.prepare(`SELECT id, name AS label, 'process' AS kind, description
       FROM processes WHERE workspace_id = ? AND archived_at IS NULL`).all(workspaceId),
     ...database.prepare(`SELECT id, name AS label, 'process-template' AS kind, description, stages_json AS stagesJson

@@ -438,7 +438,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
       team = nextConnectionId
         ? await collaboration("create_team", { name: "Default", connectionId: nextConnectionId })
         : await act({ action: "create_team", organizationId, name: "Default" }, {});
-      if (!team?.id) throw new Error("Workspace created. Open it and add a team to continue.");
+      if (!team?.id) throw new Error("Work organization created. Open it and add a team to continue.");
       await load();
     }
     setScope(team ? `team:${team.id}` : `organization:${organizationId}`, nextConnectionId);
@@ -515,20 +515,11 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
     setError(id && unstarted.current.id === id ? unstarted.current.note : ""); setRoute("all-work"); setProcessId(""); setWorkItemId(id ?? "");
     setWorkProcessId(processForWork); setCreating(id ? "" : processForWork ? "run" : "work");
   };
-  // A question waiting for you is not a workspace thing, so that route covers every workspace. The
-  // Needs you count and the page it opens both read this, or the number and the list disagree.
-  const scopeFor = (targetRoute) => targetRoute === "waiting" ? (data.workspaces ?? []).map(({ id }) => id) : workspaceIds;
   const rowsForRoute = (targetRoute) => {
     const target = sectionFor(targetRoute);
     const openRoute = () => navigate(targetRoute);
-    if (target.id === "work") return workItemsFor(viewData, targetRoute, scopeFor(targetRoute))
-      .map((item) => ({ id: item.id, label: item.title, item, open: () => {
-        // a waiting row can belong to another team, so open it inside that team
-        const workspace = data.workspaces.find(({ id }) => id === data.processes.find(({ id }) => id === item.processId)?.workspaceId);
-        if (workspace && workspace.id !== parts.workspaceId)
-          setScope(`team:${workspace.teamId}`, connectionIdForScope(data, `team:${workspace.teamId}`, connectionId));
-        openWorkItem(item.id);
-      } }));
+    if (target.id === "work") return workItemsFor(viewData, targetRoute, workspaceIds)
+      .map((item) => ({ id: item.id, label: item.title, item, open: () => openWorkItem(item.id) }));
     if (target.id === "processes") {
       if (targetRoute === "templates") return (data.templates ?? []).filter((row) => workspaceIds.includes(row.workspaceId))
         .map((row) => ({ id: row.id, label: row.name, open: openRoute }));
@@ -646,16 +637,16 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
         }, go: goSetup, start: startFirstTask, openWorkItem: openStarter, navigate })
     : route === "create-organization" ? h(CreateOrganizationPage, { reload: load, createLocal: createLocalOrganization, onboarding: onboarding.active, onCreated: finishOrganization })
     : route === "basics" ? h(BasicsPage, { navigate, onStart: async () => {
-        await updateOnboarding({ active: true, step: parts.teamId ? 3 : 0 });
+        await updateOnboarding({ active: true, finished: false, step: parts.teamId ? 3 : 0 });
         navigate("getting-started");
       } })
     : route === "guide" ? h(GuidePage)
     : route === "accounts" ? h(AccountsPage, { reload: load })
     : route === "apps" ? h(AppsPage, { key: `${parts.workspaceId}:${connectionId}`, workspaceId: parts.workspaceId, connectionId, openWorkItem })
-    : section.id === "work" ? h(WorkPage, { ctx, data: viewData, route, workspaceIds: scopeFor(route), workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, setWorkProcessId, act, capabilities, preference, preferences, setPageActions, setPageHeader })
+    : section.id === "work" ? h(WorkPage, { ctx, data: viewData, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, workItemId, setWorkItemId, creating, setCreating, defaultProcessId: workProcessId, setWorkProcessId, act, capabilities, preference, preferences, setPageActions, setPageHeader })
       : section.id === "processes" ? h(ProcessesPage, { ctx, data: viewData, servers: capabilities.data?.servers ?? [], tools: capabilities.data?.tools ?? [], catalog: capabilities.data?.catalog ?? [], onServerAction: capabilities.act, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act, preference, preferences, setPageActions, setPageHeader })
-        : route === "skills" ? h(SkillsPage, { capabilities })
-        : route === "mcp" ? h(McpPage, { ctx, capabilities })
+        : route === "skills" ? h(SkillsPage, { capabilities, preference, preferences, setPageActions })
+        : route === "mcp" ? h(McpPage, { ctx, capabilities, preference, preferences, setPageActions })
         : section.id === "agents" ? h(AgentsPage, { ctx, data: viewData, servers: capabilities.data?.servers ?? [], tools: capabilities.data?.tools ?? [], catalog: capabilities.data?.catalog ?? [], onServerAction: capabilities.act, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings"), preference, preferences, setPageActions, setPageHeader })
           : section.id === "files" ? h(FilesPage, { ctx, data: viewData, teamId: parts.teamId, act })
             : section.id === "activity" ? h(ActivityPage, { data: viewData, route, workspaceIds, openWorkItem, openProcess })
@@ -704,7 +695,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
         onDeleteDashboard: deleteDashboard,
         organizationColors: preference.organizationColors ?? {} }),
       h("div", { className: "bees-sidebar-foot" },
-        h("button", { className: `bees-nav-link bees-utility-link ${route === "getting-started" ? "active" : ""}`, "aria-current": route === "getting-started" ? "page" : null, onClick: () => { void updateOnboarding({ active: true }); navigate("getting-started"); } }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(BookIcon)), h("span", null, "Getting started")),
+        h("button", { className: `bees-nav-link bees-utility-link ${route === "getting-started" ? "active" : ""}`, "aria-current": route === "getting-started" ? "page" : null, onClick: () => { void updateOnboarding({ active: true, finished: false }); navigate("getting-started"); } }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(BookIcon)), h("span", null, "Getting started")),
         h("button", { className: `bees-nav-link bees-utility-link ${route === "basics" ? "active" : ""}`, "aria-current": route === "basics" ? "page" : null, onClick: () => navigate("basics") }, h("span", { style: { display: "flex", width: 18, color: "var(--dsw-alias-label-secondary)" } }, h(KnowledgeIcon)), h("span", null, "Bees basics")),
         h("button", { className: `bees-nav-link bees-utility-link bees-accounts-link ${route === "accounts" ? "active" : ""}`, "aria-current": route === "accounts" ? "page" : null, onClick: () => navigate("accounts") },
           (() => {
@@ -731,7 +722,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
         }, "Create new Dashboard") : null),
       platform.editing ? h("div", { className: "bees-callout", role: "status", "data-product-defaults": true },
         "Editing product defaults — saved changes apply here and ship in future builds. Personal settings take priority.") : null,
-      onboarding.active && route === "home" ? h(GettingStartedBar, { state: onboarding, update: updateOnboarding, navigate, aiStatus: aiReady ? "AI ready" : "AI setup can continue while you explore.", data, openWorkItem: openStarter }) : null,
+      onboarding.version && !onboarding.finished ? h(GettingStartedBar, { state: onboarding, update: updateOnboarding, navigate, aiReady, aiStatus: aiReady ? "AI ready" : "AI setup can continue while you explore.", data, openWorkItem: openStarter }) : null,
       error ? h("div", { className: "bees-error", role: "alert", style: { display: "flex", alignItems: "center", gap: "12px" } },
         h("span", { style: { flex: 1, minWidth: 0, overflowWrap: "anywhere" } }, error),
         h(Button, { onClick: () => setError(""), "aria-label": "Dismiss error" }, "Dismiss")) : null,
@@ -768,7 +759,7 @@ function AppHeader({ routeLabel, parts, ctx, preferences, children }) {
 
 
 function CreateOrganizationPage({ reload, createLocal, onboarding, onCreated }) {
-  const [name, setName] = useState(onboarding ? "My workspace" : "");
+  const [name, setName] = useState(onboarding ? "My work organization" : "");
   const [isLocal, setIsLocal] = useState(false);
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
@@ -834,7 +825,7 @@ function CreateOrganizationPage({ reload, createLocal, onboarding, onCreated }) 
   const accounts = (data?.accounts ?? []).filter(({ enabled }) => enabled !== false);
 
   return h("div", { className: "bees-stack", style: { maxWidth: 540, margin: "0 auto", padding: "32px 0" } },
-    h("h2", { style: { textAlign: "center", marginBottom: "24px" } }, "Create Organization"),
+    h("h2", { style: { textAlign: "center", marginBottom: "24px" } }, onboarding ? "Create work organization" : "Create Organization"),
     
     h("section", { className: "bees-box" },
       h("h3", null, "Organization Details"),

@@ -121,24 +121,12 @@ function ListWidget({ definition, rowsForRoute, navigate, data, act, openWorkIte
   );
 }
 
-function MetricsWidget({ rowsForRoute, records }) {
-  const metrics = [
-    ["Needs you", records.length],
-    ["Active process runs", rowsForRoute("all-work").length],
-    ["Process templates", rowsForRoute("all-processes").length],
-    ["Agents", rowsForRoute("all-agents").length]
-  ];
-  return h("div", { className: "bees-dashboard-metrics" }, ...metrics.map(([label, value]) =>
-    h("div", { className: "bees-dashboard-metric", key: label },
-      h("strong", null, String(value)), h("span", null, label))));
-}
-
 function QuickActionsWidget({ workspaceId, createWork, createProcess, createRun, createAgent }) {
   const actions = [
     ["New work item", createWork], ["New process template", createProcess],
     ["Start process run", createRun], ["New agent", createAgent]
   ];
-  return h("div", { className: "bees-dashboard-list" }, ...actions.map(([label, action]) =>
+  return h("div", { className: "bees-dashboard-list bees-dashboard-quick-actions" }, ...actions.map(([label, action]) =>
     h("button", { type: "button", className: "bees-btn bees-dashboard-row", key: label, disabled: !workspaceId, onClick: action }, label)));
 }
 
@@ -152,13 +140,12 @@ function ProposalsWidget({ data, workspaceIds, act }) {
 }
 
 const WIDGETS = [
-  { kind: "outcome", label: "What would you like to achieve?", description: "Create a goal from an outcome", w: 8, h: 5, component: OutcomeWidget , helpText: "Tell Bees what you want to achieve, and it will plan and execute the work to reach that outcome.", helpExamples: ["Research top CRM software and draft a comparison report","Launch the new marketing website","Summarize the latest product feedback"]},
-  { kind: "quick-actions", label: "Quick actions", description: "Create work, goals, process templates, process runs, and agents", w: 4, h: 5, component: QuickActionsWidget , helpText: "Shortcuts to create new items in your workspace quickly.", helpExamples: []},
-  { kind: "metrics", label: "Metrics", description: "Key team counts", w: 12, h: 3, component: MetricsWidget , helpText: "Quick overview of your team's activity and current capacity.", helpExamples: []},
-  { kind: "waiting", label: "Needs your attention", description: "Blocked and waiting work", route: "waiting", limit: 8, w: 6, h: 4, component: NeedsYouWidget , helpText: "Work items that are blocked and waiting for your input, approval, or intervention.", helpExamples: ["An agent needs your approval before sending an email","A process requires you to answer a clarifying question","A task failed and needs your attention to retry"]},
-  { kind: "recent-work", label: "Recent process runs", description: "Latest active process runs", route: "all-work", limit: 8, w: 6, h: 4, component: ListWidget , helpText: "The most recently active process runs in your workspace.", helpExamples: []},
+  { kind: "outcome", label: "What would you like to achieve?", description: "Create a goal from an outcome", w: 10, h: 4, component: OutcomeWidget , helpText: "Tell Bees what you want to achieve, and it will plan and execute the work to reach that outcome.", helpExamples: ["Research top CRM software and draft a comparison report","Launch the new marketing website","Summarize the latest product feedback"]},
+  { kind: "quick-actions", label: "Quick actions", description: "Create work, goals, process templates, process runs, and agents", w: 2, h: 4, component: QuickActionsWidget , helpText: "Shortcuts to create new items in your workspace quickly.", helpExamples: []},
+  { kind: "waiting", label: "Needs your attention", description: "Blocked and waiting work", route: "waiting", limit: 8, w: 5, h: 7, component: NeedsYouWidget , helpText: "Work items that are blocked and waiting for your input, approval, or intervention.", helpExamples: ["An agent needs your approval before sending an email","A process requires you to answer a clarifying question","A task failed and needs your attention to retry"]},
+  { kind: "recent-work", label: "Recent process runs", description: "Latest active process runs", route: "all-work", limit: 8, w: 7, h: 7, component: ListWidget , helpText: "The most recently active process runs in your workspace.", helpExamples: []},
   { kind: "goals", label: "Goals", description: "Current goals", route: "goals", w: 6, h: 5, component: ListWidget , helpText: "High-level outcomes you've asked Bees to achieve. Bees handles the step-by-step planning.", helpExamples: ["Migrate the database to the new server","Prepare the Q3 financial report"]},
-  { kind: "completed", label: "Completed process runs", description: "Recently completed process runs", route: "completed", w: 6, h: 5, component: ListWidget , helpText: "Process runs that have finished successfully or failed.", helpExamples: []},
+  { kind: "completed", label: "Completed runs", description: "Recently completed process runs", route: "completed", w: 12, h: 6, component: ListWidget , helpText: "Process runs that have finished successfully or failed.", helpExamples: []},
   { kind: "templates", label: "Process templates", description: "Reusable process definitions", w: 4, h: 5, component: TemplatesWidget , helpText: "Reusable definitions for your common processes. They define the stages and agents used for repeatable work.", helpExamples: ["Employee Onboarding process","Blog Post Publication process","Weekly Report Generation"]},
   { kind: "agents", label: "Agents", description: "Team agents", route: "all-agents", w: 6, h: 5, component: ListWidget , helpText: "The AI workers available in your team.", helpExamples: []},
   { kind: "runs", label: "Executions", description: "Recent agent executions", route: "runs", w: 6, h: 5, component: ListWidget , helpText: "Recent individual agent executions.", helpExamples: []},
@@ -216,7 +203,7 @@ export function Home({ ctx, data, workspaceId, act, openWorkItem, navigate, rows
     event.currentTarget.closest("details")?.removeAttribute("open");
   };
   const availableWidgets = WIDGETS.filter(({ kind }) => !dashboard.widgets.some((widget) => widget.kind === kind));
-  const queue = useNeedsYouQueue(ctx, data, (data.workspaces ?? []).map(({ id }) => id), "", false);
+  const queue = useNeedsYouQueue(ctx, data, workspaceId ? [workspaceId] : [], "", false);
   const widgetProps = { ctx, data, workspaceId, act, openWorkItem, navigate, rowsForRoute, queue, capabilities,
     records: needsYouRows(queue, data, rowsForRoute), createWork, createProcess, createRun, createAgent,
     outcome, setOutcome, configuration: outcomeConfiguration, configureGoal: () => setSetup(true),
