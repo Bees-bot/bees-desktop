@@ -1352,7 +1352,8 @@ export async function executeProductCommand(action, input) {
           capabilities: [],
           // Build with Bees on Process Templates asks for the process itself, and the person starts its runs
           instructions: addons ? ADDONS_INSTRUCTIONS : input.process
-            ? "The person is building a reusable process from the Process Templates page. Propose create_process for it even for a single outcome: the exact name of a listed process built for this job, never Goals, or a new one with a description every run's agents can work from, its stages and routes. Add only the agents, servers and skills it is missing. They start its runs once the plan is applied, so add a work item only when a schedule needs one."
+            ? "The person is building a reusable process from the Process Templates page. Propose create_process for it even for a single outcome, never Goals, with a name no listed process has, a description every run's agents can work from, its stages and routes. Add only the agents, servers and skills it is missing. They start its runs once the plan is applied, so add a work item only when a schedule needs one."
+              + (String(input.processName ?? "").trim() ? ` They named it, so call the new process exactly "${String(input.processName).trim().slice(0, 120)}" and never ask for a name.` : "")
             : "Reuse the team's existing resources and default to Goals. Propose only missing setup and the requested work, with a new process only for an explicit reusable workflow request. Put the work item before its schedule.",
           workspaceId: workspace.id, agentPresetId: input.agentPresetId || this.agents.ctx.agentPresets.defaultId,
           mcpAccess: policy.access, mcpServers: policy.servers,

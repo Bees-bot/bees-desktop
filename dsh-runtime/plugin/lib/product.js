@@ -976,6 +976,9 @@ export class BeesProduct {
         const name = required(change.name, "Process name");
         const key = name.toLocaleLowerCase();
         if (proposedProcesses.has(key)) throw new Error("Proposed process names must be unique");
+        // apply reuses a same-name process and drops these stages, so the plan would run the old steps
+        if (this.database.prepare("SELECT 1 FROM processes WHERE workspace_id = ? AND lower(name) = lower(?) AND archived_at IS NULL").get(workspaceId, name))
+          throw new Error(`A process called ${name} already exists. To use it as it is, leave out create_process and name it in create_item; to build new steps, give the new process a different name`);
         const templateReference = change.template && /^[$@]/.test(change.template)
           ? resolveReferences(this.database, workspaceId, change.template).references[0] : null;
         if (templateReference && templateReference.kind !== "process-template") throw new Error("Choose a process-template reference");
@@ -1005,11 +1008,9 @@ export class BeesProduct {
       .map((change) => addonsFor ? { ...change, addonsFor } : change);
     // an unrouted stage runs on whichever agent is free, not the one written for it
     for (const change of normalized.filter(({ action }) => action === "create_process")) {
-      const exists = this.database.prepare("SELECT 1 FROM processes WHERE workspace_id = ? AND lower(name) = lower(?) AND archived_at IS NULL")
-        .get(workspaceId, change.name);
       const routed = new Set(normalized.filter(({ action, process }) => action === "set_stage_route" && String(process).toLocaleLowerCase() === String(change.name).toLocaleLowerCase())
         .map(({ stage }) => String(stage).toLocaleLowerCase()));
-      const missing = exists ? [] : (Array.isArray(change.stages) ? change.stages : []).filter(({ name, driver }) => !["manual", "terminal"].includes(driver) && !routed.has(String(name).toLocaleLowerCase()));
+      const missing = (Array.isArray(change.stages) ? change.stages : []).filter(({ name, driver }) => !["manual", "terminal"].includes(driver) && !routed.has(String(name).toLocaleLowerCase()));
       if (missing.length) throw new Error(`The new process ${change.name} needs set_stage_route for ${missing.map(({ name }) => `"${name}"`).join(", ")}, naming the agent that does that stage's work`);
     }
     const id = randomUUID();

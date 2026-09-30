@@ -135,13 +135,20 @@ export function ProcessMcpForm({ ctx, process, servers, tools, catalog, onServer
 
 
 /** Bees plans the process as a run in Process Runs, where it asks what it needs and proposes the process. */
-function ProcessPlanner({ workspaceId, act, onClose, openWorkItem }) {
+function ProcessPlanner({ workspaceId, act, onClose, openWorkItem, taken = [] }) {
   const [outcome, setOutcome] = useState("");
+  const [name, setName] = useState("");
+  const clash = taken.some((existing) => existing.toLocaleLowerCase() === name.trim().toLocaleLowerCase());
   const [busy, submit] = useSubmit(async () => {
-    const result = await act({ action: "ask_bees", workspaceId, outcome: outcome.trim(), process: true });
+    const result = await act({ action: "ask_bees", workspaceId, outcome: outcome.trim(), process: true, processName: name.trim() });
     if (result?.executionId) openWorkItem(result.executionId);
   });
   return h("form", { className: "bees-composer bees-process-planner", onSubmit: submit },
+    h("input", {
+      className: "bees-input", value: name, disabled: busy, maxLength: 120, "aria-label": "Process name",
+      placeholder: "Process name (optional, Bees picks one if empty)", onChange: (event) => setName(event.target.value)
+    }),
+    clash ? h("p", { className: "bees-error", role: "alert" }, "A process with this name already exists. Pick another name.") : null,
     h("textarea", {
       className: "bees-composer-input", value: outcome, disabled: busy, "aria-label": "What should this process do?",
       placeholder: "e.g., Every weekday, find new freelance projects that fit me and draft a proposal for each",
@@ -151,7 +158,7 @@ function ProcessPlanner({ workspaceId, act, onClose, openWorkItem }) {
       h("span", { className: "bees-composer-hint" }, "Bees plans it in Process Runs and asks you what it needs."),
       h("div", { className: "bees-detail-actions" },
         h(Button, { disabled: busy, onClick: onClose }, "Cancel"),
-        h("button", { type: "submit", className: "bees-btn primary", disabled: busy || !outcome.trim() }, busy ? "Starting…" : "Build this process"))));
+        h("button", { type: "submit", className: "bees-btn primary", disabled: busy || clash || !outcome.trim() }, busy ? "Starting…" : "Build this process"))));
 }
 
 export function ProcessListActions({ ctx, process, act, openWorkItem }) {
@@ -356,7 +363,7 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
         label: "Process Templates",
         minW: 6, minH: 4,
         content: h("div", { className: "bees-stack" },
-          planning ? h(ProcessPlanner, { workspaceId, act, openWorkItem, onClose: () => setPlanning(false) }) : null,
+          planning ? h(ProcessPlanner, { workspaceId, act, openWorkItem, taken: data.processes.filter((process) => process.workspaceId === workspaceId).map(({ name }) => name), onClose: () => setPlanning(false) }) : null,
           processList)
       }
     }
