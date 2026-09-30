@@ -13,6 +13,68 @@ try {
   const { AgentRuntime } = await import("../dsh-runtime/plugin/lib/agent-runtime.js");
   const { assertPeersSettled } = await import("../dsh-runtime/plugin/lib/peer-collaboration.js");
   const { executeProductCommand } = await import("../dsh-runtime/plugin/lib/product-commands.js");
+  const { EXECUTIVE_AGENTS } = await import("../dsh-runtime/plugin/lib/executive-agents.js");
+  // Version 36 fixtures: changing shipped prompts must not replace the owner's agent configuration.
+  const previousOwnership = `You own completing the assigned outcome. Do not be an advisor unless the user asks for advice only. Make reasonable decisions, execute with available tools, verify the deliverables, and report completed work with evidence. Ask only when missing information or authority blocks progress; finish independent work first. Respect existing approvals and tool permissions. Never claim an external action or result without evidence.
+Use attached inputs and team knowledge for company context. Keep deliverables in outputs/ and use the existing publication workflow to update a shared folder. State missing facts instead of inventing them.
+For a substantial independent assignment, use bees_delegate_work with an agentAssignmentId from the team roster. Give the recipient a concrete outcome, relevant context, output file paths, and acceptance criteria. Honor the user's requested delegation count and execution order: send parallel assignments together in one call, and wait between assignments when sequential execution is requested or a task depends on an earlier result. Inspect every returned result. If seated in a discussion, give recommendations and wait; the lead creates tracked execution assignments after discussion. Do not duplicate work in the discussion seat.`;
+  const previousRoles = {
+    CEO: "Translate the user's outcome into the smallest useful plan. Resolve dependencies and assign substantial engineering work to CTO, marketing to CMO, and sales to CRO when those agents are available. Do small tasks yourself. Define success, reconcile tradeoffs, inspect returned deliverables, and own the combined result. An assignment list or strategy alone does not complete an execution request.",
+    CTO: "Inspect the existing product and repository instructions before changing it. Reuse existing infrastructure, implement the smallest correct change, and run relevant checks. Deliver working code and verification evidence. Explain any remaining limitations. Coordinate messaging requirements with CMO and customer requirements with CRO when necessary.",
+    CMO: "Use the company's actual product, audience, and brand guidance to create usable marketing deliverables. Produce finished copy, campaign assets, and measurement plans as requested. Substantiate product claims. Coordinate product accuracy with CTO and audience or pipeline insights with CRO. Distinguish prepared content from content actually published.",
+    CRO: "Research qualified prospects with sources, prepare tailored outreach, and maintain pipeline records using connected tools when authorized. Track concrete next actions and follow-ups. Distinguish researched prospects, drafted outreach, sent messages, and confirmed revenue. Coordinate positioning with CMO and feasibility with CTO. Never invent contacts, responses, deals, or revenue."
+  };
+  const oldInstructions = (name) => `${previousOwnership}\n\n${previousRoles[name]}`;
+  const agentDatabase = new DatabaseSync(":memory:");
+  initializeProductDatabase(agentDatabase);
+  const executives = () => agentDatabase.prepare("SELECT * FROM agent_assignments WHERE system_role IS NULL ORDER BY name").all();
+  assert.deepEqual(executives().map(({ name }) => name), ["CEO", "CFO", "CMO", "COO", "CRO", "CTO"]);
+  for (const agent of EXECUTIVE_AGENTS) {
+    const row = executives().find(({ name }) => name === agent.name);
+    assert.equal(row.instructions, agent.instructions);
+    assert.deepEqual(JSON.parse(row.capabilities_json), agent.capabilities);
+  }
+  const futureTime = new Date(Date.now() + 60_000).toISOString();
+  for (const name of Object.keys(previousRoles))
+    agentDatabase.prepare("UPDATE agent_assignments SET instructions = ?, updated_at = ? WHERE name = ?")
+      .run(oldInstructions(name), futureTime, name);
+  agentDatabase.exec(`
+    UPDATE agent_assignments SET description = 'Company priorities', model = 'personal/model',
+      reasoning_effort = 'high', enabled = 0, max_concurrency = 2,
+      mcp_access = 'listed', mcp_servers_json = '["company-records"]' WHERE name = 'CEO';
+    UPDATE agent_assignments SET id = 'custom-cfo', name = 'cfo', instructions = 'Use our financial policy', enabled = 0 WHERE name = 'CFO';
+    DELETE FROM agent_assignments WHERE name = 'COO';
+    PRAGMA user_version = 36;
+  `);
+  const priorAgents = executives();
+  initializeProductDatabase(agentDatabase);
+  for (const name of Object.keys(previousRoles)) {
+    const before = priorAgents.find((row) => row.name === name);
+    const after = executives().find((row) => row.name === name);
+    assert.equal(after.instructions, EXECUTIVE_AGENTS.find((agent) => agent.name === name).instructions);
+    assert(Date.parse(after.updated_at) > Date.parse(futureTime));
+    assert.deepEqual({ ...after, instructions: before.instructions, updated_at: before.updated_at }, { ...before });
+  }
+  assert.deepEqual(executives().find(({ id }) => id === "custom-cfo"), priorAgents.find(({ id }) => id === "custom-cfo"));
+  assert.equal(executives().find(({ name }) => name === "COO").instructions, EXECUTIVE_AGENTS.find(({ name }) => name === "COO").instructions);
+  assert.equal(executives().length, 6, "reuse an existing role even with different letter case");
+  assert.equal(agentDatabase.prepare("PRAGMA user_version").get().user_version, 37);
+  const migratedAgents = executives();
+  initializeProductDatabase(agentDatabase);
+  assert.deepEqual(executives(), migratedAgents, "restarting must not rewrite or duplicate agents");
+  for (const name of Object.keys(previousRoles))
+    agentDatabase.prepare("UPDATE agent_assignments SET instructions = ? WHERE name = ?").run(oldInstructions(name), name);
+  agentDatabase.exec(`
+    UPDATE agent_assignments SET id = 'custom-ceo' WHERE name = 'CEO';
+    UPDATE agent_assignments SET name = 'Engineering lead' WHERE name = 'CTO';
+    UPDATE agent_assignments SET instructions = instructions || '\nUse our company voice.' WHERE name = 'CMO';
+    UPDATE agent_assignments SET archived_at = '2026-01-01T00:00:00.000Z', enabled = 0 WHERE name = 'CRO';
+    PRAGMA user_version = 36;
+  `);
+  const customizedAgents = executives();
+  initializeProductDatabase(agentDatabase);
+  assert.deepEqual(executives(), customizedAgents, "preserve custom, renamed, and archived agents without recreating defaults");
+  agentDatabase.close();
   const database = new DatabaseSync(":memory:");
   initializeProductDatabase(database);
   let answer;
