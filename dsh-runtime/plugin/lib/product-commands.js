@@ -24,9 +24,7 @@ function priorityOf(value) {
   return priority;
 }
 
-/** An agent's MCP policy: every connected server, none of them, or a named few. */
-/** Proposal changes that belong to Capabilities, not the product database. */
-const ADDONS_INSTRUCTIONS = "Bees is checking which add-ons the process in the outcome needs, and selects exactly those for it. For every server the brief already lists that its work uses, propose {action:'use_mcp_server',server:its name from the brief}. For what is missing, propose install_mcp_server, add_mcp_server for a registry server when no catalog server fits, and install_skill when a skill clearly helps a stage. Propose nothing else: no goals, items, agents, routes, processes or schedules. Never call ask_user_question: Bees applies this plan by itself and shows the owner a Connect button for every server that needs a sign-in, a key or a folder. When the process needs no add-on at all, call bees_propose_changes with changes_json [].";
+const ADDONS_INSTRUCTIONS = "Bees is checking which add-ons the process in the outcome needs, and selects exactly those for it. For every server the brief already lists that its work uses, propose {action:'use_mcp_server',server:its name from the brief}. For what is missing, propose install_mcp_server from the catalog. Propose nothing else: no registry servers, skills, goals, items, agents, routes, processes or schedules, since nobody reviews this plan. Never call ask_user_question: Bees applies this plan by itself and shows the owner a Connect button for every server that needs a sign-in, a key or a folder. When the process needs no add-on at all, call bees_propose_changes with changes_json [].";
 
 /** What a process does, for the planner that picks its add-ons. Data, never instructions. */
 function addonsOutcome(database, process) {
@@ -39,7 +37,8 @@ function addonsOutcome(database, process) {
     description: process.description, stages: stages.map(({ name }) => name), agents })}`;
 }
 
-export const CAPABILITY_CHANGES = ["install_mcp_server", "add_mcp_server", "install_skill"];
+/** Proposal changes that belong to Capabilities, not the product database. */
+const CAPABILITY_CHANGES = ["install_mcp_server", "add_mcp_server", "install_skill"];
 /** A sign-in, a folder or a key nobody gave is the owner's to add, so a plan leaves it for a Connect button. */
 export const needsConnect = (entry, change) => Boolean(entry.scopes || entry.requiresDirectory
   || [...entry.env, ...entry.headers].some((secret) => !secret.optional && !String(change.secrets?.[secret.name] ?? "").trim())
@@ -1199,6 +1198,8 @@ export async function executeProductCommand(action, input) {
           const change = list[index];
           const payload = { ...change, workspaceId: proposal.workspaceId,
             connectionId: input.connectionId, accountUserId: input.accountUserId };
+          // nobody reviewed an add-on plan, so it gets the same limits as a run installing one
+          if (change.addonsFor) payload.viaAgent = true;
           // Running the same prompt twice proposes the same agent names; reuse rather than refuse.
           if (change.action === "add_agent_assignment") {
             const existing = this.database.prepare(`
@@ -1329,38 +1330,53 @@ export async function executeProductCommand(action, input) {
       const policy = checkMcpServers(this.database, mcpPolicy(input));
       const addons = input.addonsFor ? processContext(this.database, input.addonsFor, ["admin", "member"]) : null;
       if (addons && addons.workspaceId !== workspace.id) throw new Error("That process belongs to another team");
-      const resolved = addons ? { text: addonsOutcome(this.database, addons), references: [] }
-        : resolveReferences(this.database, workspace.id, required(input.outcome, "Outcome"));
-      const outcome = resolved.text;
-      const manifest = inputManifest(stageInputLocations(referenceInputs(this.database, workspace.id, resolved.references), runDirectory));
-      // A newer plan supersedes one still parked. Left alive it came back on every launch and asked
-      // again for an answer the person had already moved on from. An add-on check asks nothing, so it supersedes nothing.
-      if (!addons) for (const { execution_id: parked } of this.database.prepare(`
-        SELECT execution_id FROM execution_links
-        WHERE workspace_id = ? AND COALESCE(work_item_id, '') = ''
-          AND status IN ('waiting_for_input', 'waiting_for_approval')
-      `).all(workspace.id)) {
-        if (!this.agents.abort(parked)) this.agents.setStatus(parked, "cancelled");
-      }
-      const queued = await this.agents.dispatch("bees-run", executionId, {
-        idempotencyKey: `start:${executionId}`, workspace: runDirectory,
-        body: await this.planningBrief(workspace.id, outcome) + (manifest ? `\n\n${manifest}` : ""),
-        initialData: {
-          version: 1, mode: "planning", executionId, workItemId: null, agentId: "bees-plan",
-          agentName: "Ask Bees", purpose: outcome, model: optionalModelRoute(input.model),
-          reasoningEffort,
-          capabilities: [],
-          // Build with Bees on Process Templates asks for the process itself, and the person starts its runs
-          instructions: addons ? ADDONS_INSTRUCTIONS : input.process
-            ? "The person is building a reusable process from the Process Templates page. Propose create_process for it even for a single outcome, never Goals, with a name no listed process has, a description every run's agents can work from, its stages and routes. Add only the agents, servers and skills it is missing. They start its runs once the plan is applied, so add a work item only when a schedule needs one."
-              + (String(input.processName ?? "").trim() ? ` They named it, so call the new process exactly "${String(input.processName).trim().slice(0, 120)}" and never ask for a name.` : "")
-            : "Reuse the team's existing resources and default to Goals. Propose only missing setup and the requested work, with a new process only for an explicit reusable workflow request. Put the work item before its schedule.",
-          workspaceId: workspace.id, agentPresetId: input.agentPresetId || this.agents.ctx.agentPresets.defaultId,
-          mcpAccess: policy.access, mcpServers: policy.servers,
-          grants: [], ...(addons ? { addonsFor: addons.id } : {})
+      if (addons?.kind === "goals") throw new Error("Goals picks its own add-ons");
+      // the form, the template card and the process page can all ask at once, so they share one check;
+      // the set covers the gap before the run's row exists
+      this.addonChecks ??= new Set();
+      if (addons && this.addonChecks.has(addons.id)) return {};
+      const running = addons && this.database.prepare(`
+        SELECT execution_id AS executionId, current_session_id AS sessionId, status FROM execution_links
+        WHERE json_extract(config_json, '$.addonsFor') = ? AND status IN ('queued', 'running') LIMIT 1
+      `).get(addons.id);
+      if (running) return running;
+      if (addons) this.addonChecks.add(addons.id);
+      try {
+        const resolved = addons ? { text: addonsOutcome(this.database, addons), references: [] }
+          : resolveReferences(this.database, workspace.id, required(input.outcome, "Outcome"));
+        const outcome = resolved.text;
+        const manifest = inputManifest(stageInputLocations(referenceInputs(this.database, workspace.id, resolved.references), runDirectory));
+        // A newer plan supersedes one still parked. Left alive it came back on every launch and asked
+        // again for an answer the person had already moved on from. An add-on check asks nothing, so it supersedes nothing.
+        if (!addons) for (const { execution_id: parked } of this.database.prepare(`
+          SELECT execution_id FROM execution_links
+          WHERE workspace_id = ? AND COALESCE(work_item_id, '') = ''
+            AND status IN ('waiting_for_input', 'waiting_for_approval')
+        `).all(workspace.id)) {
+          if (!this.agents.abort(parked)) this.agents.setStatus(parked, "cancelled");
         }
-      });
-      return { executionId, sessionId: queued.sessionId, status: queued.status };
+        const queued = await this.agents.dispatch("bees-run", executionId, {
+          idempotencyKey: `start:${executionId}`, workspace: runDirectory,
+          body: await this.planningBrief(workspace.id, outcome) + (manifest ? `\n\n${manifest}` : ""),
+          initialData: {
+            version: 1, mode: "planning", executionId, workItemId: null, agentId: "bees-plan",
+            agentName: "Ask Bees", purpose: outcome, model: optionalModelRoute(input.model),
+            reasoningEffort,
+            capabilities: [],
+            // Build with Bees on Process Templates asks for the process itself, and the person starts its runs
+            instructions: addons ? ADDONS_INSTRUCTIONS : input.process
+              ? "The person is building a reusable process from the Process Templates page. Propose create_process for it even for a single outcome, never Goals, with a name no listed process has, a description every run's agents can work from, its stages and routes. Add only the agents, servers and skills it is missing. They start its runs once the plan is applied, so add a work item only when a schedule needs one."
+                + (String(input.processName ?? "").trim() ? ` They named it, so call the new process exactly "${String(input.processName).trim().slice(0, 120)}" and never ask for a name.` : "")
+              : "Reuse the team's existing resources and default to Goals. Propose only missing setup and the requested work, with a new process only for an explicit reusable workflow request. Put the work item before its schedule.",
+            workspaceId: workspace.id, agentPresetId: input.agentPresetId || this.agents.ctx.agentPresets.defaultId,
+            mcpAccess: policy.access, mcpServers: policy.servers,
+            grants: [], ...(addons ? { addonsFor: addons.id } : {})
+          }
+        });
+        return { executionId, sessionId: queued.sessionId, status: queued.status };
+      } finally {
+        if (addons) this.addonChecks.delete(addons.id);
+      }
     }
     if (action === "open_agent_browser") {
       const executionId = required(input.executionId, "Execution");

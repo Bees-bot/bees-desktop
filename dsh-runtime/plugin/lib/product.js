@@ -19,8 +19,8 @@ import { fileReferences, leadingAgentInvocation, preserveReferences, referenceCo
 import { TeamKnowledgeSearch } from "./product-knowledge.js";
 import { AgentCapacityError, resolveStageAgent } from "./product-routing.js";
 import { namePreset } from "./preset-names.js";
-import { assertAgentHasTools, assertUsableInstructions, CAPABILITY_CHANGES, checkMcpServers, enabledServers, executeProductCommand, needsConnect, proposalResource, proposedFolder, recurringSchedule, withoutSecrets } from "./product-commands.js";
-import { catalogEntry, MCP_CATALOG } from "./mcp-catalog.js";
+import { assertAgentHasTools, assertUsableInstructions, checkMcpServers, enabledServers, executeProductCommand, needsConnect, proposalResource, proposedFolder, recurringSchedule, withoutSecrets } from "./product-commands.js";
+import { catalogEntry, isBrowserCatalog, MCP_CATALOG } from "./mcp-catalog.js";
 
 export { initializeProductDatabase };
 
@@ -844,10 +844,15 @@ export class BeesProduct {
     workspaceContext(this.database, workspaceId, ["admin", "member"]);
     let use = [];
     if (addonsFor) {
-      // a process's own plan only adds capabilities, whatever else the planner tried, and nothing for a process gone since
-      use = Array.isArray(changes) ? changes.filter((change) => change?.action === "use_mcp_server").map((change) => String(change.server ?? "")) : [];
-      changes = Array.isArray(changes) ? changes.filter((change) => CAPABILITY_CHANGES.includes(change?.action)) : [];
       if (!this.database.prepare("SELECT 1 FROM processes WHERE id = ? AND archived_at IS NULL").get(addonsFor)) return { id: "", changes: 0 };
+      const asked = Array.isArray(changes) ? changes : [];
+      // a second browser would switch off the one the team uses, so a plan asking for one gets that one
+      const browser = this.capabilities.servers().find(({ enabled, catalogId }) => enabled && isBrowserCatalog(catalogId));
+      const swapped = (change) => browser && change?.action === "install_mcp_server" && isBrowserCatalog(change.catalogId);
+      use = [...asked.filter((change) => change?.action === "use_mcp_server").map((change) => String(change.server ?? "")),
+        ...(asked.some(swapped) ? [browser.serverName] : [])];
+      // nobody reviews this plan, so it only installs catalog servers, and never with a stored key it could send to any host
+      changes = asked.filter((change) => change?.action === "install_mcp_server" && !swapped(change) && !JSON.stringify(change).includes("{{credential:"));
       if (!changes.length) { this.applyAddons("", addonsFor, use); return { id: "", changes: 0 }; }
     }
     if (!Array.isArray(changes) || !changes.length || changes.length > 40)
@@ -1028,18 +1033,20 @@ export class BeesProduct {
   /** A process's add-on plan applies itself and ticks every add-on it named, one plan at a time so two never install the same server twice. */
   applyAddons(proposalId, processId, use = []) {
     this.addonQueue = (this.addonQueue ?? Promise.resolve()).then(async () => {
-      const { results = [] } = proposalId ? await this.command({ action: "apply_proposal", proposalId }) : {};
+      // a failed apply leaves the plan pending for the person to review, and the add-ons it named still get ticked
+      const { results = [] } = proposalId ? await this.command({ action: "apply_proposal", proposalId }).catch((error) => (this.agents.ctx.logger.warn(`bees: add-on plan failed: ${message(error)}`), {})) : {};
       const process = this.database.prepare("SELECT mcp_access AS access, mcp_servers_json AS servers FROM processes WHERE id = ? AND archived_at IS NULL").get(processId);
-      if (!process) return;
+      // a process that already gives its agents every add-on would only lose some by listing them
+      if (!process || process.access === "all") return;
       const names = this.database.prepare(`
-        SELECT server_name AS name FROM mcp_servers WHERE id IN (SELECT value FROM json_each(?))
-          OR lower(server_name) IN (SELECT lower(value) FROM json_each(?)) OR lower(label) IN (SELECT lower(value) FROM json_each(?))
+        SELECT server_name AS name FROM mcp_servers WHERE enabled = 1 AND (id IN (SELECT value FROM json_each(?))
+          OR lower(server_name) IN (SELECT lower(value) FROM json_each(?)) OR lower(label) IN (SELECT lower(value) FROM json_each(?)))
       `).all(JSON.stringify(results.map((result) => result?.id).filter(Boolean)), JSON.stringify(use), JSON.stringify(use)).map(({ name }) => name);
       // one still waiting on its Connect button is ticked when it lands, in Capabilities.insert
       if (!names.length && !results.some((result) => result?.needsConnect)) return;
       const kept = process.access === "listed" ? JSON.parse(process.servers) : [];
       await this.command({ action: "set_process_mcp", processId, mcpAccess: "listed", mcpServers: [...new Set([...kept, ...names])] });
-    }).catch((error) => console.error("Could not set up this process's add-ons:", error));
+    }).catch((error) => this.agents.ctx.logger.warn(`bees: could not set up a process's add-ons: ${message(error)}`));
   }
 
   async startWork({ workspaceId, process, title, description, idempotencyKey }) {
