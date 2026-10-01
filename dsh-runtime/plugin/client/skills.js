@@ -268,6 +268,24 @@ export function CatalogReview({ ctx, entry, onCancel, onDone }) {
       }, entry.scopes ? (busy ? "Opening Google…" : "Connect with Google") : busy ? "Connecting…" : "Connect"))));
 }
 
+/** Add-ons an applied plan left for the owner's sign-in, key or folder; each goes once it is installed. */
+export function ConnectAddons({ ctx, proposals, catalog = [], settingUp = false }) {
+  const [reviewing, setReviewing] = useState("");
+  const ids = new Set(proposals.filter(({ status }) => status === "applied")
+    .flatMap(({ changes }) => changes).filter((change) => change.needsConnect).map(({ catalogId }) => catalogId));
+  const waiting = catalog.filter((entry) => ids.has(entry.id) && !entry.installedAs);
+  const entry = waiting.find(({ id }) => id === reviewing);
+  if (!waiting.length && !settingUp) return null;
+  return h("section", { className: "bees-box" },
+    settingUp ? h("div", { className: "bees-muted", role: "status" }, "Setting up add-ons…") : null,
+    waiting.length ? h("h3", null, "Connect these add-ons") : null,
+    ...waiting.map((row) => h("div", { className: "bees-row", key: row.id },
+      h("div", { className: "bees-row-main" },
+        h("div", { className: "bees-row-title" }, row.label), h("div", { className: "bees-muted" }, row.summary)),
+      h(Button, { className: "primary", onClick: () => setReviewing(row.id) }, "Connect"))),
+    entry ? h(CatalogReview, { ctx, entry, onCancel: () => setReviewing(""), onDone: () => setReviewing("") }) : null);
+}
+
 // initial is a registry result when the owner added one from the search
 function ManualServerForm({ onCancel, act, initial }) {
   const dialog = useRef(null);

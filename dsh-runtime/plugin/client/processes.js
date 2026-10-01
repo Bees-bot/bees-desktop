@@ -3,6 +3,7 @@ import { accountLabel, ask, Button, confirmAction, Empty, useSubmit, PageHead, w
 import { GridStackPage } from "./flexible-grid.js";
 import { AgentCreateForm, AgentEditForm, McpAccess, needsNote } from "./agents.js";
 import { AttachedResourceFields, ResourceFields } from "./location-fields.js";
+import { ConnectAddons } from "./skills.js";
 import { ArrowLeftIcon } from "./icons.js";
 const PROCESSES_LAYOUT = [{ kind: "processes", x: 0, y: 0, w: 12, h: 12 }];
 const TEMPLATES_LAYOUT = [
@@ -93,6 +94,8 @@ function ProcessForm({ ctx, data, servers, tools, catalog, onServerAction, kind,
       inputLocationIds, outputLocationId, templateId: draft?.id,
       mcpAccess: String(form.get("mcpAccess") ?? "none"), mcpServers: form.getAll("mcpServers").map(String)
     });
+    // Bees works out the add-ons in the background; a planner that cannot start must not undo the create
+    if (created?.id && !template) void act({ action: "ask_bees", workspaceId, addonsFor: created.id }, undefined, () => {});
     if (created?.id) onCreated(created.id);
   });
 
@@ -266,8 +269,11 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
       const filesPanel = h("div", null,
         h(AttachedResourceFields, { key: process.id, ctx, data, teamId, act,
           owner: { processId: process.id }, references: attached, outputId: process.outputLocationId ?? "", compact: true }));
-      const mcpPanel = h(ProcessMcpForm, { key: `${process.id}:${process.mcpAccess}:${JSON.stringify(process.mcpServers)}`,
-        ctx, process, servers, tools, catalog, onServerAction, act });
+      const mcpPanel = h("div", null,
+        h(ConnectAddons, { ctx, catalog, proposals: data.proposals.filter(({ changes }) => changes.some((change) => change.addonsFor === process.id)),
+          settingUp: data.runs.some((run) => run.addonsFor === process.id && ["queued", "running"].includes(run.status)) }),
+        h(ProcessMcpForm, { key: `${process.id}:${process.mcpAccess}:${JSON.stringify(process.mcpServers)}`,
+          ctx, process, servers, tools, catalog, onServerAction, act }));
 
       return h(React.Fragment, null,
         h(GridStackPage, {
