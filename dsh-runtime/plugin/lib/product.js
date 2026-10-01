@@ -842,11 +842,13 @@ export class BeesProduct {
 
   storeProposal({ workspaceId, sessionId, title, summary, changes, runSettings = {}, request = "", addonsFor = "" }) {
     workspaceContext(this.database, workspaceId, ["admin", "member"]);
+    let use = [];
     if (addonsFor) {
-      // a new process's own plan only adds capabilities, whatever else the planner tried, and nothing for a process gone since
+      // a process's own plan only adds capabilities, whatever else the planner tried, and nothing for a process gone since
+      use = Array.isArray(changes) ? changes.filter((change) => change?.action === "use_mcp_server").map((change) => String(change.server ?? "")) : [];
       changes = Array.isArray(changes) ? changes.filter((change) => CAPABILITY_CHANGES.includes(change?.action)) : [];
-      if (!changes.length || !this.database.prepare("SELECT 1 FROM processes WHERE id = ? AND archived_at IS NULL").get(addonsFor))
-        return { id: "", changes: 0 };
+      if (!this.database.prepare("SELECT 1 FROM processes WHERE id = ? AND archived_at IS NULL").get(addonsFor)) return { id: "", changes: 0 };
+      if (!changes.length) { this.applyAddons("", addonsFor, use); return { id: "", changes: 0 }; }
     }
     if (!Array.isArray(changes) || !changes.length || changes.length > 40)
       throw new Error("A proposal needs between 1 and 40 changes");
@@ -1019,23 +1021,24 @@ export class BeesProduct {
       INSERT INTO bees_proposals VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
     `).run(id, workspaceId, sessionId || null, required(title, "Proposal title"), String(summary ?? ""), JSON.stringify(normalized), at, at);
     this.notify({ type: "domain-propose_changes", workspaceId });
-    if (addonsFor) this.applyAddons(id, addonsFor);
+    if (addonsFor) this.applyAddons(id, addonsFor, use);
     return { id, changes: normalized.length };
   }
 
-  /** A new process's add-on plan applies itself, one at a time so two plans never install the same server twice. */
-  applyAddons(proposalId, processId) {
+  /** A process's add-on plan applies itself and ticks every add-on it named, one plan at a time so two never install the same server twice. */
+  applyAddons(proposalId, processId, use = []) {
     this.addonQueue = (this.addonQueue ?? Promise.resolve()).then(async () => {
-      const { results } = await this.command({ action: "apply_proposal", proposalId });
+      const { results = [] } = proposalId ? await this.command({ action: "apply_proposal", proposalId }) : {};
       const process = this.database.prepare("SELECT mcp_access AS access, mcp_servers_json AS servers FROM processes WHERE id = ? AND archived_at IS NULL").get(processId);
-      if (!process || process.access === "all") return;
-      const names = this.database.prepare("SELECT server_name AS name FROM mcp_servers WHERE id IN (SELECT value FROM json_each(?))")
-        .all(JSON.stringify(results.map((result) => result?.id).filter(Boolean))).map(({ name }) => name);
-      // a process left on none could reach nothing it was just given; an explicit list only grows
-      if (process.access === "none" && (names.length || results.some((result) => result?.needsConnect)))
-        await this.command({ action: "set_process_mcp", processId, mcpAccess: "all" });
-      else if (process.access === "listed" && names.length)
-        await this.command({ action: "set_process_mcp", processId, mcpAccess: "listed", mcpServers: [...new Set([...JSON.parse(process.servers), ...names])] });
+      if (!process) return;
+      const names = this.database.prepare(`
+        SELECT server_name AS name FROM mcp_servers WHERE id IN (SELECT value FROM json_each(?))
+          OR lower(server_name) IN (SELECT lower(value) FROM json_each(?)) OR lower(label) IN (SELECT lower(value) FROM json_each(?))
+      `).all(JSON.stringify(results.map((result) => result?.id).filter(Boolean)), JSON.stringify(use), JSON.stringify(use)).map(({ name }) => name);
+      // one still waiting on its Connect button is ticked when it lands, in Capabilities.insert
+      if (!names.length && !results.some((result) => result?.needsConnect)) return;
+      const kept = process.access === "listed" ? JSON.parse(process.servers) : [];
+      await this.command({ action: "set_process_mcp", processId, mcpAccess: "listed", mcpServers: [...new Set([...kept, ...names])] });
     }).catch((error) => console.error("Could not set up this process's add-ons:", error));
   }
 

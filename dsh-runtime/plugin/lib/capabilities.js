@@ -484,6 +484,14 @@ export class Capabilities {
         JSON.stringify(server.args), server.url, JSON.stringify(server.envNames),
         JSON.stringify(server.headerNames), server.catalogId, server.source, at);
       this.onlyBrowser(server);
+      // a process whose add-on check wanted this one before it was connected gets it ticked now
+      this.database.prepare(`
+        UPDATE processes SET mcp_servers_json = json_insert(mcp_servers_json, '$[#]', ?)
+        WHERE mcp_access = 'listed' AND archived_at IS NULL AND id IN (
+          SELECT json_extract(c.value, '$.addonsFor') FROM bees_proposals p, json_each(p.changes_json) c
+          WHERE p.status = 'applied' AND json_extract(c.value, '$.needsConnect') AND json_extract(c.value, '$.catalogId') = ?)
+          AND NOT EXISTS (SELECT 1 FROM json_each(mcp_servers_json) WHERE value = ?)
+      `).run(server.serverName, server.catalogId ?? "", server.serverName);
     });
     // After the row lands, so a rejected write leaves a fixable server not an orphan secret.
     await this.storeSecrets(server, secrets);

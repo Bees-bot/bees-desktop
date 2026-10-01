@@ -126,6 +126,23 @@ function ProcessForm({ ctx, data, servers, tools, catalog, onServerAction, kind,
   );
 }
 
+const CHECKED_ADDONS = "bees.addonsChecked";
+/** A process made before Bees picked its add-ons gets checked once, the first time it is opened. */
+function AddonsCheck({ process, runs, act }) {
+  const busy = runs.some((run) => run.addonsFor === process.id && ["queued", "running"].includes(run.status));
+  const check = () => act({ action: "ask_bees", workspaceId: process.workspaceId, addonsFor: process.id }, undefined, () => {});
+  useEffect(() => {
+    if (process.kind !== "standard" || runs.some((run) => run.addonsFor === process.id)) return;
+    let seen = [];
+    try { seen = JSON.parse(localStorage.getItem(CHECKED_ADDONS) ?? "[]"); } catch {}
+    if (!Array.isArray(seen) || seen.includes(process.id)) return;
+    try { localStorage.setItem(CHECKED_ADDONS, JSON.stringify([...seen, process.id].slice(-200))); } catch {}
+    void check();
+  }, [process.id]);
+  if (process.kind !== "standard") return null;
+  return h(Button, { disabled: busy, onClick: check }, busy ? "Picking add-ons…" : "Pick the add-ons it needs");
+}
+
 export function ProcessMcpForm({ ctx, process, servers, tools, catalog, onServerAction, act, showAll = false }) {
   return h("div", { className: "bees-form bees-process-mcp-form", style: { paddingTop: "8px" } },
     h(McpAccess, { ctx, servers, tools, catalog, onServerAction, access: process.mcpAccess, chosen: process.mcpServers,
@@ -279,6 +296,7 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
         h(AttachedResourceFields, { key: process.id, ctx, data, teamId, act,
           owner: { processId: process.id }, references: attached, outputId: process.outputLocationId ?? "", compact: true }));
       const mcpPanel = h("div", null,
+        h(AddonsCheck, { key: process.id, process, runs: data.runs, act }),
         h(ConnectAddons, { ctx, catalog, proposals: data.proposals.filter(({ changes }) => changes.some((change) => change.addonsFor === process.id)),
           settingUp: data.runs.some((run) => run.addonsFor === process.id && ["queued", "running"].includes(run.status)) }),
         h(ProcessMcpForm, { key: `${process.id}:${process.mcpAccess}:${JSON.stringify(process.mcpServers)}`,
