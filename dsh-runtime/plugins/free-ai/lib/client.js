@@ -160,10 +160,9 @@ window.__ModuleLoader__.load({
       const visit = (provider) => perform(`link:${provider.id}`, async () => { await openExternal(provider.signup); return null; });
 
       return h("section", { "data-bees-plugin": "@bees/dsh-free-ai" },
-        h("div", { className: "bees-free-head" }, h("div", null,
-          h("div", { className: "bees-free-title" }, h("h2", { className: "bees-section-title" }, "Free LLM"), h("span", { className: "bees-status bees-running" }, "Embedded")),
-          h("p", { className: "bees-muted" }, "FreeLLMAPI is included in Bees. Add provider credentials here; there is nothing else to download, install, or configure."),
-          h("p", { className: "bees-muted" }, "Free to use. Your messages go to the provider you connect.")),
+        h("div", { className: "bees-free-head", style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "14px", marginBottom: "16px" } }, h("div", null,
+          h("div", { className: "bees-free-title", style: { marginBottom: "4px" } }, h("h3", { className: "bees-section-title" }, "Free LLM"), h("span", { className: "bees-status bees-running" }, "Embedded")),
+          h("p", { className: "bees-muted", style: { margin: 0 } }, "Free to use. Add provider credentials here; there is nothing else to download, install, or configure.")),
           h(Button, { className: "primary", disabled: Boolean(busy) || !state || (!adding && !available.length),
             onClick: () => { setAdding((value) => !value); setSelected(""); setKey(""); setAccountId(""); } },
             adding ? "Cancel" : available.length ? "Add provider" : "All added")),
@@ -209,8 +208,13 @@ window.__ModuleLoader__.load({
                 h("span", null, row.enabled ? "On" : "Off"))),
               h("td", null, h(Button, { className: "danger", title: lastDefaultKey ? defaultGuard : "",
                 disabled: Boolean(busy) || lastDefaultKey, onClick: () => remove(row) }, "Remove")));
-          })))) : state ? h("section", { className: "bees-box" }, h("p", { className: "bees-muted" }, "No Free LLM provider has been added yet. Select Add provider to get started.")) :
-          h("section", { className: "bees-box" }, h("p", { className: "bees-muted" }, modelSettings.productDefaults
+          })))) : state ? h("div", { className: "bees-empty-state" },
+            h("svg", { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2" },
+              h("path", { d: "M20 7h-3a2 2 0 0 1-2-2V2M15 22H5a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l5.414 5.414a1 1 0 0 1 .293.707V20a2 2 0 0 1-2 2z" }),
+              h("path", { d: "M9 14h6M9 10h6M9 18h2" })
+            ),
+            h("p", null, "No Free LLM provider added yet. Click Add provider to get started.")) :
+          h("div", { className: "bees-empty-state" }, h("p", null, modelSettings.productDefaults
             ? "Free LLM credentials and connections are configured on each device."
             : "Starting the embedded FreeLLMAPI router…")),
         notice ? h("div", { className: "bees-free-callout", role: "status" }, notice) : null,

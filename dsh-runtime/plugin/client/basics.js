@@ -77,7 +77,7 @@ export function BasicsPage({ navigate, onStart }) {
 
     h("section", { className: "bees-box" },
       h("h2", null, "Try your executive team"),
-      h("p", null, "CEO coordinates delivery, CTO builds the product, CMO creates marketing, and CRO handles sales. These are ordinary agents: edit their instructions, AI, and tool access in Agents."),
+      h("p", null, "CEO owns priorities and delivery, CFO handles financial analysis, COO coordinates operations, CTO builds the product, CMO creates marketing, and CRO handles sales. These are ordinary agents: edit their instructions, AI, and tool access in Agents."),
       h("ol", null,
         h("li", null, "In Files & Folders, map any folder containing your company notes. Attach it as an input to Goals in Process Templates, or select it for just one goal. No special folder structure is required."),
         h("li", null, "Create a goal. Start the description with $ceo to choose a lead, or $ceo $cto $cmo to discuss first. Use your agents’ current names if you renamed them."),
@@ -86,6 +86,7 @@ export function BasicsPage({ navigate, onStart }) {
       h("p", null, "Example goal: Prepare our website launch"),
       h("pre", { style: { whiteSpace: "pre-wrap" } }, "$ceo $cto $cmo Use the attached product brief. Discuss the approach, then assign CTO a tested local landing page and CMO finished launch copy. Collect both and verify that the copy matches the page. Keep everything as local deliverables; do not publish."),
       h("p", null, "Another goal: $cro Use our attached customer profile to research five relevant prospects with source links and prepare tailored outreach drafts. Do not send messages."),
+      h("p", null, "Financial planning: $cfo Use the attached financial records to calculate cash runway and compare base, upside, and downside scenarios. Show assumptions and source figures; do not make payments or commitments."),
       h("p", null, "For advice only, say so explicitly. Executive titles do not grant extra tool access or bypass approvals.")),
 
     h("details", { className: "bees-box" },

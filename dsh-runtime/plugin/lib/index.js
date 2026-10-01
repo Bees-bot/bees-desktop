@@ -55,6 +55,7 @@ export const Config = z.object({
   onboarding: z.object({
     version: z.number().default(0),
     active: z.boolean().default(false),
+    finished: z.boolean().default(false),
     step: z.number().default(0),
     filesChoice: z.string().default(""),
     workItemId: z.string().default(""),

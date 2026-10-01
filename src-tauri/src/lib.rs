@@ -681,6 +681,7 @@ fn watch_dsh(app: tauri::AppHandle, window: tauri::WebviewWindow, home: tauri::U
             }
             thread::sleep(Duration::from_secs(2));
         }
+        let _ = window.set_title_bar_style(tauri::TitleBarStyle::Overlay);
         let _ = window.navigate(home);
         WATCHING_DSH.store(false, Ordering::SeqCst);
     });
@@ -706,6 +707,7 @@ async fn ensure_dsh_runtime(
     app.add_capability(tauri::ipc::CapabilityBuilder::new("dsh-ui").remote(runtime.base_url.clone()).window("main")
         .permission("allow-bees-ui").permission("core:default").permission("dialog:allow-open"))
         .map_err(|error| error.to_string())?;
+    let _ = window.set_title_bar_style(tauri::TitleBarStyle::Visible);
     startup::step("ui.navigate", || window.navigate(url))
         .map_err(|error| format!("Could not open the local Bees interface: {error}"))?;
     watch_dsh(app, window, home);
@@ -1028,8 +1030,19 @@ pub fn run() {
             // Tauri exits the process directly on quit, so the children are dropped by hand here.
             if matches!(event, tauri::RunEvent::Exit) {
                 if let Some(dsh) = handle.try_state::<DshManager>() {
-                    if let Ok(mut managed) = dsh.0.lock() {
-                        managed.take();
+                    // startup holds this lock through its waits; give up after ~2 s and let the next launch reap
+                    for _ in 0..20 {
+                        match dsh.0.try_lock() {
+                            Ok(mut managed) => {
+                                managed.take();
+                                break;
+                            }
+                            Err(std::sync::TryLockError::Poisoned(poisoned)) => {
+                                poisoned.into_inner().take();
+                                break;
+                            }
+                            Err(std::sync::TryLockError::WouldBlock) => thread::sleep(Duration::from_millis(100)),
+                        }
                     }
                 }
                 if let Some(models) = handle.try_state::<LocalModelManager>() {

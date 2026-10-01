@@ -1,4 +1,4 @@
-import { normalizeRunSettings, stableUuid, transaction } from "./product-database.js";
+import { normalizeRunSettings, serverNames, stableUuid, transaction } from "./product-database.js";
 
 const TYPES = [
   "team_location", "agent", "team_process", "process_template",
@@ -55,7 +55,7 @@ function teamRecords(database, organizationId, connectionId = "", includeAppDefi
     teamId: row.teamId, name: row.name, description: row.description, instructions: row.instructions,
     presetId: row.presetId, model: row.model, reasoningEffort: row.reasoningEffort,
     systemRole: row.systemRole, capabilities: json(row.capabilities), enabled: Boolean(row.enabled), archivedAt: timestamp(row.archivedAt),
-    maxConcurrency: row.maxConcurrency, mcpAccess: row.mcpAccess, mcpServers: json(row.mcpServers),
+    maxConcurrency: row.maxConcurrency, mcpAccess: row.mcpAccess, mcpServers: serverNames(database, json(row.mcpServers)),
     inputLocations: inputLocations(database, "agent_locations", "agent_assignment_id", row.id),
     createdAt: timestamp(row.createdAt), updatedAt: timestamp(row.updatedAt)
   }));
@@ -63,7 +63,7 @@ function teamRecords(database, organizationId, connectionId = "", includeAppDefi
   for (const row of database.prepare(`
     SELECT p.id, w.team_id AS teamId, p.name, p.description, p.kind,
            p.output_location_id AS outputLocationId, p.mcp_access AS mcpAccess,
-           p.mcp_servers_json AS mcpServers, p.archived_at AS archivedAt,
+           p.mcp_servers_json AS mcpServers, p.account_user_id AS accountUserId, p.archived_at AS archivedAt,
            p.created_at AS createdAt, p.updated_at AS updatedAt
     FROM processes p JOIN workspaces w ON w.id = p.workspace_id
     JOIN teams t ON t.id = w.team_id WHERE t.organization_id = ?
@@ -97,7 +97,8 @@ function teamRecords(database, organizationId, connectionId = "", includeAppDefi
     records.push(record("team_process", row, {
       ...owner('app_process_owners', 'process_id', row.id),
       teamId: row.teamId, name: row.name, description: row.description, kind: row.kind,
-      outputLocationId: row.outputLocationId, mcpAccess: row.mcpAccess, mcpServers: json(row.mcpServers),
+      accountUserId: row.accountUserId,
+      outputLocationId: row.outputLocationId, mcpAccess: row.mcpAccess, mcpServers: serverNames(database, json(row.mcpServers)),
       inputLocations: inputLocations(database, "process_locations", "process_id", row.id),
       stages, archivedAt: timestamp(row.archivedAt), createdAt: timestamp(row.createdAt),
       updatedAt: timestamp(row.updatedAt)
@@ -357,14 +358,15 @@ function applyProcess(database, record, authoritativeApps = false) {
   const policy = normalizeRunSettings({ mcpAccess: p.mcpAccess ?? "none", mcpServers: p.mcpServers ?? [] });
   database.prepare(`
     INSERT INTO processes
-      (id, workspace_id, name, description, kind, output_location_id, mcp_access, mcp_servers_json, archived_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id, workspace_id, name, description, kind, output_location_id, mcp_access, mcp_servers_json, account_user_id, archived_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description,
       kind = excluded.kind, output_location_id = excluded.output_location_id,
       mcp_access = excluded.mcp_access, mcp_servers_json = excluded.mcp_servers_json,
+      account_user_id = coalesce(excluded.account_user_id, processes.account_user_id),
       archived_at = excluded.archived_at, updated_at = excluded.updated_at
   `).run(record.recordId, workspaceId, p.name, p.description, p.kind, p.outputLocationId,
-    policy.mcpAccess, JSON.stringify(policy.mcpServers), p.archivedAt, p.createdAt, p.updatedAt);
+    policy.mcpAccess, JSON.stringify(policy.mcpServers), p.accountUserId ?? null, p.archivedAt, p.createdAt, p.updatedAt);
   database.prepare("UPDATE stages SET position = -rowid WHERE process_id = ? AND archived_at IS NULL")
     .run(record.recordId);
   const stageIds = [];
@@ -504,16 +506,16 @@ export function applyTeamRecords(database, organizationId, records, authoritativ
   // The server can refuse one record and keep its neighbours, so a record can arrive before, or
   // without, the rows it points at. Every reference here is a foreign key, so let SQLite say which
   // ones are not ready rather than listing them, and leave those for a later pass.
-  const attempt = (work) => {
+  const attempt = (work, entry) => {
     database.exec("SAVEPOINT record");
     try { work(); database.exec("RELEASE record"); return; }
     catch (error) {
       database.exec("ROLLBACK TO record");
       database.exec("RELEASE record");
-      // Only a missing reference is worth waiting for. Anything else will fail again next pass and
-      // has to stay loud rather than pin the cursor for good.
-      if (!/FOREIGN KEY constraint failed/i.test(String(error?.message ?? error))) throw error;
-      deferred = true;
+      // Only a missing reference is worth waiting for. Any other error would fail on every pass,
+      // so skip that record and log it rather than pin the cursor for good.
+      if (/FOREIGN KEY constraint failed/i.test(String(error?.message ?? error))) deferred = true;
+      else console.error(`team sync skipped ${entry.recordType} ${entry.recordId}: ${error?.message ?? error}`);
     }
   };
   transaction(database, () => {
@@ -525,7 +527,7 @@ export function applyTeamRecords(database, organizationId, records, authoritativ
       else if (entry.recordType === "recurring_work") applyRecurring(database, entry);
       else if (entry.recordType === "team_work_item") applyItem(database, entry);
       else if (entry.recordType === "team_run") applyRun(database, entry);
-    });
+    }, entry);
     for (const entry of applicable.filter(({ recordType }) => recordType === "team_work_item")) {
       if (!entry.payload.parentId) continue;
       if (database.prepare(
@@ -540,18 +542,23 @@ export function applyTeamRecords(database, organizationId, records, authoritativ
   return deferred;
 }
 
+const MAX_PULL_PAGES = 1000;
+
 /** Applies everything past `cursor` and commits it, whatever the push after it does. */
 async function pull(database, request, organizationId, connectionId, cursor) {
   const records = [];
   let next = cursor;
   let more = true;
-  while (more) {
+  for (let pages = 0; more; pages++) {
+    if (pages >= MAX_PULL_PAGES) throw new Error("Team sync pull did not finish");
     const page = await request(
       `/api/sync/pull?cursor=${encodeURIComponent(next)}&capabilities=apps-v1`, { organizationId }
     );
     // Applied as one batch: a work item and the process it needs can fall either side of a page
     // boundary, and applyTeamRecords only orders what it is handed.
-    records.push(...page.records);
+    for (const item of page.records ?? []) records.push(item);
+    // a server repeating more:true on the same cursor would loop forever
+    if (page.more && String(page.cursor) === String(next)) throw new Error("Team sync cursor did not advance");
     next = page.cursor;
     more = page.more;
   }
@@ -579,13 +586,17 @@ export async function syncTeamRecords(database, request, organizationId, connect
   const outgoing = teamRecords(database, organizationId, connectionId)
     .filter(({ recordType, recordId }) => recordType !== "team_work_item" || !waiting.has(recordId));
   const rejected = [];
+  let pushError = null;
   for (let index = 0; index < outgoing.length; index += PUSH_LIMIT) {
-    const result = await request("/api/sync/push", {
-      method: "POST", organizationId, body: { records: outgoing.slice(index, index + PUSH_LIMIT) }
-    });
-    rejected.push(...(result.rejected ?? []));
+    const chunk = outgoing.slice(index, index + PUSH_LIMIT);
+    try {
+      const result = await request("/api/sync/push", { method: "POST", organizationId, body: { records: chunk } });
+      rejected.push(...(result.rejected ?? []));
+    } catch (error) { pushError = error; break; }
   }
+  // still pull what the server has, then fail so the caller sees the push did not finish
   const settled = await pull(database, request, organizationId, connectionId, incoming.cursor);
+  if (pushError) throw pushError;
   return {
     pushed: outgoing.length - rejected.length,
     rejected,

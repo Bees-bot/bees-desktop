@@ -9,6 +9,10 @@ export interface PinnedWorkContext {
   memories: Array<Record<string, any>>;
 }
 export declare class WorkContext {
+  processMemory: {
+    command(action: string, input: Record<string, any>): Record<string, any>;
+    snapshot(processId: string): Array<Record<string, any>>;
+  };
   constructor(database: unknown, notify?: (event: Record<string, any>) => void);
   lineage(itemId: string): Array<Record<string, any>>;
   resources(itemId: string): { rootId: string; directory: string | null; memories: string | null };
@@ -17,6 +21,7 @@ export declare class WorkContext {
   recallMemories(executionId: string, recall: () => Promise<Array<Record<string, any>>>): Promise<void>;
   run(executionId: string): PinnedWorkContext | null;
   latest(itemId: string): PinnedWorkContext | null;
+  latestCandidate(itemId: string): string | null;
   guidance(itemId: string): Array<Record<string, any>>;
   recordHumanReview(executionId: string, id: string, approved: boolean, summary?: string, feedback?: string): void;
   humanReviews(executionId: string): { version: number; entries: Array<Record<string, any>>; requiredCorrections: Array<Record<string, any>> };

@@ -13,6 +13,68 @@ try {
   const { AgentRuntime } = await import("../dsh-runtime/plugin/lib/agent-runtime.js");
   const { assertPeersSettled } = await import("../dsh-runtime/plugin/lib/peer-collaboration.js");
   const { executeProductCommand } = await import("../dsh-runtime/plugin/lib/product-commands.js");
+  const { EXECUTIVE_AGENTS } = await import("../dsh-runtime/plugin/lib/executive-agents.js");
+  // Version 36 fixtures: changing shipped prompts must not replace the owner's agent configuration.
+  const previousOwnership = `You own completing the assigned outcome. Do not be an advisor unless the user asks for advice only. Make reasonable decisions, execute with available tools, verify the deliverables, and report completed work with evidence. Ask only when missing information or authority blocks progress; finish independent work first. Respect existing approvals and tool permissions. Never claim an external action or result without evidence.
+Use attached inputs and team knowledge for company context. Keep deliverables in outputs/ and use the existing publication workflow to update a shared folder. State missing facts instead of inventing them.
+For a substantial independent assignment, use bees_delegate_work with an agentAssignmentId from the team roster. Give the recipient a concrete outcome, relevant context, output file paths, and acceptance criteria. Honor the user's requested delegation count and execution order: send parallel assignments together in one call, and wait between assignments when sequential execution is requested or a task depends on an earlier result. Inspect every returned result. If seated in a discussion, give recommendations and wait; the lead creates tracked execution assignments after discussion. Do not duplicate work in the discussion seat.`;
+  const previousRoles = {
+    CEO: "Translate the user's outcome into the smallest useful plan. Resolve dependencies and assign substantial engineering work to CTO, marketing to CMO, and sales to CRO when those agents are available. Do small tasks yourself. Define success, reconcile tradeoffs, inspect returned deliverables, and own the combined result. An assignment list or strategy alone does not complete an execution request.",
+    CTO: "Inspect the existing product and repository instructions before changing it. Reuse existing infrastructure, implement the smallest correct change, and run relevant checks. Deliver working code and verification evidence. Explain any remaining limitations. Coordinate messaging requirements with CMO and customer requirements with CRO when necessary.",
+    CMO: "Use the company's actual product, audience, and brand guidance to create usable marketing deliverables. Produce finished copy, campaign assets, and measurement plans as requested. Substantiate product claims. Coordinate product accuracy with CTO and audience or pipeline insights with CRO. Distinguish prepared content from content actually published.",
+    CRO: "Research qualified prospects with sources, prepare tailored outreach, and maintain pipeline records using connected tools when authorized. Track concrete next actions and follow-ups. Distinguish researched prospects, drafted outreach, sent messages, and confirmed revenue. Coordinate positioning with CMO and feasibility with CTO. Never invent contacts, responses, deals, or revenue."
+  };
+  const oldInstructions = (name) => `${previousOwnership}\n\n${previousRoles[name]}`;
+  const agentDatabase = new DatabaseSync(":memory:");
+  initializeProductDatabase(agentDatabase);
+  const executives = () => agentDatabase.prepare("SELECT * FROM agent_assignments WHERE system_role IS NULL ORDER BY name").all();
+  assert.deepEqual(executives().map(({ name }) => name), ["CEO", "CFO", "CMO", "COO", "CRO", "CTO"]);
+  for (const agent of EXECUTIVE_AGENTS) {
+    const row = executives().find(({ name }) => name === agent.name);
+    assert.equal(row.instructions, agent.instructions);
+    assert.deepEqual(JSON.parse(row.capabilities_json), agent.capabilities);
+  }
+  const futureTime = new Date(Date.now() + 60_000).toISOString();
+  for (const name of Object.keys(previousRoles))
+    agentDatabase.prepare("UPDATE agent_assignments SET instructions = ?, updated_at = ? WHERE name = ?")
+      .run(oldInstructions(name), futureTime, name);
+  agentDatabase.exec(`
+    UPDATE agent_assignments SET description = 'Company priorities', model = 'personal/model',
+      reasoning_effort = 'high', enabled = 0, max_concurrency = 2,
+      mcp_access = 'listed', mcp_servers_json = '["company-records"]' WHERE name = 'CEO';
+    UPDATE agent_assignments SET id = 'custom-cfo', name = 'cfo', instructions = 'Use our financial policy', enabled = 0 WHERE name = 'CFO';
+    DELETE FROM agent_assignments WHERE name = 'COO';
+    PRAGMA user_version = 36;
+  `);
+  const priorAgents = executives();
+  initializeProductDatabase(agentDatabase);
+  for (const name of Object.keys(previousRoles)) {
+    const before = priorAgents.find((row) => row.name === name);
+    const after = executives().find((row) => row.name === name);
+    assert.equal(after.instructions, EXECUTIVE_AGENTS.find((agent) => agent.name === name).instructions);
+    assert(Date.parse(after.updated_at) > Date.parse(futureTime));
+    assert.deepEqual({ ...after, instructions: before.instructions, updated_at: before.updated_at }, { ...before });
+  }
+  assert.deepEqual(executives().find(({ id }) => id === "custom-cfo"), priorAgents.find(({ id }) => id === "custom-cfo"));
+  assert.equal(executives().find(({ name }) => name === "COO").instructions, EXECUTIVE_AGENTS.find(({ name }) => name === "COO").instructions);
+  assert.equal(executives().length, 6, "reuse an existing role even with different letter case");
+  assert.equal(agentDatabase.prepare("PRAGMA user_version").get().user_version, 38);
+  const migratedAgents = executives();
+  initializeProductDatabase(agentDatabase);
+  assert.deepEqual(executives(), migratedAgents, "restarting must not rewrite or duplicate agents");
+  for (const name of Object.keys(previousRoles))
+    agentDatabase.prepare("UPDATE agent_assignments SET instructions = ? WHERE name = ?").run(oldInstructions(name), name);
+  agentDatabase.exec(`
+    UPDATE agent_assignments SET id = 'custom-ceo' WHERE name = 'CEO';
+    UPDATE agent_assignments SET name = 'Engineering lead' WHERE name = 'CTO';
+    UPDATE agent_assignments SET instructions = instructions || '\nUse our company voice.' WHERE name = 'CMO';
+    UPDATE agent_assignments SET archived_at = '2026-01-01T00:00:00.000Z', enabled = 0 WHERE name = 'CRO';
+    PRAGMA user_version = 36;
+  `);
+  const customizedAgents = executives();
+  initializeProductDatabase(agentDatabase);
+  assert.deepEqual(executives(), customizedAgents, "preserve custom, renamed, and archived agents without recreating defaults");
+  agentDatabase.close();
   const database = new DatabaseSync(":memory:");
   initializeProductDatabase(database);
   let answer;
@@ -186,6 +248,32 @@ try {
   assert.throws(() => assertPeersSettled(runtime, worker, claim), /4 recorded successful child executions/);
   database.prepare("UPDATE bees_stage_results SET outcome = 'candidate' WHERE execution_id = 'review-child-4'").run();
   addResult.run("run", stamp(1000));
+  // A completed stage's immutable result must not swallow a new conversation turn.
+  const oldConfig = runtime.run("run").configJson;
+  database.prepare("UPDATE execution_links SET config_json = ? WHERE execution_id = 'run'")
+    .run(JSON.stringify({ ...JSON.parse(oldConfig), stagePurpose: "worker" }));
+  runtime.setStatus("run", "completed");
+  const oldHandle = runtime.newHandle, oldSettle = runtime.settle;
+  let followupData, followupText;
+  const followupHandle = { agent: { session: { seq: 0 },
+    followup: (message) => { followupText = message.content[0].text; },
+    steer: (message) => { followupText = message.content[0].text; } }, dispose: async () => {} };
+  runtime.newHandle = async (_run, data) => { followupData = data; return { sessionId: "followup-session", handle: followupHandle }; };
+  runtime.settle = async () => {};
+  const followup = { uid: "instance", idempotencyKey: "completed-followup", body: "What did you finish?" };
+  const accepted = await runtime.admit("bees-run", "run", followup);
+  assert.equal(followupData.stagePurpose, undefined);
+  assert.equal(followupText, followup.body);
+  assert.equal(runtime.run("run").status, "running");
+  assert.equal(runtime.stageResult("run").summary, "Finished");
+  assert.deepEqual({ ...await runtime.admit("bees-run", "run", followup) }, accepted);
+  runtime.newHandle = () => assert.fail("a second message replaced a live follow-up worker");
+  await runtime.admit("bees-run", "run", { ...followup, idempotencyKey: "second-followup", body: "One more detail." });
+  assert.equal(followupText, "One more detail.");
+  assert.equal(runtime.live.get("run").handle, followupHandle);
+  await runtime.finish("run", accepted.submissionId, "followup-session", followupHandle, { outcome: "completed" });
+  runtime.newHandle = oldHandle; runtime.settle = oldSettle;
+  database.prepare("UPDATE execution_links SET config_json = ? WHERE execution_id = 'run'").run(oldConfig);
   const recorded = (await runtime.workResult("item")).delegation;
   assert.equal(recorded.launched, 5);
   assert.equal(recorded.completed, 5);
@@ -274,6 +362,56 @@ try {
   assert.throws(() => processes.project({ ...projection, stageId: "missing", phase: "completed" }),
     /stage does not belong/);
 
+  // Restart the same card at its first stage, with fresh IDs and the old results preserved.
+  const closed = [];
+  processes.client = { workflow: { getHandle: (id) => ({ result: async () => { closed.push(id); } }) } };
+  const restartInputs = [];
+  processes.startItem = async (id) => {
+    restartInputs.push(processes.input(id));
+    database.prepare("UPDATE work_items SET runtime_phase = 'running' WHERE id = ?").run(id);
+    return { automatic: true, claimed: true };
+  };
+  const restarted = await executeProductCommand.call({ database, processes }, "restart_item", {
+    itemId: "item", text: "Start this same task again", requestId: "restart-check"
+  });
+  assert.equal(restarted.id, "item");
+  assert.equal(processes.item("item").stageId, stage.id);
+  assert.equal(processes.item("item").runtimePhase, "running");
+  assert.equal(processes.item("item").attempt, 3);
+  assert.equal(processes.input("item").restart.text, "Start this same task again");
+  assert.equal(runtime.stageResult("run").summary, "Finished");
+  await processes.restartItem("item", "Start this same task again", "restart-check");
+  assert.equal(restartInputs.length, 1, "replayed requests must not restart twice");
+  await assert.rejects(processes.restartItem("item", "Different request", "restart-check"), /another request/);
+  await assert.rejects(processes.restartItem("item", "Again", "new-restart"), /Only finished/);
+  database.prepare("UPDATE work_items SET archived_at = ? WHERE id = 'child'").run(at);
+  await assert.rejects(processes.restartItem("child", "Again", "archived-restart"), /Only finished/);
+  database.prepare("UPDATE work_items SET archived_at = NULL WHERE id = 'child'").run();
+
+  const states = [], stageCalls = [];
+  const workflowSource = readFileSync(new URL("../dsh-runtime/plugin/lib/process-workflow.js", import.meta.url), "utf8")
+    .replace(/^import \{([\s\S]*?)\} from "@temporalio\/workflow";/, "const {$1} = temporal;")
+    .replaceAll("export async function", "async function");
+  const workflow = new Function("temporal", workflowSource + "\nreturn processWorkflow;")({
+    defineSignal: (name) => name, setHandler() {},
+    proxyActivities: () => ({ projectWorkItem: async (state) => states.push({ ...state }),
+      runDshStage: async (call) => { stageCalls.push(call); return { outcome: call.purpose === "reviewer" ? "pass" : "candidate" }; } })
+  });
+  await workflow(restartInputs[0]);
+  assert.equal(stageCalls[0].stageId, stage.id);
+  assert.equal(stageCalls[0].executionId, "item-stage-0-work-3");
+  assert.match(stageCalls[0].retryMessage, /Start this same task again/);
+  assert.equal(states.at(-1).phase, "completed");
+  assert.equal(states.at(-1).stageId, terminal.id);
+  processes.project({ ...projection, workItemId: "item", phase: "completed" });
+
+  const { conversationMessages } = await import("../dsh-runtime/plugin/client/conversation-model.js");
+  const ownerUpdates = [1, 2].map((n) => ({ id: `owner-${n}`, author: "Owner", executionId: "run", content: "Again", createdAt: stamp(n) }));
+  const transcript = { executionId: "run", messages: [{ id: "native", role: "user", parts: [{ text: "Again" }] }] };
+  const visible = conversationMessages(transcript, [], [], [], ownerUpdates);
+  assert.equal(visible.length, 2, "show unsurfaced owner messages without duplicating the native transcript");
+  assert.equal(conversationMessages(null, [], [], [], ownerUpdates).length, 2, "keep messages visible after switching executions");
+
   // Upgrading repairs old completed cards, preserves unfinished work and is idempotent.
   database.prepare("UPDATE work_items SET stage_id = ?, updated_at = ? WHERE id = 'child'")
     .run(stage.id, at);
@@ -344,6 +482,8 @@ try {
     title: "Test five subagents", description: "Launch five parallel subagents; each appends its own number word to outputs/counter.txt." });
   const stageFor = (id) => ({ workItemId: id, executionId: `${id}-work`, stageId: stage.id, stageName: "Work", purpose: "worker" });
   const leadRequest = await launchProduct.runProcessStage(stageFor(lead.id));
+  const restartRequest = await launchProduct.runProcessStage({ ...stageFor(lead.id), executionId: `${lead.id}-restart`, retryMessage: "Restart from stage one with the new instructions." });
+  assert.match(restartRequest.body, /Restart from stage one with the new instructions/);
   assert.doesNotMatch(leadRequest.body, /otherwise do the work yourself|substantial independent work/);
   assert.match(leadRequest.body, /your next action is bees_delegate_work/);
   const mountedTools = async (request, id) => {
@@ -374,6 +514,90 @@ try {
   assert.match(childRequest.body, /You are a delegated worker; do not launch other agents/);
   assert.doesNotMatch(childRequest.body, /your next action is bees_delegate_work/);
   assert(!(await mountedTools(childRequest, childIds[0])).has("bees_delegate_work"), "children cannot launch grandchildren");
+
+  // Process memory uses the real journal, command permissions and pinned run context.
+  const memoryInput = { processId: processRow.id };
+  const memories = () => launchProduct.command({ action: "read_process_memory", ...memoryInput });
+  const notes = runtime.workContext.processMemory;
+  runtime.workContext.recordHumanReview("run", "memory-feedback", false, "", "Always include the launch date.");
+  await leadTools.get("bees_share_update").execute({ kind: "lesson", content: "Use the brand’s plain language.", evidence: "Owner’s brand brief, page 2" }, { ...exec, callId: "memory-lesson" });
+  runtime.workContext.post("item", { id: "result:memory-result", executionId: "run", kind: "finding", author: "Reviewer", content: "Date verified.", evidence: "Brief" });
+  let memoryView = await memories();
+  assert(memoryView.canManage);
+  assert(memoryView.entries.some((entry) => entry.kind === "response" && entry.content === "Use plain text instead of Markdown."));
+  assert(memoryView.entries.some((entry) => entry.kind === "feedback" && entry.content.includes("Always include the launch date.")));
+  assert(memoryView.entries.some((entry) => entry.kind === "result" && entry.content === "Date verified."));
+  assert(memoryView.entries.every((entry) => !entry.active), "Captured entries require owner selection before reuse");
+  const lesson = memoryView.entries.find((entry) => entry.kind === "information" && entry.sourceId?.endsWith("memory-lesson"));
+  assert.equal(lesson.evidence, "Owner’s brand brief, page 2");
+  await assert.rejects(launchProduct.command({ action: "edit_process_memory", ...memoryInput, id: lesson.id, expectedRevision: lesson.revision, active: true, viaAgent: true }), /Only the process owner/);
+  await launchProduct.command({ action: "edit_process_memory", ...memoryInput, id: lesson.id, expectedRevision: lesson.revision, content: "Use plain language and short sentences.", active: true });
+  await assert.rejects(launchProduct.command({ action: "edit_process_memory", ...memoryInput, id: lesson.id, expectedRevision: lesson.revision, content: "Stale overwrite" }), /changed/);
+  assert.equal((await memories()).entries.find((entry) => entry.id === lesson.id).sourceContent, lesson.content, "Editing preserves the original source");
+  assert.deepEqual(runtime.workContext.run(`${lead.id}-work`).content.processMemory, [], "Existing runs remain frozen");
+  const future = await product.execute("create_item", { processId: processRow.id, title: "Next process run", idempotencyKey: "proposal:memory-check" });
+  const processName = database.prepare("SELECT name FROM processes WHERE id = ?").get(processRow.id).name;
+  assert((await product.execute("list_items", { workspaceId: processRow.workspaceId, process: processName })).some(({ id }) => id === future.id));
+  assert.deepEqual(await product.execute("list_items", { workspaceId: processRow.workspaceId, process: "No such process" }), []);
+  runtime.workContext.pin("memory-next", itemContext(database, future.id));
+  assert.match(runtime.workContext.instructions("memory-next"), /Use plain language and short sentences/);
+  const snapshot = runtime.workContext.run("memory-next").content.processMemory;
+  await launchProduct.command({ action: "forget_process_memory", ...memoryInput, id: lesson.id, expectedRevision: 1 });
+  assert.deepEqual(runtime.workContext.pin("memory-next-stage", itemContext(database, future.id)).content.processMemory, snapshot);
+  assert.deepEqual(runtime.workContext.pin("memory-review", itemContext(database, future.id), { reviewer: true, candidateExecutionId: "memory-next" }).content.processMemory, snapshot);
+  const { WorkContext } = await import("../dsh-runtime/plugin/lib/work-context.js");
+  new WorkContext(database);
+  assert(!(await memories()).entries.some((entry) => entry.id === lesson.id), "Backfill must not restore forgotten sources");
+  const otherProcess = await product.execute("create_process", { workspaceId: processRow.workspaceId, name: "Another process", stages: [{ name: "Work", driver: "agent" }, { name: "Done", driver: "terminal" }] });
+  assert.deepEqual(notes.view({ processId: otherProcess.id }).entries, [], "Memory is isolated by process");
+  await assert.rejects(launchProduct.command({ action: "edit_process_memory", processId: otherProcess.id, id: lesson.id, expectedRevision: 2 }), /not found in this process/);
+  await assert.rejects(launchProduct.command({ action: "add_process_memory", ...memoryInput, content: " " }), /1 to 12000/);
+  await assert.rejects(launchProduct.command({ action: "add_process_memory", ...memoryInput, content: "x".repeat(12001) }), /1 to 12000/);
+  await assert.rejects(memories().then(() => notes.view({ ...memoryInput, before: -1 })), /cursor/);
+  for (let i = 0; i < 43; i++) notes.command("add_process_memory", { ...memoryInput, content: `Saved note ${i}`, active: false });
+  const page = notes.view({ ...memoryInput, query: "Saved note" });
+  assert.equal(page.entries.length, 40); assert(page.hasMore);
+  const older = notes.view({ ...memoryInput, query: "Saved note", before: page.before });
+  assert.equal(older.entries.length, 3); assert(!older.hasMore);
+  assert(!older.entries.some((entry) => page.entries.some((newer) => entry.id === newer.id)));
+  notes.command("add_process_memory", { ...memoryInput, content: "x".repeat(12000), active: true });
+  notes.command("add_process_memory", { ...memoryInput, content: "y".repeat(12000), active: true });
+  assert.throws(() => notes.command("add_process_memory", { ...memoryInput, content: "Overflow", active: true }), /Active memory is full/);
+  runtime.workContext.post(future.id, { id: "source-survives", author: "User", content: "Keep this response after task deletion." });
+  database.prepare("DELETE FROM work_items WHERE id = ?").run(future.id);
+  const retained = notes.view({ ...memoryInput, query: "after task deletion" }).entries[0];
+  assert.equal(retained.workItemId, null); assert.equal(retained.sourceContent, retained.content);
+
+  const localUser = database.prepare("SELECT id FROM users ORDER BY created_at LIMIT 1").get().id;
+  database.prepare("UPDATE team_memberships SET role = 'viewer' WHERE team_id = ? AND user_id = ?").run(teamId, localUser);
+  assert(!notes.view(memoryInput).canManage);
+  assert.throws(() => notes.command("add_process_memory", { ...memoryInput, content: "Viewer write" }), /Only the process owner/);
+  database.prepare("UPDATE team_memberships SET role = 'admin' WHERE team_id = ? AND user_id = ?").run(teamId, localUser);
+  const orgId = database.prepare("SELECT organization_id AS id FROM teams WHERE id = ?").get(teamId).id;
+  database.prepare("UPDATE workspaces SET authority = 'connected' WHERE id = ?").run(processRow.workspaceId);
+  for (const [account, role] of [["owner-account", "member"], ["other-account", "admin"]]) {
+    database.prepare("INSERT INTO bees_accounts (user_id, email, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(account, `${account}@example.test`, account, at, at);
+    database.prepare("INSERT INTO bees_connections VALUES (?, ?, ?, ?, ?, ?)").run(account, orgId, account, role, at, at);
+    database.prepare("INSERT INTO bees_connection_teams VALUES (?, ?, ?, ?, ?)").run(account, teamId, role, at, at);
+  }
+  database.prepare("UPDATE processes SET account_user_id = 'owner-account' WHERE id = ?").run(processRow.id);
+  assert(notes.view({ ...memoryInput, connectionId: "owner-account" }).canManage);
+  assert(!notes.view({ ...memoryInput, connectionId: "other-account", accountUserId: "owner-account" }).canManage);
+  assert.throws(() => notes.command("add_process_memory", { ...memoryInput, connectionId: "other-account", accountUserId: "owner-account", content: "Spoofed owner" }), /Only the process owner/);
+  assert.throws(() => notes.command("add_process_memory", { ...memoryInput, content: "Missing connection" }), /Only the process owner/);
+  database.prepare("UPDATE bees_accounts SET enabled = 0 WHERE user_id = 'owner-account'").run();
+  assert(!notes.view({ ...memoryInput, connectionId: "owner-account" }).canManage);
+  database.prepare("UPDATE bees_accounts SET enabled = 1 WHERE user_id = 'owner-account'").run();
+  const { teamRecords, applyTeamRecords } = await import("../dsh-runtime/plugin/lib/team-sync.js");
+  const exported = teamRecords(database, orgId).find((entry) => entry.recordType === "team_process" && entry.recordId === processRow.id);
+  assert.equal(exported.payload.accountUserId, "owner-account");
+  database.prepare("UPDATE processes SET account_user_id = NULL WHERE id = ?").run(processRow.id);
+  const syncedTime = new Date(Date.now() + 10000).toISOString();
+  applyTeamRecords(database, orgId, [{ ...exported, version: Date.parse(syncedTime), payload: { ...exported.payload, updatedAt: syncedTime } }]);
+  assert.equal(database.prepare("SELECT account_user_id AS owner FROM processes WHERE id = ?").get(processRow.id).owner, "owner-account");
+  const { accountUserId: omitted, ...legacyPayload } = exported.payload;
+  applyTeamRecords(database, orgId, [{ ...exported, version: Date.parse(syncedTime) + 1, payload: { ...legacyPayload, updatedAt: new Date(Date.parse(syncedTime) + 1).toISOString() } }]);
+  assert.equal(database.prepare("SELECT account_user_id AS owner FROM processes WHERE id = ?").get(processRow.id).owner, "owner-account", "Older clients preserve process ownership");
   database.close();
   console.log("Process interaction checks passed");
 } finally {

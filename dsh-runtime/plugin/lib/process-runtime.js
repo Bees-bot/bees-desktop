@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { ApplicationFailure, Context } from "@temporalio/activity";
 import {
-  Client, Connection, WorkflowExecutionAlreadyStartedError, WorkflowNotFoundError
+  Client, Connection, WorkflowExecutionAlreadyStartedError, WorkflowFailedError, WorkflowNotFoundError
 } from "@temporalio/client";
 import { NativeConnection, Worker } from "@temporalio/worker";
 import { iso, message, transaction } from "./product-database.js";
@@ -15,6 +15,8 @@ export const recurringScheduleId = (recurringWorkId, accountUserId = "") =>
 
 const automaticDrivers = new Set(["agent", "discussion", "review", "terminal"]);
 
+const isScheduleMissing = (error) => error?.name === "ScheduleNotFoundError";
+
 export class ProcessRuntime {
   constructor(database, options = {}) {
     this.database = database;
@@ -26,6 +28,7 @@ export class ProcessRuntime {
     this.notify = options.notify ?? (() => {});
     this.claimWatchers = new Map();
     this.scheduledLeases = new Map();
+    this.startingItems = new Set();
     this.needsRecovery = options.needsRecovery ?? (() => false);
     this.pendingInteraction = options.pendingInteraction ?? (() => null);
     this.canStart = options.canStart ?? (() => ({ ready: true }));
@@ -71,13 +74,18 @@ export class ProcessRuntime {
       WHERE event_type = 'peer-work-correction' AND json_extract(metadata_json, '$.workItemId') = ?
       ORDER BY rowid DESC LIMIT 1
     `).get(item.id) : null;
+    const restart = this.database.prepare(`SELECT metadata_json AS metadata FROM dsh_audit_events
+      WHERE event_type = 'work-restarted' AND json_extract(metadata_json, '$.workItemId') = ?
+        AND json_extract(metadata_json, '$.attempt') = ? ORDER BY rowid DESC LIMIT 1`)
+      .get(item.id, item.attempt);
     return {
       workItemId: item.id, processId: item.processId, stageId: item.stageId,
       accountUserId: item.accountUserId ?? "", stages, maxAttempts: 3,
       parentReview: Boolean(item.parentId),
       // Its own field so runs already in flight replay on the path they started with.
       peerAssignment: Boolean(item.parentId),
-      ...(correction ? { correction: JSON.parse(correction.metadata) } : {})
+      ...(restart ? { restart: JSON.parse(restart.metadata) }
+        : correction ? { correction: JSON.parse(correction.metadata) } : {})
     };
   }
 
@@ -271,7 +279,9 @@ export class ProcessRuntime {
         state: { ...previous.state, paused: recurring.status === "paused" },
         memo: options.memo
       }));
-    } catch {
+    } catch (error) {
+      // a network blip is not a missing schedule, and creating again would double it
+      if (!isScheduleMissing(error)) throw error;
       await this.client.schedule.create(options);
     }
     return this.refreshNextRun(recurring.id, accountUserId, handle);
@@ -285,8 +295,14 @@ export class ProcessRuntime {
     `).all(recurringWorkId);
     for (const executor of existing) if (!eligible.has(executor.accountUserId)) {
       // The person is off the run now, so the schedule and its row both go.
-      await this.client.schedule.getHandle(executor.temporalScheduleId).delete()
-        .catch((error) => { this.logger.warn?.(`bees: a Temporal schedule would not delete: ${message(error)}`); });
+      try { await this.client.schedule.getHandle(executor.temporalScheduleId).delete(); }
+      catch (error) {
+        // keep the row so the next reconcile tries again, or the schedule keeps firing unowned
+        if (!isScheduleMissing(error)) {
+          this.logger.warn?.(`bees: a Temporal schedule would not delete: ${message(error)}`);
+          continue;
+        }
+      }
       this.database.prepare(`
         DELETE FROM bees_recurring_executors WHERE recurring_work_id = ? AND account_user_id = ?
       `).run(recurringWorkId, executor.accountUserId);
@@ -438,8 +454,23 @@ export class ProcessRuntime {
   }
 
   async startItem(workItemId) {
+    const key = `work-item:${workItemId}`;
+    // reconcile and a user Start can both get past the watcher check while awaiting
+    if (this.claimWatchers.has(key) || this.startingItems.has(key))
+      return { automatic: true, workflowId: processWorkflowId(workItemId), claimed: true };
+    this.startingItems.add(key);
+    try { return await this.startItemOnce(workItemId); }
+    finally { this.startingItems.delete(key); }
+  }
+
+  async startItemOnce(workItemId) {
     const input = this.input(workItemId);
     if (!this.isAutomatic(input.processId)) return { automatic: false };
+    // only the device that parked a run holds its question, another would rerun the stage cold
+    const { runtimePhase, executionId } = this.item(workItemId);
+    if (["waiting", "paused"].includes(runtimePhase) && executionId &&
+      !this.database.prepare("SELECT 1 FROM execution_links WHERE execution_id = ?").get(executionId))
+      return { automatic: true, claimed: false, waitingFor: "This work is waiting on the device that paused it" };
     const readiness = await this.canStart(workItemId);
     if (!readiness?.ready) return {
       automatic: true, claimed: false, waitingFor: readiness?.reason ?? "This device is not ready"
@@ -528,6 +559,45 @@ export class ProcessRuntime {
     return { id: workItemId };
   }
 
+  async restartItem(workItemId, text, requestId) {
+    if (typeof text !== "string" || text.length > 8000 || typeof requestId !== "string" || !requestId.trim())
+      throw new Error("A restart needs a request ID and instructions under 8,000 characters");
+    const receiptId = `work-restart:${requestId}`;
+    const receipt = this.database.prepare("SELECT metadata_json AS metadata FROM dsh_audit_events WHERE id = ?").get(receiptId);
+    const item = this.item(workItemId);
+    if (receipt) {
+      const saved = JSON.parse(receipt.metadata);
+      if (saved.workItemId !== workItemId || saved.text !== text) throw new Error("This restart belongs to another request");
+      if (item.runtimePhase === "ready") await this.startItem(workItemId);
+      return { id: workItemId };
+    }
+    if (!this.isAutomatic(item.processId) || item.archivedAt || !["completed", "failed", "cancelled"].includes(item.runtimePhase))
+      throw new Error("Only finished automatic work can be restarted");
+    const handle = this.client.workflow.getHandle(processWorkflowId(workItemId));
+    if (item.runtimePhase === "failed") {
+      if (item.executionId) this.abortAgent?.(item.executionId);
+      await handle.cancel();
+    }
+    await handle.result().catch((error) => { if (!(error instanceof WorkflowFailedError)) throw error; });
+    await this.claimWatchers.get(`work-item:${workItemId}`)?.settled;
+    const first = this.stages(item.processId)[0];
+    transaction(this.database, () => {
+      const current = this.item(workItemId);
+      if (current.attempt !== item.attempt || current.archivedAt || !["completed", "failed", "cancelled"].includes(current.runtimePhase))
+        throw new Error("This task already started another attempt");
+      const attempt = Number(item.attempt) + 1;
+      this.database.prepare(`INSERT INTO dsh_audit_events (id, event_type, metadata_json, created_at)
+        VALUES (?, 'work-restarted', ?, ?)`)
+        .run(receiptId, JSON.stringify({ workItemId, attempt, text }), iso());
+      this.database.prepare(`UPDATE work_items SET stage_id = ?, runtime_phase = 'ready', runtime_attempt = ?,
+        runtime_review_cycle = 0, runtime_execution_id = NULL, runtime_error = NULL, updated_at = ? WHERE id = ?`)
+        .run(first.id, attempt, iso(), workItemId);
+      this.database.prepare("DELETE FROM bees_stage_waits WHERE work_item_id = ?").run(workItemId);
+    });
+    const started = await this.startItem(workItemId);
+    return { id: workItemId, ...started };
+  }
+
   /** Recover a failed child explicitly, preserving the failure and replacement in the audit log. */
   async resolveFailedItem(workItemId, reason, requestId, replacementWorkItemId = null, signal) {
     signal?.throwIfAborted();
@@ -576,6 +646,7 @@ export class ProcessRuntime {
 
   watchClaim(key, claim, handle) {
     if (claim.local || !this.claims || typeof handle?.result !== "function") return;
+    clearInterval(this.claimWatchers.get(key)?.heartbeat);
     let renewing = false;
     const heartbeat = setInterval(async () => {
       if (renewing) return;

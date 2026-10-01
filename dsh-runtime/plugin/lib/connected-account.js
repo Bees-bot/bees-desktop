@@ -19,6 +19,12 @@ function responseError(body, status) {
   return Object.assign(new Error(message(body, status)), { status });
 }
 
+// keep the cause (timeout, DNS, TLS) so a failure reads as more than "offline"
+function unreachable(error) {
+  const cause = error?.cause?.code ?? error?.name;
+  return new Error(`Can't reach the Bees server${cause ? ` (${cause})` : ""}`);
+}
+
 export class ConnectedAccount {
   constructor(database, credentials, baseUrl = process.env.BEES_ACCOUNT_API_URL ?? defaultServer, logger = console) {
     this.database = database;
@@ -100,8 +106,8 @@ export class ConnectedAccount {
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         signal: AbortSignal.timeout(timeoutMs)
       });
-    } catch {
-      throw new Error("Can't reach the Bees server");
+    } catch (error) {
+      throw unreachable(error);
     }
     const value = await response.json().catch(() => ({}));
     if (!response.ok) throw responseError(value, response.status);
@@ -117,8 +123,8 @@ export class ConnectedAccount {
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(20_000)
       });
-    } catch {
-      throw new Error("Can't reach the Bees server");
+    } catch (error) {
+      throw unreachable(error);
     }
     const value = await response.json().catch(() => ({}));
     if (!response.ok || !value.user?.id || !value.user?.email) throw new Error(message(value, response.status));

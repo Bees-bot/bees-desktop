@@ -59,7 +59,7 @@ export async function processWorkflow(input) {
   const startedAt = index;
   let paused = false;
   let retryRequested = false;
-  let retryMessage = "";
+  let retryMessage = input.restart?.text ? `The user requested this task again from its first stage. Perform a fresh attempt using this request:\n${input.restart.text}` : "";
   let retryRequests = 0;
   let stageChanges = 0;
   let candidateExecutionId = input.correction?.candidateExecutionId ?? null;
@@ -70,7 +70,7 @@ export async function processWorkflow(input) {
     processId: input.processId,
     stageId: input.stages[index].id,
     phase: "running",
-    attempt: input.correction?.attempt ?? 1,
+    attempt: input.restart?.attempt ?? input.correction?.attempt ?? 1,
     retryRequest: 0,
     reviewCycle: 0,
     // attempt keeps climbing so every session id stays unique; this one is what maxAttempts means
@@ -143,17 +143,13 @@ export async function processWorkflow(input) {
           const observedChanges = stageChanges;
           const message = retryMessage;
           retryMessage = "";
-          try {
-            result = await durableActivities.runDshStage({
-              ...state, purpose, driver: stage.driver,
-              ...(message ? { retryMessage: message } : {}),
-              requiresHumanApproval: Boolean(stage.requiresHumanApproval),
-              stageName: stage.name, candidateExecutionId, feedback,
-              durableWaits: true
-            });
-          } catch (error) {
-            throw error;
-          }
+          result = await durableActivities.runDshStage({
+            ...state, purpose, driver: stage.driver,
+            ...(message ? { retryMessage: message } : {}),
+            requiresHumanApproval: Boolean(stage.requiresHumanApproval),
+            stageName: stage.name, candidateExecutionId, feedback,
+            durableWaits: true
+          });
           if (result.outcome !== "suspended") break;
           await project("waiting", null, true);
           // Signals are recorded by Temporal; no activity or heartbeat stays alive for a human wait.

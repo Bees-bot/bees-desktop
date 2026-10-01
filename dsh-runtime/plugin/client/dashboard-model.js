@@ -1,11 +1,27 @@
 const COLUMNS = 12;
 
 export const DEFAULT_WIDGETS = [
+  { kind: "outcome", x: 0, y: 0, w: 10, h: 4 },
+  { kind: "quick-actions", x: 10, y: 0, w: 2, h: 4 },
+  { kind: "waiting", x: 0, y: 4, w: 5, h: 7 },
+  { kind: "recent-work", x: 5, y: 4, w: 7, h: 7 },
+  { kind: "completed", x: 0, y: 11, w: 12, h: 6 }
+];
+
+const LEGACY_HOME_LAYOUT = [
   { kind: "metrics", x: 0, y: 0, w: 12, h: 3 },
   { kind: "outcome", x: 0, y: 3, w: 8, h: 5 },
   { kind: "quick-actions", x: 8, y: 3, w: 4, h: 5 },
   { kind: "waiting", x: 0, y: 8, w: 6, h: 4 },
   { kind: "recent-work", x: 6, y: 8, w: 6, h: 4 }
+];
+
+const PREVIOUS_HOME_LAYOUT = [
+  { kind: "outcome", x: 0, y: 0, w: 10, h: 4 },
+  { kind: "quick-actions", x: 10, y: 0, w: 2, h: 4 },
+  { kind: "waiting", x: 0, y: 4, w: 5, h: 6 },
+  { kind: "recent-work", x: 5, y: 4, w: 7, h: 6 },
+  { kind: "completed", x: 0, y: 10, w: 12, h: 6 }
 ];
 
 const DEFAULT_WORK_ITEM_WIDGETS = [
@@ -67,10 +83,13 @@ export function dashboardsFrom(value) {
       widgets.push(widget);
     }
     dashboardIds.add(id);
+    const oldHome = id === "home" && [LEGACY_HOME_LAYOUT, PREVIOUS_HOME_LAYOUT].some((layout) =>
+      widgets.length === layout.length && widgets.every((widget, index) =>
+        ["kind", "x", "y", "w", "h"].every((key) => widget[key] === layout[index][key])));
     dashboards.push({
       id,
       name: String(candidate.name ?? "Untitled dashboard").trim().slice(0, 80) || "Untitled dashboard",
-      widgets: withoutOverlap(widgets)
+      widgets: oldHome ? DEFAULT_WIDGETS.map((widget) => ({ ...widget })) : withoutOverlap(widgets)
     });
   }
   if (!dashboardIds.has("home")) dashboards.unshift(defaultDashboard());

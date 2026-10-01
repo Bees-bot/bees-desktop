@@ -7,9 +7,9 @@
 name: CI
 
 on:
+  # a pull_request run already builds the branch merged into main, so a push
+  # trigger would test the same tree twice and spend the free minutes twice
   pull_request:
-  push:
-    branches: [main]
 
 permissions:
   contents: read

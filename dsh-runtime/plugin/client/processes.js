@@ -2,6 +2,7 @@ import { h, useEffect, useRef, useState, React } from "./runtime.js";
 import { accountLabel, ask, Button, confirmAction, Empty, useSubmit, PageHead, when } from "./shared.js";
 import { GridStackPage } from "./flexible-grid.js";
 import { AgentCreateForm, AgentEditForm, McpAccess, needsNote } from "./agents.js";
+import { ProcessMemoryPanel } from "./collaboration.js";
 import { AttachedResourceFields, ResourceFields } from "./location-fields.js";
 import { ConnectAddons } from "./skills.js";
 import { ArrowLeftIcon } from "./icons.js";
@@ -13,7 +14,8 @@ const TEMPLATES_LAYOUT = [
 const PROCESS_DETAIL_LAYOUT = [
   { kind: "routing", x: 0, y: 0, w: 12, h: 6 },
   { kind: "files", x: 0, y: 6, w: 6, h: 5 },
-  { kind: "mcp", x: 6, y: 6, w: 6, h: 5 }
+  { kind: "mcp", x: 6, y: 6, w: 6, h: 5 },
+  { kind: "memory", x: 0, y: 11, w: 12, h: 6 }
 ];
 
 function StageAgentRoute({ stage, agents, servers = [], act, onOpenAgent, onCreateAgent }) {
@@ -282,7 +284,8 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
             beforeGrid: processActions,
             routing: { label: "Agent setup", minW: 6, minH: 5, content: routingPanel },
             files: { label: "Files", minW: 4, minH: 3, content: filesPanel },
-            mcp: { label: "Process add-ons", minW: 4, minH: 3, content: mcpPanel }
+            mcp: { label: "Process add-ons", minW: 4, minH: 3, content: mcpPanel },
+            memory: { label: "Memory", minW: 6, minH: 5, content: h(ProcessMemoryPanel, { key: process.id, process, act, onOpenWork: openWorkItem }) }
           }
         })
       );
