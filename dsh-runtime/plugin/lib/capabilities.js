@@ -45,10 +45,9 @@ async function stop(ctx, fiber, what) {
 function secretRef(server, name) {
   return credentialRef(`BEES_MCP_${server.id}_${name}`.replace(/[^A-Za-z0-9_]/g, "_").toUpperCase());
 }
-const STASHED = /^\{\{credential:(BEES_PASTED_[A-Z0-9_]+)\}\}$/;
 const PASTED = /\{\{credential:(BEES_PASTED_[A-Z0-9_]+)\}\}/g;
 // a planner wrote -H 'freelancer-oauth-v1: API_HEADERS', and that word went out as the key on every call
-const PLACEHOLDER = /^(?:[Bb]earer\s+)?(?:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+|\$\{?\w+\}?|<[^<>]*>|\{\{(?!credential:)[^{}]*\}\})$/;
+const PLACEHOLDER = /^(?:[Bb]earer\s+)?(?:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+|\$\{?\w+\}?|<[^<>]*>|\{\{(?!credential:BEES_PASTED_)[^{}]*\}\})$/;
 // rows keep placeholders so one server definition works wherever Bees and its state directory live,
 // and the browser pair resolves differently per run: two teams can browse in two different profiles
 const placed = (value, mode = "own") => value === "{node}" ? process.execPath
@@ -188,12 +187,12 @@ export class Capabilities {
     if (server.transport === "stdio") {
       const env = {};
       for (const name of server.envNames) {
-        const value = await this.secret(server, name);
-        if (value) env[name] = value;
+        const hit = await this.ctx.credentials.resolve(secretRef(server, name));
+        if (hit?.value) env[name] = hit.value;
       }
       // the openapi bridge takes request headers as one env value; args are stored, so no secret goes there
       const headers = (await Promise.all(server.headerNames.map(async (name) =>
-        [name, await this.secret(server, name) ?? ""])))
+        [name, (await this.ctx.credentials.resolve(secretRef(server, name)))?.value ?? ""])))
         .filter(([, value]) => value && !PLACEHOLDER.test(value)).map(([name, value]) => `${name}:${value}`);
       // the saved auth header and the pasted request's headers both go out, one must not replace the other,
       // and a saved Bearer YOUR_TOKEN is dropped rather than sent next to the real key
@@ -213,8 +212,8 @@ export class Capabilities {
     const headers = {};
     for (const name of server.headerNames) {
       const prefix = catalogEntry(server.catalogId)?.headers.find((row) => row.name === name)?.prefix ?? "";
-      const value = await this.secret(server, name);
-      if (value) headers[name] = `${prefix}${value}`;
+      const hit = await this.ctx.credentials.resolve(secretRef(server, name));
+      if (hit?.value) headers[name] = `${prefix}${hit.value}`;
     }
     return {
       transport: "streamable-http", serverName: server.serverName, url: server.url, headers,
@@ -485,14 +484,15 @@ export class Capabilities {
         JSON.stringify(server.args), server.url, JSON.stringify(server.envNames),
         JSON.stringify(server.headerNames), server.catalogId, server.source, at);
       this.onlyBrowser(server);
-      // a process whose add-on check wanted this one before it was connected gets it ticked now
-      this.database.prepare(`
-        UPDATE processes SET mcp_servers_json = json_insert(mcp_servers_json, '$[#]', ?)
+      // a process whose add-on check wanted this one before it was connected gets it ticked now;
+      // a bridge is made per API, so a later one for another API is not the one it wanted
+      if (!catalogEntry(server.catalogId)?.nameFrom) this.database.prepare(`
+        UPDATE processes SET mcp_servers_json = json_insert(mcp_servers_json, '$[#]', ?), updated_at = ?
         WHERE mcp_access = 'listed' AND archived_at IS NULL AND id IN (
           SELECT json_extract(c.value, '$.addonsFor') FROM bees_proposals p, json_each(p.changes_json) c
           WHERE p.status = 'applied' AND json_extract(c.value, '$.needsConnect') AND json_extract(c.value, '$.catalogId') = ?)
           AND NOT EXISTS (SELECT 1 FROM json_each(mcp_servers_json) WHERE value = ?)
-      `).run(server.serverName, server.catalogId ?? "", server.serverName);
+      `).run(server.serverName, at, server.catalogId ?? "", server.serverName);
     });
     // After the row lands, so a rejected write leaves a fixable server not an orphan secret.
     await this.storeSecrets(server, secrets);
@@ -502,27 +502,15 @@ export class Capabilities {
 
   async storeSecrets(server, secrets) {
     for (const [name, raw] of Object.entries(secrets)) {
-      const value = await this.unstash(raw);
-      if (value === null) throw new Error(`${name} was pasted earlier but its stored value is gone. Paste the header again.`);
-      if (value.trim()) await this.ctx.credentials.set(secretRef(server, name), value.trim());
+      let value = String(raw ?? "").trim();
+      // the planner hands a header as "Name: {{credential:KEY}}", so every reference is swapped, not only a bare one
+      for (const [whole, key] of [...value.matchAll(PASTED)]) {
+        const stored = (await this.ctx.credentials.resolve(credentialRef(key)))?.value;
+        if (!stored) throw new Error(`${name} was pasted earlier but its stored value is gone. Paste the header again.`);
+        value = value.replace(whole, () => stored);
+      }
+      if (value) await this.ctx.credentials.set(secretRef(server, name), value);
     }
-  }
-
-  // the planner hands a header as "Name: {{credential:KEY}}", so every reference is swapped, not only a bare one
-  async unstash(raw) {
-    let value = String(raw ?? "");
-    for (const [whole, key] of [...value.matchAll(PASTED)]) {
-      const stored = (await this.ctx.credentials.resolve(credentialRef(key)))?.value;
-      if (!stored) return null;
-      value = value.replace(whole, () => stored);
-    }
-    return value;
-  }
-
-  // a row saved before unstash went out with the reference as its token, so reads resolve it too
-  async secret(server, name) {
-    const hit = await this.ctx.credentials.resolve(secretRef(server, name));
-    return hit?.value ? await this.unstash(hit.value) : null;
   }
 
   /** A request for a host the bridge already serves adds its endpoints there: one server per API. */
@@ -559,7 +547,7 @@ export class Capabilities {
     if (typeof value !== "string") return value;
     let text = value;
     for (const [whole, flag, quote, name, secret] of [...value.matchAll(/((?:-H|--header)\s*)(['"])([^'":]*(?:auth|token|key|secret|cookie|session|oauth)[^'":]*:\s*)(.+?)\2/gi)]) {
-      if (STASHED.test(secret.trim())) continue;
+      if (secret.includes("{{credential:")) continue;
       const key = `BEES_PASTED_${name.split(":")[0]}_${createHash("sha256").update(secret.trim()).digest("hex").slice(0, 8)}`
         .replace(/[^A-Za-z0-9_]/g, "_").toUpperCase();
       await this.ctx.credentials.set(credentialRef(key), secret.trim());
