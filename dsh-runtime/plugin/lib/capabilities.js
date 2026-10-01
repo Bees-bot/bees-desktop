@@ -579,10 +579,10 @@ export class Capabilities {
     return text;
   }
 
-  // a key typed into an answer or the chat goes to the credential store too, so the agent only ever sees a reference.
+  // a bare key typed anywhere goes to the credential store too, so the agent only ever sees a reference.
   // ponytail: a key is any 20+ character word mixing upper, lower and digits; a long camelCase name with a digit gets stored too
   async stashKeys(text) {
-    let out = await this.stash(String(text ?? ""));
+    let out = String(text ?? "");
     for (const word of new Set(out.match(/(?<![\w~+=./:{-])(?=[\w~+=.-]*[A-Z])(?=[\w~+=.-]*[a-z])(?=[\w~+=.-]*\d)[\w~+=.-]{20,}(?![\w~+=./:}-])/g) ?? [])) {
       if (/\.[a-z]{2,5}$/.test(word)) continue;
       const key = `BEES_PASTED_KEY_${createHash("sha256").update(word).digest("hex").slice(0, 8).toUpperCase()}`;

@@ -532,8 +532,9 @@ export async function apply(ctx, config = {}, internals = {}) {
     if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
     try {
       const input = await capabilities.stash(await body(req));
-      // a key pasted into a plan request would otherwise sit in the run's saved purpose in plain text
-      if (input.action === "ask_bees" && typeof input.outcome === "string") input.outcome = await capabilities.stashKeys(input.outcome);
+      // a key typed into a plan or a new run would otherwise be saved with it in plain text
+      if (["ask_bees", "create_item", "create_run", "create_goal"].includes(input.action))
+        for (const field of ["outcome", "description"]) if (typeof input[field] === "string") input[field] = await capabilities.stashKeys(input[field]);
       reply(res, 200, await product.command(input));
       void connected.syncCoordination().catch((error) =>
         ctx.logger.warn?.(`bees: team sync after change failed: ${userMessage(error)}`));

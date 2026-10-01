@@ -491,11 +491,11 @@ export async function executeProductCommand(action, input) {
         : null;
       const title = titleInvocation?.request.split("\n")[0].trim() || rawTitle;
       const description = invocation ? `${invocation.reference} ${invocation.request}` : resolvedDescription.text;
-      // a scheduled finder sees the same record on every check, so an agent's repeat create keeps the item it already made
+      // two checks running at once both file the record they found, so the second keeps the open item the first made
       const same = input.viaAgent && kind === "work" && this.database.prepare(`
-        SELECT id FROM work_items WHERE process_id = ? AND kind = 'work' AND title = ? AND parent_id IS ?
-          AND archived_at IS NULL AND deleted_at IS NULL LIMIT 1
-      `).get(processId, title, parentId);
+        SELECT id FROM work_items WHERE process_id = ? AND kind = 'work' AND parent_id IS ? AND lower(trim(title)) = lower(trim(?))
+          AND runtime_phase NOT IN ('completed', 'cancelled') AND archived_at IS NULL AND deleted_at IS NULL LIMIT 1
+      `).get(processId, parentId, title);
       if (same) return { ...same, reused: true };
       this.database.prepare(`
         INSERT INTO work_items (id, process_id, stage_id, parent_id, kind, title, description, owner,
