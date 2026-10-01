@@ -400,7 +400,7 @@ export function McpPage({ ctx, capabilities, preference, preferences, setPageAct
     return h(McpCard, {
       name: server.label, status: STATUS_LABEL[server.status] ?? server.status,
       icon: catEntry?.icon,
-      meta: `${server.toolCount} tool${server.toolCount === 1 ? "" : "s"}`,
+      meta: server.perRun ? "starts in each run" : `${server.toolCount} tool${server.toolCount === 1 ? "" : "s"}`,
       tone: ["connected", "per run"].includes(server.status) ? "connected" : server.status === "failed" ? "warning" : "",
       key: server.id
     },

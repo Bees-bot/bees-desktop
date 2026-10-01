@@ -122,8 +122,7 @@ export class Capabilities {
    * Chrome a person signs into, or the DevTools chip attached to that same Chrome.
    */
   async mountBrowserFor(agentCtx, granted = null, mode = "own") {
-    // the run's grant picks which one: with devtools and playwright both installed, the older row won
-    // every time and an agent listed on "browser" hunted for mcp__browser__ tools that never existed
+    // only one browser add-on is on at a time, and a run whose grant leaves it out browses nothing
     const row = this.servers().find(({ enabled, catalogId, serverName }) => enabled && isBrowserCatalog(catalogId)
       && (!granted || granted.includes(serverName)));
     if (!row) return;
@@ -132,15 +131,19 @@ export class Capabilities {
     let synced;
     agentCtx.on("tools/pre-execute", async (exec, next) => {
       if (!exec.name.startsWith(`mcp__${row.serverName}__`)) return next();
-      // it has to be up before its sign-ins are read; devtools drives it on every call, so a crashed one comes back
-      if (!synced || row.catalogId === "chrome-devtools") await startAgentBrowser(mode).catch((error) =>
-        this.ctx.logger.warn(`bees: the agent's browser did not start for ${exec.name}: ${message(error)}`));
-      // shared, so a second call landing mid-copy waits for the cookies instead of starting without them
-      synced ??= saveBrowserState(mode).catch((error) =>
-        this.ctx.logger.warn(`bees: this run starts signed out, cookies could not be read: ${message(error)}`));
-      await synced;
+      try {
+        // it has to be up before its sign-ins are read; devtools drives it on every call, so a crashed one comes back
+        if (!synced || row.catalogId === "chrome-devtools") await startAgentBrowser(mode);
+        // shared, so a second call landing mid-copy waits for the cookies instead of starting without them
+        await (synced ??= saveBrowserState(mode));
+      } catch (error) {
+        synced = null;
+        // browsing on regardless would quietly sign the person out of every site
+        return { kind: "deny", reason: `The browser did not start: ${message(error)}. Tell the owner this exact error with ask_user_question.` };
+      }
       return next();
     });
+    return row.serverName;
   }
 
 
@@ -480,6 +483,7 @@ export class Capabilities {
       `).run(server.id, server.serverName, server.label, server.transport, server.command,
         JSON.stringify(server.args), server.url, JSON.stringify(server.envNames),
         JSON.stringify(server.headerNames), server.catalogId, server.source, at);
+      this.onlyBrowser(server);
     });
     // After the row lands, so a rejected write leaves a fixable server not an orphan secret.
     await this.storeSecrets(server, secrets);
@@ -707,6 +711,13 @@ export class Capabilities {
     }, secrets);
   }
 
+  /** A run holds one browser, so turning one on turns the other off rather than leaving a run to guess. */
+  onlyBrowser(server) {
+    if (!isBrowserCatalog(server.catalogId)) return;
+    for (const other of this.servers()) if (other.id !== server.id && isBrowserCatalog(other.catalogId))
+      this.database.prepare("UPDATE mcp_servers SET enabled = 0 WHERE id = ?").run(other.id);
+  }
+
   row(serverId) {
     const row = this.servers().find(({ id }) => id === required(serverId, "Server"));
     if (!row) throw new Error("Server not found");
@@ -718,6 +729,7 @@ export class Capabilities {
     const enabled = Boolean(input.enabled);
     if (server.enabled === enabled) return { id: server.id, enabled };
     this.database.prepare("UPDATE mcp_servers SET enabled = ? WHERE id = ?").run(enabled ? 1 : 0, server.id);
+    if (enabled) this.onlyBrowser(server);
     await this.serialize(server.id, () => this.remount({ ...server, enabled }));
     return { id: server.id, enabled };
   }

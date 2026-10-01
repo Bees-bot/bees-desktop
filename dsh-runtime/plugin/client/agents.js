@@ -196,7 +196,7 @@ export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access,
           const catEntry = server.catalogId ? catalog.find(c => c.id === server.catalogId) : null;
           return h(McpCard, { name: server.label, status: added ? "Added" : server.enabled ? "Available" : "Turned off",
             icon: catEntry?.icon,
-            meta: `${server.toolCount ?? serverTools.length} tool${(server.toolCount ?? serverTools.length) === 1 ? "" : "s"}`,
+            meta: server.perRun ? "starts in each run" : `${server.toolCount ?? serverTools.length} tool${(server.toolCount ?? serverTools.length) === 1 ? "" : "s"}`,
             tone: added ? "added" : server.enabled ? "" : "warning", key: server.id,
             actionLabel: added ? `Unselect ${server.label}` : server.enabled ? `Select ${server.label}` : `Turn on and select ${server.label}`,
             actionIcon: added ? "✓" : "+",

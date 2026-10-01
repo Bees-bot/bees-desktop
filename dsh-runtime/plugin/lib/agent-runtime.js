@@ -730,9 +730,10 @@ export class AgentRuntime {
       if (exec.name.startsWith("mcp__") && !/^mcp__(filesystem|memory|thinking|time)__/.test(exec.name)
         && link && JSON.parse(link.config).requiresHumanApproval && !approvals().length) {
         // a big api is called through invoke-api-endpoint, and the endpoint it names is what gets read or sent.
-        // the api bridge names every write so it reads as one, and a browser snapshot still passes
+        // the api bridge names every write so it reads as one. a browser click or keypress can send anything, so the browser waits too
         const tool = exec.name.endsWith("__invoke-api-endpoint") ? String(exec.arguments?.endpoint ?? "") : exec.name.slice(exec.name.indexOf("__", 5) + 2);
-        if (sendsOut(tool) || !/^(get|head)?$/i.test(String(exec.arguments?.method ?? "")))
+        const server = database.prepare("SELECT catalog_id AS catalogId FROM mcp_servers WHERE server_name = ?").get(exec.name.slice(5, exec.name.indexOf("__", 5)));
+        if (isBrowserCatalog(server?.catalogId) || sendsOut(tool) || !/^(get|head)?$/i.test(String(exec.arguments?.method ?? "")))
           return "This stage needs the person's approval before anything goes out. Show exactly what this call will send with bees_request_work_review, then make the call.";
       }
       if (exec.name !== "ask_user_question") return;
@@ -1065,9 +1066,13 @@ export class AgentRuntime {
   /** Mounts this run's own browser. The browser waits for the Open browser action, not for every run. */
   async startBrowserIfGranted(data, agentCtx) {
     if (!this.grantedBrowser(data)) return;
-    await this.capabilities.mountBrowserFor(agentCtx, data.mcpAccess === "listed" ? data.mcpServers : null,
+    data.browserServer = await this.capabilities.mountBrowserFor(agentCtx, data.mcpAccess === "listed" ? data.mcpServers : null,
       browserModeFor(this.database, data.workspaceId))
-      .catch((error) => this.ctx.logger.warn(`bees: this run got no browser: ${message(error)}`));
+      .catch((error) => {
+        // without the reason the agent asks its team to "expose" browser tools nobody can give it
+        data.browserError = message(error);
+        this.ctx.logger.warn(`bees: this run got no browser: ${data.browserError}`);
+      });
   }
 
   /**
@@ -1076,9 +1081,11 @@ export class AgentRuntime {
    */
   connectedTools(data) {
     const servers = this.database.prepare(`
-      SELECT server_name AS name, label, args_json AS args FROM mcp_servers WHERE enabled = 1 ORDER BY server_name
-    `).all().filter(({ name }) => !data || data.mcpAccess === "all" ||
-      data.mcpAccess === "listed" && data.mcpServers.includes(name));
+      SELECT server_name AS name, label, args_json AS args, catalog_id AS catalogId FROM mcp_servers WHERE enabled = 1 ORDER BY server_name
+    `).all().filter(({ name, catalogId }) => (!data || data.mcpAccess === "all" ||
+      data.mcpAccess === "listed" && data.mcpServers.includes(name))
+      // a browser that did not start for this run must not be named, or the agent hunts for its tools
+      && (!data || !isBrowserCatalog(catalogId) || name === data.browserServer));
     if (!servers.length) return [];
     const named = servers.map(({ name, label, args }) => {
       const argv = JSON.parse(args);
@@ -1155,6 +1162,7 @@ export class AgentRuntime {
       data.mode === "planning" ? "" : HUMAN_INTERACTION_PROTOCOL,
       installedApp ? "" : "Run files and their text previews are available in bees_read_context; bees_read_work_evidence exposes source results from the same run. Team knowledge search covers work descriptions and mapped team sources, not generated run files.",
       ...(installedApp ? [] : [...this.connectedTools(data), ...this.boundFolders(data)]),
+      data.browserError ? `The browser add-on did not start for this run: ${data.browserError}. If this task needs the browser, no teammate can fix that from a run, so tell the owner this exact error with ask_user_question.` : "",
       appInstructions
     ].filter(Boolean).join("\n\n");
     agentCtx.systemPrompt.variable("bees_persona", () => persona);
