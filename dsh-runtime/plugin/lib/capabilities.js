@@ -46,6 +46,7 @@ function secretRef(server, name) {
   return credentialRef(`BEES_MCP_${server.id}_${name}`.replace(/[^A-Za-z0-9_]/g, "_").toUpperCase());
 }
 const STASHED = /^\{\{credential:(BEES_PASTED_[A-Z0-9_]+)\}\}$/;
+const PASTED = /\{\{credential:(BEES_PASTED_[A-Z0-9_]+)\}\}/g;
 // a planner wrote -H 'freelancer-oauth-v1: API_HEADERS', and that word went out as the key on every call
 const PLACEHOLDER = /^(?:[Bb]earer\s+)?(?:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+|\$\{?\w+\}?|<[^<>]*>|\{\{(?!credential:)[^{}]*\}\})$/;
 // rows keep placeholders so one server definition works wherever Bees and its state directory live,
@@ -187,12 +188,12 @@ export class Capabilities {
     if (server.transport === "stdio") {
       const env = {};
       for (const name of server.envNames) {
-        const hit = await this.ctx.credentials.resolve(secretRef(server, name));
-        if (hit?.value) env[name] = hit.value;
+        const value = await this.secret(server, name);
+        if (value) env[name] = value;
       }
       // the openapi bridge takes request headers as one env value; args are stored, so no secret goes there
       const headers = (await Promise.all(server.headerNames.map(async (name) =>
-        [name, (await this.ctx.credentials.resolve(secretRef(server, name)))?.value ?? ""])))
+        [name, await this.secret(server, name) ?? ""])))
         .filter(([, value]) => value && !PLACEHOLDER.test(value)).map(([name, value]) => `${name}:${value}`);
       // the saved auth header and the pasted request's headers both go out, one must not replace the other,
       // and a saved Bearer YOUR_TOKEN is dropped rather than sent next to the real key
@@ -212,8 +213,8 @@ export class Capabilities {
     const headers = {};
     for (const name of server.headerNames) {
       const prefix = catalogEntry(server.catalogId)?.headers.find((row) => row.name === name)?.prefix ?? "";
-      const hit = await this.ctx.credentials.resolve(secretRef(server, name));
-      if (hit?.value) headers[name] = `${prefix}${hit.value}`;
+      const value = await this.secret(server, name);
+      if (value) headers[name] = `${prefix}${value}`;
     }
     return {
       transport: "streamable-http", serverName: server.serverName, url: server.url, headers,
@@ -501,11 +502,27 @@ export class Capabilities {
 
   async storeSecrets(server, secrets) {
     for (const [name, raw] of Object.entries(secrets)) {
-      const stashed = STASHED.exec(String(raw ?? "").trim());
-      const value = stashed ? (await this.ctx.credentials.resolve(credentialRef(stashed[1])))?.value : raw;
-      if (stashed && !value) throw new Error(`${name} was pasted earlier but its stored value is gone. Paste the header again.`);
-      if (value) await this.ctx.credentials.set(secretRef(server, name), value);
+      const value = await this.unstash(raw);
+      if (value === null) throw new Error(`${name} was pasted earlier but its stored value is gone. Paste the header again.`);
+      if (value.trim()) await this.ctx.credentials.set(secretRef(server, name), value.trim());
     }
+  }
+
+  // the planner hands a header as "Name: {{credential:KEY}}", so every reference is swapped, not only a bare one
+  async unstash(raw) {
+    let value = String(raw ?? "");
+    for (const [whole, key] of [...value.matchAll(PASTED)]) {
+      const stored = (await this.ctx.credentials.resolve(credentialRef(key)))?.value;
+      if (!stored) return null;
+      value = value.replace(whole, () => stored);
+    }
+    return value;
+  }
+
+  // a row saved before unstash went out with the reference as its token, so reads resolve it too
+  async secret(server, name) {
+    const hit = await this.ctx.credentials.resolve(secretRef(server, name));
+    return hit?.value ? await this.unstash(hit.value) : null;
   }
 
   /** A request for a host the bridge already serves adds its endpoints there: one server per API. */
