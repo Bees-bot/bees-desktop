@@ -17,6 +17,9 @@ import { ArrowLeftIcon } from "./icons.js";
 import { agentMentionOptions, agentTag, conversationMessages, mentionedRecipient, pollConversation } from "./conversation-model.js";
 import { DshRunPanels } from "./native-conversation.js";
 
+// a key typed here goes to the credential store first, so the run only sees a reference to it
+const hideKeys = async (text) => (await request("/bees-api/capabilities", { method: "POST", body: JSON.stringify({ action: "stash_answer", text }) })).text;
+
 const UserMessage = ({ children, label }) => {
   const [expanded, setExpanded] = useState(false);
   const truncated = children.length > 280;
@@ -459,17 +462,18 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
       if (!finished && !activeRun) return;
       setSending(true);
       try {
+        const said = await hideKeys(text);
         if (finished) {
-          if (!await act({ action: "continue_run", executionId: run.id, text })) return;
+          if (!await act({ action: "continue_run", executionId: run.id, text: said })) return;
         }
         else {
           // a run's session reaches this list a few seconds after the run starts
           if (!ctx.sessions.list.getSnapshot().byId[activeRun.sessionId]) await ctx.sessions.refresh();
           if (!ctx.sessions.list.getSnapshot().byId[activeRun.sessionId]) throw new Error("The agent is still starting. Send again in a few seconds.");
           const result = await ctx.sessions.using(activeRun.sessionId, { source: "bees" },
-            (reference) => reference.binding.session.prompt([{ type: "text", text }], "queue"));
+            (reference) => reference.binding.session.prompt([{ type: "text", text: said }], "queue"));
           if (!result.ok) throw result.error;
-          await request("/bees-api/command", { method: "POST", body: JSON.stringify({ action: "record_owner_message", executionId: activeRun.id, text }) });
+          await request("/bees-api/command", { method: "POST", body: JSON.stringify({ action: "record_owner_message", executionId: activeRun.id, text: said }) });
         }
         if (!stale()) setComposerText("");
       } catch (reason) { if (!stale()) setSendError(reason instanceof Error ? reason.message : String(reason)); }
@@ -973,11 +977,12 @@ function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, execu
   const submit = async (nextDrafts) => {
     setBusy(true); setError("");
     try {
+      const customs = await Promise.all(nextDrafts.map(({ custom }) => custom.trim() && hideKeys(custom.trim())));
       await pending.answer({ answers: questions.map((item, itemIndex) => {
         const answer = nextDrafts[itemIndex];
         // an empty selection reads as no reply, so the agent asks the same thing again; name the skip instead
         if (answer.skipped) return { id: item.id, selected: [], custom: "Skipped." };
-        return { id: item.id, selected: answer.selected, ...(answer.custom.trim() ? { custom: answer.custom.trim() } : {}) };
+        return { id: item.id, selected: answer.selected, ...(customs[itemIndex] ? { custom: customs[itemIndex] } : {}) };
       }) });
       onAnswered(wait.key);
     } catch (reason) { setBusy(false); setError(reason instanceof Error ? reason.message : String(reason)); }

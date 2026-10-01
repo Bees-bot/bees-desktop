@@ -464,6 +464,7 @@ export class Capabilities {
     if (action === "set_mcp_server_enabled") return this.setEnabled(input);
     if (action === "set_mcp_server_folder") return this.setFolder(input);
     if (action === "remove_mcp_server") return this.remove(input);
+    if (action === "stash_answer") return { text: await this.stashKeys(input.text) };
     throw new Error(`Unknown capability action ${action || "(none)"}`);
   }
 
@@ -576,6 +577,19 @@ export class Capabilities {
       text = text.replace(whole, `${flag}${quote}${name}{{credential:${key}}}${quote} (stored in Bees; call this API through its MCP server)`);
     }
     return text;
+  }
+
+  // a key typed into an answer or the chat goes to the credential store too, so the agent only ever sees a reference.
+  // ponytail: a key is any 20+ character word mixing upper, lower and digits; a long camelCase name with a digit gets stored too
+  async stashKeys(text) {
+    let out = await this.stash(String(text ?? ""));
+    for (const word of new Set(out.match(/(?<![\w~+=./:{-])(?=[\w~+=.-]*[A-Z])(?=[\w~+=.-]*[a-z])(?=[\w~+=.-]*\d)[\w~+=.-]{20,}(?![\w~+=./:}-])/g) ?? [])) {
+      if (/\.[a-z]{2,5}$/.test(word)) continue;
+      const key = `BEES_PASTED_KEY_${createHash("sha256").update(word).digest("hex").slice(0, 8).toUpperCase()}`;
+      await this.ctx.credentials.set(credentialRef(key), word);
+      out = out.replaceAll(word, `{{credential:${key}}}`);
+    }
+    return out;
   }
 
   /** Dynamic mode hides every parameter behind an empty `params` object, and a small local model
