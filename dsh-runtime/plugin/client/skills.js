@@ -40,7 +40,10 @@ export function useCapabilities(route) {
     void load();
     // A server that is still starting has no tools yet, so the page has to look again.
     const timer = setInterval(() => { if (starting.current) void load({ quiet: true }); }, 4000);
-    return () => clearInterval(timer);
+    // a Google sign-in finishes in the browser, so look again when the person comes back
+    const back = () => void load({ quiet: true });
+    window.addEventListener("focus", back);
+    return () => { clearInterval(timer); window.removeEventListener("focus", back); };
   }, []);
   const act = async (command) => {
     try {

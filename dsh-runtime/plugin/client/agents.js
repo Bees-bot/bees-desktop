@@ -165,12 +165,23 @@ export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access,
     setMode(nextMode); setPicked(nextPicked);
     void onChange?.({ mcpAccess: nextMode, mcpServers: nextMode === "listed" ? nextPicked : [] });
   };
+  // a Google sign-in lands after the dialog closed, so add its server once it shows up
+  const [signingIn, setSigningIn] = useState(null);
+  useEffect(() => {
+    const fresh = signingIn && servers.find((server) => server.catalogId === signingIn.catalogId && !signingIn.known.includes(server.id));
+    if (!fresh) return;
+    setSigningIn(null);
+    if (mode !== "all" && !picked.includes(fresh.serverName)) change([...picked, fresh.serverName]);
+  }, [servers, signingIn]);
 
   return h("section", { className: "bees-mcp-access" },
     h("input", { type: "hidden", name: "mcpAccess", value: mode }),
     entry ? h(CatalogReview, { ctx, entry, onCancel: () => setReviewing(""),
-      // a Google sign-in lands later, so that server shows up to add once it is connected
-      onDone: ({ serverName }) => { if (serverName && mode !== "all" && !picked.includes(serverName)) change([...picked, serverName]); setReviewing(""); } }) : h(React.Fragment, null,
+      onDone: ({ serverName }) => {
+        if (serverName && mode !== "all" && !picked.includes(serverName)) change([...picked, serverName]);
+        if (!serverName && entry.scopes) setSigningIn({ catalogId: entry.id, known: servers.map(({ id }) => id) });
+        setReviewing("");
+      } }) : h(React.Fragment, null,
       ...(mode === "listed" ? picked : []).map((name) => h("input", { key: name, type: "hidden", name: "mcpServers", value: name })),
       mode === "all" ? h("div", { className: "bees-muted" }, "All connected add-ons are added, including any connected later")
         : h(Button, { onClick: () => change([], "all") }, "Add all connected add-ons"),
