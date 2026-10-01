@@ -1013,10 +1013,7 @@ function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, execu
           type: "button", key: `${option.label}:${optionIndex}`, disabled: busy,
           className: `bees-choice ${selected ? "selected" : ""}`,
           role: question.multiSelect === true ? "checkbox" : "radio", "aria-checked": selected,
-          onClick: () => {
-            choose(option.label);
-            if (browser && act && executionId && signInUrl && !selected && signInOption.test(option.label)) void openBrowser();
-          }
+          onClick: () => choose(option.label)
         }, h("span", { className: "bees-choice-mark", "aria-hidden": "true" }, question.multiSelect === true ? selected ? "✓" : "" : optionIndex + 1),
           h("span", { className: "bees-choice-copy" }, h("strong", null, shown.label, shown.recommended ? " · Recommended" : ""),
             option.description ? h("span", { className: "bees-muted" }, option.description) : null));

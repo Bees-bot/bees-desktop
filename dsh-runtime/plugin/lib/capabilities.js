@@ -7,7 +7,7 @@ import * as mcpClient from "@deepseek-ai/dsh-mcp-client";
 import { scopeOf } from "@deepseek-ai/dsh-scope";
 import { assertFolderOutsideBees } from "./product-commands.js";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
-import { browserPort, browserStatePath, closeAgentBrowser, saveBrowserState, startAgentBrowser } from "./agent-browser.js";
+import { browserPort, browserStatePath, closeAgentBrowser, saveBrowserState, showAgentBrowser, startAgentBrowser } from "./agent-browser.js";
 import { dataDirectory } from "./data-folder.js";
 import { serverFolder, setServerFolder } from "./folder-roots.js";
 import { iso, message, required, transaction } from "./product-database.js";
@@ -121,21 +121,43 @@ export class Capabilities {
    * its agent context, which dies with the run: either a headless session signed in from the one
    * Chrome a person signs into, or the DevTools chip attached to that same Chrome.
    */
-  async mountBrowserFor(agentCtx, granted = null, mode = "own") {
+  async mountBrowserFor(agentCtx, granted, mode, runId) {
     // only one browser add-on is on at a time, and a run whose grant leaves it out browses nothing
     const row = this.servers().find(({ enabled, catalogId, serverName }) => enabled && isBrowserCatalog(catalogId)
       && (!granted || granted.includes(serverName)));
     if (!row) return;
     await this.mountFor(agentCtx, row, mode);
+    const tool = `mcp__${row.serverName}__`;
     // Chrome starts on the first browser call, not with the run, since most runs never browse.
-    let synced;
+    let synced, lastUrl, reopen = false;
+    agentCtx.on("tools/result", (exec, result) => {
+      if (!exec.name.startsWith(tool)) return;
+      const url = result.content?.map(({ text }) => text ?? "").join("\n").match(/Page URL: (\S+)/)?.[1] ?? exec.arguments?.url;
+      if (/^https?:\/\//.test(url)) lastUrl = url;
+    });
     agentCtx.on("tools/pre-execute", async (exec, next) => {
-      if (!exec.name.startsWith(`mcp__${row.serverName}__`)) return next();
+      // a run that has browsed and needs a person shows them its page; the runtime hides it once they answer
+      if (exec.name === "ask_user_question" && lastUrl) {
+        showAgentBrowser(mode, runId, lastUrl).catch((error) => this.ctx.logger.warn(`bees: could not show the browser: ${message(error)}`));
+        // the answer may be a sign-in, so the next browser call copies the cookies again
+        synced = null;
+        // playwright's own session read its cookies once, devtools drives that browser itself
+        reopen = row.catalogId === "playwright";
+        return next();
+      }
+      if (!exec.name.startsWith(tool)) return next();
       try {
         // it has to be up before its sign-ins are read; devtools drives it on every call, so a crashed one comes back
         if (!synced || row.catalogId === "chrome-devtools") await startAgentBrowser(mode);
         // shared, so a second call landing mid-copy waits for the cookies instead of starting without them
         await (synced ??= saveBrowserState(mode));
+        if (reopen) {
+          reopen = false;
+          // closing drops the old session, the next one reads the fresh cookies, and the agent is put back on its page
+          await agentCtx.tools.get(`${tool}browser_close`, exec.agent)?.execute({}, exec);
+          if (lastUrl && exec.name !== `${tool}browser_navigate`)
+            await agentCtx.tools.get(`${tool}browser_navigate`, exec.agent)?.execute({ url: lastUrl }, exec);
+        }
       } catch (error) {
         synced = null;
         // browsing on regardless would quietly sign the person out of every site

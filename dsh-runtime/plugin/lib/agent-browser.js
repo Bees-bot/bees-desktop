@@ -308,16 +308,14 @@ async function bringUp(spec) {
   if (pid) await macApp(pid, "activateWithOptions($.NSApplicationActivateAllWindows | $.NSApplicationActivateIgnoringOtherApps)");
 }
 
-/**
- * The one window the agent browses in, opened in the background: a window Chrome opens itself comes to
- * the front and takes the person's focus with it, which a browser they did not ask for has no business
- * doing. Whether the window is minimised or full size does not matter, because the app is hidden.
- */
-async function openWindow(spec) {
-  const open = await fetch(`${base(spec)}/json/list`, { signal: AbortSignal.timeout(PATIENCE) }).then((r) => r.json());
-  // a window the person has closed, or one a failed launch never made, is nothing to sign in to
-  if (open.some(({ type }) => type === "page")) return;
-  await cdp(spec, "Target.createTarget", { url: "about:blank", background: true });
+/** The tab the person signs in on, opened on the page the agent was stuck at, or whatever tab is already there. */
+async function openWindow(spec, url) {
+  const pages = (await fetch(`${base(spec)}/json/list`, { signal: AbortSignal.timeout(PATIENCE) }).then((r) => r.json()))
+    .filter(({ type }) => type === "page");
+  const page = url ? pages.find((open) => open.url === url) : pages[0];
+  // a window the person has closed, or one a fresh launch never made, is nothing to sign in to
+  const targetId = page?.id ?? (await cdp(spec, "Target.createTarget", { url: url ?? "about:blank" })).targetId;
+  await cdp(spec, "Target.activateTarget", { targetId });
 }
 
 /** Out of the person's way: a hidden app shows no window, whatever the agent does inside it. */
@@ -378,7 +376,7 @@ async function launch(mode, visible, takeCopy = true) {
     "--hide-crash-restore-bubble",
     // A browser nobody is signing in on runs headless: macOS registers that one as a background app,
     // so it holds the person's sign-ins without a window to pop up and without a Dock icon beside
-    // their own browser all day. The one a person signs in on has a window, made in the background.
+    // their own browser all day. The one a person signs in on gets its window from showAgentBrowser.
     ...(visible ? ["--no-startup-window"] : ["--headless=new"])
   ], { stdio: "ignore" });
   child.unref();
@@ -398,9 +396,6 @@ async function launch(mode, visible, takeCopy = true) {
   // only a copy that came up with its cookies counts, or a crash relaunch would keep an empty one
   if (copied) copiedFolders.set(mode, copied);
   children.set(mode, child);
-  if (!visible) return;
-  // however the window goes, the browser ends up out of the person's way
-  try { await openWindow(spec); } finally { await putAway(spec); }
 }
 
 /** Whether the process has exited, giving it a moment. */
@@ -514,17 +509,7 @@ export function showAgentBrowser(mode, runId, url) {
     await launchIfAbsent(mode);
     const spec = target(mode);
     if (await headless(spec)) await relaunch(mode, true);
-    if (url) {
-      // own tab brought to the front, so the person sees the sign-in page and the agent's tab is left alone
-      try {
-        const pages = await fetch(`${base(spec)}/json/list`, { signal: AbortSignal.timeout(PATIENCE) }).then((r) => r.json());
-        // chrome unescapes the whole query, and a bare # would end the address before its fragment
-        const open = pages.find((page) => page.type === "page" && page.url === url)
-          ?? await fetch(`${base(spec)}/json/new?${encodeURIComponent(url)}`, { method: "PUT", signal: AbortSignal.timeout(PATIENCE) })
-            .then((r) => r.json());
-        await fetch(`${base(spec)}/json/activate/${open.id}`, { signal: AbortSignal.timeout(PATIENCE) });
-      } catch { /* the window still comes up, and the person can type the address themselves */ }
-    } else await openWindow(spec);
+    await openWindow(spec, url);
     await bringUp(spec);
   });
 }

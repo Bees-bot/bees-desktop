@@ -1063,11 +1063,11 @@ export class AgentRuntime {
         (mcpAccess === "all" || mcpServers.includes(name)));
   }
 
-  /** Mounts this run's own browser. The browser waits for the Open browser action, not for every run. */
+  /** Mounts this run's own browser. Chrome itself waits for the run's first browser call. */
   async startBrowserIfGranted(data, agentCtx) {
     if (!this.grantedBrowser(data)) return;
     data.browserServer = await this.capabilities.mountBrowserFor(agentCtx, data.mcpAccess === "listed" ? data.mcpServers : null,
-      browserModeFor(this.database, data.workspaceId))
+      browserModeFor(this.database, data.workspaceId), data.executionId)
       .catch((error) => {
         // without the reason the agent asks its team to "expose" browser tools nobody can give it
         data.browserError = message(error);
