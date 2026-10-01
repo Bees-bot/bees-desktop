@@ -133,6 +133,17 @@ function QuickActionsWidget({ workspaceId, createWork, createProcess, createRun,
     h("button", { type: "button", className: "bees-btn bees-dashboard-row", key: label, disabled: !workspaceId, onClick: action }, label)));
 }
 
+const SEEN_BROWSER_WARNING = "bees.browserWarningSeen";
+
+/** Why runs cannot browse, or browse signed out, until the person says they saw it. A new reason shows again. */
+function BrowserWarning({ warning }) {
+  const [seen, setSeen] = useState(() => { try { return localStorage.getItem(SEEN_BROWSER_WARNING) ?? ""; } catch { return ""; } });
+  if (!warning || seen === warning) return null;
+  return h("div", { className: "bees-callout", role: "status", style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px" } },
+    h("span", null, warning),
+    h(Button, { onClick: () => { try { localStorage.setItem(SEEN_BROWSER_WARNING, warning); } catch { /* shown again next time */ } setSeen(warning); } }, "Got it"));
+}
+
 function ProposalsWidget({ ctx, data, workspaceIds, act, catalog }) {
   const mine = data.proposals.filter((row) => workspaceIds.includes(row.workspaceId));
   const proposals = mine.filter((row) => row.status === "pending");
@@ -238,6 +249,7 @@ export function Home({ ctx, data, workspaceId, act, openWorkItem, navigate, rows
       onCancel: () => setSetup(false), onSave: (configuration) => { setOutcomeConfiguration(configuration); setSetup(false); }
     }) : null,
     h("div", { className: "bees-dashboard" },
+    h(BrowserWarning, { warning: data.defaultBrowser?.warning }),
     h(ProposalsWidget, { ctx, data, workspaceIds: [workspaceId], act, catalog: capabilities?.data?.catalog ?? [] }),
     dashboard.widgets.length ? h(DashboardGrid, {
       dashboard,

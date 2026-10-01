@@ -1,5 +1,5 @@
 import { execFile, execFileSync, spawn } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -92,6 +92,27 @@ export function defaultBrowser() {
   return found;
 }
 
+// the default browser's name even when Bees cannot use it, so the warning can name it
+let seenName = "";
+
+/** What the person must know before a run needs the browser: why runs cannot browse, or browse signed out. */
+export function browserWarning() {
+  if (process.platform !== "darwin") return "Runs can't browse the web yet. Bees' browser only works on a Mac.";
+  const browser = defaultBrowser();
+  const yours = seenName ? `your default browser, ${seenName}` : "your default browser";
+  if ((!browser || browser.binary === CHROME) && !existsSync(CHROME))
+    return browser
+      ? `Runs can't browse the web. Bees uses your ${browser.name} sign-ins through Google Chrome, and Chrome isn't installed. Install Google Chrome so runs can browse.`
+      : `Runs can't browse the web. Bees can't drive ${yours}, and Google Chrome isn't installed. Install Google Chrome so runs can browse.`;
+  if (!browser) return `Bees can't drive ${yours}, so runs browse in a separate Google Chrome. Sign in to each site there once.`;
+  if (browser.cookies === safariCookies) try { closeSync(openSync(SAFARI_COOKIES(), "r")); } catch (error) {
+    // the same check the launch makes, so the person hears it before a run stops on it
+    if (error.code === "EPERM" || error.code === "EACCES")
+      return "Runs can't use your Safari sign-ins yet. Give Bees Full Disk Access in System Settings, Privacy & Security, then reopen Bees.";
+  }
+  return "";
+}
+
 function askMacOs() {
   const script = `ObjC.import("AppKit");
     const url = $.NSWorkspace.sharedWorkspace.URLForApplicationToOpenURL($.NSURL.URLWithString("https://bees.bot"));
@@ -100,6 +121,7 @@ function askMacOs() {
   try {
     const app = JSON.parse(execFileSync("osascript", ["-l", "JavaScript", "-e", script], { encoding: "utf8" }));
     const name = basename(app.path ?? "").replace(/\.app$/, "");
+    seenName = name;
     const support = (folder) => join(homedir(), "Library/Application Support", folder);
     if (CHROMIUM[app.id]) return { name, binary: app.binary, support: support(CHROMIUM[app.id]) };
     // a browser Bees cannot drive lends its cookies to Chrome, which then browses as the person
@@ -136,11 +158,13 @@ function firefoxCookies(support) {
   }
 }
 
+const SAFARI_COOKIES = () => join(homedir(), "Library/Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies");
+
 /** Safari's cookies, read from its binarycookies file, in the shape CDP's Storage.setCookies takes. */
 function safariCookies() {
   let file;
   try {
-    file = readFileSync(join(homedir(), "Library/Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies"));
+    file = readFileSync(SAFARI_COOKIES());
   } catch (error) {
     // safari that never stored a cookie has no file, which is nothing to sign in with
     if (error.code === "ENOENT") return [];

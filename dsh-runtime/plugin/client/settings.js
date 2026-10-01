@@ -897,6 +897,7 @@ function BrowserSettings({ data, team, act }) {
       : browser.name
         ? `Runs in this team browse in Bees' own Chrome, where you sign in once. Your ${browser.name} is left alone.`
         : "Bees cannot read sign-ins from your default browser, so runs browse in Bees' own Chrome, where you sign in once."),
+    browser.warning ? h("p", { className: "bees-callout", role: "status" }, browser.warning) : null,
     notice ? h("p", { className: "bees-callout", role: "status" }, notice) : null);
 }
 
