@@ -892,11 +892,10 @@ function BrowserSettings({ data, team, act }) {
       h("input", { type: "checkbox", role: "switch", checked: useDefault, disabled: busy || !browser.name,
         onChange: (event) => choose(event, event.target.checked) }),
       h("span", { "aria-hidden": "true" }), "Use your own browser"),
-    h("p", { className: "bees-muted" }, useDefault
+    // with no usable browser the warning already says where runs browse
+    browser.name ? h("p", { className: "bees-muted" }, useDefault
       ? `Runs in this team browse with your ${browser.name} sign-ins, so the sites you are already signed in to work straight away. Bees reads them fresh each time it opens.`
-      : browser.name
-        ? `Runs in this team browse in Bees' own Chrome, where you sign in once. Your ${browser.name} is left alone.`
-        : "Bees cannot read sign-ins from your default browser, so runs browse in Bees' own Chrome, where you sign in once."),
+      : `Runs in this team browse in Bees' own Chrome, where you sign in once. Your ${browser.name} is left alone.`) : null,
     browser.warning ? h("p", { className: "bees-callout", role: "status" }, browser.warning) : null,
     notice ? h("p", { className: "bees-callout", role: "status" }, notice) : null);
 }
