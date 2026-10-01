@@ -1,7 +1,8 @@
 import { execFile, execFileSync, spawn } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { setTimeout as delay } from "node:timers/promises";
 import { stateDirectory } from "./product-database.js";
 
@@ -13,12 +14,11 @@ const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 /** Bees' own browser: its own profile and port, so a team that did not ask for the person's browser
  *  never sees, or signs out of, anything the person is signed in to. */
 const OWN = { port: 9333, profile: "browser-profile", state: "browser-state.json" };
-/** The person's own browser on a copy of their profile, where everything they use is already signed in.
+/** The person's sign-ins: a copy of their Chromium profile, or their Firefox or Safari cookies loaded into Chrome.
  *  A copy, because Chrome 136 and later ignore --remote-debugging-port on the profile folder in use. */
 const PERSONAL = { port: 9332, profile: "browser-profile-personal", state: "browser-state-personal.json" };
 
-/** The browsers Bees can drive, by bundle id, and where each keeps its profile folder. Safari and
- *  Firefox cannot be driven this way, and one of those as the default browser means Bees' own Chrome. */
+/** The browsers Bees drives itself, by bundle id, and where each keeps its profile folder. */
 const CHROMIUM = {
   "com.google.Chrome": "Google/Chrome",
   "com.google.Chrome.beta": "Google/Chrome Beta",
@@ -31,6 +31,14 @@ const CHROMIUM = {
   "com.operasoftware.Opera": "com.operasoftware.Opera",
   "company.thebrowser.Browser": "Arc/User Data",
   "org.chromium.Chromium": "Chromium"
+};
+/** Firefox and its forks, by bundle id, and where each keeps its Profiles folder. */
+const FIREFOX = {
+  "org.mozilla.firefox": "Firefox",
+  "org.mozilla.firefoxdeveloperedition": "Firefox",
+  "org.mozilla.nightly": "Firefox",
+  "app.zen-browser.zen": "zen",
+  "io.gitlab.librewolf-community": "librewolf"
 };
 
 /**
@@ -74,49 +82,133 @@ function serially(mode, work) {
 }
 
 /**
- * The person's default browser, when Bees can drive it. Asked once per launch of the app: the answer
+ * The browser the person signs in with, when Bees can read its sign-ins. Asked once per launch of the app: the answer
  * only changes when they change their own settings, and every run would otherwise pay for osascript.
  */
 export function defaultBrowser() {
-  if (looked) return found;
+  if (!looked) found = process.platform === "darwin" ? askMacOs() : null;
   looked = true;
-  found = process.platform === "darwin" ? askMacOs() : null;
-  return found;
+  return found?.binary ? found : null;
+}
+
+/** What the person must know before a run needs the browser: why runs cannot browse, or browse signed out. */
+export function browserWarning() {
+  if (process.platform !== "darwin") return "Runs can't browse the web yet. Bees' browser only works on a Mac.";
+  const browser = defaultBrowser();
+  const yours = found?.name ? `your default browser, ${found.name}` : "your default browser";
+  if (!existsSync(CHROME)) {
+    if (!browser) return `Runs can't browse the web. Bees can't drive ${yours}, and Google Chrome isn't installed. Install Google Chrome so runs can browse.`;
+    if (browser.binary === CHROME) return `Runs can't browse the web. Bees uses your ${browser.name} sign-ins through Google Chrome, and Chrome isn't installed. Install Google Chrome so runs can browse.`;
+    // own-browser teams and runs with no team still launch Chrome
+    return "Teams that use Bees' own browser can't browse until Google Chrome is installed.";
+  }
+  if (!browser) return `Bees can't drive ${yours}, so runs browse in a separate Google Chrome. Sign in to each site there once.`;
+  // the same check the launch makes, so the person hears it before a run stops on it
+  if (browser.cookies === safariCookies) try { safariFile((path) => closeSync(openSync(path, "r"))); } catch (error) { return error.message; }
+  return "";
 }
 
 function askMacOs() {
   const script = `ObjC.import("AppKit");
-    const app = $.NSWorkspace.sharedWorkspace.URLForApplicationToOpenURL($.NSURL.URLWithString("https://bees.bot"));
-    if (!app) JSON.stringify({});
-    else { const bundle = $.NSBundle.bundleWithURL(app);
-      JSON.stringify({ id: ObjC.unwrap(bundle.bundleIdentifier), binary: ObjC.unwrap(bundle.executablePath), path: ObjC.unwrap(app.path) }); }`;
+    const url = $.NSWorkspace.sharedWorkspace.URLForApplicationToOpenURL($.NSURL.URLWithString("https://bees.bot"));
+    const bundle = url.isNil() ? null : $.NSBundle.bundleWithURL(url);
+    JSON.stringify(bundle ? { id: ObjC.unwrap(bundle.bundleIdentifier), binary: ObjC.unwrap(bundle.executablePath), path: ObjC.unwrap(url.path) } : {});`;
   try {
-    const { id, binary, path } = JSON.parse(execFileSync("osascript", ["-l", "JavaScript", "-e", script], { encoding: "utf8" }));
-    const folder = CHROMIUM[id];
-    if (!binary || !folder) return null;
-    const support = join(homedir(), "Library/Application Support", folder);
-    // no Local State means this browser never ran here, so there is no profile to copy
-    if (!existsSync(join(support, "Local State"))) return null;
-    return { id, binary, name: basename(path ?? "").replace(/\.app$/, ""), support };
+    const app = JSON.parse(execFileSync("osascript", ["-l", "JavaScript", "-e", script], { encoding: "utf8" }));
+    const name = basename(app.path ?? "").replace(/\.app$/, "");
+    const support = (folder) => join(homedir(), "Library/Application Support", folder);
+    // a chromium browser that never ran has no profile to copy, so it would browse signed out
+    if (CHROMIUM[app.id] && existsSync(join(support(CHROMIUM[app.id]), "Local State"))) return { name, binary: app.binary, support: support(CHROMIUM[app.id]) };
+    // a browser Bees cannot drive lends its cookies to Chrome, which then browses as the person
+    if (FIREFOX[app.id]) return { name, binary: CHROME, cookies: () => firefoxCookies(support(FIREFOX[app.id])) };
+    if (app.id === "com.apple.Safari") return { name, binary: CHROME, cookies: safariCookies };
+    return { name };
   } catch { return null; }
+}
+
+const touched = (jar) => Math.max(...["", "-wal"].map((end) => existsSync(jar + end) ? statSync(jar + end).mtimeMs : 0));
+
+/** Firefox's cookies, from the profile used last, in the shape CDP's Storage.setCookies takes. */
+function firefoxCookies(support) {
+  const root = join(support, "Profiles");
+  const jar = (existsSync(root) ? readdirSync(root) : []).map((name) => join(root, name, "cookies.sqlite")).filter(existsSync)
+    // a running firefox writes to the wal, so the main file's time lags behind the profile in use
+    .sort((a, b) => touched(b) - touched(a))[0];
+  if (!jar) return [];
+  // a running Firefox holds the file and keeps recent cookies in its wal, so both are read from a copy
+  const copy = mkdtempSync(join(tmpdir(), "bees-cookies-"));
+  let database;
+  try {
+    for (const end of ["", "-wal"]) if (existsSync(jar + end)) cpSync(jar + end, join(copy, `cookies.sqlite${end}`));
+    database = new DatabaseSync(join(copy, "cookies.sqlite"));
+    // originAttributes marks container tabs and partitioned cookies, which are not the person's own sign-ins
+    return database.prepare("SELECT host, name, value, path, expiry, isSecure, isHttpOnly, sameSite FROM moz_cookies WHERE originAttributes = ''").all()
+      .map(({ host, name, value, path, expiry, isSecure, isHttpOnly, sameSite }) => ({
+        domain: host, name, value, path, secure: Boolean(isSecure), httpOnly: Boolean(isHttpOnly),
+        // newer Firefox counts milliseconds
+        expires: expiry > 1e11 ? expiry / 1000 : expiry,
+        // firefox stores None as 0, and chrome drops a None cookie that is not secure
+        sameSite: sameSite === 2 ? "Strict" : sameSite === 1 ? "Lax" : isSecure ? "None" : undefined
+      }));
+  } finally {
+    database?.close();
+    rmSync(copy, { recursive: true, force: true });
+  }
+}
+
+/** Safari's cookie file sits behind Full Disk Access; one Safari never stored a cookie in is null. */
+function safariFile(read) {
+  try {
+    return read(join(homedir(), "Library/Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies"));
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    if (error.code !== "EPERM" && error.code !== "EACCES") throw error;
+    throw new Error("Runs can't use your Safari sign-ins yet. Give Bees Full Disk Access in System Settings, Privacy & Security, then reopen Bees.");
+  }
+}
+
+/** Safari's cookies, read from its binarycookies file, in the shape CDP's Storage.setCookies takes. */
+function safariCookies() {
+  const file = safariFile(readFileSync);
+  if (!file) return [];
+  try { return parseBinaryCookies(file); } catch { throw new Error("Safari's cookie file is in a format Bees cannot read"); }
+}
+
+function parseBinaryCookies(file) {
+  if (file.toString("latin1", 0, 4) !== "cook") throw new Error("not a cookie file");
+  // big-endian page count and sizes, then little-endian pages of cookies whose strings sit at offsets
+  const cookies = [];
+  const pages = file.readUInt32BE(4);
+  for (let page = 0, at = 8 + 4 * pages; page < pages; at += file.readUInt32BE(8 + 4 * page++)) {
+    for (let index = 0; index < file.readUInt32LE(at + 4); index++) {
+      const cookie = at + file.readUInt32LE(at + 8 + 4 * index);
+      const text = (field) => {
+        const from = cookie + file.readUInt32LE(cookie + field);
+        return file.toString("utf8", from, file.indexOf(0, from));
+      };
+      const flags = file.readUInt32LE(cookie + 8);
+      cookies.push({ domain: text(16), name: text(20), path: text(24), value: text(28), secure: Boolean(flags & 1),
+        // apple counts from 2001
+        httpOnly: Boolean(flags & 4), expires: file.readDoubleLE(cookie + 40) + 978_307_200 });
+    }
+  }
+  return cookies;
 }
 
 /** Which browser one team's runs drive. */
 const browserMode = (teamId) => teamId && usesDefaultBrowser(teamId) && defaultBrowser() ? "personal" : "own";
 
 /** Which browser one run drives: the team that owns its workspace decides, and a run with no team
- *  gets Bees' own rather than a copy of a person's profile it has no setting for. */
+ *  gets Bees' own rather than a person's sign-ins it has no setting for. */
 export const browserModeFor = (database, workspaceId) =>
   browserMode(database.prepare("SELECT team_id AS teamId FROM workspaces WHERE id = ?").get(workspaceId ?? "")?.teamId ?? "");
 
 export const browserPort = (mode = "own") => target(mode).port;
 
-/** Bees' own browser whenever the person's is not there or cannot be driven, so a run still browses. */
+/** Bees' own browser for a team that turned yours off, or when Bees can't drive yours. */
 function target(mode) {
   const browser = mode === "personal" ? defaultBrowser() : null;
-  return browser
-    ? { ...PERSONAL, binary: browser.binary, support: browser.support }
-    : { ...OWN, binary: CHROME };
+  return browser ? { ...PERSONAL, ...browser } : { ...OWN, binary: CHROME };
 }
 
 /**
@@ -216,16 +308,14 @@ async function bringUp(spec) {
   if (pid) await macApp(pid, "activateWithOptions($.NSApplicationActivateAllWindows | $.NSApplicationActivateIgnoringOtherApps)");
 }
 
-/**
- * The one window the agent browses in, opened in the background: a window Chrome opens itself comes to
- * the front and takes the person's focus with it, which a browser they did not ask for has no business
- * doing. Whether the window is minimised or full size does not matter, because the app is hidden.
- */
-async function openWindow(spec) {
-  const open = await fetch(`${base(spec)}/json/list`, { signal: AbortSignal.timeout(PATIENCE) }).then((r) => r.json());
-  // a window the person has closed, or one a failed launch never made, is nothing to sign in to
-  if (open.some(({ type }) => type === "page")) return;
-  await cdp(spec, "Target.createTarget", { url: "about:blank", background: true });
+/** The tab the person signs in on, opened on the page the agent was stuck at, or whatever tab is already there. */
+async function openWindow(spec, url) {
+  const pages = (await fetch(`${base(spec)}/json/list`, { signal: AbortSignal.timeout(PATIENCE) }).then((r) => r.json()))
+    .filter(({ type }) => type === "page");
+  const page = url ? pages.find((open) => open.url === url) : pages[0];
+  // a window the person has closed, or one a fresh launch never made, is nothing to sign in to
+  const targetId = page?.id ?? (await cdp(spec, "Target.createTarget", { url: url ?? "about:blank" })).targetId;
+  await cdp(spec, "Target.activateTarget", { targetId });
 }
 
 /** Out of the person's way: a hidden app shows no window, whatever the agent does inside it. */
@@ -242,13 +332,12 @@ async function putAway(spec) {
 function copyProfile(mode, spec) {
   const profile = profileOf(spec);
   // a real browser holds several profiles and opens the one it last used, which is not always "Default"
-  const folder = activeProfile(spec);
+  const folder = spec.support ? activeProfile(spec) : "Default";
   rmSync(profile, { recursive: true, force: true });
   mkdirSync(join(profile, folder), { recursive: true });
-  for (const part of signInFiles(folder)) {
+  for (const part of spec.support ? signInFiles(folder) : []) {
     if (existsSync(join(spec.support, part))) cpSync(join(spec.support, part), join(profile, part), { recursive: true });
   }
-  copiedFolders.set(mode, folder);
   return folder;
 }
 
@@ -267,10 +356,14 @@ function activeProfile(spec) {
 async function launch(mode, visible, takeCopy = true) {
   if (process.platform !== "darwin") throw new Error("The agent's browser needs macOS");
   const spec = target(mode);
-  if (!existsSync(spec.binary)) throw new Error(`${mode === "personal" ? "Your default browser" : "Google Chrome"} is not installed`);
+  if (!existsSync(spec.binary)) throw new Error(`${basename(spec.binary)} is not installed`);
+  // read before anything starts, so a browser Bees cannot read stops the launch instead of browsing signed out
+  // chrome refuses the whole batch over one cookie it would never store
+  const seed = takeCopy && spec.cookies ? spec.cookies().filter(({ name, value, path, expires }) => expires > Date.now() / 1000
+    && name.length + value.length <= 4096 && path.length <= 1024 && !/[;\x00-\x1f\x7f]/.test(name + value)) : null;
   // a relaunch keeps the profile it is holding: the copy carries the sign-in the person just did in it,
   // and taking a fresh one would wipe that sign-in along with it
-  const copied = spec.support ? (takeCopy ? copyProfile(mode, spec) : copiedFolders.get(mode)) : null;
+  const copied = spec.support || spec.cookies ? (takeCopy ? copyProfile(mode, spec) : copiedFolders.get(mode)) : null;
   const child = spawn(spec.binary, [
     `--user-data-dir=${profileOf(spec)}`,
     // the copy says which profile it last used, and that can name one the person has deleted, so the
@@ -283,7 +376,7 @@ async function launch(mode, visible, takeCopy = true) {
     "--hide-crash-restore-bubble",
     // A browser nobody is signing in on runs headless: macOS registers that one as a background app,
     // so it holds the person's sign-ins without a window to pop up and without a Dock icon beside
-    // their own browser all day. The one a person signs in on has a window, made in the background.
+    // their own browser all day. The one a person signs in on gets its window from showAgentBrowser.
     ...(visible ? ["--no-startup-window"] : ["--headless=new"])
   ], { stdio: "ignore" });
   child.unref();
@@ -299,10 +392,10 @@ async function launch(mode, visible, takeCopy = true) {
     }
     await delay(100);
   }
+  if (seed) await cdp(spec, "Storage.setCookies", { cookies: seed }).catch((error) => { child.kill(); throw error; });
+  // only a copy that came up with its cookies counts, or a crash relaunch would keep an empty one
+  if (copied) copiedFolders.set(mode, copied);
   children.set(mode, child);
-  if (!visible) return;
-  // however the window goes, the browser ends up out of the person's way
-  try { await openWindow(spec); } finally { await putAway(spec); }
 }
 
 /** Whether the process has exited, giving it a moment. */
@@ -416,17 +509,7 @@ export function showAgentBrowser(mode, runId, url) {
     await launchIfAbsent(mode);
     const spec = target(mode);
     if (await headless(spec)) await relaunch(mode, true);
-    if (url) {
-      // own tab brought to the front, so the person sees the sign-in page and the agent's tab is left alone
-      try {
-        const pages = await fetch(`${base(spec)}/json/list`, { signal: AbortSignal.timeout(PATIENCE) }).then((r) => r.json());
-        // chrome unescapes the whole query, and a bare # would end the address before its fragment
-        const open = pages.find((page) => page.type === "page" && page.url === url)
-          ?? await fetch(`${base(spec)}/json/new?${encodeURIComponent(url)}`, { method: "PUT", signal: AbortSignal.timeout(PATIENCE) })
-            .then((r) => r.json());
-        await fetch(`${base(spec)}/json/activate/${open.id}`, { signal: AbortSignal.timeout(PATIENCE) });
-      } catch { /* the window still comes up, and the person can type the address themselves */ }
-    } else await openWindow(spec);
+    await openWindow(spec, url);
     await bringUp(spec);
   });
 }

@@ -40,7 +40,10 @@ export function useCapabilities(route) {
     void load();
     // A server that is still starting has no tools yet, so the page has to look again.
     const timer = setInterval(() => { if (starting.current) void load({ quiet: true }); }, 4000);
-    return () => clearInterval(timer);
+    // a Google sign-in finishes in the browser, so look again when the person comes back
+    const back = () => void load({ quiet: true });
+    window.addEventListener("focus", back);
+    return () => { clearInterval(timer); window.removeEventListener("focus", back); };
   }, []);
   const act = async (command) => {
     try {
@@ -292,6 +295,24 @@ export function CatalogReview({ ctx, entry, onCancel, onDone }) {
       }, entry.scopes ? (busy ? "Opening Google…" : "Connect with Google") : busy ? "Connecting…" : "Connect"))));
 }
 
+/** Add-ons an applied plan left for the owner's sign-in, key or folder; each goes once it is installed. */
+export function ConnectAddons({ ctx, proposals, catalog = [], settingUp = false }) {
+  const [reviewing, setReviewing] = useState("");
+  const ids = new Set(proposals.filter(({ status }) => status === "applied")
+    .flatMap(({ changes }) => changes).filter((change) => change.needsConnect).map(({ catalogId }) => catalogId));
+  const waiting = catalog.filter((entry) => ids.has(entry.id) && !entry.installedAs);
+  const entry = waiting.find(({ id }) => id === reviewing);
+  if (!waiting.length && !settingUp) return null;
+  return h("section", { className: "bees-box" },
+    settingUp ? h("div", { className: "bees-muted", role: "status" }, "Setting up add-ons…") : null,
+    waiting.length ? h("h3", null, "Connect these add-ons") : null,
+    ...waiting.map((row) => h("div", { className: "bees-row", key: row.id },
+      h("div", { className: "bees-row-main" },
+        h("div", { className: "bees-row-title" }, row.label), h("div", { className: "bees-muted" }, row.summary)),
+      h(Button, { className: "primary", onClick: () => setReviewing(row.id) }, "Connect"))),
+    entry ? h(CatalogReview, { ctx, entry, onCancel: () => setReviewing(""), onDone: () => setReviewing("") }) : null);
+}
+
 // initial is a registry result when the owner added one from the search
 function ManualServerForm({ onCancel, act, initial }) {
   const dialog = useRef(null);
@@ -382,7 +403,7 @@ export function McpPage({ ctx, capabilities, preference, preferences, setPageAct
     return h(McpCard, {
       name: server.label, status: STATUS_LABEL[server.status] ?? server.status,
       icon: catEntry?.icon,
-      meta: `${server.toolCount} tool${server.toolCount === 1 ? "" : "s"}`,
+      meta: server.perRun ? "starts in each run" : `${server.toolCount} tool${server.toolCount === 1 ? "" : "s"}`,
       tone: ["connected", "per run"].includes(server.status) ? "connected" : server.status === "failed" ? "warning" : "",
       key: server.id
     },

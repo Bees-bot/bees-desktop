@@ -7,7 +7,7 @@ import * as mcpClient from "@deepseek-ai/dsh-mcp-client";
 import { scopeOf } from "@deepseek-ai/dsh-scope";
 import { assertFolderOutsideBees } from "./product-commands.js";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
-import { browserPort, browserStatePath, closeAgentBrowser, saveBrowserState, startAgentBrowser } from "./agent-browser.js";
+import { browserPort, browserStatePath, closeAgentBrowser, saveBrowserState, showAgentBrowser, startAgentBrowser } from "./agent-browser.js";
 import { dataDirectory } from "./data-folder.js";
 import { serverFolder, setServerFolder } from "./folder-roots.js";
 import { iso, message, required, transaction } from "./product-database.js";
@@ -45,9 +45,9 @@ async function stop(ctx, fiber, what) {
 function secretRef(server, name) {
   return credentialRef(`BEES_MCP_${server.id}_${name}`.replace(/[^A-Za-z0-9_]/g, "_").toUpperCase());
 }
-const STASHED = /^\{\{credential:(BEES_PASTED_[A-Z0-9_]+)\}\}$/;
+const PASTED = /\{\{credential:(BEES_PASTED_[A-Z0-9_]+)\}\}/g;
 // a planner wrote -H 'freelancer-oauth-v1: API_HEADERS', and that word went out as the key on every call
-const PLACEHOLDER = /^(?:[Bb]earer\s+)?(?:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+|\$\{?\w+\}?|<[^<>]*>|\{\{(?!credential:)[^{}]*\}\})$/;
+const PLACEHOLDER = /^(?:[Bb]earer\s+)?(?:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+|\$\{?\w+\}?|<[^<>]*>|\{\{(?!credential:BEES_PASTED_)[^{}]*\}\})$/;
 // rows keep placeholders so one server definition works wherever Bees and its state directory live,
 // and the browser pair resolves differently per run: two teams can browse in two different profiles
 const placed = (value, mode = "own") => value === "{node}" ? process.execPath
@@ -121,26 +121,51 @@ export class Capabilities {
    * its agent context, which dies with the run: either a headless session signed in from the one
    * Chrome a person signs into, or the DevTools chip attached to that same Chrome.
    */
-  async mountBrowserFor(agentCtx, granted = null, mode = "own") {
-    // the run's grant picks which one: with devtools and playwright both installed, the older row won
-    // every time and an agent listed on "browser" hunted for mcp__browser__ tools that never existed
+  async mountBrowserFor(agentCtx, granted, mode, runId) {
+    // only one browser add-on is on at a time, and a run whose grant leaves it out browses nothing
     const row = this.servers().find(({ enabled, catalogId, serverName }) => enabled && isBrowserCatalog(catalogId)
       && (!granted || granted.includes(serverName)));
     if (!row) return;
     await this.mountFor(agentCtx, row, mode);
+    const tool = `mcp__${row.serverName}__`;
     // Chrome starts on the first browser call, not with the run, since most runs never browse.
-    let synced;
+    let synced, lastUrl, reopen = false;
+    agentCtx.on("tools/result", (exec, result) => {
+      if (!exec.name.startsWith(tool)) return;
+      const url = result.content?.map(({ text }) => text ?? "").join("\n").match(/Page URL: (\S+)/)?.[1] ?? exec.arguments?.url;
+      if (/^https?:\/\//.test(url)) lastUrl = url;
+    });
     agentCtx.on("tools/pre-execute", async (exec, next) => {
-      if (!exec.name.startsWith(`mcp__${row.serverName}__`)) return next();
-      // it has to be up before its sign-ins are read; devtools drives it on every call, so a crashed one comes back
-      if (!synced || row.catalogId === "chrome-devtools") await startAgentBrowser(mode).catch((error) =>
-        this.ctx.logger.warn(`bees: the agent's browser did not start for ${exec.name}: ${message(error)}`));
-      // shared, so a second call landing mid-copy waits for the cookies instead of starting without them
-      synced ??= saveBrowserState(mode).catch((error) =>
-        this.ctx.logger.warn(`bees: this run starts signed out, cookies could not be read: ${message(error)}`));
-      await synced;
+      // a run that has browsed and needs a person shows them its page; the runtime hides it once they answer
+      if (exec.name === "ask_user_question" && lastUrl) {
+        showAgentBrowser(mode, runId, lastUrl).catch((error) => this.ctx.logger.warn(`bees: could not show the browser: ${message(error)}`));
+        // the answer may be a sign-in, so the next browser call copies the cookies again
+        synced = null;
+        // playwright's own session read its cookies once, devtools drives that browser itself
+        reopen = row.catalogId === "playwright";
+        return next();
+      }
+      if (!exec.name.startsWith(tool)) return next();
+      try {
+        // it has to be up before its sign-ins are read; devtools drives it on every call, so a crashed one comes back
+        if (!synced || row.catalogId === "chrome-devtools") await startAgentBrowser(mode);
+        // shared, so a second call landing mid-copy waits for the cookies instead of starting without them
+        await (synced ??= saveBrowserState(mode));
+        if (reopen) {
+          reopen = false;
+          // closing drops the old session, the next one reads the fresh cookies, and the agent is put back on its page
+          await agentCtx.tools.get(`${tool}browser_close`, exec.agent)?.execute({}, exec);
+          if (lastUrl && exec.name !== `${tool}browser_navigate`)
+            await agentCtx.tools.get(`${tool}browser_navigate`, exec.agent)?.execute({ url: lastUrl }, exec);
+        }
+      } catch (error) {
+        synced = null;
+        // browsing on regardless would quietly sign the person out of every site
+        return { kind: "deny", reason: `The browser did not start: ${message(error)}. Tell the owner this exact error with ask_user_question.` };
+      }
       return next();
     });
+    return row.serverName;
   }
 
 
@@ -439,6 +464,7 @@ export class Capabilities {
     if (action === "set_mcp_server_enabled") return this.setEnabled(input);
     if (action === "set_mcp_server_folder") return this.setFolder(input);
     if (action === "remove_mcp_server") return this.remove(input);
+    if (action === "stash_answer") return { text: await this.stashKeys(input.text) };
     throw new Error(`Unknown capability action ${action || "(none)"}`);
   }
 
@@ -480,6 +506,16 @@ export class Capabilities {
       `).run(server.id, server.serverName, server.label, server.transport, server.command,
         JSON.stringify(server.args), server.url, JSON.stringify(server.envNames),
         JSON.stringify(server.headerNames), server.catalogId, server.source, at);
+      this.onlyBrowser(server);
+      // a process whose add-on check wanted this one before it was connected gets it ticked now;
+      // a bridge is made per API, so a later one for another API is not the one it wanted
+      if (!catalogEntry(server.catalogId)?.nameFrom) this.database.prepare(`
+        UPDATE processes SET mcp_servers_json = json_insert(mcp_servers_json, '$[#]', ?), updated_at = ?
+        WHERE mcp_access = 'listed' AND archived_at IS NULL AND id IN (
+          SELECT json_extract(c.value, '$.addonsFor') FROM bees_proposals p, json_each(p.changes_json) c
+          WHERE p.status = 'applied' AND json_extract(c.value, '$.needsConnect') AND json_extract(c.value, '$.catalogId') = ?)
+          AND NOT EXISTS (SELECT 1 FROM json_each(mcp_servers_json) WHERE value = ?)
+      `).run(server.serverName, at, server.catalogId ?? "", server.serverName);
     });
     // After the row lands, so a rejected write leaves a fixable server not an orphan secret.
     await this.storeSecrets(server, secrets);
@@ -489,9 +525,13 @@ export class Capabilities {
 
   async storeSecrets(server, secrets) {
     for (const [name, raw] of Object.entries(secrets)) {
-      const stashed = STASHED.exec(String(raw ?? "").trim());
-      const value = stashed ? (await this.ctx.credentials.resolve(credentialRef(stashed[1])))?.value : raw;
-      if (stashed && !value) throw new Error(`${name} was pasted earlier but its stored value is gone. Paste the header again.`);
+      let value = String(raw ?? "").trim();
+      // the planner hands a header as "Name: {{credential:KEY}}", so every reference is swapped, not only a bare one
+      for (const [whole, key] of [...value.matchAll(PASTED)]) {
+        const stored = (await this.ctx.credentials.resolve(credentialRef(key)))?.value;
+        if (!stored) throw new Error(`${name} was pasted earlier but its stored value is gone. Paste the header again.`);
+        value = value.replace(whole, () => stored);
+      }
       if (value) await this.ctx.credentials.set(secretRef(server, name), value);
     }
   }
@@ -530,13 +570,26 @@ export class Capabilities {
     if (typeof value !== "string") return value;
     let text = value;
     for (const [whole, flag, quote, name, secret] of [...value.matchAll(/((?:-H|--header)\s*)(['"])([^'":]*(?:auth|token|key|secret|cookie|session|oauth)[^'":]*:\s*)(.+?)\2/gi)]) {
-      if (STASHED.test(secret.trim())) continue;
+      if (secret.includes("{{credential:")) continue;
       const key = `BEES_PASTED_${name.split(":")[0]}_${createHash("sha256").update(secret.trim()).digest("hex").slice(0, 8)}`
         .replace(/[^A-Za-z0-9_]/g, "_").toUpperCase();
       await this.ctx.credentials.set(credentialRef(key), secret.trim());
       text = text.replace(whole, `${flag}${quote}${name}{{credential:${key}}}${quote} (stored in Bees; call this API through its MCP server)`);
     }
     return text;
+  }
+
+  // a bare key typed anywhere goes to the credential store too, so the agent only ever sees a reference.
+  // ponytail: a key is any 20+ character word mixing upper, lower and digits; a long camelCase name with a digit gets stored too
+  async stashKeys(text) {
+    let out = String(text ?? "");
+    for (const word of new Set(out.match(/(?<![\w~+=./:{-])(?=[\w~+=.-]*[A-Z])(?=[\w~+=.-]*[a-z])(?=[\w~+=.-]*\d)[\w~+=.-]{20,}(?![\w~+=./:}-])/g) ?? [])) {
+      if (/\.[a-z]{2,5}$/.test(word)) continue;
+      const key = `BEES_PASTED_KEY_${createHash("sha256").update(word).digest("hex").slice(0, 8).toUpperCase()}`;
+      await this.ctx.credentials.set(credentialRef(key), word);
+      out = out.replaceAll(word, `{{credential:${key}}}`);
+    }
+    return out;
   }
 
   /** Dynamic mode hides every parameter behind an empty `params` object, and a small local model
@@ -707,6 +760,13 @@ export class Capabilities {
     }, secrets);
   }
 
+  /** A run holds one browser, so turning one on turns the other off rather than leaving a run to guess. */
+  onlyBrowser(server) {
+    if (!isBrowserCatalog(server.catalogId)) return;
+    for (const other of this.servers()) if (other.id !== server.id && isBrowserCatalog(other.catalogId))
+      this.database.prepare("UPDATE mcp_servers SET enabled = 0 WHERE id = ?").run(other.id);
+  }
+
   row(serverId) {
     const row = this.servers().find(({ id }) => id === required(serverId, "Server"));
     if (!row) throw new Error("Server not found");
@@ -718,6 +778,7 @@ export class Capabilities {
     const enabled = Boolean(input.enabled);
     if (server.enabled === enabled) return { id: server.id, enabled };
     this.database.prepare("UPDATE mcp_servers SET enabled = ? WHERE id = ?").run(enabled ? 1 : 0, server.id);
+    if (enabled) this.onlyBrowser(server);
     await this.serialize(server.id, () => this.remount({ ...server, enabled }));
     return { id: server.id, enabled };
   }

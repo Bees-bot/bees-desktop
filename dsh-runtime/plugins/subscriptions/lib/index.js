@@ -421,9 +421,12 @@ class ClaudeCodeAdapter extends LlmAdapter {
     const mode = claudeProtocolMode(prompt);
     const options = { ...prompt, system: [prompt.system, claudeModeLine(tools, mode)].filter(Boolean).join("\n\n") };
     const schema = tools.length ? claudeResponseSchema(tools, mode) : undefined;
-    const result = await runClaude(
+    const run = () => runClaude(
       command, options.model, options.reasoningEffort, claudeInput(options), options.signal, schema, options.system
     );
+    let result = await run();
+    // an empty reply now and then is a cli hiccup, so one more try before it fails the whole run
+    if (!result.structured?.tool && !String(result.structured?.text ?? result.text ?? "").trim() && !options.signal?.aborted) result = await run();
     for (const chunk of claudeChunks(result, tools)) yield chunk;
   }
 }

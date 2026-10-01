@@ -4,6 +4,7 @@ import { GridStackPage } from "./flexible-grid.js";
 import { AgentCreateForm, AgentEditForm, McpAccess, needsNote } from "./agents.js";
 import { ProcessMemoryPanel } from "./collaboration.js";
 import { AttachedResourceFields, ResourceFields } from "./location-fields.js";
+import { ConnectAddons } from "./skills.js";
 import { ArrowLeftIcon } from "./icons.js";
 const PROCESSES_LAYOUT = [{ kind: "processes", x: 0, y: 0, w: 12, h: 12 }];
 const TEMPLATES_LAYOUT = [
@@ -95,6 +96,8 @@ function ProcessForm({ ctx, data, servers, tools, catalog, onServerAction, kind,
       inputLocationIds, outputLocationId, templateId: draft?.id,
       mcpAccess: String(form.get("mcpAccess") ?? "none"), mcpServers: form.getAll("mcpServers").map(String)
     });
+    // Bees works out the add-ons in the background; a planner that cannot start must not undo the create
+    if (created?.id && !template) void act({ action: "ask_bees", workspaceId, addonsFor: created.id }, undefined, () => {});
     if (created?.id) onCreated(created.id);
   });
 
@@ -123,6 +126,23 @@ function ProcessForm({ ctx, data, servers, tools, catalog, onServerAction, kind,
   );
 }
 
+const CHECKED_ADDONS = "bees.addonsChecked";
+/** A process made before Bees picked its add-ons gets checked once, the first time it is opened. */
+function AddonsCheck({ process, runs, act }) {
+  const busy = runs.some((run) => run.addonsFor === process.id && ["queued", "running"].includes(run.status));
+  const check = () => act({ action: "ask_bees", workspaceId: process.workspaceId, addonsFor: process.id }, undefined, () => {});
+  useEffect(() => {
+    if (process.kind !== "standard" || runs.some((run) => run.addonsFor === process.id)) return;
+    let seen = [];
+    try { seen = JSON.parse(localStorage.getItem(CHECKED_ADDONS) ?? "[]"); } catch {}
+    if (!Array.isArray(seen) || seen.includes(process.id)) return;
+    try { localStorage.setItem(CHECKED_ADDONS, JSON.stringify([...seen, process.id].slice(-200))); } catch {}
+    void check();
+  }, [process.id]);
+  if (process.kind !== "standard") return null;
+  return h(Button, { disabled: busy, onClick: check }, busy ? "Picking add-ons…" : "Pick the add-ons it needs");
+}
+
 export function ProcessMcpForm({ ctx, process, servers, tools, catalog, onServerAction, act, showAll = false }) {
   return h("div", { className: "bees-form bees-process-mcp-form", style: { paddingTop: "8px" } },
     h(McpAccess, { ctx, servers, tools, catalog, onServerAction, access: process.mcpAccess, chosen: process.mcpServers,
@@ -132,13 +152,20 @@ export function ProcessMcpForm({ ctx, process, servers, tools, catalog, onServer
 
 
 /** Bees plans the process as a run in Process Runs, where it asks what it needs and proposes the process. */
-function ProcessPlanner({ workspaceId, act, onClose, openWorkItem }) {
+function ProcessPlanner({ workspaceId, act, onClose, openWorkItem, taken = [] }) {
   const [outcome, setOutcome] = useState("");
+  const [name, setName] = useState("");
+  const clash = taken.some((existing) => existing.toLocaleLowerCase() === name.trim().toLocaleLowerCase());
   const [busy, submit] = useSubmit(async () => {
-    const result = await act({ action: "ask_bees", workspaceId, outcome: outcome.trim(), process: true });
+    const result = await act({ action: "ask_bees", workspaceId, outcome: outcome.trim(), process: true, processName: name.trim() });
     if (result?.executionId) openWorkItem(result.executionId);
   });
   return h("form", { className: "bees-composer bees-process-planner", onSubmit: submit },
+    h("input", {
+      className: "bees-input", value: name, disabled: busy, maxLength: 120, "aria-label": "Process name",
+      placeholder: "Process name (optional, Bees picks one if empty)", onChange: (event) => setName(event.target.value)
+    }),
+    clash ? h("p", { className: "bees-error", role: "alert" }, "A process with this name already exists. Pick another name.") : null,
     h("textarea", {
       className: "bees-composer-input", value: outcome, disabled: busy, "aria-label": "What should this process do?",
       placeholder: "e.g., Every weekday, find new freelance projects that fit me and draft a proposal for each",
@@ -148,7 +175,7 @@ function ProcessPlanner({ workspaceId, act, onClose, openWorkItem }) {
       h("span", { className: "bees-composer-hint" }, "Bees plans it in Process Runs and asks you what it needs."),
       h("div", { className: "bees-detail-actions" },
         h(Button, { disabled: busy, onClick: onClose }, "Cancel"),
-        h("button", { type: "submit", className: "bees-btn primary", disabled: busy || !outcome.trim() }, busy ? "Starting…" : "Build this process"))));
+        h("button", { type: "submit", className: "bees-btn primary", disabled: busy || clash || !outcome.trim() }, busy ? "Starting…" : "Build this process"))));
 }
 
 export function ProcessListActions({ ctx, process, act, openWorkItem }) {
@@ -268,8 +295,12 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
       const filesPanel = h("div", null,
         h(AttachedResourceFields, { key: process.id, ctx, data, teamId, act,
           owner: { processId: process.id }, references: attached, outputId: process.outputLocationId ?? "", compact: true }));
-      const mcpPanel = h(ProcessMcpForm, { key: `${process.id}:${process.mcpAccess}:${JSON.stringify(process.mcpServers)}`,
-        ctx, process, servers, tools, catalog, onServerAction, act });
+      const mcpPanel = h("div", null,
+        h(AddonsCheck, { key: process.id, process, runs: data.runs, act }),
+        h(ConnectAddons, { ctx, catalog, proposals: data.proposals.filter(({ changes }) => changes.some((change) => change.addonsFor === process.id)),
+          settingUp: data.runs.some((run) => run.addonsFor === process.id && ["queued", "running"].includes(run.status)) }),
+        h(ProcessMcpForm, { key: `${process.id}:${process.mcpAccess}:${JSON.stringify(process.mcpServers)}`,
+          ctx, process, servers, tools, catalog, onServerAction, act }));
 
       return h(React.Fragment, null,
         h(GridStackPage, {
@@ -350,7 +381,7 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
         label: "Process Templates",
         minW: 6, minH: 4,
         content: h("div", { className: "bees-stack" },
-          planning ? h(ProcessPlanner, { workspaceId, act, openWorkItem, onClose: () => setPlanning(false) }) : null,
+          planning ? h(ProcessPlanner, { workspaceId, act, openWorkItem, taken: data.processes.filter((process) => process.workspaceId === workspaceId).map(({ name }) => name), onClose: () => setPlanning(false) }) : null,
           processList)
       }
     }

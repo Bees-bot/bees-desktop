@@ -874,9 +874,8 @@ function FoldersSettings({ ctx, data, team, act }) {
         row.picked ? h(Button, { disabled: busy, onClick: (event) => choose(event, row, true) }, `Use ${above(row)}`) : null))));
 }
 
-// The browser this team's runs open. On, they browse in the person's own browser on a copy of their
-// profile, signed in to what they already use; off, they browse in Bees' own Chrome, which leaves the
-// person's own browser, and its sign-ins, untouched.
+// The browser this team's runs open. On, they browse with the person's own sign-ins; off, they browse
+// in Bees' own Chrome, which leaves the person's own browser, and its sign-ins, untouched.
 function BrowserSettings({ data, team, act }) {
   const [notice, setNotice] = useState("");
   const [busy, choose] = useSubmit(async (event, useDefault) => {
@@ -892,12 +891,12 @@ function BrowserSettings({ data, team, act }) {
     h("label", { className: "bees-toggle", style: { gap: "10px", fontWeight: "600" } },
       h("input", { type: "checkbox", role: "switch", checked: useDefault, disabled: busy || !browser.name,
         onChange: (event) => choose(event, event.target.checked) }),
-      h("span", { "aria-hidden": "true" }), "Use your default browser"),
-    h("p", { className: "bees-muted" }, useDefault
-      ? `Runs in this team browse in ${browser.name}, on a copy of your profile, so the sites you are already signed in to work straight away. Bees takes a fresh copy each time it opens it.`
-      : browser.name
-        ? `Runs in this team browse in Bees' own Chrome, where you sign in once. Your ${browser.name} is left alone.`
-        : "Bees could not find a default browser it can drive, so runs browse in Bees' own Chrome. Safari and Firefox cannot be driven this way."),
+      h("span", { "aria-hidden": "true" }), "Use your own browser"),
+    // with no usable browser the warning already says where runs browse
+    browser.name ? h("p", { className: "bees-muted" }, useDefault
+      ? `Runs in this team browse with your ${browser.name} sign-ins, so the sites you are already signed in to work straight away. Bees reads them fresh each time it opens.`
+      : `Runs in this team browse in Bees' own Chrome, where you sign in once. Your ${browser.name} is left alone.`) : null,
+    browser.warning ? h("p", { className: "bees-callout", role: "status" }, browser.warning) : null,
     notice ? h("p", { className: "bees-callout", role: "status" }, notice) : null);
 }
 

@@ -72,8 +72,8 @@ pub fn reap_orphan_llama_servers() {
     });
 }
 
-/// End the browsers the agent browses in: Bees' own, and the copy of the person's default browser a
-/// team asked for. DSH starts them, but DSH is hard-killed on quit so its own cleanup never runs, and
+/// End the browsers the agent browses in: Bees' own, and the one a team asked to browse with the
+/// person's sign-ins. DSH starts them, but DSH is hard-killed on quit so its own cleanup never runs, and
 /// a browser left behind sits in the Dock and holds the profile lock. Matched on the exact profile
 /// argument, so the browser the person is using themselves is left alone. Each is asked to quit first,
 /// so it writes out the cookies it holds, and killed only if it is still there a few seconds later.

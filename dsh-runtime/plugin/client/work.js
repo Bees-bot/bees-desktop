@@ -17,6 +17,9 @@ import { ArrowLeftIcon } from "./icons.js";
 import { agentMentionOptions, agentTag, conversationMessages, mentionedRecipient, pollConversation } from "./conversation-model.js";
 import { DshRunPanels } from "./native-conversation.js";
 
+// a key typed here goes to the credential store first, so the run only sees a reference to it
+const hideKeys = async (text) => (await request("/bees-api/capabilities", { method: "POST", body: JSON.stringify({ action: "stash_answer", text }) })).text;
+
 const UserMessage = ({ children, label }) => {
   const [expanded, setExpanded] = useState(false);
   const truncated = children.length > 280;
@@ -416,7 +419,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
         onDismiss: () => act({ action: "reject_proposal", proposalId: proposal.id }) })),
       ...teamQuestions.map((question) => h(TeamQuestionCard, { key: question.id, question, data, act })),
       pendingRun ? h(AgentInteractionPanel, { run: pendingRun, item: data.items.find(({ id }) => id === pendingRun.workItemId) ?? item,
-        interaction, handled, inConversation: true, onAnswered: answered, act, data, onOpenTools: process ? () => {
+        interaction, handled, inConversation: true, onAnswered: answered, act, data, servers: capabilities?.data?.servers, onOpenTools: process ? () => {
           setActiveTab("tools");
           document.getElementById("bees-tab-tools")?.scrollIntoView({ behavior: "smooth", block: "start" });
         } : undefined }) : null,
@@ -459,17 +462,18 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
       if (!finished && !activeRun) return;
       setSending(true);
       try {
+        const said = await hideKeys(text);
         if (finished) {
-          if (!await act({ action: "continue_run", executionId: run.id, text })) return;
+          if (!await act({ action: "continue_run", executionId: run.id, text: said })) return;
         }
         else {
           // a run's session reaches this list a few seconds after the run starts
           if (!ctx.sessions.list.getSnapshot().byId[activeRun.sessionId]) await ctx.sessions.refresh();
           if (!ctx.sessions.list.getSnapshot().byId[activeRun.sessionId]) throw new Error("The agent is still starting. Send again in a few seconds.");
           const result = await ctx.sessions.using(activeRun.sessionId, { source: "bees" },
-            (reference) => reference.binding.session.prompt([{ type: "text", text }], "queue"));
+            (reference) => reference.binding.session.prompt([{ type: "text", text: said }], "queue"));
           if (!result.ok) throw result.error;
-          await request("/bees-api/command", { method: "POST", body: JSON.stringify({ action: "record_owner_message", executionId: activeRun.id, text }) });
+          await request("/bees-api/command", { method: "POST", body: JSON.stringify({ action: "record_owner_message", executionId: activeRun.id, text: said }) });
         }
         if (!stale()) setComposerText("");
       } catch (reason) { if (!stale()) setSendError(reason instanceof Error ? reason.message : String(reason)); }
@@ -927,13 +931,13 @@ function TeamQuestionCard({ question, data, act }) {
     error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
 }
 
-export function QuestionPanel({ wait, onAnswered, act, executionId, browser, data, workspaceId, onOpenTools }) {
+export function QuestionPanel({ wait, onAnswered, act, executionId, browser, data, workspaceId, onOpenTools, servers, since }) {
   const pending = wait;
   const questions = pending.questions ?? [];
-  return h(GenericQuestionPanel, { pending, questions, wait, onAnswered, act, executionId, browser, data, workspaceId, onOpenTools });
+  return h(GenericQuestionPanel, { pending, questions, wait, onAnswered, act, executionId, browser, data, workspaceId, onOpenTools, servers, since });
 }
 
-function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, executionId, browser, data, workspaceId, onOpenTools }) {
+function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, executionId, browser, data, workspaceId, onOpenTools, servers, since }) {
   const [index, setIndex] = useState(0);
   const [drafts, setDrafts] = useState(() => questions.map(() => ({ selected: [], custom: "", skipped: false })));
   const [busy, setBusy] = useState(false);
@@ -951,6 +955,21 @@ function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, execu
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setBusy(false); }
   };
+  // connecting the add-on the agent asked for is the answer, so send it once that add-on is ready,
+  // counting one connected after the run started waiting in case it was done from the Add-ons page
+  const knownServers = useRef(null);
+  useEffect(() => {
+    if (!servers) return;
+    knownServers.current ??= servers.filter(({ createdAt }) => !(Date.parse(createdAt) > Date.parse(since))).map(({ id }) => id);
+    const fresh = servers.find((server) => server.status === "connected" && !knownServers.current.includes(server.id));
+    if (!fresh) return;
+    knownServers.current.push(fresh.id);
+    const [only] = questions;
+    if (busy || questions.length !== 1 || !/connect|add-on/i.test(`${only.header ?? ""} ${only.question} ${only.detail ?? ""}`)) return;
+    setBusy(true); setError("");
+    Promise.resolve().then(() => pending.answer({ answers: [{ id: only.id, selected: [], custom: `I connected ${fresh.label}. It's ready to use.` }] }))
+      .then(() => onAnswered(wait.key), (reason) => { setBusy(false); setError(reason instanceof Error ? reason.message : String(reason)); });
+  }, [servers]);
   const question = questions[index];
   if (!question) return h(Empty, null, "The agent sent an empty question request.");
   const draft = drafts[index];
@@ -973,11 +992,12 @@ function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, execu
   const submit = async (nextDrafts) => {
     setBusy(true); setError("");
     try {
+      const customs = await Promise.all(nextDrafts.map(({ custom }) => custom.trim() && hideKeys(custom.trim())));
       await pending.answer({ answers: questions.map((item, itemIndex) => {
         const answer = nextDrafts[itemIndex];
         // an empty selection reads as no reply, so the agent asks the same thing again; name the skip instead
         if (answer.skipped) return { id: item.id, selected: [], custom: "Skipped." };
-        return { id: item.id, selected: answer.selected, ...(answer.custom.trim() ? { custom: answer.custom.trim() } : {}) };
+        return { id: item.id, selected: answer.selected, ...(customs[itemIndex] ? { custom: customs[itemIndex] } : {}) };
       }) });
       onAnswered(wait.key);
     } catch (reason) { setBusy(false); setError(reason instanceof Error ? reason.message : String(reason)); }
@@ -1013,10 +1033,7 @@ function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, execu
           type: "button", key: `${option.label}:${optionIndex}`, disabled: busy,
           className: `bees-choice ${selected ? "selected" : ""}`,
           role: question.multiSelect === true ? "checkbox" : "radio", "aria-checked": selected,
-          onClick: () => {
-            choose(option.label);
-            if (browser && act && executionId && signInUrl && !selected && signInOption.test(option.label)) void openBrowser();
-          }
+          onClick: () => choose(option.label)
         }, h("span", { className: "bees-choice-mark", "aria-hidden": "true" }, question.multiSelect === true ? selected ? "✓" : "" : optionIndex + 1),
           h("span", { className: "bees-choice-copy" }, h("strong", null, shown.label, shown.recommended ? " · Recommended" : ""),
             option.description ? h("span", { className: "bees-muted" }, option.description) : null));
@@ -1145,7 +1162,7 @@ export function WorkItemControls({ item, act, onDone, showUnavailable = false, d
       busy === "archive_item" ? "Archiving…" : "Archive"));
 }
 
-function AgentInteractionPanel({ run, item, title, summary, interaction, handled, inConversation = false, onAnswered, onOpen, openLabel, act, onControlled, data, onOpenTools }) {
+function AgentInteractionPanel({ run, item, title, summary, interaction, handled, inConversation = false, onAnswered, onOpen, openLabel, act, onControlled, data, onOpenTools, servers }) {
   const workReview = run?.pendingInteraction === "work-review" && interaction?.kind === "question";
   return h("section", { className: "bees-box bees-answer-card" },
     h("div", { className: "bees-answer-head" }, h("div", null,
@@ -1155,7 +1172,7 @@ function AgentInteractionPanel({ run, item, title, summary, interaction, handled
       onOpen ? h(Button, { onClick: onOpen }, openLabel) : null,
       h(WorkItemControls, { item, act, onDone: onControlled }))),
     workReview ? h(WorkReviewPanel, { key: interaction.key, wait: interaction, onAnswered, act, executionId: run?.id, item, data })
-      : interaction?.kind === "question" ? h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered, act, executionId: run?.id, browser: data?.browserEnabled, data, workspaceId: run.workspaceId, onOpenTools })
+      : interaction?.kind === "question" ? h(QuestionPanel, { key: interaction.key, wait: interaction, onAnswered, act, executionId: run?.id, browser: data?.browserEnabled, data, workspaceId: run.workspaceId, onOpenTools, servers, since: run?.updatedAt })
       : interaction?.kind === "approval" ? h(ApprovalPanel, { key: interaction.key, wait: interaction, onAnswered })
         : h(Empty, null, handled.size ? "Answer sent. Waiting for the agent…"
           // a run left waiting across a restart has no live session to ask from until it resumes
