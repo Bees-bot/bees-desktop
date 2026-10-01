@@ -531,7 +531,10 @@ export async function apply(ctx, config = {}, internals = {}) {
   register(ctx, { kind: "exact", path: "/bees-api/command", handler: async (req, res) => {
     if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
     try {
-      reply(res, 200, await product.command(await capabilities.stash(await body(req))));
+      const input = await capabilities.stash(await body(req));
+      // a key pasted into a plan request would otherwise sit in the run's saved purpose in plain text
+      if (input.action === "ask_bees" && typeof input.outcome === "string") input.outcome = await capabilities.stashKeys(input.outcome);
+      reply(res, 200, await product.command(input));
       void connected.syncCoordination().catch((error) =>
         ctx.logger.warn?.(`bees: team sync after change failed: ${userMessage(error)}`));
     }

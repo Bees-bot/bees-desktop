@@ -62,7 +62,13 @@ export function mountToolDiscovery(agentCtx, credentials, allowed = () => true) 
         })
         .filter(({ score }) => !query || score > 0)
         .sort((left, right) => right.score - left.score || left.tool.name.localeCompare(right.tool.name));
-      const page = matches.slice(offset, offset + PAGE_SIZE).map(({ tool }) => tool);
+      const slice = matches.slice(offset, offset + PAGE_SIZE).map(({ tool }) => tool);
+      // a small add-on comes whole, or the agent misses the sibling call it needs (like "who am I") and asks the owner instead
+      const all = agentCtx.tools.schemas(exec.agent).filter(({ name }) => allowed(name) && !HIDDEN_TOOLS.has(name));
+      const prefix = slice[0]?.name.match(/^mcp__.+?__/)?.[0];
+      const siblings = prefix ? all.filter(({ name }) => name.startsWith(prefix)) : [];
+      // siblings go first so the matches themselves survive the retained cap
+      const page = [...new Map([...(siblings.length <= RETAINED_TOOLS ? siblings : []), ...slice].map((tool) => [tool.name, tool])).values()];
       for (const { name } of page) {
         loaded.delete(name);
         loaded.add(name);
@@ -71,7 +77,7 @@ export function mountToolDiscovery(agentCtx, credentials, allowed = () => true) 
       return { result: JSON.stringify({
         tools: page.map(({ name, description }) => ({ name, description: String(description ?? "").slice(0, 180) })),
         total: matches.length,
-        next_offset: offset + page.length < matches.length ? offset + page.length : null
+        next_offset: offset + slice.length < matches.length ? offset + slice.length : null
       }) };
     }
   }));

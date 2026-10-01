@@ -1590,7 +1590,7 @@ export class AgentRuntime {
     if (data.stagePurpose) agentCtx.tools.register(defineTool({
       name: "bees_submit_stage_result",
       timeoutMs: 2_147_483_647,
-      description: "Finish this automatic process stage. Workers submit candidate when complete, blocked only after resolving dependencies with the owner one at a time; a blocked submission asks next_step and resumes unless the owner chooses Stop here, or skipped when this item needs nothing more (nothing new, a duplicate, it does not qualify, or a limit is reached), which ends the item without the later stages; reviewers submit pass or revise. The first submitted result is immutable.",
+      description: "Finish this automatic process stage. Workers submit candidate when complete, blocked only after resolving dependencies with the owner one at a time; a blocked submission asks next_step and resumes unless the owner chooses Stop here, or skipped when this item needs nothing more (nothing new, a duplicate, it does not qualify, a limit is reached, or the process says to end the item when this step fails), which ends the item without the later stages; reviewers submit pass or revise. The first submitted result is immutable.",
       parameters: {
         outcome: {
           type: "string", required: true,
