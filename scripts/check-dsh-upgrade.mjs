@@ -34,9 +34,9 @@ try {
   assert.equal((await resolveRunModel(modelContext, {})).resolvedModelLabel, "Local · Gemma 4B");
   assert.equal(firstModel.resolvedModelLabel, "Local · Qwen3 4B");
   modelContext.llm.resolveModelInfo = async () => { throw new Error("Catalog unavailable"); };
-  assert.equal((await resolveRunModel(modelContext, {})).resolvedModelLabel, "Local · active model (name unavailable)");
+  assert.equal((await resolveRunModel(modelContext, {})).resolvedModelLabel, "Local · the model running on this computer");
   assert.equal(modelLabel("local-openai-qwen3/active", "Qwen3 4B"), "Local · Qwen3 4B");
-  assert.equal(modelLabel("local-openai/active", "Bees AI model"), "Local · active model (name unavailable)");
+  assert.equal(modelLabel("local-openai/active", "Bees AI model"), "Local · the model running on this computer");
   const cloudModel = await resolveRunModel(modelContext, { model: "openai/gpt-example" });
   assert.equal(cloudModel.resolvedModel, "openai/gpt-example");
   assert.equal(cloudModel.resolvedModelLabel, "OpenAI · gpt-example");
