@@ -4,12 +4,20 @@ import { CodeBlock, h, MarkdownText, React, useEffect, useRef, useState } from "
 import { ask, Button, request, when } from "./shared.js";
 import { FilesIcon, FileIcon, ExpandIcon, CollapseIcon, CloseIcon, FolderOpenIcon } from "./icons.js";
 
-export async function addLocationFromDevice(ctx, act, teamId, kind) {
+export function availableLocationName(fallback, locations, teamId) {
+  const names = new Set(locations.filter((row) => row.teamId === teamId).map((row) => row.name.toLocaleLowerCase()));
+  let name = fallback;
+  for (let number = 2; names.has(name.toLocaleLowerCase()); number += 1) name = `${fallback} (${number})`;
+  return name;
+}
+
+export async function addLocationFromDevice(ctx, act, teamId, kind, locations = []) {
   const path = await open({ directory: kind === "folder", multiple: false });
   if (!path) return null;
   const fallback = path.split(/[\\/]/).filter(Boolean).pop() ?? (kind === "folder" ? "Files" : "File");
-  const name = await ask(kind === "folder" ? "Folder name in Bees" : "File name in Bees", fallback);
-  return name === null ? null : act({ action: "add_location", teamId, name: name || fallback, kind, path });
+  const suggested = availableLocationName(fallback, locations, teamId);
+  const name = await ask(kind === "folder" ? "Folder name in Bees" : "File name in Bees", suggested);
+  return name === null ? null : act({ action: "add_location", teamId, name: name || suggested, kind, path });
 }
 
 export function inheritedInputs(data, processId, agentId) {
@@ -39,7 +47,7 @@ export function ResourceFields({
     finally { setBusy(false); }
   };
   const add = async (kind, output = false) => {
-    const created = await addLocationFromDevice(ctx, act, teamId, kind);
+    const created = await addLocationFromDevice(ctx, act, teamId, kind, data.locations);
     if (!created?.id) return;
     if (output) await onOutputId(created.id);
     else await onInputIds([...selected, created.id]);

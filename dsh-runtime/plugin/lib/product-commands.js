@@ -1067,6 +1067,9 @@ export async function executeProductCommand(action, input) {
           if (existing && existing.path === canonical) return { id: existing.id, reused: true };
         }
 
+        if (this.database.prepare("SELECT 1 FROM team_locations WHERE team_id = ? AND name = ?").get(teamId, name))
+          throw new Error(`“${name}” is already used in this team. Choose a different name in Bees.`);
+
         const id = randomUUID();
         this.database.prepare(`
           INSERT INTO team_locations VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)

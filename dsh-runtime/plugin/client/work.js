@@ -312,7 +312,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
   const publish = async () => {
     let location = data.locations.find(({ id }) => id === (item.outputLocationId || process?.outputLocationId));
     if (!location) {
-      const created = await addLocationFromDevice(ctx, act, teamId, "folder");
+      const created = await addLocationFromDevice(ctx, act, teamId, "folder", data.locations);
       if (!created?.id) return;
       await act({ action: "set_output_location", itemId: item.id, locationId: created.id });
       location = { id: created.id };
@@ -943,7 +943,7 @@ function GenericQuestionPanel({ pending, questions, wait, onAnswered, act, execu
   const provideFile = async () => {
     setBusy(true); setError("");
     try {
-      const location = await addLocationFromDevice(ctx, act, teamId, "file");
+      const location = await addLocationFromDevice(ctx, act, teamId, "file", data?.locations ?? []);
       if (!location?.id) return;
       const result = await act({ action: "provide_run_input", executionId, locationId: location.id });
       if (!result?.manifest) throw new Error("The file could not be attached to this run.");

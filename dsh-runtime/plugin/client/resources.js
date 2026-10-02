@@ -14,8 +14,8 @@ export function FilesPage({ ctx, data, teamId, act }) {
     : ask(`Absolute path for ${location.name} on this device`, location.localPath ?? "");
   return h("div", null,
     h("div", { style: { display: "flex", justifyContent: "flex-end", gap: "8px", marginBottom: "16px", marginTop: "4px" } },
-      h(Button, { disabled: !teamId || !["admin", "member"].includes(team?.role), onClick: () => addLocationFromDevice(ctx, act, teamId, "file") }, "Choose file"),
-      h(Button, { className: "primary", disabled: !teamId || !["admin", "member"].includes(team?.role), onClick: () => addLocationFromDevice(ctx, act, teamId, "folder") }, "Choose folder")),
+      h(Button, { disabled: !teamId || !["admin", "member"].includes(team?.role), onClick: () => addLocationFromDevice(ctx, act, teamId, "file", data.locations) }, "Choose file"),
+      h(Button, { className: "primary", disabled: !teamId || !["admin", "member"].includes(team?.role), onClick: () => addLocationFromDevice(ctx, act, teamId, "folder", data.locations) }, "Choose folder")),
     h("div", { className: "bees-grid" },
       ...(locations.length ? locations.map((location) => h("div", { className: "bees-box", key: location.id, style: { display: "flex", flexDirection: "column", gap: "10px", padding: "12px 14px" } },
         h("div", { style: { display: "flex", alignItems: "center", gap: "10px" } },
