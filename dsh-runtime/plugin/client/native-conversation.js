@@ -9,7 +9,7 @@ const WORK_DETAIL_MODES = [
 ];
 
 const listeners = new Set();
-let embedding = { target: null, debug: false };
+let embedding = { target: null };
 export const nativeEmbedding = {
   subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
   getSnapshot: () => embedding,
@@ -18,8 +18,8 @@ export const nativeEmbedding = {
 
 /** Portal the owner's rendered slots, retaining DSH's session scope and store ownership. */
 export function NativeContentHost({ content, kind }) {
-  const { target, debug } = React.useSyncExternalStore(nativeEmbedding.subscribe, nativeEmbedding.getSnapshot, nativeEmbedding.getSnapshot);
-  if (!target || debug) return content;
+  const { target } = React.useSyncExternalStore(nativeEmbedding.subscribe, nativeEmbedding.getSnapshot, nativeEmbedding.getSnapshot);
+  if (!target) return null;
   return createPortal(h("div", { className: `bees-embedded-${kind}`, style: {
     height: "100%", minWidth: 0, overflow: "hidden"
   } }, content), target[kind]);

@@ -3,7 +3,7 @@ import gridstackCss from "gridstack/dist/gridstack.min.css";
 import cronGeneratorCss from "react-cron-generator/build/cron-builder.css";
 import { css } from "./shared.js";
 import { BeesApp } from "./shell.js";
-import { NativeContentHost, nativeEmbedding } from "./native-conversation.js";
+import { NativeContentHost } from "./native-conversation.js";
 import { installScrollbars } from "./scrollbars.js";
 import brandMark from "../../../src/brand-mark.png";
 
@@ -58,21 +58,6 @@ window.__ModuleLoader__.load({
       document.head.append(style);
       ctx.effect(() => () => style.remove(), "bees: styles");
       ctx.effect(() => installScrollbars(document), "bees: scrollbars");
-      const toggleDsh = (event) => {
-        if (event.repeat || event.code !== "KeyD" || !event.altKey || !event.shiftKey || !(event.metaKey || event.ctrlKey)) return;
-        event.preventDefault();
-        event.stopPropagation();
-        document.documentElement.toggleAttribute("data-bees-debug-dsh");
-        nativeEmbedding.update({ debug: document.documentElement.hasAttribute("data-bees-debug-dsh") });
-      };
-      ctx.effect(() => {
-        window.addEventListener("keydown", toggleDsh, true);
-        return () => {
-          window.removeEventListener("keydown", toggleDsh, true);
-          document.documentElement.removeAttribute("data-bees-debug-dsh");
-          nativeEmbedding.update({ debug: false });
-        };
-      }, "bees: DSH debug shortcut");
       ctx.slots.inject("shell.content", function* () {
         for (const kind of ["main", "rightbar"]) yield ctx.slots.register({
           name: "shell.content", key: kind, inject: () => ({ kind })

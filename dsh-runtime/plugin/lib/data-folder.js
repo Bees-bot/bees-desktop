@@ -40,10 +40,18 @@ function folderHeldBy(directory) {
   } catch (error) { return error.code === "ENOENT" ? "" : "Another computer"; }
 }
 
-/** A run waiting to start holds the folder it was queued with, and a live one writes into it now. */
-export function assertNothingRunning(database, live) {
-  const queued = database.prepare("SELECT count(*) AS count FROM execution_links WHERE status = 'queued'").get().count;
-  if (live?.size || queued) throw new Error("Wait for what is running to finish, then choose the folder");
+/** A queued or live run keeps the folder it started with until it finishes. */
+export function busyWorkspaceIds(database, live) {
+  return new Set([
+    ...database.prepare("SELECT DISTINCT workspace_id AS id FROM execution_links WHERE status = 'queued'").all().map(({ id }) => id),
+    ...[...(live?.values() ?? [])].map(({ data }) => data?.workspaceId)
+  ]);
+}
+
+export function assertNothingRunning(database, live, workspaceIds) {
+  const busy = busyWorkspaceIds(database, live);
+  if (workspaceIds ? workspaceIds.some((id) => busy.has(id) || busy.has(undefined)) : busy.size)
+    throw new Error("Wait for work using this folder to finish, then choose the folder");
 }
 
 /** Point Bees at a shared folder, or back at this computer. The work is copied, never moved. */

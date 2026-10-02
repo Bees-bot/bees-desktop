@@ -421,7 +421,7 @@ function OrganizationsSettings() {
 }
 
 function OrganizationSettings({
-  organization, connectionId, reload, route, preferences, organizationColors = {}
+  ctx, data, act, organization, connectionId, reload, route, preferences, organizationColors = {}
 }) {
   const [people, setPeople] = useState(null);
   const [sso, setSso] = useState(null);
@@ -578,6 +578,10 @@ function OrganizationSettings({
   const message = (text) => h("section", { className: "bees-box" },
     h("h3", null, organization.name), h("p", { className: "bees-muted" }, text));
   const failure = error ? h("div", { className: "bees-error", role: "alert" }, error) : null;
+
+  if (route === "organization-root-folder") return ["owner", "admin"].includes(organization.role)
+    ? h(FoldersSettings, { ctx, data, organization, act })
+    : message("Only organization administrators can set this folder.");
 
   if (route === "organization-settings") return h("div", { className: "bees-stack" },
     h("section", { className: "bees-box bees-appearance-card", style: { padding: "20px" } }, 
@@ -838,30 +842,52 @@ function DataFolderSettings({ ctx, data, act }) {
       shared ? h(Button, { onClick: (event) => choose(event, true), disabled: busy }, "Use this computer again") : null));
 }
 
+export function RootFolderSettings({ ctx, data, act }) {
+  const [notice, setNotice] = useState("");
+  const [busy, choose] = useSubmit(async () => {
+    try {
+      const directory = await ctx.uiWorkspace.pickDirectory();
+      if (!directory) return;
+      setNotice("");
+      await act({ action: "set_folder_root", level: "root", directory }, undefined, setNotice);
+    } catch (error) { setNotice(error.message || String(error)); }
+  });
+  return h("section", { className: "bees-box bees-stack" },
+    h("h2", null, data.rootFolder?.folder ? "Root folder" : "Choose your Bees root folder"),
+    h("p", null, "Bees creates an organization folder inside this folder, then a team folder inside each organization folder. All workspaces in a team use its team folder."),
+    h("p", { className: "bees-muted" }, "You can override these locations in organization and team settings, including folders synced by Google Drive, SharePoint or Dropbox. Folder choices are saved on this computer."),
+    data.rootFolder?.folder ? h("p", null, data.rootFolder.folder) : null,
+    data.rootFolder?.missing ? h("p", { className: "bees-error", role: "alert" }, "Your root folder is unavailable. Reconnect it or choose another folder.") : null,
+    notice ? h("p", { className: "bees-error", role: "alert" }, notice) : null,
+    h(Button, { onClick: choose, disabled: busy }, busy ? "Saving…" : data.rootFolder?.folder ? "Change root folder" : "Choose root folder"));
+}
+
 // Where each level keeps its folders on this computer. The database is shared, so it holds no path:
 // it holds the part below the workspace's folder, and each computer points a level at its own folder.
-const FOLDER_LEVELS = { organization: "Organization", team: "Team", workspace: "Workspace" };
+const FOLDER_LEVELS = { organization: "Organization", team: "Team" };
 
-function FoldersSettings({ ctx, data, team, act }) {
-  const workspaceIds = data.workspaces.filter(({ teamId }) => teamId === team.id).map(({ id }) => id);
-  const rows = (data.folders ?? []).filter((row) => workspaceIds.includes(row.workspaceId))
+function FoldersSettings({ ctx, data, team, organization, act }) {
+  const workspaceIds = data.workspaces.filter(({ teamId }) => teamId === team?.id).map(({ id }) => id);
+  const rows = (organization ? data.organizationFolders ?? [] : data.folders ?? [])
+    .filter((row) => organization ? row.id === organization.id : workspaceIds.includes(row.workspaceId) && row.level === "team")
     // a team's workspaces share one organization and one team folder, so those rows are listed once
     .filter((row, index, all) => all.findIndex((other) => other.level === row.level && other.id === row.id) === index);
-  // nothing sits above the organization, so its fallback is the app's own folder, not a level
-  const above = (row) => row.level === "organization" ? "the default folder" : "the level above";
+  const above = (row) => row.level === "organization" ? "root folder" : "organization folder";
   const [notice, setNotice] = useState("");
   const [busy, choose] = useSubmit(async (event, row, reset) => {
     try {
       const picked = reset ? "" : await ctx.uiWorkspace.pickDirectory();
       if (!reset && !picked) return;
       setNotice("");
-      await act({ action: "set_folder_root", workspaceId: row.workspaceId, level: row.level, id: row.id, directory: picked });
+      await act({ action: "set_folder_root", workspaceId: row.workspaceId, level: row.level, id: row.id, directory: picked }, undefined, setNotice);
     } catch (error) { setNotice(error.message || String(error)); }
   });
   return h("section", { className: "bees-box bees-stack" },
-    h("h2", null, "Folders"),
-    h("p", { className: "bees-muted" }, "Bees remembers a run by its place inside this level's folder, so the same run ",
-      "opens on both computers. Set a folder here to keep this level's runs in one you choose; runs from before move with it."),
+    h("h2", null, organization ? "Org Root Folder" : "Team folder"),
+    h("p", { className: "bees-muted" }, organization
+      ? "By default, this organization's folder sits inside your root folder. Choose another folder, including one synced by Google Drive, SharePoint or Dropbox, to keep its work there."
+      : "All workspaces in this team use the team folder. By default, it sits inside the organization folder. Choose another folder to keep the team's work there.",
+      " This setting applies to this computer. Existing run files are copied; their originals stay in place."),
     notice ? h("p", { className: "bees-callout", role: "status" }, notice) : null,
     ...rows.map((row) => h("div", { className: "bees-row", key: `${row.level}:${row.id}` },
       h("div", { className: "bees-row-main" },
@@ -874,9 +900,8 @@ function FoldersSettings({ ctx, data, team, act }) {
         row.picked ? h(Button, { disabled: busy, onClick: (event) => choose(event, row, true) }, `Use ${above(row)}`) : null))));
 }
 
-// The browser this team's runs open. On, they browse in the person's own browser on a copy of their
-// profile, signed in to what they already use; off, they browse in Bees' own Chrome, which leaves the
-// person's own browser, and its sign-ins, untouched.
+// The browser this team's runs open. On, they browse with the person's own sign-ins; off, they browse
+// in Bees' own Chrome, which leaves the person's own browser, and its sign-ins, untouched.
 function BrowserSettings({ data, team, act }) {
   const [notice, setNotice] = useState("");
   const [busy, choose] = useSubmit(async (event, useDefault) => {
@@ -892,12 +917,12 @@ function BrowserSettings({ data, team, act }) {
     h("label", { className: "bees-toggle", style: { gap: "10px", fontWeight: "600" } },
       h("input", { type: "checkbox", role: "switch", checked: useDefault, disabled: busy || !browser.name,
         onChange: (event) => choose(event, event.target.checked) }),
-      h("span", { "aria-hidden": "true" }), "Use your default browser"),
-    h("p", { className: "bees-muted" }, useDefault
-      ? `Runs in this team browse in ${browser.name}, on a copy of your profile, so the sites you are already signed in to work straight away. Bees takes a fresh copy each time it opens it.`
-      : browser.name
-        ? `Runs in this team browse in Bees' own Chrome, where you sign in once. Your ${browser.name} is left alone.`
-        : "Bees could not find a default browser it can drive, so runs browse in Bees' own Chrome. Safari and Firefox cannot be driven this way."),
+      h("span", { "aria-hidden": "true" }), "Use your own browser"),
+    // with no usable browser the warning already says where runs browse
+    browser.name ? h("p", { className: "bees-muted" }, useDefault
+      ? `Runs in this team browse with your ${browser.name} sign-ins, so the sites you are already signed in to work straight away. Bees reads them fresh each time it opens.`
+      : `Runs in this team browse in Bees' own Chrome, where you sign in once. Your ${browser.name} is left alone.`) : null,
+    browser.warning ? h("p", { className: "bees-callout", role: "status" }, browser.warning) : null,
     notice ? h("p", { className: "bees-callout", role: "status" }, notice) : null);
 }
 
@@ -1019,12 +1044,13 @@ export function SettingsPage({
     : route === "system-instructions"
       ? h(SystemInstructionsSettings, { preferences, instructions: preference.systemInstructions ?? "" })
     : route === "appearance" ? h(AppearanceSettings, { ctx, preferences })
+    : route === "root-folder" ? h(RootFolderSettings, { ctx, data, act })
     : route === "data-folder" ? h(DataFolderSettings, { ctx, data, act })
     : route === "removing-bees" ? h(RemoveBeesSettings, { dataFolder: data.dataFolder })
     : route === "organizations" ? h(OrganizationsSettings)
     : ORGANIZATION_SETTINGS.some(([id]) => id === route)
       ? h(OrganizationSettings, {
-        organization, connectionId, reload, route, preferences,
+        ctx, data, act, organization: route === "organization-root-folder" ? rawOrganization : organization, connectionId, reload, route, preferences,
         organizationColors: preference.organizationColors ?? {}
       })
       : h(Empty, null, "Choose a settings section");

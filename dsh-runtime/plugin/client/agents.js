@@ -165,12 +165,23 @@ export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access,
     setMode(nextMode); setPicked(nextPicked);
     void onChange?.({ mcpAccess: nextMode, mcpServers: nextMode === "listed" ? nextPicked : [] });
   };
+  // a Google sign-in lands after the dialog closed, so add its server once it shows up
+  const [signingIn, setSigningIn] = useState(null);
+  useEffect(() => {
+    const fresh = signingIn && servers.find((server) => server.catalogId === signingIn.catalogId && !signingIn.known.includes(server.id));
+    if (!fresh) return;
+    setSigningIn(null);
+    if (mode !== "all" && !picked.includes(fresh.serverName)) change([...picked, fresh.serverName]);
+  }, [servers, signingIn]);
 
   return h("section", { className: "bees-mcp-access" },
     h("input", { type: "hidden", name: "mcpAccess", value: mode }),
     entry ? h(CatalogReview, { ctx, entry, onCancel: () => setReviewing(""),
-      // a Google sign-in lands later, so that server shows up to add once it is connected
-      onDone: ({ serverName }) => { if (serverName && mode !== "all" && !picked.includes(serverName)) change([...picked, serverName]); setReviewing(""); } }) : h(React.Fragment, null,
+      onDone: ({ serverName }) => {
+        if (serverName && mode !== "all" && !picked.includes(serverName)) change([...picked, serverName]);
+        if (!serverName && entry.scopes) setSigningIn({ catalogId: entry.id, known: servers.map(({ id }) => id) });
+        setReviewing("");
+      } }) : h(React.Fragment, null,
       ...(mode === "listed" ? picked : []).map((name) => h("input", { key: name, type: "hidden", name: "mcpServers", value: name })),
       mode === "all" ? h("div", { className: "bees-muted" }, "All connected add-ons are added, including any connected later")
         : h(Button, { onClick: () => change([], "all") }, "Add all connected add-ons"),
@@ -196,7 +207,7 @@ export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access,
           const catEntry = server.catalogId ? catalog.find(c => c.id === server.catalogId) : null;
           return h(McpCard, { name: server.label, status: added ? "Added" : server.enabled ? "Available" : "Turned off",
             icon: catEntry?.icon,
-            meta: `${server.toolCount ?? serverTools.length} tool${(server.toolCount ?? serverTools.length) === 1 ? "" : "s"}`,
+            meta: server.perRun ? "starts in each run" : `${server.toolCount ?? serverTools.length} tool${(server.toolCount ?? serverTools.length) === 1 ? "" : "s"}`,
             tone: added ? "added" : server.enabled ? "" : "warning", key: server.id,
             actionLabel: added ? `Unselect ${server.label}` : server.enabled ? `Select ${server.label}` : `Turn on and select ${server.label}`,
             actionIcon: added ? "✓" : "+",
@@ -424,7 +435,7 @@ export function AgentListActions({ agent, act }) {
     error ? h("p", { className: "bees-error", role: "alert" }, error) : null);
 }
 
-export function AgentsPage({ ctx, data, servers = [], tools = [], catalog = [], onServerAction, workspaceIds, workspaceId, creating, setCreating, act, openDshSettings, preference, preferences, setPageActions, setPageHeader }) {
+export function AgentsPage({ ctx, data, servers = [], tools = [], catalog = [], onServerAction, workspaceIds, workspaceId, creating, setCreating, act, openSkills, preference, preferences, setPageActions, setPageHeader }) {
   const [agentStatus, setAgentStatus] = useState("active");
   const [query, setQuery] = useState("");
   const needle = query.trim().toLowerCase();
@@ -443,7 +454,7 @@ export function AgentsPage({ ctx, data, servers = [], tools = [], catalog = [], 
       ...(assignments.length ? assignments.map((agent) => h("div", { className: "bees-row", key: agent.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, agent.name), h("div", { className: "bees-muted" }, `${agent.enabled ? agent.presetId : "Unavailable"}${agent.model ? ` · ${agent.model}` : " · default model"}${agent.reasoningEffort ? ` · ${agent.reasoningEffort} effort` : ""}${agent.capabilities?.length ? ` · ${agent.capabilities.join(", ")}` : ""} · ${agent.description || "Agent preset assignment"}`)), agent.systemRole ? h("span", { className: "bees-badge" }, `Bees ${agent.systemRole}`) : null, agent.archivedAt ? null : h(Button, { onClick: () => setSelectedId(agent.id) }, "Configure"), h(AgentListActions, { agent, act }))) : [h(Empty, { key: "empty" }, needle ? "No agents match your search" : agentStatus === "archived" ? "No archived agents" : "No agents assigned to this scope") ]));
   const presets = h("div", null,
       h("div", { className: "bees-row" }, h("div", { className: "bees-row-main bees-muted" }, "Toolboxes available to agents."),
-        h(Button, { onClick: openDshSettings }, "Manage presets & skills")),
+        h(Button, { onClick: openSkills }, "Manage skills")),
       ...(data.presets.length ? data.presets.map((preset) => h("div", { className: "bees-row", key: preset.id },
         h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, preset.name),
           h("div", { className: "bees-muted" }, preset.broken || preset.description || "Agent preset")))) : [h(Empty, { key: "empty" }, "No agent presets are available")]));

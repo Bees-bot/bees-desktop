@@ -6,6 +6,7 @@ import { needsYouRows, NeedsYouWidget, useNeedsYouQueue, WorkItemControls } from
 import { ProcessListActions } from "./processes.js";
 import { AgentListActions, useMcpPreflight } from "./agents.js";
 import { AskBeesSetup, workFromOutcome } from "./ask-bees.js";
+import { ConnectAddons } from "./skills.js";
 
 export function OutcomeWidget({ ctx, data, workspaceId, outcome, setOutcome, configuration, configureGoal, clearConfiguration, act, openWorkItem, capabilities }) {
   const [error, setError] = useState("");
@@ -74,6 +75,8 @@ function TemplatesWidget({ ctx, data, workspaceId, act, openWorkItem }) {
         try {
           if (card.isTemplate) {
             const p = await act({ action: "create_process", workspaceId, name: `New from ${card.name}`, templateId: card.id });
+            // a team with no model only loses the add-on check, never the new process
+            if (p?.id) void act({ action: "ask_bees", workspaceId, addonsFor: p.id }, undefined, () => {});
             if (p?.id) openWorkItem(null, p.id);
           } else {
             openWorkItem(null, card.id);
@@ -130,10 +133,24 @@ function QuickActionsWidget({ workspaceId, createWork, createProcess, createRun,
     h("button", { type: "button", className: "bees-btn bees-dashboard-row", key: label, disabled: !workspaceId, onClick: action }, label)));
 }
 
-function ProposalsWidget({ data, workspaceIds, act }) {
-  const proposals = data.proposals.filter((row) => workspaceIds.includes(row.workspaceId) && row.status === "pending");
-  if (!proposals.length) return null;
-  return h("div", { className: "bees-dashboard-list" }, ...proposals.map((proposal) =>
+const SEEN_BROWSER_WARNING = "bees.browserWarningSeen";
+
+/** Why runs cannot browse, or browse signed out, until the person says they saw it. A new reason shows again. */
+function BrowserWarning({ warning }) {
+  const [seen, setSeen] = useState(() => { try { return localStorage.getItem(SEEN_BROWSER_WARNING) ?? ""; } catch { return ""; } });
+  if (!warning || seen === warning) return null;
+  return h("div", { className: "bees-callout", role: "status", style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px" } },
+    h("span", null, warning),
+    h(Button, { onClick: () => { try { localStorage.setItem(SEEN_BROWSER_WARNING, warning); } catch { /* shown again next time */ } setSeen(warning); } }, "Got it"));
+}
+
+function ProposalsWidget({ ctx, data, workspaceIds, act, catalog }) {
+  const mine = data.proposals.filter((row) => workspaceIds.includes(row.workspaceId));
+  const proposals = mine.filter((row) => row.status === "pending");
+  const connect = h(ConnectAddons, { ctx, catalog, proposals: mine,
+    settingUp: data.runs.some((run) => run.addonsFor && workspaceIds.includes(run.workspaceId) && ["queued", "running"].includes(run.status)) });
+  if (!proposals.length) return connect;
+  return h("div", { className: "bees-dashboard-list" }, connect, ...proposals.map((proposal) =>
     h(ProposalCard, { key: proposal.id, proposal,
       onApply: () => act({ action: "apply_proposal", proposalId: proposal.id }),
       onDismiss: () => act({ action: "reject_proposal", proposalId: proposal.id }) })));
@@ -232,7 +249,8 @@ export function Home({ ctx, data, workspaceId, act, openWorkItem, navigate, rows
       onCancel: () => setSetup(false), onSave: (configuration) => { setOutcomeConfiguration(configuration); setSetup(false); }
     }) : null,
     h("div", { className: "bees-dashboard" },
-    h(ProposalsWidget, { data, workspaceIds: [workspaceId], act }),
+    h(BrowserWarning, { warning: data.defaultBrowser?.warning }),
+    h(ProposalsWidget, { ctx, data, workspaceIds: [workspaceId], act, catalog: capabilities?.data?.catalog ?? [] }),
     dashboard.widgets.length ? h(DashboardGrid, {
       dashboard,
       editing,
