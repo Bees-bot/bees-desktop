@@ -484,6 +484,9 @@ export async function executeProductCommand(action, input) {
       const id = randomUUID();
       const parentId = action === "create_run" ? null : parentFor(this.database, id, processId, input.parentId);
       const parent = parentId ? itemContext(this.database, parentId, ["admin", "member"]) : null;
+      const owner = parentId && this.processes.claims?.owner?.(parentId);
+      if (owner && (owner.state !== 'owned' || owner.machineId !== currentIdentity(this.database).deviceId))
+        throw new Error('Continue this process run on its owning machine before adding delegated work');
       const recurringWorkId = parent && (parent.kind === "run" || parent.parentId)
         ? parent.recurringWorkId : null;
       if (input.runSettings !== undefined && (!input.runSettings || typeof input.runSettings !== "object" || Array.isArray(input.runSettings)))
@@ -524,10 +527,11 @@ export async function executeProductCommand(action, input) {
       });
       // an applied plan only sets work up, the owner presses Start
       if (created.reused || input.idempotencyKey?.startsWith("proposal:")) return created;
-      // the server leases only an item it has seen; a peer may still start it once the owner goes offline
-      await this.processes.claims?.publish(created.id);
       // The row is already committed; throwing here would have the caller retry and create a second item.
-      return { ...created, ...await this.processes.startItem(created.id).catch((error) => ({ error: message(error) })) };
+      try {
+        await this.processes.claims?.publish(created.id);
+        return { ...created, ...await this.processes.startItem(created.id, { explicit: true }) };
+      } catch (error) { return { ...created, error: message(error) }; }
     }
     if (action === "edit_item") return transaction(this.database, () => {
       const item = itemContext(this.database, input.itemId, ["admin", "member"]);
@@ -719,6 +723,11 @@ export async function executeProductCommand(action, input) {
     if (action === "restart_item") {
       const item = itemContext(this.database, input.itemId, ["admin", "member"]);
       return this.processes.restartItem(item.id, input.text ?? "", input.requestId ?? randomUUID());
+    }
+    if (action === 'relinquish_item' || action === 'continue_item') {
+      if (input.viaAgent) throw new Error('Only a user can transfer control of a process run');
+      const item = itemContext(this.database, input.itemId, ['admin','member']);
+      return action === 'relinquish_item' ? this.relinquishWork(item.id) : this.continueWork(item.id);
     }
     if (["start_item", "pause_item", "resume_item", "retry_item", "cancel_item"].includes(action)) {
       const item = itemContext(this.database, input.itemId, ["admin", "member"]);

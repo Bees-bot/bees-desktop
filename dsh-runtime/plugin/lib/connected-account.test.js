@@ -42,7 +42,7 @@ test("sync requests share one queued pass and retain changes requested during an
     for (let i = 0; i < 100; i++) pending.push(account.syncCoordination([i % 2 ? "a" : "b"]));
     assert.deepEqual(requests, ["a"], "Queued syncs cannot overlap cursor writes");
   } finally { active.resolve(); await Promise.all([first, ...pending]); }
-  assert.deepEqual(requests, ["a", "a", "a", "a", "b", "b"]);
+  assert.deepEqual(requests, ["a", "a", "b"]);
   await account.close();
   assert.deepEqual(await account.syncCoordination(), []);
 });
@@ -60,5 +60,5 @@ test("a full sync expands a queued scoped sync without duplicating it", async ()
   const scoped = account.syncCoordination(["a"]);
   const all = account.syncCoordination();
   await Promise.all([scoped, all]);
-  assert.deepEqual(requests, ["a", "a", "b", "b"]);
+  assert.deepEqual(requests, ["a", "b"]);
 });

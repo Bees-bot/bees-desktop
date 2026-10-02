@@ -238,6 +238,7 @@ export async function apply(ctx, config = {}, internals = {}) {
   processes = new ProcessRuntime(database, {
     client: internals.temporalClient, logger: ctx.logger, claims: connected.executionClaims(), notify,
     abortAgent: (executionId) => agents.abort(executionId),
+    stopAgents: (ids) => agents.stopWork(ids),
     needsRecovery: (executionId) => agents.needsRecovery(executionId),
     pendingInteraction: (executionId) => agents.pendingInteraction(executionId)
   });
@@ -276,7 +277,7 @@ export async function apply(ctx, config = {}, internals = {}) {
       connected.listProcessQuestions(id), connected.listProcessExecutions(id)
     ]));
     await product.initialize();
-    await processes.reconcile();
+    await processes.reconcileSchedules();
     notify({ type: "team-sync" });
   };
   // a tick outlasts the 15 s interval on a slow network, and overlapping ticks reconcile the same runs twice
