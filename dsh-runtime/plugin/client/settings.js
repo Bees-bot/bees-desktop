@@ -919,8 +919,9 @@ function BrowserSettings({ data, team, act }) {
         onChange: (event) => choose(event, event.target.checked) }),
       h("span", { "aria-hidden": "true" }), "Use your own browser"),
     // with no usable browser the warning already says where runs browse
-    browser.name ? h("p", { className: "bees-muted" }, useDefault
-      ? `Runs in this team open their own tabs in your ${browser.name}, so the sites you are already signed in to work straight away. Your other tabs are left alone.`
+    browser.name ? h("p", { className: "bees-muted" }, useDefault && browser.setup
+      ? `Runs in this team browse in Bees' own Chrome for now. To have them use your ${browser.name}: ${browser.setup}`
+      : useDefault ? `Runs in this team open their own tabs in your ${browser.name}, so the sites you are already signed in to work straight away. Your other tabs are left alone.`
       : `Runs in this team browse in Bees' own Chrome, where you sign in once. Your ${browser.name} is left alone.`) : null,
     browser.warning ? h("p", { className: "bees-callout", role: "status" }, browser.warning) : null,
     notice ? h("p", { className: "bees-callout", role: "status" }, notice) : null);

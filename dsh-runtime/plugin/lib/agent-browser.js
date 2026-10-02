@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { createServer } from "node:http";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
+import { once } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 import { WebSocket as Socket, WebSocketServer } from "ws";
 import { stateDirectory } from "./product-database.js";
@@ -38,7 +39,8 @@ const NO_COOKIES = { cookies: [], origins: [] };
 
 /** Nothing an agent does may close the person's browser or wipe their sign-ins. */
 const FORBIDDEN = new Set(["Browser.close", "Browser.crash", "Browser.crashGpuProcess", "Storage.clearCookies",
-  "Network.clearBrowserCookies", "Storage.clearDataForOrigin", "Storage.clearDataForStorageKey"]);
+  "Network.clearBrowserCookies", "Storage.clearDataForOrigin", "Storage.clearDataForStorageKey", "Storage.getCookies",
+  "Network.getCookies", "Network.getAllCookies", "Network.deleteCookies", "Target.attachToBrowserTarget"]);
 /** Calls that name a tab, refused for any tab the agent did not open. */
 const NAMES_TAB = new Set(["Target.attachToTarget", "Target.closeTarget", "Target.activateTarget",
   "Target.getTargetInfo", "Target.exposeDevToolsProtocol"]);
@@ -54,6 +56,10 @@ let found = null;
 /** The gate in front of the person's browser, and the port that browser answers on. */
 let gate = null;
 let realPort = PERSONAL.port;
+let realPath = "";
+/** The Chrome session that said yes to Bees, and the one that said no. */
+let allowed = "";
+let declined = "";
 
 const profileOf = (spec) => join(stateDirectory(), spec.profile);
 const base = (spec) => `http://127.0.0.1:${spec.port}`;
@@ -88,11 +94,16 @@ export function browserWarning() {
     return `Runs can't browse the web until you let Bees use ${browser.name} or install Google Chrome. ${turnOn(browser)}`;
   }
   if (!browser) return `Bees can't drive ${yours}, so runs browse in a separate Google Chrome. Sign in to each site there once.`;
-  if (!switchedOn(browser)) return `Runs browse in Bees' own Chrome until you let Bees use ${browser.name}. ${turnOn(browser)}`;
   return "";
 }
 
-const turnOn = ({ name }) => `In ${name}, open chrome://inspect/#remote-debugging and turn on "Allow remote debugging for this browser instance".`;
+/** How to let runs into the person's own browser, for settings to offer and never to push. */
+export function browserSetup() {
+  const browser = defaultBrowser();
+  return browser && existsSync(CHROME) && !switchedOn(browser) ? turnOn(browser) : "";
+}
+
+const turnOn = ({ name }) => `In ${name}, open chrome://inspect/#remote-debugging and turn on "Allow remote debugging for this browser instance". Click Allow when ${name} asks.`;
 
 /** Whether the person turned on their browser's own "Allow remote debugging" switch, which is the only
  *  way in to the profile they use: Chrome 136 and later ignore --remote-debugging-port on it. */
@@ -121,7 +132,8 @@ function askMacOs() {
 }
 
 /** Which browser one team's runs drive. */
-const browserMode = (teamId) => teamId && usesDefaultBrowser(teamId) && defaultBrowser() && switchedOn(defaultBrowser()) ? "personal" : "own";
+const browserMode = (teamId) => teamId && usesDefaultBrowser(teamId) && defaultBrowser() && switchedOn(defaultBrowser())
+  && !(declined && declined === activePort(defaultBrowser())[1]) ? "personal" : "own";
 
 /** Which browser one run drives: the team that owns its workspace decides, and a run with no team
  *  gets Bees' own rather than a person's sign-ins it has no setting for. */
@@ -181,8 +193,8 @@ async function headless(spec) {
 }
 
 async function cdp(spec, method, params) {
-  const { webSocketDebuggerUrl } = await fetch(`${base(spec)}/json/version`, { signal: AbortSignal.timeout(PATIENCE) })
-    .then((r) => r.json());
+  const { webSocketDebuggerUrl } = spec.gate ? { webSocketDebuggerUrl: `ws://127.0.0.1:${realPort}${realPath}` }
+    : await fetch(`${base(spec)}/json/version`, { signal: AbortSignal.timeout(PATIENCE) }).then((r) => r.json());
   const socket = new WebSocket(webSocketDebuggerUrl);
   // closing the socket settles the promise below, so a browser that stops answering rejects instead
   const timer = setTimeout(() => socket.close(), PATIENCE);
@@ -236,11 +248,10 @@ async function bringUp(spec) {
 
 /** The tab the person signs in on, opened on the page the agent was stuck at, or whatever tab is already there. */
 async function openWindow(spec, url) {
-  const pages = (await fetch(`${base(spec)}/json/list`, { signal: AbortSignal.timeout(PATIENCE) }).then((r) => r.json()))
-    .filter(({ type }) => type === "page");
+  const pages = (await cdp(spec, "Target.getTargets", {})).targetInfos.filter(({ type }) => type === "page");
   const page = url ? pages.find((open) => open.url === url) : pages[0];
   // a window the person has closed, or one a fresh launch never made, is nothing to sign in to
-  const targetId = page?.id ?? (await cdp(spec, "Target.createTarget", { url: url ?? "about:blank" })).targetId;
+  const targetId = page?.targetId ?? (await cdp(spec, "Target.createTarget", { url: url ?? "about:blank" })).targetId;
   await cdp(spec, "Target.activateTarget", { targetId });
 }
 
@@ -283,16 +294,16 @@ async function launch(mode, visible) {
   children.set(mode, child);
 }
 
-/** The port the person's running browser listens on, read from the process itself. 9222 is only the
- *  usual one: the switch takes another when something else holds it. */
-async function findRealPort(spec) {
-  const run = (file, args) => new Promise((resolve) => execFile(file, args, { timeout: PATIENCE }, (_, out) => resolve(out ?? "")));
-  const pid = (await run("/bin/ps", ["-axo", "pid=,comm="])).split("\n")
-    .map((line) => line.trim().match(/^(\d+) (.+)$/)).find((match) => match?.[2] === spec.binary)?.[1];
-  if (!pid) return null;
-  const listening = (await run("/usr/sbin/lsof", ["-nP", "-a", "-p", pid, "-iTCP@127.0.0.1", "-sTCP:LISTEN", "-Fn"]))
-    .match(/^n127\.0\.0\.1:(\d+)$/m)?.[1];
-  return { pid, port: listening ? Number(listening) : null };
+/** Where the person's browser listens. Its "Allow remote debugging" switch serves no /json pages, only the
+ *  socket named in this file, and the file outlives a quit, so the port has to answer too. */
+async function findSocket(spec) {
+  const [port, path] = activePort(spec);
+  return port && await answering({ port }) ? { port: Number(port), path } : null;
+}
+
+/** The port and socket path the person's browser wrote on its last start, and the path changes every start. */
+function activePort(browser) {
+  try { return readFileSync(join(browser.support, "DevToolsActivePort"), "utf8").split("\n"); } catch { return []; }
 }
 
 /**
@@ -303,15 +314,13 @@ async function findRealPort(spec) {
  */
 function openGate() {
   if (gate) return gate;
-  const server = createServer(async (request, response) => {
+  const server = createServer((request, response) => {
+    if (!local(request)) return response.writeHead(403).end();
     if (!/^\/json\/version\/?$/.test(request.url ?? "")) return response.writeHead(404).end();
-    try {
-      const about = await fetch(`http://127.0.0.1:${realPort}/json/version`, { signal: AbortSignal.timeout(PATIENCE) }).then((r) => r.json());
-      response.setHeader("Content-Type", "application/json");
-      response.end(JSON.stringify({ ...about, webSocketDebuggerUrl: `ws://127.0.0.1:${PERSONAL.gate}/devtools/browser/bees` }));
-    } catch { response.writeHead(502).end(); }
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify({ webSocketDebuggerUrl: `ws://127.0.0.1:${PERSONAL.gate}/devtools/browser/bees` }));
   });
-  new WebSocketServer({ server, perMessageDeflate: false }).on("connection", passThrough);
+  new WebSocketServer({ server, perMessageDeflate: false, verifyClient: ({ req }, done) => done(local(req), 403) }).on("connection", passThrough);
   gate = new Promise((resolve, reject) => {
     server.once("error", (error) => {
       gate = null;
@@ -322,14 +331,15 @@ function openGate() {
   return gate;
 }
 
+// a web page always sends Origin and the add-ons never do; the Host check stops a rebound DNS name reaching the gate
+const local = (request) => !request.headers.origin
+  && new RegExp(`^(127\\.0\\.0\\.1|localhost):${request.socket.localPort}$`, "i").test(request.headers.host ?? "");
+
 /** One add-on connection, relayed to the person's browser with every tab it did not open left out. */
-async function passThrough(client) {
+function passThrough(client) {
   const held = [];
   client.on("message", (data) => held.push(data));
-  const about = await fetch(`http://127.0.0.1:${realPort}/json/version`, { signal: AbortSignal.timeout(PATIENCE) })
-    .then((r) => r.json()).catch(() => null);
-  if (!about?.webSocketDebuggerUrl) return client.close(1011, "The browser is not answering");
-  const browser = new Socket(about.webSocketDebuggerUrl, { perMessageDeflate: false });
+  const browser = new Socket(`ws://127.0.0.1:${realPort}${realPath}`, { perMessageDeflate: false });
   const mine = new Set();
   const sessions = new Set();
   /** what each of the add-on's calls was, for the answers the gate has to read or trim */
@@ -348,14 +358,15 @@ async function passThrough(client) {
     try { message = JSON.parse(data); } catch { return; }
     if (FORBIDDEN.has(message.method)) return message.method === "Browser.close"
       ? client.send(JSON.stringify({ id: message.id, result: {} })) : refuse(message, "Bees keeps the person's sign-ins and browser open");
-    if (!message.sessionId && NAMES_TAB.has(message.method) && message.params?.targetId && !mine.has(message.params.targetId)) {
+    if (message.sessionId && !sessions.has(message.sessionId)) return refuse(message, "No session with given id found");
+    if (NAMES_TAB.has(message.method) && message.params?.targetId && !mine.has(message.params.targetId)) {
       return refuse(message, "No target with given id found");
     }
     // a new tab must not pull the person off the one they are using
     if (message.method === "Target.createTarget") message.params = { ...message.params, background: true };
     // the agent's downloads must not move the person's own
     if (message.method === "Browser.setDownloadBehavior") return client.send(JSON.stringify({ id: message.id, result: {} }));
-    if (!message.sessionId) asked.set(message.id, message.method);
+    asked.set(message.id, message.method);
     browser.send(JSON.stringify(message));
   };
   // frames and workers carry no tab of the person's on their own, so only tabs and pages are held back
@@ -372,7 +383,7 @@ async function passThrough(client) {
       if (message.method === "Target.attachedToTarget") looking.set(message.sessionId, message.params);
       return;
     }
-    if (message.id !== undefined && !message.sessionId) {
+    if (message.id !== undefined) {
       const method = asked.get(message.id);
       asked.delete(message.id);
       if (method === "Target.createTarget" && message.result) mine.add(message.result.targetId);
@@ -390,7 +401,8 @@ async function passThrough(client) {
         if (params.waitingForDebugger) call("Runtime.runIfWaitingForDebugger", {}, params.sessionId);
         return call("Target.detachFromTarget", { sessionId: params.sessionId });
       }
-      mine.add(params.targetInfo.targetId);
+      // workers are the person's sites' too, so only tabs and pages count as the agent's to close later
+      if (["page", "tab"].includes(params.targetInfo.type)) mine.add(params.targetInfo.targetId);
       sessions.add(params.sessionId);
     }
     if (["Target.targetCreated", "Target.targetInfoChanged"].includes(method)) {
@@ -543,13 +555,29 @@ async function launchIfAbsent(mode) {
 async function reachPersonal(spec) {
   // an older Bees kept a copy of the person's sign-ins here
   rmSync(join(stateDirectory(), "browser-profile-personal"), { recursive: true, force: true });
-  let live = await findRealPort(spec);
+  let live = await findSocket(spec);
   if (!live) {
     execFile("/usr/bin/open", ["-g", "-a", spec.path]);
-    for (const deadline = Date.now() + PATIENCE * 4; !live?.port && Date.now() < deadline; await delay(500)) live = await findRealPort(spec);
+    for (const deadline = Date.now() + PATIENCE * 4; !live && Date.now() < deadline; await delay(500)) live = await findSocket(spec);
   }
-  if (!live?.port) throw new Error(`${spec.name} is not letting Bees in. ${turnOn(spec)} Or switch off "Use your own browser" in Bees' settings.`);
-  realPort = live.port;
+  if (!live) throw new Error(`${spec.name} is not letting Bees in. ${turnOn(spec)} Or switch off "Use your own browser" in Bees' settings.`);
+  ({ port: realPort, path: realPath } = live);
+  // chrome asks once per session, so ask up front and in sight rather than let the run's add-on time out behind it
+  if (allowed !== realPath) {
+    // a socket dropped mid-handshake reports an error after once() stops listening
+    const probe = new Socket(`ws://127.0.0.1:${realPort}${realPath}`).on("error", () => {});
+    const raise = setTimeout(() => bringUp({ ...spec, port: realPort }).catch(() => {}), 1_500);
+    try {
+      await once(probe, "open", { signal: AbortSignal.timeout(120_000) });
+      allowed = realPath;
+    } catch {
+      declined = realPath;
+      throw new Error(`${spec.name} did not let Bees in, so the next runs browse in Bees' own Chrome until ${spec.name} restarts.`);
+    } finally {
+      clearTimeout(raise);
+      probe.terminate();
+    }
+  }
   await openGate();
 }
 
