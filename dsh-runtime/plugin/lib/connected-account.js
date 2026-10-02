@@ -12,17 +12,16 @@ const connectedSeedAt = "1970-01-01T00:00:00.000Z";
 const SIGN_OUT_AFTER_REJECTED_SYNCS = 3;
 
 function message(body, status) {
-  return body?.error?.message ?? body?.message ?? `Request failed (${status})`;
+  return body?.error?.message ?? body?.message ?? "The Bees server could not do that. Try again in a moment.";
 }
 
 function responseError(body, status) {
   return Object.assign(new Error(message(body, status)), { status });
 }
 
-// keep the cause (timeout, DNS, TLS) so a failure reads as more than "offline"
 function unreachable(error) {
-  const cause = error?.cause?.code ?? error?.name;
-  return new Error(`Can't reach the Bees server${cause ? ` (${cause})` : ""}`);
+  console.warn("bees: can't reach the Bees server:", error);
+  return new Error("Can't reach the Bees server. Check this computer's internet connection, then try again.");
 }
 
 export class ConnectedAccount {

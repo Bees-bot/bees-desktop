@@ -46,7 +46,7 @@ async function requestBody(req) {
 // to do about it. The host is safe to name: the person typed it. A queued model reads as a timeout.
 const unreachable = (url, error) => new Error(error.name === "TimeoutError"
   ? `${url.host} did not answer in 30 seconds. Try again, or test a smaller model.`
-  : `Could not reach ${url.host}. Check this computer's internet connection, then test again. (${error.cause?.message ?? error.message})`);
+  : `Could not reach ${url.host}. Check this computer's internet connection, then test again.`);
 
 // A bad key is 400 from Google and xAI but 401 from the other nine, so the provider's own sentence
 // is the only signal covering both. Capped: it goes straight into the settings screen.
@@ -97,6 +97,7 @@ async function probe(definition, model, key) {
     // read in here so the same 30 seconds covers the body, and a host that dies mid-answer reads as unreachable
     return { response, text: await response.text() };
   } catch (error) {
+    console.warn("custom ai test could not connect:", error);
     throw unreachable(url, error);
   }
 }

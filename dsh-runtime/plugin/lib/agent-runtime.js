@@ -130,7 +130,7 @@ export function validateRunData(value) {
     throw new Error("Run data has an invalid stage purpose");
   if (typeof value.agentPresetId !== "string" || !value.agentPresetId) throw new Error("Run data needs an agent preset");
   if (!["all", "none", "listed"].includes(value.mcpAccess) || !Array.isArray(value.mcpServers))
-    throw new Error("Run data needs an MCP access policy");
+    throw new Error("Run data needs an add-on access policy");
   if (!Array.isArray(value.capabilities ?? []) || !Array.isArray(value.participantIds ?? []))
     throw new Error("Run capabilities or participants are invalid");
   if (value.model !== null && (typeof value.model !== "string" || !value.model.includes("/")))

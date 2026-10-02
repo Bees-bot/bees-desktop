@@ -400,8 +400,8 @@ export class Capabilities {
       `https://registry.modelcontextprotocol.io/v0/servers?limit=40&version=latest${search ? `&search=${encodeURIComponent(search)}` : ""}`,
       { signal: AbortSignal.timeout(10_000) }
     );
-    if (!response.ok) throw new Error(`The MCP registry answered ${response.status}`);
-    const { servers = [] } = await response.json().catch(() => { throw new Error("The MCP registry did not answer with JSON"); });
+    if (!response.ok) throw new Error("The public add-on list did not answer. Try again in a minute.");
+    const { servers = [] } = await response.json().catch(() => { throw new Error("The public add-on list sent back something Bees could not read. Try again in a minute."); });
     const seen = new Set();
     const runners = { npm: "npx -y", pypi: "uvx" };
     return servers.flatMap(({ server }) => {

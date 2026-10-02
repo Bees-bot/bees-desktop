@@ -392,7 +392,7 @@ export function insertDefaultWorkspace(database, teamId, {
 }
 
 export function assertMcpAccess(access) {
-  if (!["all", "none", "listed"].includes(access)) throw new Error("Choose all, none, or listed MCP servers");
+  if (!["all", "none", "listed"].includes(access)) throw new Error("Choose all, none, or listed add-ons");
   return access;
 }
 
@@ -1217,7 +1217,7 @@ export function mcpGrantFor(database, agentAssignmentId, runSettings = {}, proce
   if (missing.length) throw new Error([
     `${row.name} cannot run on this computer.`,
     named.length ? `It needs ${named.join(", ")}, which ${named.length === 1 ? "is" : "are"} not set up here.` : "",
-    gone.length ? `It lists ${gone.length} MCP server${gone.length === 1 ? "" : "s"} that ${gone.length === 1 ? "was" : "were"} set up on another computer, so there is no name to show here.` : "",
+    gone.length ? `It lists ${gone.length} add-on${gone.length === 1 ? "" : "s"} that ${gone.length === 1 ? "was" : "were"} set up on another computer, so there is no name to show here.` : "",
     "Add what is missing on the Add-ons page, or update the process or agent add-on selection."
   ].filter(Boolean).join(" "));
   return { mcpAccess: "listed", mcpServers: rows.filter(({ enabled }) => enabled).map(({ name }) => name) };
@@ -1239,7 +1239,7 @@ export function normalizeRunSettings(value = {}) {
     assertMcpAccess(value.mcpAccess);
     if (value.mcpServers !== undefined && (!Array.isArray(value.mcpServers) || value.mcpServers.length > 128 ||
         value.mcpServers.some((id) => typeof id !== "string" || !id || id.length > 128)))
-      throw new Error("Choose valid MCP server identifiers");
+      throw new Error("Choose valid add-ons");
     settings.mcpAccess = value.mcpAccess;
     settings.mcpServers = value.mcpAccess === "listed" ? [...new Set(value.mcpServers ?? [])] : [];
   } else if (value.mcpServers !== undefined) throw new Error("Choose a tool access policy");

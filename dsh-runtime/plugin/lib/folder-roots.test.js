@@ -109,9 +109,9 @@ test("root selection, inherited folders and local overrides preserve work", asyn
   db.prepare("UPDATE team_memberships SET role = 'member' WHERE team_id = ?").run(teamId);
   await assert.rejects(command({ action: "set_folder_root", level: "team", id: teamId, workspaceId, directory: teamOverride }), /permission/);
   await assert.rejects(command({ action: "set_folder_root", level: "root", directory: "" }), /Choose a root/);
-  await assert.rejects(command({ action: "set_folder_root", level: "root", directory: app }), /not one inside Bees/);
+  await assert.rejects(command({ action: "set_folder_root", level: "root", directory: app }), /inside Bees' own data folder/);
   const alias = join(temp, "app-alias"); symlinkSync(app, alias);
-  await assert.rejects(command({ action: "set_folder_root", level: "root", directory: alias }), /not one inside Bees/);
+  await assert.rejects(command({ action: "set_folder_root", level: "root", directory: alias }), /inside Bees' own data folder/);
   await assert.rejects(command({ action: "set_folder_root", level: "root", directory: "relative" }));
   product.agents.live.set("running", { data: { workspaceId } });
   await assert.rejects(command({ action: "set_folder_root", level: "root", directory: teamOverride }), /Wait for/);

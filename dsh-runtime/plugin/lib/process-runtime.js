@@ -511,9 +511,9 @@ export class ProcessRuntime {
       });
     } catch (error) {
       if (!(error instanceof WorkflowExecutionAlreadyStartedError) && error?.name !== "WorkflowExecutionAlreadyStartedError") {
-        // the scheduler's own wording ("Failed to start Workflow") names no next step for the person reading it
-        const reason = String(error?.message ?? error);
-        this.project({ ...input, attempt: input.resumeAttempt, phase: "failed", error: `Bees could not start this work (${reason}). Try again, and reopen Bees if it keeps failing.` });
+        // the scheduler's own wording ("Failed to start Workflow") names no next step, so it only goes to the log
+        this.logger.warn?.(`bees: work did not start: ${message(error)}`);
+        this.project({ ...input, attempt: input.resumeAttempt, phase: "failed", error: "Bees could not start this work. Try again, and reopen Bees if it keeps failing." });
         throw error;
       }
       handle = this.client.workflow.getHandle(processWorkflowId(workItemId));

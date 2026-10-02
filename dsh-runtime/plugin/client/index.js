@@ -29,8 +29,9 @@ window.__ModuleLoader__.load({
     }
     class BeesErrorBoundary extends React.Component {
       state = { error: null, attempt: 0 };
-      static getDerivedStateFromError(error) {
-        return { error: (error instanceof Error ? error.message : String(error)) || "Unknown error" };
+      static getDerivedStateFromError() {
+        // the real crash goes to the console in componentDidCatch
+        return { error: "This screen stopped working. Try again, or reload Bees if it keeps happening." };
       }
       componentDidCatch(error, info) {
         console.error("Bees UI crashed:", error, info.componentStack);
