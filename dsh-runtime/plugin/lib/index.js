@@ -285,7 +285,7 @@ export async function apply(ctx, config = {}, internals = {}) {
       connected.listProcessQuestions(id), connected.listProcessExecutions(id)
     ]));
     await product.initialize();
-    await processes.reconcileSchedules();
+    await processes.reconcile();
     notify({ type: "team-sync" });
   };
   // a tick outlasts the 15 s interval on a slow network, and overlapping ticks reconcile the same runs twice
