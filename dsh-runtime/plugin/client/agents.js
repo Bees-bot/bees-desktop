@@ -435,7 +435,7 @@ export function AgentListActions({ agent, act }) {
     error ? h("p", { className: "bees-error", role: "alert" }, error) : null);
 }
 
-export function AgentsPage({ ctx, data, servers = [], tools = [], catalog = [], onServerAction, workspaceIds, workspaceId, creating, setCreating, act, openDshSettings, preference, preferences, setPageActions, setPageHeader }) {
+export function AgentsPage({ ctx, data, servers = [], tools = [], catalog = [], onServerAction, workspaceIds, workspaceId, creating, setCreating, act, openSkills, preference, preferences, setPageActions, setPageHeader }) {
   const [agentStatus, setAgentStatus] = useState("active");
   const [query, setQuery] = useState("");
   const needle = query.trim().toLowerCase();
@@ -454,7 +454,7 @@ export function AgentsPage({ ctx, data, servers = [], tools = [], catalog = [], 
       ...(assignments.length ? assignments.map((agent) => h("div", { className: "bees-row", key: agent.id }, h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, agent.name), h("div", { className: "bees-muted" }, `${agent.enabled ? agent.presetId : "Unavailable"}${agent.model ? ` · ${agent.model}` : " · default model"}${agent.reasoningEffort ? ` · ${agent.reasoningEffort} effort` : ""}${agent.capabilities?.length ? ` · ${agent.capabilities.join(", ")}` : ""} · ${agent.description || "Agent preset assignment"}`)), agent.systemRole ? h("span", { className: "bees-badge" }, `Bees ${agent.systemRole}`) : null, agent.archivedAt ? null : h(Button, { onClick: () => setSelectedId(agent.id) }, "Configure"), h(AgentListActions, { agent, act }))) : [h(Empty, { key: "empty" }, needle ? "No agents match your search" : agentStatus === "archived" ? "No archived agents" : "No agents assigned to this scope") ]));
   const presets = h("div", null,
       h("div", { className: "bees-row" }, h("div", { className: "bees-row-main bees-muted" }, "Toolboxes available to agents."),
-        h(Button, { onClick: openDshSettings }, "Manage presets & skills")),
+        h(Button, { onClick: openSkills }, "Manage skills")),
       ...(data.presets.length ? data.presets.map((preset) => h("div", { className: "bees-row", key: preset.id },
         h("div", { className: "bees-row-main" }, h("div", { className: "bees-row-title" }, preset.name),
           h("div", { className: "bees-muted" }, preset.broken || preset.description || "Agent preset")))) : [h(Empty, { key: "empty" }, "No agent presets are available")]));

@@ -251,7 +251,8 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
   }, [data]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [route, setRoute] = useState("home");
+  const [requestedRoute, setRoute] = useState("home");
+  const route = data && !data.rootFolder?.folder ? "root-folder" : requestedRoute;
   const [scope, setScopeState] = useState("");
   const [connectionId, setConnectionId] = useState("");
   const [processId, setProcessId] = useState("");
@@ -418,10 +419,6 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
     catch (reason) { onError(reason instanceof Error ? reason.message : String(reason)); return null; }
   };
   const navigate = (id) => {
-    if (id === "dsh-settings") {
-      document.querySelector('button[aria-haspopup="dialog"][aria-expanded]')?.click();
-      return;
-    }
     if (id === "home") void preferences.set("activeDashboardId", "home");
     const section = NAVIGATION.find((row) => row.id === id);
     // an error belongs to the page it came from, so it must not follow you to the next one
@@ -647,7 +644,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
       : section.id === "processes" ? h(ProcessesPage, { ctx, data: viewData, servers: capabilities.data?.servers ?? [], tools: capabilities.data?.tools ?? [], catalog: capabilities.data?.catalog ?? [], onServerAction: capabilities.act, route, workspaceIds, workspaceId: parts.workspaceId, teamId: parts.teamId, processId, setProcessId, openWorkItem, creating, setCreating, processDraft, setProcessDraft, act, preference, preferences, setPageActions, setPageHeader })
         : route === "skills" ? h(SkillsPage, { capabilities, preference, preferences, setPageActions })
         : route === "mcp" ? h(McpPage, { ctx, capabilities, preference, preferences, setPageActions })
-        : section.id === "agents" ? h(AgentsPage, { ctx, data: viewData, servers: capabilities.data?.servers ?? [], tools: capabilities.data?.tools ?? [], catalog: capabilities.data?.catalog ?? [], onServerAction: capabilities.act, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openDshSettings: () => navigate("dsh-settings"), preference, preferences, setPageActions, setPageHeader })
+        : section.id === "agents" ? h(AgentsPage, { ctx, data: viewData, servers: capabilities.data?.servers ?? [], tools: capabilities.data?.tools ?? [], catalog: capabilities.data?.catalog ?? [], onServerAction: capabilities.act, workspaceIds, workspaceId: parts.workspaceId, creating, setCreating, act, openSkills: () => navigate("skills"), preference, preferences, setPageActions, setPageHeader })
           : section.id === "files" ? h(FilesPage, { ctx, data: viewData, teamId: parts.teamId, act })
             : section.id === "activity" ? h(ActivityPage, { data: viewData, route, workspaceIds, openWorkItem, openProcess })
               : section.id === "knowledge" ? h(KnowledgePage, { data: viewData, route, workspaceId: parts.workspaceId, teamId: parts.teamId, openWorkItem })
@@ -722,7 +719,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
         }, "Create new Dashboard") : null),
       platform.editing ? h("div", { className: "bees-callout", role: "status", "data-product-defaults": true },
         "Editing product defaults — saved changes apply here and ship in future builds. Personal settings take priority.") : null,
-      onboarding.version && !onboarding.finished ? h(GettingStartedBar, { state: onboarding, update: updateOnboarding, navigate, aiReady, aiStatus: aiReady ? "AI ready" : "AI setup can continue while you explore.", data, openWorkItem: openStarter }) : null,
+      data.rootFolder?.folder && onboarding.version && !onboarding.finished ? h(GettingStartedBar, { state: onboarding, update: updateOnboarding, navigate, aiReady, aiStatus: aiReady ? "AI ready" : "AI setup can continue while you explore.", data, openWorkItem: openStarter }) : null,
       error ? h("div", { className: "bees-error", role: "alert", style: { display: "flex", alignItems: "center", gap: "12px" } },
         h("span", { style: { flex: 1, minWidth: 0, overflowWrap: "anywhere" } }, error),
         h(Button, { onClick: () => setError(""), "aria-label": "Dismiss error" }, "Dismiss")) : null,
