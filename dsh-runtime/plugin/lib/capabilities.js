@@ -66,7 +66,10 @@ const readSpec = async (source) => {
 /** A folder-bound server takes its folder as its last argument, and that folder belongs to this computer. */
 const FOLDER = "{folder}";
 const needsFolder = (catalogId) => Boolean(catalogEntry(catalogId)?.requiresDirectory);
-const argsFor = (server, mode = "own") => server.args.map((arg) => arg === FOLDER ? serverFolder(server.id) || arg : placed(arg, mode));
+const argsFor = (server, mode = "own") => mode === "personal" && server.catalogId === "playwright"
+  // the person's own browser, attached through the gate rather than a headless copy of their cookies
+  ? ["-y", "@playwright/mcp@latest", "--cdp-endpoint", placed("{browserUrl}", mode)]
+  : server.args.map((arg) => arg === FOLDER ? serverFolder(server.id) || arg : placed(arg, mode));
 
 /** A folder-bound server runs only while it has a folder here: one picked on another computer is not ours. */
 const noFolderReason = (server) => {
@@ -141,8 +144,8 @@ export class Capabilities {
         showAgentBrowser(mode, runId, lastUrl).catch((error) => this.ctx.logger.warn(`bees: could not show the browser: ${message(error)}`));
         // the answer may be a sign-in, so the next browser call copies the cookies again
         synced = null;
-        // playwright's own session read its cookies once, devtools drives that browser itself
-        reopen = row.catalogId === "playwright";
+        // playwright's own session read its cookies once; devtools, and the person's own browser, need nothing
+        reopen = row.catalogId === "playwright" && mode === "own";
         return next();
       }
       if (!exec.name.startsWith(tool)) return next();
