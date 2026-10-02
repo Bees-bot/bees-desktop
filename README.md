@@ -84,7 +84,7 @@ Settings → AI connections offers four ways to add a model, and each sends your
 - **General AI APIs** (your own API keys) send your prompt and key straight from this computer to the provider you picked, such as OpenRouter, Google, or Groq.
 - **Free LLM**, the built-in free-tier router, runs locally in the app, then sends your prompt on to the free-tier provider you picked and added a key for.
 
-A Private organization never touches Bees Cloud. The desktop app is fully open source and works on its own. Only the optional team sync server, Bees Cloud, used by Regular organizations to sync members, tasks, and progress, is closed source, and it never receives file contents.
+A Private organization never syncs with Bees Cloud. The app does ask `app.bees.bot` for its sign-in settings when it starts, with no account token or usage data. The desktop app is fully open source and works on its own. Only the optional team sync server, Bees Cloud, used by Regular organizations to sync members, tasks, and progress, is closed source, and it never receives file contents.
 
 ### Workspace memory
 
