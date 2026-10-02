@@ -531,6 +531,8 @@ export class AgentRuntime {
     this.peerWaiters = new Set();
     this.capabilities = capabilities;
     this.starting = new Set();
+    /** runs whose last approved step was in the browser, so the approval goes once those steps end */
+    this.browsing = new Set();
     this.admissions = new Map();
     this.settlements = new Map();
     this.recovery = new Set();
@@ -726,16 +728,26 @@ export class AgentRuntime {
         const names = readdirSync(resolve(link.directory, targets[0]), { withFileTypes: true }).map((entry) => entry.name + (entry.isDirectory() ? "/" : ""));
         return `${targets[0]} is a folder, not a file. It holds ${names.length ? names.slice(0, 100).join(", ") + (names.length > 100 ? ` and ${names.length - 100} more` : "") : "nothing yet"}. Read one file at a time by its path.`;
       } catch { /* not a folder, so read runs as usual */ }
-      // approval is only checked when the stage finishes, so a bid or an email could go out before anyone saw it.
-      // files, notes, thinking and time never leave this computer
-      if (exec.name.startsWith("mcp__") && !/^mcp__(filesystem|memory|thinking|time)__/.test(exec.name)
-        && link && JSON.parse(link.config).requiresHumanApproval && !approvals().length) {
+      // approval is only checked when the stage finishes, so a bid or an email could go out before anyone saw it
+      const server = exec.name.startsWith("mcp__") && link && JSON.parse(link.config).requiresHumanApproval
+        ? database.prepare("SELECT catalog_id AS catalogId FROM mcp_servers WHERE server_name = ?").get(exec.name.slice(5, exec.name.indexOf("__", 5))) ?? {} : null;
+      const browser = isBrowserCatalog(server?.catalogId);
+      // a page takes many clicks to send one thing, so the approval is used up when the browser steps end
+      if (!browser && this.browsing.delete(link?.id)) this.audit("outgoing-call-made", link.id, String(exec.agent?.session?.id ?? ""), { tool: "browser" });
+      // files, notes, thinking and time never leave this computer. by catalog id, since an agent can name its own server anything
+      if (server && !["filesystem", "memory", "sequential-thinking", "time"].includes(server.catalogId)) {
         // a big api is called through invoke-api-endpoint, and the endpoint it names is what gets read or sent.
         // the api bridge names every write so it reads as one. a browser click or keypress can send anything, so the browser waits too
         const tool = exec.name.endsWith("__invoke-api-endpoint") ? String(exec.arguments?.endpoint ?? "") : exec.name.slice(exec.name.indexOf("__", 5) + 2);
-        const server = database.prepare("SELECT catalog_id AS catalogId FROM mcp_servers WHERE server_name = ?").get(exec.name.slice(5, exec.name.indexOf("__", 5)));
-        if (isBrowserCatalog(server?.catalogId) || sendsOut(tool) || !/^(get|head)?$/i.test(String(exec.arguments?.method ?? "")))
-          return "This stage needs the person's approval before anything goes out. Show exactly what this call will send with bees_request_work_review, then make the call.";
+        if (browser || sendsOut(tool) || !/^(get|head)?$/i.test(String(exec.arguments?.method ?? ""))) {
+          // the latest answer since the last send decides, so one yes can not open the rest of the run and a later no wins
+          const fresh = database.prepare(`SELECT event_type AS type FROM dsh_audit_events WHERE execution_id = ? AND event_type IN ('human-work-approved', 'human-work-rejected')
+            AND rowid > (SELECT COALESCE(MAX(rowid), 0) FROM dsh_audit_events WHERE execution_id = ? AND event_type = 'outgoing-call-made')
+            ORDER BY rowid DESC LIMIT 1`).get(link.id, link.id);
+          if (fresh?.type !== "human-work-approved") return "This stage needs the person's approval before anything goes out, and each approval covers one send. Show exactly what this call will send with bees_request_work_review, then make the call.";
+          if (browser) this.browsing.add(link.id);
+          else this.audit("outgoing-call-made", link.id, String(exec.agent?.session?.id ?? ""), { tool: exec.name });
+        }
       }
       if (exec.name !== "ask_user_question") return;
       if (exec.arguments?.questions?.some?.(({ options }) => Array.isArray(options) && options.length === 1))
