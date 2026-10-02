@@ -1,8 +1,10 @@
 import { execFile, execFileSync, spawn } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { WebSocket as Socket, WebSocketServer } from "ws";
 import { stateDirectory } from "./product-database.js";
 
 /** A browser that stops answering must not leave a run waiting on it for ever. */
@@ -13,9 +15,9 @@ const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 /** Bees' own browser: its own profile and port, so a team that did not ask for the person's browser
  *  never sees, or signs out of, anything the person is signed in to. */
 const OWN = { port: 9333, profile: "browser-profile", state: "browser-state.json" };
-/** The person's sign-ins: a copy of their Chromium profile.
- *  A copy, because Chrome 136 and later ignore --remote-debugging-port on the profile folder in use. */
-const PERSONAL = { port: 9332, profile: "browser-profile-personal", state: "browser-state-personal.json" };
+/** The person's own browser, on the port its "Allow remote debugging" switch opens, seen by the agent
+ *  only through the gate. A copy of their sign-ins looked stolen and signed them out everywhere. */
+const PERSONAL = { port: 9222, gate: 9332, state: "browser-state-personal.json" };
 
 /** The browsers Bees drives itself, by bundle id, and where each keeps its profile folder. */
 const CHROMIUM = {
@@ -31,34 +33,27 @@ const CHROMIUM = {
   "company.thebrowser.Browser": "Arc/User Data",
   "org.chromium.Chromium": "Chromium"
 };
-/**
- * What carries a person's sign-ins: the cookie jar, the site storage that holds session tokens, the
- * browser's own settings, and the file that names the profile. The rest of a real profile is gigabytes
- * of history, caches, extensions and saved passwords, none of which a browsing agent needs, and copying
- * it on every launch would take minutes and the person's own passwords with it.
- */
-const signInFiles = (folder) => [
-  "Local State",
-  join(folder, "Preferences"),
-  join(folder, "Network", "Cookies"),
-  join(folder, "Network", "Cookies-journal"),
-  join(folder, "Cookies"),
-  join(folder, "Local Storage")
-];
-
 /** No cookies, in the shape playwright reads. What a run that cannot read the browser gets. */
 const NO_COOKIES = { cookies: [], origins: [] };
+
+/** Nothing an agent does may close the person's browser or wipe their sign-ins. */
+const FORBIDDEN = new Set(["Browser.close", "Browser.crash", "Browser.crashGpuProcess", "Storage.clearCookies",
+  "Network.clearBrowserCookies", "Storage.clearDataForOrigin", "Storage.clearDataForStorageKey"]);
+/** Calls that name a tab, refused for any tab the agent did not open. */
+const NAMES_TAB = new Set(["Target.attachToTarget", "Target.closeTarget", "Target.activateTarget",
+  "Target.getTargetInfo", "Target.exposeDevToolsProtocol"]);
 
 /** mode -> the browser running for it, and mode -> the last launch or swap queued for it. */
 const children = new Map();
 const queued = new Map();
-/** mode -> the profile folder inside its copy of the person's profile. */
-const copiedFolders = new Map();
 /** run -> the browser it brought up to sign in on, so only its own answer puts that window away. */
 const signingIn = new Map();
 
 let looked = false;
 let found = null;
+/** The gate in front of the person's browser, and the port that browser answers on. */
+let gate = null;
+let realPort = PERSONAL.port;
 
 const profileOf = (spec) => join(stateDirectory(), spec.profile);
 const base = (spec) => `http://127.0.0.1:${spec.port}`;
@@ -88,12 +83,23 @@ export function browserWarning() {
   const yours = found?.name ? `your default browser, ${found.name}` : "your default browser";
   if (!existsSync(CHROME)) {
     if (!browser) return `Runs can't browse the web. Bees can't drive ${yours}, and Google Chrome isn't installed. Install Google Chrome so runs can browse.`;
-    if (browser.binary === CHROME) return `Runs can't browse the web. Bees uses your ${browser.name} sign-ins through Google Chrome, and Chrome isn't installed. Install Google Chrome so runs can browse.`;
     // own-browser teams and runs with no team still launch Chrome
-    return "Teams that use Bees' own browser can't browse until Google Chrome is installed.";
+    if (switchedOn(browser)) return "Teams that use Bees' own browser can't browse until Google Chrome is installed.";
+    return `Runs can't browse the web until you let Bees use ${browser.name} or install Google Chrome. ${turnOn(browser)}`;
   }
   if (!browser) return `Bees can't drive ${yours}, so runs browse in a separate Google Chrome. Sign in to each site there once.`;
+  if (!switchedOn(browser)) return `Runs browse in Bees' own Chrome until you let Bees use ${browser.name}. ${turnOn(browser)}`;
   return "";
+}
+
+const turnOn = ({ name }) => `In ${name}, open chrome://inspect/#remote-debugging and turn on "Allow remote debugging for this browser instance".`;
+
+/** Whether the person turned on their browser's own "Allow remote debugging" switch, which is the only
+ *  way in to the profile they use: Chrome 136 and later ignore --remote-debugging-port on it. */
+function switchedOn(browser) {
+  try {
+    return JSON.parse(readFileSync(join(browser.support, "Local State"), "utf8")).devtools?.remote_debugging?.["user-enabled"] === true;
+  } catch { return false; }
 }
 
 function askMacOs() {
@@ -105,27 +111,30 @@ function askMacOs() {
     const app = JSON.parse(execFileSync("osascript", ["-l", "JavaScript", "-e", script], { encoding: "utf8" }));
     const name = basename(app.path ?? "").replace(/\.app$/, "");
     const support = (folder) => join(homedir(), "Library/Application Support", folder);
-    // a chromium browser that never ran has no profile to copy, so it would browse signed out
-    if (CHROMIUM[app.id] && existsSync(join(support(CHROMIUM[app.id]), "Local State"))) return { name, binary: app.binary, support: support(CHROMIUM[app.id]) };
+    // a chromium browser that never ran has no switch to turn on yet
+    if (CHROMIUM[app.id] && existsSync(join(support(CHROMIUM[app.id]), "Local State"))) {
+      return { name, binary: app.binary, path: app.path, support: support(CHROMIUM[app.id]) };
+    }
     // firefox or safari cookies replayed from chrome look stolen, so google and linkedin sign the person out of both
     return { name };
   } catch { return null; }
 }
 
 /** Which browser one team's runs drive. */
-const browserMode = (teamId) => teamId && usesDefaultBrowser(teamId) && defaultBrowser() ? "personal" : "own";
+const browserMode = (teamId) => teamId && usesDefaultBrowser(teamId) && defaultBrowser() && switchedOn(defaultBrowser()) ? "personal" : "own";
 
 /** Which browser one run drives: the team that owns its workspace decides, and a run with no team
  *  gets Bees' own rather than a person's sign-ins it has no setting for. */
 export const browserModeFor = (database, workspaceId) =>
   browserMode(database.prepare("SELECT team_id AS teamId FROM workspaces WHERE id = ?").get(workspaceId ?? "")?.teamId ?? "");
 
-export const browserPort = (mode = "own") => target(mode).port;
+/** Where an add-on connects: the gate for the person's browser, never that browser itself. */
+export const browserPort = (mode = "own") => target(mode).gate ?? target(mode).port;
 
 /** Bees' own browser for a team that turned yours off, or when Bees can't drive yours. */
 function target(mode) {
   const browser = mode === "personal" ? defaultBrowser() : null;
-  return browser ? { ...PERSONAL, ...browser } : { ...OWN, binary: CHROME };
+  return browser ? { ...PERSONAL, ...browser, port: realPort } : { ...OWN, binary: CHROME };
 }
 
 /**
@@ -241,47 +250,13 @@ async function putAway(spec) {
   if (pid) await macApp(pid, "hide");
 }
 
-/**
- * The person's sign-ins live in the browser they use, so their copy is taken fresh the first time
- * each Bees opens it, and is thrown away first: a copy that only ever grows keeps sign-ins the person
- * has since removed, and holds the profile lock a killed browser left behind.
- */
-function copyProfile(mode, spec) {
-  const profile = profileOf(spec);
-  // a real browser holds several profiles and opens the one it last used, which is not always "Default"
-  const folder = spec.support ? activeProfile(spec) : "Default";
-  rmSync(profile, { recursive: true, force: true });
-  mkdirSync(join(profile, folder), { recursive: true });
-  for (const part of spec.support ? signInFiles(folder) : []) {
-    if (existsSync(join(spec.support, part))) cpSync(join(spec.support, part), join(profile, part), { recursive: true });
-  }
-  return folder;
-}
-
-/** Which profile folder the browser itself would open, so the copy is the one with the sign-ins in it. */
-function activeProfile(spec) {
-  try {
-    const { profile } = JSON.parse(readFileSync(join(spec.support, "Local State"), "utf8"));
-    // a name left behind by a deleted profile would copy nothing at all, so it has to exist here
-    if (typeof profile?.last_used === "string" && existsSync(join(spec.support, profile.last_used, "Preferences"))) {
-      return profile.last_used;
-    }
-  } catch { /* no Local State to read, so the folder every browser keeps */ }
-  return "Default";
-}
-
-async function launch(mode, visible, takeCopy = true) {
+/** Bees' own Chrome. The person's browser is never started with flags, only through the gate. */
+async function launch(mode, visible) {
   if (process.platform !== "darwin") throw new Error("The agent's browser needs macOS");
   const spec = target(mode);
   if (!existsSync(spec.binary)) throw new Error(`${basename(spec.binary)} is not installed`);
-  // a relaunch keeps the profile it is holding: the copy carries the sign-in the person just did in it,
-  // and taking a fresh one would wipe that sign-in along with it
-  const copied = spec.support ? (takeCopy ? copyProfile(mode, spec) : copiedFolders.get(mode)) : null;
   const child = spawn(spec.binary, [
     `--user-data-dir=${profileOf(spec)}`,
-    // the copy says which profile it last used, and that can name one the person has deleted, so the
-    // profile we actually copied is the one it opens
-    ...(copied ? [`--profile-directory=${copied}`] : []),
     `--remote-debugging-port=${spec.port}`,
     "--no-first-run",
     "--no-default-browser-check",
@@ -305,8 +280,168 @@ async function launch(mode, visible, takeCopy = true) {
     }
     await delay(100);
   }
-  if (copied) copiedFolders.set(mode, copied);
   children.set(mode, child);
+}
+
+/** The port the person's running browser listens on, read from the process itself. 9222 is only the
+ *  usual one: the switch takes another when something else holds it. */
+async function findRealPort(spec) {
+  const run = (file, args) => new Promise((resolve) => execFile(file, args, { timeout: PATIENCE }, (_, out) => resolve(out ?? "")));
+  const pid = (await run("/bin/ps", ["-axo", "pid=,comm="])).split("\n")
+    .map((line) => line.trim().match(/^(\d+) (.+)$/)).find((match) => match?.[2] === spec.binary)?.[1];
+  if (!pid) return null;
+  const listening = (await run("/usr/sbin/lsof", ["-nP", "-a", "-p", pid, "-iTCP@127.0.0.1", "-sTCP:LISTEN", "-Fn"]))
+    .match(/^n127\.0\.0\.1:(\d+)$/m)?.[1];
+  return { pid, port: listening ? Number(listening) : null };
+}
+
+/**
+ * The person's browser, through a gate that shows each add-on connection only the tabs it opened
+ * itself. Both add-ons drive the first tab they find, and in a real browser that is the person's
+ * own mail or call. The gate also closes those tabs when the add-on goes, and refuses anything that
+ * would close the browser or clear its sign-ins.
+ */
+function openGate() {
+  if (gate) return gate;
+  const server = createServer(async (request, response) => {
+    if (!/^\/json\/version\/?$/.test(request.url ?? "")) return response.writeHead(404).end();
+    try {
+      const about = await fetch(`http://127.0.0.1:${realPort}/json/version`, { signal: AbortSignal.timeout(PATIENCE) }).then((r) => r.json());
+      response.setHeader("Content-Type", "application/json");
+      response.end(JSON.stringify({ ...about, webSocketDebuggerUrl: `ws://127.0.0.1:${PERSONAL.gate}/devtools/browser/bees` }));
+    } catch { response.writeHead(502).end(); }
+  });
+  new WebSocketServer({ server, perMessageDeflate: false }).on("connection", passThrough);
+  gate = new Promise((resolve, reject) => {
+    server.once("error", (error) => {
+      gate = null;
+      reject(error.code === "EADDRINUSE" ? new Error(`Port ${PERSONAL.gate} is in use, maybe by a second Bees. Quit it and try again.`) : error);
+    });
+    server.listen(PERSONAL.gate, "127.0.0.1", () => resolve(server));
+  });
+  return gate;
+}
+
+/** One add-on connection, relayed to the person's browser with every tab it did not open left out. */
+async function passThrough(client) {
+  const held = [];
+  client.on("message", (data) => held.push(data));
+  const about = await fetch(`http://127.0.0.1:${realPort}/json/version`, { signal: AbortSignal.timeout(PATIENCE) })
+    .then((r) => r.json()).catch(() => null);
+  if (!about?.webSocketDebuggerUrl) return client.close(1011, "The browser is not answering");
+  const browser = new Socket(about.webSocketDebuggerUrl, { perMessageDeflate: false });
+  const mine = new Set();
+  const sessions = new Set();
+  /** what each of the add-on's calls was, for the answers the gate has to read or trim */
+  const asked = new Map();
+  /** answers to the gate's own calls, which the add-on never sent */
+  const ownCalls = new Map();
+  let nextId = 1_000_000_000;
+  const call = (method, params = {}, sessionId) => new Promise((resolve) => {
+    const id = nextId++;
+    ownCalls.set(id, resolve);
+    browser.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
+  });
+  const refuse = (message, text) => client.send(JSON.stringify({ id: message.id, sessionId: message.sessionId, error: { code: -32000, message: text } }));
+  const fromClient = (data) => {
+    let message;
+    try { message = JSON.parse(data); } catch { return; }
+    if (FORBIDDEN.has(message.method)) return message.method === "Browser.close"
+      ? client.send(JSON.stringify({ id: message.id, result: {} })) : refuse(message, "Bees keeps the person's sign-ins and browser open");
+    if (!message.sessionId && NAMES_TAB.has(message.method) && message.params?.targetId && !mine.has(message.params.targetId)) {
+      return refuse(message, "No target with given id found");
+    }
+    // a new tab must not pull the person off the one they are using
+    if (message.method === "Target.createTarget") message.params = { ...message.params, background: true };
+    // the agent's downloads must not move the person's own
+    if (message.method === "Browser.setDownloadBehavior") return client.send(JSON.stringify({ id: message.id, result: {} }));
+    if (!message.sessionId) asked.set(message.id, message.method);
+    browser.send(JSON.stringify(message));
+  };
+  // frames and workers carry no tab of the person's on their own, so only tabs and pages are held back
+  const ours = (info) => !["page", "tab"].includes(info.type) || mine.has(info.targetId) || mine.has(info.openerId);
+  browser.on("message", (data, binary) => {
+    let message;
+    try { message = JSON.parse(data); } catch { return; }
+    if (ownCalls.has(message.id)) {
+      ownCalls.get(message.id)(message.result ?? {});
+      return ownCalls.delete(message.id);
+    }
+    // the page inside a tab the gate is looking into, which is the gate's to read and nobody else's
+    if (looking.has(message.sessionId)) {
+      if (message.method === "Target.attachedToTarget") looking.set(message.sessionId, message.params);
+      return;
+    }
+    if (message.id !== undefined && !message.sessionId) {
+      const method = asked.get(message.id);
+      asked.delete(message.id);
+      if (method === "Target.createTarget" && message.result) mine.add(message.result.targetId);
+      if (method === "Target.getTargets" && message.result) {
+        message.result.targetInfos = message.result.targetInfos.filter(ours);
+        return client.send(JSON.stringify(message));
+      }
+    }
+    if (message.sessionId && !sessions.has(message.sessionId)) return;
+    const { method, params = {} } = message;
+    if (method === "Target.attachedToTarget") {
+      if (params.targetInfo.type === "tab" && !message.sessionId && !mine.has(params.targetInfo.targetId)) return claimTab(params, data, binary);
+      // a tab the person opens while the agent is attached waits for a debugger, so it is let go at once
+      if (!ours(params.targetInfo) && !message.sessionId) {
+        if (params.waitingForDebugger) call("Runtime.runIfWaitingForDebugger", {}, params.sessionId);
+        return call("Target.detachFromTarget", { sessionId: params.sessionId });
+      }
+      mine.add(params.targetInfo.targetId);
+      sessions.add(params.sessionId);
+    }
+    if (["Target.targetCreated", "Target.targetInfoChanged"].includes(method)) {
+      if (!ours(params.targetInfo)) return;
+      // a popup the agent's tab opened is the agent's too
+      if (["page", "tab"].includes(params.targetInfo.type)) mine.add(params.targetInfo.targetId);
+    }
+    if (method === "Target.detachedFromTarget" && !message.sessionId && !sessions.delete(params.sessionId)) return;
+    client.send(data, { binary });
+  });
+  /** A tab's id is not its page's, so the gate looks at the page inside before it lets the add-on see the tab. */
+  const looking = new Map();
+  const claimTab = async (params, data, binary) => {
+    const tab = params.sessionId;
+    looking.set(tab, null);
+    await call("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }, tab);
+    const page = looking.get(tab);
+    looking.delete(tab);
+    if (page) await call("Target.detachFromTarget", { sessionId: page.sessionId }, tab);
+    await call("Target.setAutoAttach", { autoAttach: false, waitForDebuggerOnStart: false }, tab);
+    if (page && mine.has(page.targetInfo.targetId)) {
+      mine.add(params.targetInfo.targetId);
+      sessions.add(tab);
+      return client.readyState === Socket.OPEN && client.send(data, { binary });
+    }
+    if (params.waitingForDebugger) call("Runtime.runIfWaitingForDebugger", {}, tab);
+    call("Target.detachFromTarget", { sessionId: tab });
+  };
+  browser.on("open", async () => {
+    // every connection starts on a blank tab of its own, so the first tab an add-on finds is never the person's
+    const tabs = async () => (await call("Target.getTargets", { filter: [{ type: "tab" }] })).targetInfos ?? [];
+    const before = new Set((await tabs()).map((t) => t.targetId));
+    mine.add((await call("Target.createTarget", { url: "about:blank", background: true })).targetId);
+    // the seed's tab must be known before the add-on looks, or puppeteer never finds a page
+    // ponytail: a blank tab the person opens in these few milliseconds would be taken too
+    for (const t of await tabs()) if (!before.has(t.targetId) && t.url === "about:blank") mine.add(t.targetId);
+    client.removeAllListeners("message");
+    client.on("message", fromClient);
+    held.forEach(fromClient);
+  });
+  const done = () => {
+    client.terminate();
+    if (browser.readyState !== Socket.OPEN) return browser.terminate();
+    // the agent's tabs go with it, and the person's stay as they were
+    for (const targetId of mine) browser.send(JSON.stringify({ id: nextId++, method: "Target.closeTarget", params: { targetId } }));
+    browser.close();
+  };
+  client.on("close", done);
+  browser.on("close", done);
+  browser.on("error", done);
+  client.on("error", done);
 }
 
 /** Whether the process has exited, giving it a moment. */
@@ -337,7 +472,7 @@ async function relaunch(mode, visible) {
   children.delete(mode);
   // the old browser still holding the profile would take the new launch over, so it has to be gone
   if (await answering(spec)) throw new Error(`The agent's browser port ${spec.port} is still in use`);
-  await launch(mode, visible, false);
+  await launch(mode, visible);
 }
 
 /**
@@ -362,8 +497,9 @@ export function browserStatePath(mode = "own") {
 export const saveBrowserState = (mode = "own") => serially(mode, async () => {
   const spec = target(mode);
   // ours, not running: a browser started by an earlier Bees is still the one holding the cookies,
-  // and its process handle died with the old Bees.
-  const state = await ours(spec) ? await cookiesOf(spec) : NO_COOKIES;
+  // and its process handle died with the old Bees. The person's browser is driven in place, so it
+  // hands out none, and this also empties the jar an older Bees copied out of it.
+  const state = mode === "own" && await ours(spec) ? await cookiesOf(spec) : NO_COOKIES;
   const path = browserStatePath(mode);
   // only the person can read their live sign-ins, and a run starting mid-write reads the old file whole
   writeFileSync(`${path}.writing`, JSON.stringify(state), { mode: 0o600 });
@@ -391,23 +527,30 @@ export const startAgentBrowser = (mode = "own") => serially(mode, () => launchIf
 async function launchIfAbsent(mode) {
   if (running(mode)) return;
   const spec = target(mode);
-  // a browser an earlier Bees left on this port still holds the sign-ins, and taking a fresh copy of
-  // the person's profile would pull it out from under that browser, so it is adopted as it stands.
-  const args = await ours(spec);
-  if (args) {
-    // a swap has to reopen the profile it opened, and only the old Bees knew which
-    const folder = args.match(/--profile-directory=(.+?) --remote-debugging-port=/)?.[1];
-    if (folder) copiedFolders.set(mode, folder);
-    return;
-  }
+  if (spec.gate) return reachPersonal(spec);
+  // a browser an earlier Bees left on this port is adopted as it stands
+  if (await ours(spec)) return;
   // anything else on the port is not ours to read from or to drive, and saying which process holds
   // it saves whoever has to sort this out a hunt for a second Bees that may not be there
   if (await answering(spec)) {
     const pid = await browserPid(spec);
     throw new Error(`Something else is using the agent's browser port ${spec.port}${pid ? ` (process ${pid})` : ""}`);
   }
-  // one that crashed comes back on the copy it had, with whatever the person signed in to since
-  await launch(mode, false, !copiedFolders.has(mode));
+  await launch(mode, false);
+}
+
+/** The person's browser, started for them in the background when it is closed, and the gate in front of it. */
+async function reachPersonal(spec) {
+  // an older Bees kept a copy of the person's sign-ins here
+  rmSync(join(stateDirectory(), "browser-profile-personal"), { recursive: true, force: true });
+  let live = await findRealPort(spec);
+  if (!live) {
+    execFile("/usr/bin/open", ["-g", "-a", spec.path]);
+    for (const deadline = Date.now() + PATIENCE * 4; !live?.port && Date.now() < deadline; await delay(500)) live = await findRealPort(spec);
+  }
+  if (!live?.port) throw new Error(`${spec.name} is not letting Bees in. ${turnOn(spec)} Or switch off "Use your own browser" in Bees' settings.`);
+  realPort = live.port;
+  await openGate();
 }
 
 /** Put the browser in front so a person can sign in for this run, on the page the agent hit when it says which. */
@@ -419,7 +562,7 @@ export function showAgentBrowser(mode, runId, url) {
     if (!signingIn.has(runId)) return;
     await launchIfAbsent(mode);
     const spec = target(mode);
-    if (await headless(spec)) await relaunch(mode, true);
+    if (!spec.gate && await headless(spec)) await relaunch(mode, true);
     await openWindow(spec, url);
     await bringUp(spec);
   });
@@ -432,8 +575,9 @@ export async function hideAgentBrowser(runId) {
   if (!signingIn.delete(runId)) return;
   await serially(mode, async () => {
     const spec = target(mode);
-    // ours, not running: a browser an earlier Bees started is still the window on screen
-    if ([...signingIn.values()].includes(mode) || !(await ours(spec))) return;
+    // ours, not running: a browser an earlier Bees started is still the window on screen. The
+    // person's own browser stays where they put it.
+    if (spec.gate || [...signingIn.values()].includes(mode) || !(await ours(spec))) return;
     await putAway(spec);
     // nobody is signing in any more, so the window, and the Dock icon that comes with it, both go
     if (!(await headless(spec))) await relaunch(mode, false);
@@ -444,4 +588,6 @@ export async function hideAgentBrowser(runId) {
 export function closeAgentBrowser() {
   for (const [mode, child] of children) if (running(mode)) child.kill();
   children.clear();
+  gate?.then((server) => server.close(), () => {});
+  gate = null;
 }
