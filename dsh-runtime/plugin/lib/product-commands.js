@@ -55,10 +55,12 @@ export const withoutSecrets = (changes) => changes.map(({ secrets, ...change }) 
  *  that belongs to the machine, not to the person's work. */
 export function assertFolderOutsideBees(directory, root, label) {
   if (!directory) return;
-  const path = realpathSync.native(resolve(String(directory).trim()));
+  const named = resolve(String(directory).trim());
+  if (!existsSync(named)) throw new Error("That folder isn't there any more. Choose another.");
+  const path = realpathSync.native(named);
   root = realpathSync.native(root);
   if (path === root || path.startsWith(root + sep))
-    throw new Error(`${label} needs a folder the person named, not one inside Bees`);
+    throw new Error(`${label} can't use a folder inside Bees' own data folder. Choose another.`);
 }
 
 export function assertAgentHasTools({ mcpAccess, name }) {
@@ -138,7 +140,7 @@ export function checkMcpServers(database, policy, keep = []) {
     const row = rows.find(({ names }) => names.includes(String(wanted).toLocaleLowerCase()));
     if (row) return row.name;
     if (kept.has(String(wanted).toLocaleLowerCase())) return UUID.test(wanted) ? null : String(wanted);
-    throw new Error(`No MCP server matches ${wanted}`);
+    throw new Error(`No add-on matches ${wanted}`);
   });
   // a kept row id that resolves to nothing is dropped, so saving clears what a run would refuse
   return { access: policy.access, servers: [...new Set(servers.filter(Boolean))] };

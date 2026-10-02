@@ -14,7 +14,7 @@ import { appDirectory, sharedFolder } from "./data-folder.js";
 import { mountEvidenceCapture } from "./evidence-capture.js";
 import { GoogleDriveConnection } from "./google-drive.js";
 import { ProcessRuntime } from "./process-runtime.js";
-import { userMessage } from "./product-database.js";
+import { message, userMessage } from "./product-database.js";
 import { BeesProduct, initializeProductDatabase } from "./product.js";
 import { AppPlatform } from "./app-platform.js";
 import { AppCatalog } from './app-catalog.js';
@@ -121,6 +121,14 @@ function reply(res, status, value, headers = {}) {
     ...headers
   });
   res.end(body);
+}
+
+// our own errors are a plain Error with a sentence; sqlite, file, network and code errors go to the log instead
+function shown(error) {
+  const text = userMessage(error);
+  if ((error?.constructor === Error && error.code === undefined) || text !== message(error)) return text;
+  console.error("bees:", error);
+  return "Something went wrong. Try again, and if it keeps happening, restart Bees.";
 }
 
 function replyFile(res, file) {
@@ -277,7 +285,7 @@ export async function apply(ctx, config = {}, internals = {}) {
       connected.listProcessQuestions(id), connected.listProcessExecutions(id)
     ]));
     await product.initialize();
-    await processes.reconcileSchedules();
+    await processes.reconcile();
     notify({ type: "team-sync" });
   };
   // a tick outlasts the 15 s interval on a slow network, and overlapping ticks reconcile the same runs twice
@@ -398,19 +406,19 @@ export async function apply(ctx, config = {}, internals = {}) {
         new URL(req.url ?? "/", "http://127.0.0.1").searchParams
       );
       replyPage(res, true, "Signed in. You can close this window and return to Bees.");
-    } catch (error) { replyPage(res, false, userMessage(error)); }
+    } catch (error) { replyPage(res, false, shown(error)); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/snapshot", handler: async (_req, res) => {
     try { reply(res, 200, { ...await product.snapshot(), systemDefaultModel: ctx.agentDefaultModel.currentSelection(),
       localModelCatalog: productDefaults.catalog }); }
-    catch (error) { reply(res, 409, { error: userMessage(error) }); }
+    catch (error) { reply(res, 409, { error: shown(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/product-defaults", handler: async (req, res) => {
     try {
       if (req.method === "GET") return reply(res, 200, await productDefaults.status());
       if (req.method === "PUT") return reply(res, 200, await productDefaults.update(await body(req)));
       reply(res, 405, { error: "method not allowed" });
-    } catch (error) { reply(res, error.status ?? 409, { error: userMessage(error) }); }
+    } catch (error) { reply(res, error.status ?? 409, { error: shown(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/system-default-model", handler: async (req, res) => {
     if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
@@ -422,7 +430,7 @@ export async function apply(ctx, config = {}, internals = {}) {
       if (!provider || !model) throw new Error("Choose a provider and model");
       await ctx.agentDefaultModel.saveSelection({ provider, model, ...(reasoningEffort ? { reasoningEffort } : {}) });
       reply(res, 200, { systemDefaultModel: ctx.agentDefaultModel.currentSelection() });
-    } catch (error) { reply(res, 409, { error: userMessage(error) }); }
+    } catch (error) { reply(res, 409, { error: shown(error) }); }
   } });
   // The model catalog the agent editor picks from. dsh 0.1.2 dropped the client-side llm.models()
   // that used to build this in the browser; the runtime service is server-side only now.
@@ -433,7 +441,7 @@ export async function apply(ctx, config = {}, internals = {}) {
       reply(res, 200, Object.hasOwn(input, "plannerModel")
         ? await testPlanningModels(ctx, input) : await testOnboardingModel(ctx));
     }
-    catch (error) { reply(res, 409, { error: userMessage(error) }); }
+    catch (error) { reply(res, 409, { error: shown(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/llm-models", handler: async (_req, res) => {
     const groups = [];
@@ -457,7 +465,7 @@ export async function apply(ctx, config = {}, internals = {}) {
       if (req.method === "GET") return reply(res, 200, await capabilities.snapshot());
       if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
       reply(res, 200, await capabilities.command(await capabilities.stash(await body(req))));
-    } catch (error) { reply(res, 409, { error: userMessage(error) }); }
+    } catch (error) { reply(res, 409, { error: shown(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/connections", handler: async (req, res) => {
     try {
@@ -472,45 +480,45 @@ export async function apply(ctx, config = {}, internals = {}) {
         return reply(res, 200, { googleDrive: await googleDrive.disconnect() });
       }
       throw new Error("Unknown connection action");
-    } catch (error) { reply(res, 409, { error: userMessage(error) }); }
+    } catch (error) { reply(res, 409, { error: shown(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/references", handler: async (req, res) => {
     const query = new URL(req.url ?? "/", "http://127.0.0.1").searchParams.get("q") ?? "";
     const workspaceId = new URL(req.url ?? "/", "http://127.0.0.1").searchParams.get("workspaceId") ?? "";
     try { reply(res, 200, await product.references(query, workspaceId)); }
-    catch (error) { reply(res, 409, { error: userMessage(error) }); }
+    catch (error) { reply(res, 409, { error: shown(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/search", handler: async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
       const query = url.searchParams.get("q") ?? "";
       reply(res, 200, { results: await product.search(query, url.searchParams.get("workspaceId") ?? "") });
-    } catch (error) { reply(res, 409, { error: userMessage(error) }); }
+    } catch (error) { reply(res, 409, { error: shown(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/audit", handler: (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
       reply(res, 200, { events: product.audit(url.searchParams.get("workspaceId") ?? "", url.searchParams.get("executionId") ?? "") });
-    } catch (error) { reply(res, 409, { error: userMessage(error) }); }
+    } catch (error) { reply(res, 409, { error: shown(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/run-history", handler: async (req, res) => {
     try {
       const executionId = new URL(req.url ?? "/", "http://127.0.0.1").searchParams.get("executionId") ?? "";
       reply(res, 200, { history: await product.runHistory(executionId) });
-    } catch (error) { reply(res, 409, { error: userMessage(error) }); }
+    } catch (error) { reply(res, 409, { error: shown(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/location-file", handler: (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
       const file = product.locationFile(url.searchParams.get("locationId") ?? "", url.searchParams.get("path") ?? "", url.searchParams.get("native") === "1");
       url.searchParams.get("native") === "1" ? replyFile(res, file) : reply(res, 200, file);
-    } catch (error) { reply(res, 409, { error: userMessage(error) }); }
+    } catch (error) { reply(res, 409, { error: shown(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/run-file", handler: (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
       reply(res, 200, product.runFile(url.searchParams.get("executionId") ?? "", url.searchParams.get("path") ?? "", url.searchParams.get("native") === "1"));
-    } catch (error) { reply(res, 409, { error: userMessage(error) }); }
+    } catch (error) { reply(res, 409, { error: shown(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/apps", handler: async (req, res) => {
     try {
@@ -522,12 +530,12 @@ export async function apply(ctx, config = {}, internals = {}) {
       const result = await apps.command(await body(req));
       notify({ type: "apps-changed" });
       reply(res, 200, result);
-    } catch (error) { reply(res, 409, { error: userMessage(error) }); }
+    } catch (error) { reply(res, 409, { error: shown(error) }); }
   } });
   register(ctx, { kind: 'exact', path: '/bees-api/app-catalog', handler: async (req, res) => {
     if (req.method !== 'GET') return reply(res, 405, { error: 'method not allowed' });
     try { reply(res, 200, await catalog.list()); }
-    catch (error) { reply(res, 409, { error: userMessage(error) }); }
+    catch (error) { reply(res, 409, { error: shown(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/command", handler: async (req, res) => {
     if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
@@ -540,7 +548,7 @@ export async function apply(ctx, config = {}, internals = {}) {
       void connected.syncCoordination().catch((error) =>
         ctx.logger.warn?.(`bees: team sync after change failed: ${userMessage(error)}`));
     }
-    catch (error) { reply(res, 409, { error: userMessage(error) }); }
+    catch (error) { reply(res, 409, { error: shown(error) }); }
   } });
   register(ctx, { kind: "exact", path: "/bees-api/collaboration", handler: async (req, res) => {
     try {
@@ -560,6 +568,6 @@ export async function apply(ctx, config = {}, internals = {}) {
       await product.initialize();
       await processes.reconcile();
       reply(res, 200, result);
-    } catch (error) { reply(res, 409, { error: userMessage(error) }); }
+    } catch (error) { reply(res, 409, { error: shown(error) }); }
   } });
 }

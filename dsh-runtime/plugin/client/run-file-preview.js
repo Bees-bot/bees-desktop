@@ -41,11 +41,7 @@ export async function loadLocationFile(target, signal) {
     if (!type) return file;
   }
   query.set("native", "1");
-  const response = await fetch(`/bees-api/location-file?${query}`, { signal });
-  if (!response.ok) {
-    const value = await response.json();
-    throw new Error(value.error?.message ?? value.error ?? `Request failed (${response.status})`);
-  }
+  const response = await request(`/bees-api/location-file?${query}`, { signal, binary: true });
   const blob = new Blob([await response.arrayBuffer()], { type });
   const encodedPath = response.headers.get("x-bees-file-path");
   const encodedName = response.headers.get("x-bees-file-name");

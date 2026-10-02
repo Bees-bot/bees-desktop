@@ -592,12 +592,13 @@ export function ExecutionControl({ data, item, act }) {
       return act({ action: 'relinquish_item', itemId: item.id });
     }
   }, local.state === 'relinquishing' ? 'Finish relinquishing control' : 'Relinquish control'));
-  const recovering = execution?.handoff && execution.machineId === data.currentDeviceId &&
-    (data.accounts ?? []).some((account) => account.userId === execution.userId && account.enabled);
-  if (execution?.relinquishedAt || recovering) return h(Button, { className: 'primary',
+  const mine = Boolean(execution?.machineId) && execution.machineId === data.currentDeviceId && (execution.userId === data.currentUserId ||
+    (data.accounts ?? []).some((account) => account.userId === execution.userId && account.enabled));
+  if (execution?.relinquishedAt || mine && execution.handoff) return h(Button, { className: 'primary',
     onClick: () => act({ action: 'continue_item', itemId: item.id })
   }, 'Continue on this machine');
-  if (execution) return h('span', { className: 'bees-muted' }, `Controlled on ${execution.machineName}. The owner must relinquish control before you can continue.`);
+  // a run from before ownership has no local owner row yet, and it is already on this machine
+  if (execution && !mine) return h('span', { className: 'bees-muted' }, `Controlled on ${execution.machineName}. The owner must relinquish control before you can continue.`);
   return null;
 }
 

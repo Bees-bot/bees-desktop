@@ -392,7 +392,7 @@ export function insertDefaultWorkspace(database, teamId, {
 }
 
 export function assertMcpAccess(access) {
-  if (!["all", "none", "listed"].includes(access)) throw new Error("Choose all, none, or listed MCP servers");
+  if (!["all", "none", "listed"].includes(access)) throw new Error("Choose all, none, or listed add-ons");
   return access;
 }
 
@@ -1091,6 +1091,31 @@ export function initializeProductDatabase(database) {
     }
     database.exec("PRAGMA user_version = 38");
   });
+  // An unpinned add-on fetched whatever was newest at each start, so a bad release broke runs overnight.
+  // Only the exact spec Bees shipped moves; an argument the person changed stays as they left it.
+  if (version < 39) transaction(database, () => {
+    const pinned = {
+      "@modelcontextprotocol/server-filesystem": "@modelcontextprotocol/server-filesystem@2026.8.31",
+      "@modelcontextprotocol/server-memory": "@modelcontextprotocol/server-memory@2026.8.31",
+      "@modelcontextprotocol/server-sequential-thinking": "@modelcontextprotocol/server-sequential-thinking@2026.8.31",
+      "mcp-server-git": "mcp-server-git==2026.8.18",
+      "mcp-server-fetch": "mcp-server-fetch==2026.8.18",
+      "mcp-server-time": "mcp-server-time==2026.8.18",
+      "@playwright/mcp@latest": "@playwright/mcp@0.0.83",
+      "@upstash/context7-mcp": "@upstash/context7-mcp@4.1.1",
+      "firecrawl-mcp": "firecrawl-mcp@3.27.2",
+      "chrome-devtools-mcp@latest": "chrome-devtools-mcp@1.10.1"
+    };
+    for (const row of database.prepare("SELECT id, args_json AS args FROM mcp_servers WHERE catalog_id != ''").all()) {
+      let args;
+      try { args = JSON.parse(row.args); } catch { continue; }
+      if (!Array.isArray(args)) continue;
+      const next = args.map((arg) => typeof arg === "string" && Object.hasOwn(pinned, arg) ? pinned[arg] : arg);
+      if (next.some((arg, index) => arg !== args[index]))
+        database.prepare("UPDATE mcp_servers SET args_json = ? WHERE id = ?").run(JSON.stringify(next), row.id);
+    }
+    database.exec("PRAGMA user_version = 39");
+  });
   // every stored folder is read against the root this computer keeps for that workspace
   refreshFolderRoots(database);
   database.function("resolved", (path, workspaceId) => path && resolveStored(workspaceId, path));
@@ -1192,7 +1217,7 @@ export function mcpGrantFor(database, agentAssignmentId, runSettings = {}, proce
   if (missing.length) throw new Error([
     `${row.name} cannot run on this computer.`,
     named.length ? `It needs ${named.join(", ")}, which ${named.length === 1 ? "is" : "are"} not set up here.` : "",
-    gone.length ? `It lists ${gone.length} MCP server${gone.length === 1 ? "" : "s"} that ${gone.length === 1 ? "was" : "were"} set up on another computer, so there is no name to show here.` : "",
+    gone.length ? `It lists ${gone.length} add-on${gone.length === 1 ? "" : "s"} that ${gone.length === 1 ? "was" : "were"} set up on another computer, so there is no name to show here.` : "",
     "Add what is missing on the Add-ons page, or update the process or agent add-on selection."
   ].filter(Boolean).join(" "));
   return { mcpAccess: "listed", mcpServers: rows.filter(({ enabled }) => enabled).map(({ name }) => name) };
@@ -1214,7 +1239,7 @@ export function normalizeRunSettings(value = {}) {
     assertMcpAccess(value.mcpAccess);
     if (value.mcpServers !== undefined && (!Array.isArray(value.mcpServers) || value.mcpServers.length > 128 ||
         value.mcpServers.some((id) => typeof id !== "string" || !id || id.length > 128)))
-      throw new Error("Choose valid MCP server identifiers");
+      throw new Error("Choose valid add-ons");
     settings.mcpAccess = value.mcpAccess;
     settings.mcpServers = value.mcpAccess === "listed" ? [...new Set(value.mcpServers ?? [])] : [];
   } else if (value.mcpServers !== undefined) throw new Error("Choose a tool access policy");

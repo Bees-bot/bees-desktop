@@ -8,7 +8,7 @@ import { scopeOf } from "@deepseek-ai/dsh-scope";
 import { assertFolderOutsideBees } from "./product-commands.js";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import { browserPort, browserStatePath, closeAgentBrowser, saveBrowserState, showAgentBrowser, startAgentBrowser } from "./agent-browser.js";
-import { dataDirectory } from "./data-folder.js";
+import { dataDirectory, fenced } from "./data-folder.js";
 import { serverFolder, setServerFolder } from "./folder-roots.js";
 import { iso, message, required, transaction } from "./product-database.js";
 import { catalogEntry, isBrowserCatalog, MCP_CATALOG } from "./mcp-catalog.js";
@@ -66,13 +66,21 @@ const readSpec = async (source) => {
 /** A folder-bound server takes its folder as its last argument, and that folder belongs to this computer. */
 const FOLDER = "{folder}";
 const needsFolder = (catalogId) => Boolean(catalogEntry(catalogId)?.requiresDirectory);
-const argsFor = (server, mode = "own") => server.args.map((arg) => arg === FOLDER ? serverFolder(server.id) || arg : placed(arg, mode));
+const argsFor = (server, mode = "own") => mode === "personal" && server.catalogId === "playwright"
+  // the person's own browser, attached through the gate rather than a headless copy of their cookies
+  ? [...server.args.slice(0, 2), "--cdp-endpoint", placed("{browserUrl}", mode)]
+  : server.args.map((arg) => arg === FOLDER ? serverFolder(server.id) || arg : placed(arg, mode));
+
+// the read fence skips add-on tools, so a folder holding keys or logins would hand them over
+const TOO_WIDE = "Pick a project folder. Bees won't give an add-on your whole home folder.";
+const tooWide = (folder) => Boolean(folder) && fenced(folder, true);
 
 /** A folder-bound server runs only while it has a folder here: one picked on another computer is not ours. */
 const noFolderReason = (server) => {
   if (!needsFolder(server.catalogId)) return "";
   const folder = serverFolder(server.id);
   if (!folder) return `${server.label} has no folder on this computer. Choose one on the Add-ons page.`;
+  if (tooWide(folder)) return TOO_WIDE;
   if (!existsSync(folder)) return `${folder} is the folder you gave ${server.label}, and it is not on this computer. `
     + "Reconnect it, or choose another on the Add-ons page.";
   return "";
@@ -141,8 +149,8 @@ export class Capabilities {
         showAgentBrowser(mode, runId, lastUrl).catch((error) => this.ctx.logger.warn(`bees: could not show the browser: ${message(error)}`));
         // the answer may be a sign-in, so the next browser call copies the cookies again
         synced = null;
-        // playwright's own session read its cookies once, devtools drives that browser itself
-        reopen = row.catalogId === "playwright";
+        // playwright's own session read its cookies once; devtools, and the person's own browser, need nothing
+        reopen = row.catalogId === "playwright" && mode === "own";
         return next();
       }
       if (!exec.name.startsWith(tool)) return next();
@@ -392,8 +400,8 @@ export class Capabilities {
       `https://registry.modelcontextprotocol.io/v0/servers?limit=40&version=latest${search ? `&search=${encodeURIComponent(search)}` : ""}`,
       { signal: AbortSignal.timeout(10_000) }
     );
-    if (!response.ok) throw new Error(`The MCP registry answered ${response.status}`);
-    const { servers = [] } = await response.json().catch(() => { throw new Error("The MCP registry did not answer with JSON"); });
+    if (!response.ok) throw new Error("The public add-on list did not answer. Try again in a minute.");
+    const { servers = [] } = await response.json().catch(() => { throw new Error("The public add-on list sent back something Bees could not read. Try again in a minute."); });
     const seen = new Set();
     const runners = { npm: "npx -y", pypi: "uvx" };
     return servers.flatMap(({ server }) => {
@@ -636,6 +644,7 @@ export class Capabilities {
     const directory = String(input.directory ?? "").trim();
     if (entry.requiresDirectory && !directory) throw new Error(`${entry.label} needs a folder`);
     assertFolderOutsideBees(directory, this.defaultWorkspace, entry.label);
+    if (entry.requiresDirectory && tooWide(directory)) throw new Error(TOO_WIDE);
     const secrets = {};
     for (const secret of [...entry.env, ...entry.headers]) {
       const value = String((signIn ?? input).secrets?.[secret.name] ?? "").trim();
@@ -788,6 +797,7 @@ export class Capabilities {
     const server = this.row(input.serverId);
     if (!needsFolder(server.catalogId)) throw new Error(`${server.label} does not take a folder`);
     assertFolderOutsideBees(input.directory, this.defaultWorkspace, server.label);
+    if (tooWide(String(input.directory ?? "").trim())) throw new Error(TOO_WIDE);
     setServerFolder(server.id, input.directory);
     // a row from another computer still names its folder, and the slot is all this one keeps
     this.database.prepare("UPDATE mcp_servers SET args_json = ? WHERE id = ?")

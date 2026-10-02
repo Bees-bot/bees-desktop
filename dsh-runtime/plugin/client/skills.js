@@ -34,7 +34,7 @@ export function useCapabilities(route) {
       starting.current = (next.servers ?? []).some(({ status }) => status === "starting");
       setValue(next); if (!quiet) setError("");
     }
-    catch (reason) { console.error("Could not load capabilities:", reason); setError("Could not load skills and add-ons. Try again."); }
+    catch (reason) { setError(reason.message); }
   };
   useEffect(() => {
     void load();
@@ -52,8 +52,7 @@ export function useCapabilities(route) {
       await load({ quiet: true });
       return result;
     } catch (reason) {
-      console.error("Capability action failed:", reason);
-      setError("Could not save that change. Try again.");
+      setError(reason.message);
       return null;
     }
   };
@@ -290,7 +289,7 @@ export function CatalogReview({ ctx, entry, onCancel, onDone }) {
             }) });
             if (done.url) await openExternal(done.url);
             onDone(done);
-          } catch (reason) { console.error("Could not connect this add-on:", reason); setError("Could not connect this add-on. Try again."); } finally { setBusy(false); }
+          } catch (reason) { setError(reason.message); } finally { setBusy(false); }
         }
       }, entry.scopes ? (busy ? "Opening Google…" : "Connect with Google") : busy ? "Connecting…" : "Connect"))));
 }

@@ -1194,13 +1194,22 @@ label>.bees-select{min-width:0}
 }
 \n`;
 
+/** `binary` hands back the response itself once it is ok, for a body that is not JSON. */
 export async function request(path, options) {
-  const response = await fetch(path, {
-    ...options,
-    headers: { "content-type": "application/json", ...(options?.headers ?? {}) }
-  });
-  const value = response.status === 204 ? {} : await response.json();
-  if (!response.ok) throw Object.assign(new Error(value.error?.message ?? value.error ?? `Request failed (${response.status})`), { status: response.status });
+  let response, value;
+  try {
+    response = await fetch(path, {
+      ...options,
+      headers: { "content-type": "application/json", ...(options?.headers ?? {}) }
+    });
+    value = response.ok && options?.binary ? response : response.status === 204 ? {} : await response.json();
+  } catch (reason) {
+    // a dropped connection or a body that is not JSON is never something a person can act on
+    if (options?.signal?.aborted) throw reason;
+    console.error(reason);
+    throw new Error("Bees could not reach its background service. Try again, and if it keeps happening, restart Bees.");
+  }
+  if (!response.ok) throw Object.assign(new Error(value.error?.message ?? value.error ?? "Something went wrong. Try again, and if it keeps happening, restart Bees."), { status: response.status });
   return value;
 }
 

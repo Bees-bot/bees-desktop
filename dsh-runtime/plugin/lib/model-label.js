@@ -7,7 +7,7 @@ export function modelLabel(route, name, providerName) {
   const model = route.slice(separator + 1);
   if (provider === "local-openai" || provider.startsWith("local-openai-")) {
     const label = name && name !== "active" && name !== "Bees AI model" ? name
-      : model === "active" ? "active model (name unavailable)" : model;
+      : model === "active" ? "the model running on this computer" : model;
     return `Local · ${label}`;
   }
   return `${providerName || provider} · ${name || model}`;
