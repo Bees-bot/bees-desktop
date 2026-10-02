@@ -20,7 +20,8 @@ export function readFence() {
   const list = (paths) => [...new Set(paths.filter(Boolean).map((path) => real(resolve(path))))];
   return {
     closed: list([appDirectory(), ...["", "-wal", "-shm"].map((end) => db && db + end), dataDirectory() && join(dataDirectory(), "api-specs"),
-      ...[".ssh", ".aws", "Library/Keychains", "Library/Safari"].map((name) => join(home, name)),
+      ...[".ssh", ".aws", ".gnupg", ".config/gh", ".config/gcloud", ".netrc", ".docker/config.json", ".kube", ".npmrc", ".git-credentials",
+        "Library/Keychains", "Library/Safari", "Library/Cookies", "Library/Mail", "Library/Messages"].map((name) => join(home, name)),
       ...["Google", "BraveSoftware", "Firefox", "Microsoft Edge", "Arc"].map((name) => join(home, "Library/Application Support", name))]),
     open: list([process.env.BEES_DEFAULT_WORKSPACE, dsh && join(dsh, "attachments"), dsh && join(dsh, "skills")])
   };

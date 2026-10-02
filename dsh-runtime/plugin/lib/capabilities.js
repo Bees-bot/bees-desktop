@@ -8,7 +8,7 @@ import { scopeOf } from "@deepseek-ai/dsh-scope";
 import { assertFolderOutsideBees } from "./product-commands.js";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import { browserPort, browserStatePath, closeAgentBrowser, saveBrowserState, showAgentBrowser, startAgentBrowser } from "./agent-browser.js";
-import { dataDirectory } from "./data-folder.js";
+import { dataDirectory, fenced } from "./data-folder.js";
 import { serverFolder, setServerFolder } from "./folder-roots.js";
 import { iso, message, required, transaction } from "./product-database.js";
 import { catalogEntry, isBrowserCatalog, MCP_CATALOG } from "./mcp-catalog.js";
@@ -71,11 +71,16 @@ const argsFor = (server, mode = "own") => mode === "personal" && server.catalogI
   ? ["-y", "@playwright/mcp@latest", "--cdp-endpoint", placed("{browserUrl}", mode)]
   : server.args.map((arg) => arg === FOLDER ? serverFolder(server.id) || arg : placed(arg, mode));
 
+// the read fence skips add-on tools, so a folder holding keys or logins would hand them over
+const TOO_WIDE = "Pick a project folder. Bees won't give an add-on your whole home folder.";
+const tooWide = (folder) => Boolean(folder) && fenced(folder, true);
+
 /** A folder-bound server runs only while it has a folder here: one picked on another computer is not ours. */
 const noFolderReason = (server) => {
   if (!needsFolder(server.catalogId)) return "";
   const folder = serverFolder(server.id);
   if (!folder) return `${server.label} has no folder on this computer. Choose one on the Add-ons page.`;
+  if (tooWide(folder)) return TOO_WIDE;
   if (!existsSync(folder)) return `${folder} is the folder you gave ${server.label}, and it is not on this computer. `
     + "Reconnect it, or choose another on the Add-ons page.";
   return "";
@@ -639,6 +644,7 @@ export class Capabilities {
     const directory = String(input.directory ?? "").trim();
     if (entry.requiresDirectory && !directory) throw new Error(`${entry.label} needs a folder`);
     assertFolderOutsideBees(directory, this.defaultWorkspace, entry.label);
+    if (entry.requiresDirectory && tooWide(directory)) throw new Error(TOO_WIDE);
     const secrets = {};
     for (const secret of [...entry.env, ...entry.headers]) {
       const value = String((signIn ?? input).secrets?.[secret.name] ?? "").trim();
@@ -791,6 +797,7 @@ export class Capabilities {
     const server = this.row(input.serverId);
     if (!needsFolder(server.catalogId)) throw new Error(`${server.label} does not take a folder`);
     assertFolderOutsideBees(input.directory, this.defaultWorkspace, server.label);
+    if (tooWide(String(input.directory ?? "").trim())) throw new Error(TOO_WIDE);
     setServerFolder(server.id, input.directory);
     // a row from another computer still names its folder, and the slot is all this one keeps
     this.database.prepare("UPDATE mcp_servers SET args_json = ? WHERE id = ?")
