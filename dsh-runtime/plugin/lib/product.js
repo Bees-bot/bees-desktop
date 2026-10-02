@@ -1,6 +1,6 @@
 import { dataDirectory, sharedFolder } from "./data-folder.js";
 import { browserModeFor, browserWarning, defaultBrowser, ownBrowserTeams } from "./agent-browser.js";
-import { assertRootOnDisk, folderChoices, rootOnDisk, workspaceRoot } from "./folder-roots.js";
+import { assertRootOnDisk, folderChoices, organizationFolderChoice, refreshFolderRoots, rootFolderChoice, rootOnDisk, workspaceDirectory } from "./folder-roots.js";
 import { WorkContext } from "./work-context.js";
 import { DELEGATION_PROTOCOL, PARENT_EXECUTION_STEP } from "./peer-collaboration.js";
 import { WorkMemory } from "./work-memory.js";
@@ -104,16 +104,21 @@ export class BeesProduct {
   }
 
   async initialize() {
+    refreshFolderRoots(this.database, this.agents?.live);
+    if (rootFolderChoice().folder) for (const { id } of this.database.prepare("SELECT id FROM organizations WHERE status = 'active'").all()) {
+      const folder = organizationFolderChoice(this.database, id);
+      if (!folder.missing) mkdirSync(folder.folder, { recursive: true });
+    }
     if (!this.workspaceRegistry) return;
     for (const workspace of this.database.prepare(`
       SELECT id, name, dsh_workspace_id AS dshWorkspaceId FROM workspaces WHERE status = 'active'
     `).all()) {
       // a folder set for this workspace that is not on this computer is left alone until it is back
       if (!rootOnDisk(workspace.id)) continue;
-      const path = resolve(workspaceRoot(workspace.id), "workspaces", workspace.id);
+      const path = workspaceDirectory(workspace.id);
       mkdirSync(path, { recursive: true });
       let record = workspace.dshWorkspaceId ? this.workspaceRegistry.get(workspace.dshWorkspaceId) : undefined;
-      if (!record) record = await this.workspaceRegistry.create(path, workspace.name);
+      if (!record || record.path !== realpathSync.native(path)) record = await this.workspaceRegistry.create(path, workspace.name);
       if (String(record.id) !== workspace.dshWorkspaceId) this.database.prepare(`
         UPDATE workspaces SET dsh_workspace_id = ?, updated_at = ? WHERE id = ?
       `).run(String(record.id), iso(), workspace.id);
@@ -635,6 +640,8 @@ export class BeesProduct {
       proposals, browserEnabled: this.capabilities?.browserEnabled() ?? false,
       // the person's own browser, and the teams that asked Bees not to use it
       defaultBrowser: { name: defaultBrowser()?.name ?? "", offTeams: ownBrowserTeams(), warning: browserWarning() },
+      rootFolder: rootFolderChoice(),
+      organizationFolders: organizations.map(({ id }) => organizationFolderChoice(this.database, id)).filter(Boolean),
       folders: workspaces.flatMap(({ id }) => folderChoices(this.database, id).map((choice) => ({ ...choice, workspaceId: id }))),
       dataFolder: { path: dataDirectory(), shared: sharedFolder() }
     };
@@ -1113,6 +1120,7 @@ export class BeesProduct {
     if (["read_work_context", "read_work_discussion", "read_process_memory", "specialist_feedback_context", "memory_status"].includes(action)) return this.execute(action, input);
     try {
       const result = await this.execute(action, input);
+      if (action === "create_organization") await this.initialize();
       this.record(action, input, result, "ok");
       return result;
     } catch (error) {

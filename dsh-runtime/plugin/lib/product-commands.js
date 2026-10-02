@@ -4,7 +4,7 @@ import { rootForWorkspace, setFolderRoot, workspaceRoot } from "./folder-roots.j
 import { randomUUID } from "node:crypto";
 import { browserModeFor, hideAgentBrowser, setUsesDefaultBrowser, showAgentBrowser } from "./agent-browser.js";
 
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import {
   agentIds as normalizeAgentIds, assertMcpAccess, assignment, capabilities, currentIdentity, DEFAULT_WORKSPACE_NAME, insertDefaultWorkspace, insertProcess, iso,
@@ -55,7 +55,8 @@ export const withoutSecrets = (changes) => changes.map(({ secrets, ...change }) 
  *  that belongs to the machine, not to the person's work. */
 export function assertFolderOutsideBees(directory, root, label) {
   if (!directory) return;
-  const path = resolve(String(directory).trim());
+  const path = realpathSync.native(resolve(String(directory).trim()));
+  root = realpathSync.native(root);
   if (path === root || path.startsWith(root + sep))
     throw new Error(`${label} needs a folder the person named, not one inside Bees`);
 }
@@ -338,13 +339,18 @@ export async function executeProductCommand(action, input) {
     const at = iso();
     if (action === "set_data_folder") return useDataFolder(this.database, input.directory, this.agents?.live);
     if (action === "set_folder_root") {
-      const workspace = workspaceContext(this.database, input.workspaceId, ["admin"]);
-      // a folder is set on this team's own organization, team or workspace, never on someone else's
-      const own = { organization: workspace.membership.organizationId, team: workspace.teamId, workspace: workspace.id };
-      if (own[input.level] !== input.id) throw new Error("This team cannot set that folder");
-      // Removing Bees deletes its own folder whole, and a root inside it would go with it
-      assertFolderOutsideBees(input.directory, appDirectory(), "Runs");
+      if (input.level === "organization") {
+        const { userId } = currentIdentity(this.database);
+        const member = this.database.prepare("SELECT role FROM organization_memberships WHERE organization_id = ? AND user_id = ? AND status = 'active'").get(input.id, userId);
+        if (!member || !["owner", "admin"].includes(member.role)) throw new Error("Only organization administrators can set this folder");
+      } else if (input.level !== "root") {
+        const workspace = workspaceContext(this.database, input.workspaceId, ["admin"]);
+        const own = { team: workspace.teamId, workspace: workspace.id };
+        if (own[input.level] !== input.id) throw new Error("This team cannot set that folder");
+      }
+      assertFolderOutsideBees(input.directory, appDirectory(), "Work files");
       setFolderRoot(this.database, { level: input.level, id: input.id, directory: input.directory, live: this.agents?.live });
+      await this.initialize?.();
       return { level: input.level, folder: input.directory };
     }
     if (action === "set_default_browser") {
@@ -407,10 +413,10 @@ export async function executeProductCommand(action, input) {
       const id = randomUUID();
       const workspaceId = randomUUID();
       // the folder comes first so the workspace already has one the moment it appears in the list
-      const path = resolve(rootForWorkspace({
+      const path = rootForWorkspace({
         id: workspaceId, name: DEFAULT_WORKSPACE_NAME, organizationId, organizationName: organization.name,
         teamId: id, teamName: name
-      }), "workspaces", workspaceId);
+      });
       mkdirSync(path, { recursive: true });
       const dshWorkspace = this.workspaceRegistry
         ? await this.workspaceRegistry.create(path, DEFAULT_WORKSPACE_NAME)
