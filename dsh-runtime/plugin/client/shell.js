@@ -115,7 +115,7 @@ function ScopeSwitcher({
             "aria-label": `${row.name} settings`, onClick: () => onOpenTeamSettings(row) }, h(SettingsIcon))),
         expanded ? h("nav", { className: "bees-team-nav", "aria-label": `${row.name} navigation` },
           ...NAVIGATION.filter(({ id }) => !["apps", "settings"].includes(id)).map((item) => {
-            if (item.id === "home") return dashboards.map((dashboard) => h("div", { className: "bees-dashboard-item", key: `${row.id}:${dashboard.id}` },
+            if (item.id === "home") return dashboards.map((dashboard) => h("div", { className: `bees-dashboard-item ${active && route === "home" && dashboard.id === activeDashboardId ? "active" : ""}`, key: `${row.id}:${dashboard.id}` },
               h("button", {
                 type: "button", title: dashboard.name,
                 className: `bees-nav-link bees-dashboard-link ${active && route === "home" && dashboard.id === activeDashboardId ? "active" : ""}`,
@@ -714,6 +714,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
     h("section", { className: "bees-main" },
       h(AppHeader, { routeLabel, parts, ctx, preferences },
         route === "home" ? h(Button, {
+          style: { marginLeft: "12px" },
           onClick: createDashboard, disabled: dashboards.length >= 20,
           title: dashboards.length >= 20 ? "Dashboard limit reached" : "Create new Dashboard"
         }, "Create new Dashboard") : null),
