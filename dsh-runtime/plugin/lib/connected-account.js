@@ -593,9 +593,9 @@ export class ConnectedAccount {
         if (result.rejected?.length) throw new Error(result.rejected[0].reason);
       }
     };
-    const relinquishing = (claim) => this.database.prepare(
-      "UPDATE bees_execution_owners SET state='relinquishing',claim_json=? WHERE work_item_id=? AND state<>'released'"
-    ).run(JSON.stringify(claim), claim.claimId);
+    const relinquishing = (claim, state = 'relinquishing') => this.database.prepare(
+      "UPDATE bees_execution_owners SET state=?,claim_json=? WHERE work_item_id=? AND state<>'released'"
+    ).run(state, JSON.stringify(claim), claim.claimId);
     return { acquire, release, publish, owner, relinquishing };
   }
 

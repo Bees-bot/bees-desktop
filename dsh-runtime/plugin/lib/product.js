@@ -1130,22 +1130,24 @@ export class BeesProduct {
   async relinquishWork(workItemId) {
     const root = this.workContext.lineage(workItemId)[0];
     const directory = this.workContext.directory(root.id);
-    return this.processes.relinquish(workItemId, async (checkpoints) => {
-      // Customer storage holds the checkpoint and files; cloud receives stage metadata only.
+    const handoffFiles = (digest) => {
       const files = runFiles(directory, 1001);
       if (files.length > 1000) throw new Error('A handoff supports at most 1000 run files');
       let bytes = 0;
-      const manifest = files.map((path) => {
+      return files.map((path) => {
         const source = resolve(directory, path);
         if (!realpathSync(source).startsWith(realpathSync(directory) + sep)) throw new Error('Run file escaped its folder');
         const size = lstatSync(source).size;
         bytes += size;
         if (size > 20_000_000 || bytes > 250_000_000) throw new Error('Handoff files exceed the 20 MB per-file or 250 MB total limit');
-        return { path, size, digest: createHash('sha256').update(readFileSync(source)).digest('hex') };
+        return { path, size, ...digest ? { digest: createHash('sha256').update(readFileSync(source)).digest('hex') } : {} };
       });
+    };
+    return this.processes.relinquish(workItemId, async (checkpoints) => {
+      // Customer storage holds the checkpoint and files; cloud receives stage metadata only.
       const checkpoint = {
         workItemId: root.id, checkpoints, savedAt: iso(),
-        files: manifest,
+        files: handoffFiles(true),
         results: this.database.prepare(`SELECT e.work_item_id AS workItemId,r.outcome,r.summary
           FROM bees_stage_results r JOIN execution_links e ON e.execution_id=r.execution_id
           WHERE e.work_item_id IN (SELECT value FROM json_each(?)) ORDER BY r.created_at`)
@@ -1159,7 +1161,7 @@ export class BeesProduct {
       const serialized = `${JSON.stringify(checkpoint)}\n`;
       if (Buffer.byteLength(serialized) > 2_000_000) throw new Error('The handoff checkpoint exceeds 2 MB');
       writeFileSync(path, serialized);
-    });
+    }, () => handoffFiles(false));
   }
 
   continueWork(workItemId) {

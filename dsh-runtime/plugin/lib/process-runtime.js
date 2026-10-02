@@ -48,7 +48,7 @@ export class ProcessRuntime {
              w.account_user_id AS accountUserId, w.parent_id AS parentId,
              w.runtime_attempt AS attempt,
              w.runtime_execution_id AS executionId,
-             w.runtime_error AS error,
+             w.runtime_error AS error, w.recurring_work_id AS recurringWorkId,
              p.workspace_id AS workspaceId, ws.team_id AS teamId,
              EXISTS (SELECT 1 FROM recurring_work r WHERE r.source_work_item_id = w.id) AS scheduleDefinition
       FROM work_items w JOIN processes p ON p.id = w.process_id
@@ -128,8 +128,8 @@ export class ProcessRuntime {
       const runDshStage = async (stage) => {
         const context = Context.current();
         const item = this.item(stage.workItemId);
-        const migrated = item.executionId && !this.claims?.owner?.(item.id) &&
-          this.database.prepare("SELECT 1 FROM execution_links WHERE execution_id=?").get(item.executionId);
+        const migrated = !this.claims?.owner?.(item.id) && (item.recurringWorkId && !item.parentId || item.executionId &&
+          this.database.prepare("SELECT 1 FROM execution_links WHERE execution_id=?").get(item.executionId));
         const ownership = this.claims ? await this.claims.acquire("work_item", item.id, item.teamId, "", item.accountUserId ?? "",
           { explicit: Boolean(migrated) }) : { local: true };
         if (!ownership) throw ApplicationFailure.nonRetryable("This machine does not own this process run", "OwnershipRequired");
@@ -388,8 +388,14 @@ export class ProcessRuntime {
       `).run(id, recurring.sourceWorkItemId);
       return this.input(id);
     });
-    await this.claims?.publish(work.workItemId);
-    const owner = await this.claims?.acquire("work_item", work.workItemId, recurring.teamId, "", accountUserId, { explicit: true });
+    // the occurrence claim is one-time, so a retry would skip this run; its first stage claims it instead
+    let owner;
+    try {
+      await this.claims?.publish(work.workItemId);
+      owner = await this.claims?.acquire("work_item", work.workItemId, recurring.teamId, "", accountUserId, { explicit: true });
+    } catch (error) {
+      this.logger.warn?.(`bees: a scheduled run could not claim ownership yet: ${message(error)}`);
+    }
     if (owner === null) return null;
     if (owner) this.scheduledOwners.set(work.workItemId, owner);
     return work;
@@ -483,10 +489,6 @@ export class ProcessRuntime {
     if (["waiting", "paused"].includes(runtimePhase) && executionId &&
       !this.database.prepare("SELECT 1 FROM execution_links WHERE execution_id = ?").get(executionId))
       return { automatic: true, claimed: false, waitingFor: "This work is waiting on the device that paused it" };
-    const readiness = await this.canStart(workItemId);
-    if (!readiness?.ready) return {
-      automatic: true, claimed: false, waitingFor: readiness?.reason ?? "This device is not ready"
-    };
     const claimKey = `work-item:${workItemId}`;
     if (this.workflows.has(claimKey) && this.claims?.owner?.(workItemId)?.state !== 'relinquishing') {
       return { automatic: true, workflowId: processWorkflowId(workItemId), claimed: true };
@@ -502,6 +504,11 @@ export class ProcessRuntime {
         )
       : { local: true });
     if (!claim) return { automatic: true, claimed: false, waitingFor: "This process run stays on its owning machine until its owner relinquishes control" };
+    // owned before the readiness check, so a run waiting on an add-on is started by a later tick
+    const readiness = await this.canStart(workItemId);
+    if (!readiness?.ready) return {
+      automatic: true, claimed: false, waitingFor: readiness?.reason ?? "This device is not ready"
+    };
     let handle;
     try {
       handle = await this.client.workflow.start("processWorkflow", {
@@ -666,51 +673,67 @@ export class ProcessRuntime {
     });
   }
 
-  relinquish(workItemId, saveCheckpoint) {
+  relinquish(workItemId, saveCheckpoint, checkFiles) {
     if (this.handoffs.has(workItemId)) return this.handoffs.get(workItemId);
-    const pending = this.relinquishOnce(workItemId, saveCheckpoint).finally(() => this.handoffs.delete(workItemId));
+    const pending = this.relinquishOnce(workItemId, saveCheckpoint, checkFiles).finally(() => this.handoffs.delete(workItemId));
     this.handoffs.set(workItemId, pending);
     return pending;
   }
 
-  async relinquishOnce(workItemId, saveCheckpoint) {
+  async relinquishOnce(workItemId, saveCheckpoint, checkFiles) {
     const root = workItemLineage(this.database, workItemId)[0];
     if (root.id !== workItemId) throw new Error("Relinquish control from the parent process run");
     const claim = this.claims?.owner(root.id);
     if (!claim || !['owned','relinquishing'].includes(claim.state))
       throw new Error("Only the owning user and machine can relinquish this process run");
-    this.claims.relinquishing(claim);
-    // Block new admissions before waiting for launches already in progress.
-    await Promise.all(workRunItems(this.database, root.id).map((id) => this.startingItems.get(`work-item:${id}`)));
-    const ids = workRunItems(this.database, root.id);
+    // a handoff over the file limits must fail before anything is stopped
+    await checkFiles?.();
     let checkpoints = claim.checkpoints ?? [];
-    for (const id of claim.checkpoints ? [] : ids) {
-      const item = this.item(id);
-      if (['completed','cancelled'].includes(item.runtimePhase)) continue;
-      const stages = this.stages(item.processId);
-      let stage = stages.find(({ id }) => id === item.stageId);
-      // Reviewer evidence is local; replay its producer using the saved outputs on the next machine.
-      if (stage?.driver === 'review') stage = stages.slice(0, stages.indexOf(stage)).findLast(({ driver }) => ['agent','discussion'].includes(driver));
-      if (!stage) throw new Error('This work has no resumable stage');
-      checkpoints.push({ workItemId: id, stageId: stage.id, attempt: Number(item.attempt) + 1 });
+    let releasing = false;
+    try {
+      this.claims.relinquishing(claim);
+      // Block new admissions before waiting for launches already in progress.
+      await Promise.all(workRunItems(this.database, root.id).map((id) => this.startingItems.get(`work-item:${id}`)));
+      const ids = workRunItems(this.database, root.id);
+      for (const id of claim.checkpoints ? [] : ids) {
+        const item = this.item(id);
+        if (['completed','cancelled'].includes(item.runtimePhase)) continue;
+        const stages = this.stages(item.processId);
+        let stage = stages.find(({ id }) => id === item.stageId);
+        // Reviewer evidence is local; replay its producer using the saved outputs on the next machine.
+        if (stage?.driver === 'review') stage = stages.slice(0, stages.indexOf(stage)).findLast(({ driver }) => ['agent','discussion'].includes(driver));
+        if (!stage) throw new Error('This work has no resumable stage');
+        checkpoints.push({ workItemId: id, stageId: stage.id, attempt: Number(item.attempt) + 1 });
+      }
+      this.claims.relinquishing({ ...claim, checkpoints });
+      for (const id of ids) {
+        const item = this.item(id);
+        if (item.executionId) this.abortAgent?.(item.executionId);
+        const handle = this.client.workflow.getHandle(processWorkflowId(id));
+        try {
+          await handle.cancel();
+          await handle.result().catch((error) => { if (!(error instanceof WorkflowFailedError)) throw error; });
+        } catch (error) { if (!(error instanceof WorkflowNotFoundError)) throw error; }
+        await this.workflows.get(`work-item:${id}`)?.settled;
+      }
+      await this.stopAgents?.(ids);
+      checkpoints = checkpoints.filter(({ workItemId }) => this.item(workItemId).runtimePhase !== 'completed');
+      this.claims.relinquishing({ ...claim, checkpoints });
+      await saveCheckpoint(checkpoints);
+      await this.claims.publish(root.id, { handoff: true });
+      releasing = true;
+      await this.claims.release(claim, checkpoints);
+    } catch (error) {
+      // a release the server may have taken stays relinquishing, so Finish relinquishing retries it
+      if (claim.state !== 'owned' || releasing) throw error;
+      this.claims.relinquishing(claim, 'owned');
+      // runs this attempt cancelled restart from their checkpoint here, as they would on the next machine
+      for (const entry of checkpoints) this.database.prepare(`UPDATE work_items SET stage_id=?,
+        runtime_phase='ready',runtime_attempt=?,runtime_review_cycle=0,runtime_execution_id=NULL,runtime_error=NULL,
+        updated_at=? WHERE id=? AND runtime_phase='cancelled'`).run(entry.stageId,entry.attempt,iso(),entry.workItemId);
+      this.notify({ type: 'work-item-changed', workItemId: root.id });
+      throw error;
     }
-    this.claims.relinquishing({ ...claim, checkpoints });
-    for (const id of ids) {
-      const item = this.item(id);
-      if (item.executionId) this.abortAgent?.(item.executionId);
-      const handle = this.client.workflow.getHandle(processWorkflowId(id));
-      try {
-        await handle.cancel();
-        await handle.result().catch((error) => { if (!(error instanceof WorkflowFailedError)) throw error; });
-      } catch (error) { if (!(error instanceof WorkflowNotFoundError)) throw error; }
-      await this.workflows.get(`work-item:${id}`)?.settled;
-    }
-    await this.stopAgents?.(ids);
-    checkpoints = checkpoints.filter(({ workItemId }) => this.item(workItemId).runtimePhase !== 'completed');
-    this.claims.relinquishing({ ...claim, checkpoints });
-    await saveCheckpoint(checkpoints);
-    await this.claims.publish(root.id, { handoff: true });
-    await this.claims.release(claim, checkpoints);
     for (const checkpoint of checkpoints) this.database.prepare(`UPDATE work_items SET
       stage_id=?,runtime_phase='paused',runtime_attempt=?,runtime_review_cycle=0,runtime_execution_id=NULL,
       runtime_error=NULL,updated_at=? WHERE id=?`).run(checkpoint.stageId,checkpoint.attempt,iso(),checkpoint.workItemId);
@@ -738,7 +761,11 @@ export class ProcessRuntime {
       if (started.waitingFor) throw new Error(`Can't start yet: ${started.waitingFor}`);
       return started;
     }
-    const ownership = this.claims ? await this.claims.acquire("work_item", workItemId, item.teamId, "", item.accountUserId ?? "") : { local: true };
+    // a run from before ownership has no saved owner, so the machine that ran it claims it like startItemOnce does
+    const migrated = !this.claims?.owner?.(workItemId) && this.database.prepare(
+      "SELECT 1 FROM execution_links WHERE work_item_id=? LIMIT 1").get(workItemId);
+    const ownership = this.claims ? await this.claims.acquire("work_item", workItemId, item.teamId, "", item.accountUserId ?? "",
+      { explicit: Boolean(migrated) }) : { local: true };
     if (!ownership) throw new Error("This process run is controlled on another machine");
     const handle = this.client.workflow.getHandle(processWorkflowId(workItemId));
     // a teammate's device ran this item, and only that device holds its workflow

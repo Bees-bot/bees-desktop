@@ -28,7 +28,7 @@ export declare class ProcessRuntime {
   reconcileSchedules(): Promise<void>;
   wakeStage(executionId: string): Promise<void>;
   startItem(workItemId: string, options?: { explicit?: boolean; continueWork?: boolean }): Promise<any>;
-  relinquish(workItemId: string, saveCheckpoint: (checkpoints: any[]) => Promise<void>): Promise<any>;
+  relinquish(workItemId: string, saveCheckpoint: (checkpoints: any[]) => Promise<void>, checkFiles?: () => unknown): Promise<any>;
   restartItem(workItemId: string, text: string, requestId: string): Promise<any>;
   reviseItem(workItemId: string, feedback: string, requestId: string, signal?: AbortSignal): Promise<{ id: string }>;
   resolveFailedItem(workItemId: string, reason: string, requestId: string, replacementWorkItemId?: string | null, signal?: AbortSignal): Promise<{ id: string; action: string; replacementWorkItemId: string | null }>;
