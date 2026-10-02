@@ -12,10 +12,12 @@ export const PARENT_EXECUTION_STEP = 'If the user requested subagents, your next
 
 export function delegationEvidence(database, workItemId) {
   const peers = database.prepare(`SELECT w.id, w.title, w.agent_assignment_id AS agentId, w.runtime_phase AS phase,
-    e.execution_id AS executionId, r.outcome
+    coalesce(e.execution_id,remote.execution_id) AS executionId, coalesce(r.outcome,remote.outcome) AS outcome
     FROM work_items w LEFT JOIN execution_links e ON e.execution_id = (
       SELECT execution_id FROM execution_links WHERE work_item_id = w.id ORDER BY created_at DESC, rowid DESC LIMIT 1
     ) LEFT JOIN bees_stage_results r ON r.execution_id = e.execution_id
+    LEFT JOIN bees_remote_runs remote ON remote.execution_id = (
+      SELECT execution_id FROM bees_remote_runs WHERE work_item_id=w.id ORDER BY created_at DESC, rowid DESC LIMIT 1)
     WHERE w.parent_id = ? AND w.archived_at IS NULL AND w.deleted_at IS NULL`).all(workItemId);
   return {
     launched: peers.filter(({ executionId }) => executionId).length,

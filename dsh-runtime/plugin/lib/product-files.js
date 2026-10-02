@@ -205,12 +205,12 @@ export function previewFiles(runDirectory) {
   return files.sort();
 }
 
-export function runFiles(runDirectory) {
+export function runFiles(runDirectory, limit = 200) {
   const files = [];
   for (const rootName of ["inputs", "outputs"]) {
     try {
       const root = realpathSync(resolve(runDirectory, rootName));
-      files.push(...walk(root, 200 - files.length).map((path) => `${rootName}/${relative(root, path)}`));
+      files.push(...walk(root, limit - files.length).map((path) => `${rootName}/${relative(root, path)}`));
     } catch { /* a run may not have created this directory yet */ }
   }
   return files.sort();

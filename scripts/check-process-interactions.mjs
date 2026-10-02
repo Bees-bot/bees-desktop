@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -598,6 +598,169 @@ For a substantial independent assignment, use bees_delegate_work with an agentAs
   const { accountUserId: omitted, ...legacyPayload } = exported.payload;
   applyTeamRecords(database, orgId, [{ ...exported, version: Date.parse(syncedTime) + 1, payload: { ...legacyPayload, updatedAt: new Date(Date.parse(syncedTime) + 1).toISOString() } }]);
   assert.equal(database.prepare("SELECT account_user_id AS owner FROM processes WHERE id = ?").get(processRow.id).owner, "owner-account", "Older clients preserve process ownership");
+  // Ownership is durable locally. Delegation and recovery do not contact the cloud again.
+  {
+  const handoffConnected = new ConnectedAccount(database, {});
+  const calls = [];
+  let sharedExecution;
+  let loseClaimReply = false;
+  handoffConnected.request = async (path, options = {}) => {
+    calls.push({ path, ...options });
+    if (path.includes('/process-executions')) return { executions: sharedExecution ? [sharedExecution] : [] };
+    if (path.startsWith('/api/execution-claims/')) {
+      if (options.method === 'DELETE') {
+        sharedExecution = { ...sharedExecution, relinquishedAt: at, handoff: options.body.checkpoints.map(
+          ({ workItemId,stageId,attempt }) => ({ attempt,stageId,workItemId })) };
+        return { released: true };
+      }
+      sharedExecution = { ...sharedExecution, workItemId: 'handoff-root', machineId: options.body.machineId, machineName: 'Owner laptop',
+        userId: options.accountUserId, relinquishedAt: null };
+      if (loseClaimReply) { loseClaimReply = false; throw new Error('Lost claim response'); }
+      return { acquired: true, token: 'persistent-owner', scope: 'team-work-item' };
+    }
+    return { records: [], rejected: [], cursor: '0', more: false };
+  };
+  for (const [id, parent, phase, lane] of [['handoff-root', null, 'ready', stage.id], ['handoff-child', 'handoff-root', 'completed', terminal.id]])
+    database.prepare(`INSERT INTO work_items(id,process_id,stage_id,parent_id,title,runtime_phase,account_user_id,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,'owner-account',?,?)`).run(id,processRow.id,lane,parent,id,phase,at,at);
+  const ownedClaims = handoffConnected.executionClaims();
+  assert.equal(await ownedClaims.acquire('work_item','handoff-root',teamId,'','owner-account'), null);
+  assert.equal(calls.length, 0, 'Passive reconciliation never claims shared work');
+  await ownedClaims.publish('handoff-root');
+  const owned = await ownedClaims.acquire('work_item','handoff-root',teamId,'','owner-account',{ explicit: true });
+  const claimedCalls = calls.length;
+  assert.equal((await ownedClaims.acquire('work_item','handoff-child',teamId,'','owner-account')).token, owned.token);
+  await ownedClaims.publish('handoff-child');
+  const restartedAccount = new ConnectedAccount(database, {});
+  restartedAccount.request = () => assert.fail('Cached ownership must survive restart without connectivity');
+  assert.equal((await restartedAccount.executionClaims().acquire('work_item','handoff-root',teamId,'','owner-account')).token,owned.token);
+  assert.equal(calls.length, claimedCalls, 'Delegation needs no publish, claim, or heartbeat round trip');
+  await handoffConnected.askProcessQuestion(teamId, { workItemId: 'handoff-child', question: 'Which account?' });
+  const questionPublish = calls.at(-2);
+  assert.equal(questionPublish.path,'/api/sync/push');
+  assert.deepEqual(new Set(questionPublish.body.records.map(({ recordId }) => recordId)),new Set(['handoff-root','handoff-child']),
+    'Shared questions publish the child and its lineage only when needed');
+  assert.equal(calls.at(-1).accountUserId,owned.accountUserId);
+
+  const handles = new Map();
+  const launches = [];
+  let failLaunch = false;
+  const stopped = Promise.withResolvers();
+  const stopping = Promise.withResolvers();
+  const handoffRuntime = new ProcessRuntime(database, { claims: ownedClaims,
+    stopAgents: async (ids) => { assert.deepEqual(new Set(ids),new Set(['handoff-root','handoff-child'])); stopping.resolve(); await stopped.promise; },
+    client: { workflow: {
+      start: async (_workflow, { workflowId, args: [input] }) => {
+        if (failLaunch) { failLaunch = false; throw new Error('Local workflow service unavailable'); }
+        launches.push(input.workItemId);
+        const result = Promise.withResolvers();
+        const handle = { result: () => result.promise, cancel: async () => {
+          handoffRuntime.project({ ...input, phase: 'cancelled', attempt: input.resumeAttempt, executionId: null });
+          result.resolve({});
+        } };
+        handles.set(workflowId,handle);
+        handoffRuntime.project({ ...input,phase:'running',attempt:input.resumeAttempt,executionId:null });
+        return handle;
+      },
+      getHandle: (id) => handles.get(id) ?? { cancel: async () => {}, result: async () => ({}) }
+    } }
+  });
+  const handoffProduct = new BeesProduct(database,runtime,handoffRuntime,root,{ connected: handoffConnected });
+  handoffProduct.canStartItem = async () => ({ ready: true });
+  await handoffRuntime.startItem('handoff-root');
+  const handoffDirectory = handoffProduct.workContext.directory('handoff-root');
+  mkdirSync(join(handoffDirectory,'outputs'),{ recursive:true });
+  const artifact = join(handoffDirectory,'outputs','saved.txt');
+  writeFileSync(artifact,'Existing work');
+  const transferring = handoffProduct.relinquishWork('handoff-root');
+  await stopping.promise;
+  assert.equal(ownedClaims.owner('handoff-root').state,'relinquishing');
+  assert(!calls.some(({ method }) => method === 'DELETE'), 'Release must wait for local agents and tools to stop');
+  assert.equal(await ownedClaims.acquire('work_item','handoff-child',teamId,'','owner-account'),null);
+  await assert.rejects(handoffProduct.command({ action:'create_item',processId:processRow.id,parentId:'handoff-root',
+    title:'Late delegation',stageId:stage.id,accountUserId:'owner-account' }),/before adding delegated work/);
+  assert.equal(database.prepare("SELECT count(*) AS count FROM work_items WHERE title='Late delegation'").get().count,0);
+  stopped.resolve();
+  await transferring;
+  assert.equal(ownedClaims.owner('handoff-root').state,'released');
+  assert.equal(database.prepare("SELECT runtime_phase AS phase FROM work_items WHERE id='handoff-child'").get().phase,'completed');
+  assert(!teamRecords(database,orgId).some((record) => record.recordId === 'handoff-root'), 'Released machines stop uploading execution projections');
+  const savedRelease = sharedExecution;
+  sharedExecution = { ...sharedExecution,relinquishedAt:null,machineId:'another-machine',userId:'another-user' };
+  const handoffRequest = handoffConnected.request;
+  handoffConnected.request = (path,options) => options?.method === 'DELETE'
+    ? Promise.resolve({ released:false }) : handoffRequest(path,options);
+  database.prepare("UPDATE bees_execution_owners SET state='relinquishing' WHERE work_item_id='handoff-root'").run();
+  await ownedClaims.release(owned);
+  assert.equal(ownedClaims.owner('handoff-root').state,'released','A lost release response remains recoverable after another user claims');
+  handoffConnected.request = handoffRequest;
+  sharedExecution = savedRelease;
+  const claimCount = () => calls.filter(({ path,method }) => path.startsWith('/api/execution-claims/') && method === 'POST').length;
+  const beforeContinue = claimCount();
+  writeFileSync(artifact,'Stale work');
+  await assert.rejects(handoffProduct.continueWork('handoff-root'),/latest run files/);
+  assert.equal(claimCount(),beforeContinue,'Incomplete file sync must not acquire ownership');
+  writeFileSync(artifact,'Existing work');
+  loseClaimReply = true;
+  await assert.rejects(handoffProduct.continueWork('handoff-root'),/Lost claim response/);
+  assert.equal(sharedExecution.relinquishedAt,null,'The cloud accepted ownership before the response was lost');
+  failLaunch = true;
+  await assert.rejects(handoffProduct.continueWork('handoff-root'),/Local workflow service unavailable/);
+  assert.equal(ownedClaims.owner('handoff-root').continuation.length,1,'An interrupted launch is durable and retryable');
+  await handoffProduct.continueWork('handoff-root');
+  assert.equal(ownedClaims.owner('handoff-root').continuation,undefined);
+  assert.deepEqual(launches,['handoff-root','handoff-root'],'Completed delegated work must not be rerun during handoff');
+  assert.equal(handoffRuntime.item('handoff-root').attempt,2,'Continuation uses a fresh execution ID for its unfinished stage');
+  assert.equal(ownedClaims.owner('handoff-root').state,'owned');
+  const oldProjection = teamRecords(database,orgId).find(({ recordId }) => recordId === 'handoff-root');
+  const metadataTime = new Date(Date.now()+10000).toISOString();
+  applyTeamRecords(database,orgId,[{ ...oldProjection,version: Date.parse(metadataTime),payload: {
+    ...oldProjection.payload,title:'Peer title edit',runtimePhase:'paused',runtimeAttempt:99,updatedAt:metadataTime
+  } }]);
+  assert.equal(handoffRuntime.item('handoff-root').runtimePhase,'running','Shared edits cannot pause the local owner');
+  assert.equal(handoffRuntime.item('handoff-root').attempt,2);
+  assert.equal(database.prepare("SELECT title FROM work_items WHERE id='handoff-root'").get().title,'Peer title edit');
+  database.prepare(`INSERT INTO dsh_audit_events VALUES ('old-handoff-correction','peer-work-correction',NULL,NULL,?,?)`)
+    .run(JSON.stringify({ workItemId:'handoff-child',attempt:1,candidateExecutionId:'old-candidate' }),at);
+  database.prepare("UPDATE work_items SET runtime_attempt=3 WHERE id='handoff-child'").run();
+  assert.equal(handoffRuntime.input('handoff-child').correction,undefined,'Old correction receipts must not reuse execution IDs after handoff');
+  // Even a large run publishes within the server's 500-record limit.
+  for (let index=0;index<501;index++) database.prepare(`INSERT INTO work_items
+    (id,process_id,stage_id,parent_id,title,runtime_phase,created_at,updated_at) VALUES (?,?,?,'handoff-root',?,'completed',?,?)`)
+    .run(`large-handoff-${index}`,processRow.id,terminal.id,`Completed ${index}`,at,at);
+  const beforeBatch = calls.length;
+  await ownedClaims.publish('handoff-root',{ handoff:true });
+  const batches = calls.slice(beforeBatch).filter(({ path }) => path === '/api/sync/push');
+  assert.deepEqual(batches.map(({ body }) => body.records.length),[500,3]);
+  database.prepare("DELETE FROM work_items WHERE id LIKE 'large-handoff-%'").run();
+  await handoffRuntime.close();
+
+  const { syncTeamRecords } = await import('../dsh-runtime/plugin/lib/team-sync.js');
+  const uploaded = [];
+  const request = async (path,{ body } = {}) => {
+    if (body) uploaded.push(...body.records);
+    return { records: [], rejected: [], cursor:'0',more:false };
+  };
+  await syncTeamRecords(database,request,orgId,'owner-account');
+  const firstUpload = uploaded.length;
+  assert(firstUpload > 0);
+  await syncTeamRecords(database,request,orgId,'owner-account');
+  assert.equal(uploaded.length,firstUpload,'Unchanged records are not uploaded again');
+  database.prepare("UPDATE work_items SET title='Changed locally',updated_at=? WHERE id='handoff-root'").run(new Date(Date.now()+20000).toISOString());
+  await syncTeamRecords(database,request,orgId,'owner-account');
+  assert.equal(uploaded.length,firstUpload+1,'Only the changed record is uploaded');
+  // The real stop helper must wait for tool settlement after sending cancellation.
+  const cancelled = Promise.withResolvers();
+  const toolStopped = Promise.withResolvers();
+  runtime.live.set('run',{ approvalAbort:new AbortController(),handle:{ agent:{ cancel:() => cancelled.resolve() } } });
+  runtime.settlements.set('run',toolStopped.promise.then(() => runtime.live.delete('run')));
+  let fullyStopped = false;
+  const stoppingWork = runtime.stopWork(['item']).then(() => { fullyStopped = true; });
+  await cancelled.promise;
+  assert(!fullyStopped,'Cancellation alone must not release ownership while a tool is stopping');
+  toolStopped.resolve();
+  await stoppingWork;
+  }
   database.close();
   console.log("Process interaction checks passed");
 } finally {

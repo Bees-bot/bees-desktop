@@ -532,6 +532,7 @@ export class AgentRuntime {
     this.capabilities = capabilities;
     this.starting = new Set();
     this.admissions = new Map();
+    this.settlements = new Map();
     this.recovery = new Set();
     this.closing = false;
     this.policyAgents = new WeakSet();
@@ -1807,7 +1808,15 @@ export class AgentRuntime {
       WHERE e.work_item_id = ? AND r.purpose = 'worker'
       ORDER BY e.created_at DESC, e.rowid DESC LIMIT 1
     `).get(workItemId);
-    if (!run) return {};
+    if (!run) {
+      const shared = this.database.prepare(`SELECT execution_id AS execution_id,outcome,summary
+        FROM bees_remote_runs WHERE work_item_id=? AND outcome IS NOT NULL ORDER BY created_at DESC,rowid DESC LIMIT 1`).get(workItemId);
+      if (!shared) return {};
+      return { ...shared, delegation: delegationEvidence(this.database,workItemId),
+        artifacts: this.workContext.files(workItemId).map(({ path }) => path),
+        evidence: [{ unavailable: true, reason: 'Detailed execution evidence remains on the original machine' }],
+        evidence_count: 1, next_evidence_offset: null };
+    }
     const evidence = [];
     const written = new Set();
     for (const sessionId of [...new Set([run.previousSessionId, run.sessionId].filter(Boolean))]) {
@@ -2078,6 +2087,9 @@ export class AgentRuntime {
     let references;
     try {
       data = JSON.parse(run.configJson);
+      const owner = data.workItemId && this.connected?.executionClaims().owner(data.workItemId);
+      if (owner && (owner.state !== 'owned' || owner.machineId !== currentIdentity(this.database).deviceId))
+        throw new Error('This machine no longer controls this process run');
       // Re-resolve the model on explicit user-triggered retries and crash-recovery runs when
       // a resolvedModel was previously stored. This lets a model change made before retrying
       // a failed stage take effect instead of staying locked to the original Codex model.
@@ -2154,7 +2166,9 @@ export class AgentRuntime {
     let stopped = false;
     transaction(this.database, () => {
       // stop_run deletes the queue row of a run it stops while this start was opening its session
-      stopped = prepared && !this.database.prepare("DELETE FROM bees_run_queue WHERE execution_id = ?").run(executionId).changes;
+      const owner = data.workItemId && this.connected?.executionClaims().owner(data.workItemId);
+      stopped = owner && (owner.state !== 'owned' || owner.machineId !== currentIdentity(this.database).deviceId)
+        || prepared && !this.database.prepare("DELETE FROM bees_run_queue WHERE execution_id = ?").run(executionId).changes;
       if (stopped) return;
       this.database.prepare(`
         INSERT INTO dsh_deliveries (delivery_id, execution_id, submission_id, created_at)
@@ -2187,8 +2201,9 @@ export class AgentRuntime {
     const recoveryNotice = recovery
       ? "\n\nRecovery note: this is a replacement runtime session seeded through the previous session's durable log. Do not repeat a tool side effect already recorded there. An action still waiting for approval never ran, so call it again to ask again." + recoveryContext
       : "";
+    let settling;
     if (recoveryQuestion) {
-      this.track(this.recoverQuestion(executionId, submissionId, sessionId, handle, approvalAbort, recoveryQuestion, `${payload.body}${recoveryNotice}`));
+      settling = this.recoverQuestion(executionId, submissionId, sessionId, handle, approvalAbort, recoveryQuestion, `${payload.body}${recoveryNotice}`);
       this.recovery.delete(executionId);
     } else {
       let before;
@@ -2210,8 +2225,12 @@ export class AgentRuntime {
         throw error;
       }
       this.recovery.delete(executionId);
-      this.track(this.settle(executionId, submissionId, sessionId, handle, before));
+      settling = this.settle(executionId, submissionId, sessionId, handle, before);
     }
+    this.settlements ??= new Map();
+    const settled = settling.finally(() => { if (this.settlements.get(executionId) === settled) this.settlements.delete(executionId); });
+    this.settlements.set(executionId, settled);
+    this.track(settled);
     return { submissionId, uid: run.instanceUid };
   }
 
@@ -2589,5 +2608,15 @@ export class AgentRuntime {
     live.approvalAbort.abort();
     live.handle.agent.cancel({ kind: "user" });
     return true;
+  }
+
+  async stopWork(workItemIds) {
+    const runs = this.database.prepare('SELECT execution_id AS id FROM execution_links WHERE work_item_id IN (SELECT value FROM json_each(?))')
+      .all(JSON.stringify(workItemIds));
+    for (const { id } of runs) this.database.prepare('DELETE FROM bees_run_queue WHERE execution_id=?').run(id);
+    await Promise.all(runs.map(({ id }) => this.admissions.get(id)?.promise.catch(() => undefined)));
+    for (const { id } of runs) this.abort(id);
+    await Promise.all(runs.map(({ id }) => this.settlements.get(id)));
+    if (runs.some(({ id }) => this.live.has(id))) throw new Error('Wait for local agents to stop before relinquishing control');
   }
 }

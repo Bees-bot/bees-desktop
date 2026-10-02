@@ -7,6 +7,7 @@ export declare class ProcessRuntime {
     client?: any; logger?: any; workerFactory?: (options: any) => Promise<any>; claims?: any;
     notify?: (change: Record<string, unknown>) => void;
     abortAgent?: (executionId: string) => unknown;
+    stopAgents?: (workItemIds: string[]) => Promise<void>;
     needsRecovery?: (executionId: string) => boolean;
     pendingInteraction?: (executionId: string) => unknown;
     canStart?: (workItemId: string) => Promise<{ ready: boolean; reason?: string }> | { ready: boolean; reason?: string };
@@ -24,8 +25,10 @@ export declare class ProcessRuntime {
   createRecurringWorkItem(recurringWorkId: string, occurrenceAt?: string, accountUserId?: string): Promise<any>;
   close(): Promise<void>;
   reconcile(): Promise<void>;
+  reconcileSchedules(): Promise<void>;
   wakeStage(executionId: string): Promise<void>;
-  startItem(workItemId: string): Promise<any>;
+  startItem(workItemId: string, options?: { explicit?: boolean; continueWork?: boolean }): Promise<any>;
+  relinquish(workItemId: string, saveCheckpoint: (checkpoints: any[]) => Promise<void>): Promise<any>;
   restartItem(workItemId: string, text: string, requestId: string): Promise<any>;
   reviseItem(workItemId: string, feedback: string, requestId: string, signal?: AbortSignal): Promise<{ id: string }>;
   resolveFailedItem(workItemId: string, reason: string, requestId: string, replacementWorkItemId?: string | null, signal?: AbortSignal): Promise<{ id: string; action: string; replacementWorkItemId: string | null }>;

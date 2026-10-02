@@ -1,4 +1,5 @@
-import { normalizeRunSettings, serverNames, stableUuid, transaction } from "./product-database.js";
+import { createHash } from 'node:crypto';
+import { currentIdentity, normalizeRunSettings, serverNames, stableUuid, transaction, workItemLineage } from "./product-database.js";
 
 const TYPES = [
   "team_location", "agent", "team_process", "process_template",
@@ -150,7 +151,7 @@ function teamRecords(database, organizationId, connectionId = "", includeAppDefi
   `).all(organizationId)) records.push(record("team_work_item", row, {
     ...owner('app_process_owners', 'process_id', row.processId),
     teamId: row.teamId, processId: row.processId, stageId: row.stageId, parentId: row.parentId,
-    // the server refuses a title over 180, and a refused item never gets a lease to start
+    // The server refuses a title over 180, preventing the initial ownership claim.
     kind: row.kind, title: clip(row.title, 180), description: row.description, owner: row.owner,
     agentId: json(row.agentIds)[0] ?? null, agentIds: json(row.agentIds),
     priority: row.priority, runtimePhase: row.runtimePhase,
@@ -190,7 +191,13 @@ function teamRecords(database, organizationId, connectionId = "", includeAppDefi
   }));
 
   // App definitions are published atomically with app state, not by the background LWW sync.
-  const visible = records.filter((r) => includeAppDefinitions || !r.payload.appInstallationId || !['agent', 'team_process'].includes(r.recordType));
+  const stopped = database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='bees_execution_owners'").get()
+    ? new Set(database.prepare(`WITH RECURSIVE tree(id) AS (
+      SELECT work_item_id FROM bees_execution_owners WHERE state='released'
+      UNION SELECT w.id FROM work_items w JOIN tree t ON w.parent_id=t.id
+    ) SELECT id FROM tree`).all().map(({ id }) => id)) : new Set();
+  const visible = records.filter((r) => (includeAppDefinitions || !r.payload.appInstallationId || !['agent', 'team_process'].includes(r.recordType))
+    && !(r.recordType === 'team_work_item' && stopped.has(r.recordId) || r.recordType === 'team_run' && stopped.has(r.payload.workItemId)));
   if (!connectionId) return visible;
   const teamIds = new Set(database.prepare(`
     SELECT team_id AS teamId FROM bees_connection_teams WHERE connection_id = ?
@@ -439,15 +446,25 @@ function applyRecurring(database, record) {
 
 function applyItem(database, record) {
   if (!newer(database, "work_items", record.recordId, record.version)) return;
-  const p = record.payload;
+  let p = record.payload;
   // A new row starts unparented because the parent may arrive later in this batch; the pass in
   // applyTeamRecords links it once the parent is confirmed. An update must leave an existing
   // link alone, or any later metadata change would orphan a child that was already correct.
   // An older desktop sends neither and the server still accepts it, so a missing field must not
   // read as "clear it".
-  const prior = database.prepare("SELECT run_settings_json AS settings FROM work_items WHERE id = ?")
-    .get(record.recordId)?.settings;
-  const settings = normalizeRunSettings(p.runSettings ?? json(prior, {}));
+  const prior = database.prepare(`SELECT run_settings_json AS settings,stage_id AS stageId,
+    runtime_phase AS runtimePhase,runtime_attempt AS runtimeAttempt,runtime_review_cycle AS runtimeReviewCycle,
+    runtime_error AS runtimeError,account_user_id AS accountUserId FROM work_items WHERE id=?`).get(record.recordId);
+  if (prior && database.prepare("SELECT 1 FROM sqlite_master WHERE name='bees_execution_owners'").get()) {
+    const root = workItemLineage(database, record.recordId)[0].id;
+    const claim = database.prepare("SELECT claim_json AS claim FROM bees_execution_owners WHERE work_item_id=? AND state='owned'").get(root);
+    if (claim && JSON.parse(claim.claim).machineId === currentIdentity(database).deviceId) {
+      // Shared metadata may change, but the local owner alone projects its execution state.
+      const { settings: _settings, ...execution } = prior;
+      p = { ...p, ...execution };
+    }
+  }
+  const settings = normalizeRunSettings(p.runSettings ?? json(prior?.settings, {}));
   const ids = p.agentIds ?? (p.agentId ? [p.agentId] : []);
   database.prepare(`
     INSERT INTO work_items
@@ -575,6 +592,10 @@ async function pull(database, request, organizationId, connectionId, cursor) {
 const PUSH_LIMIT = 500;
 
 export async function syncTeamRecords(database, request, organizationId, connectionId) {
+  database.exec(`CREATE TABLE IF NOT EXISTS bees_sync_sent (
+    connection_id TEXT NOT NULL,record_type TEXT NOT NULL,record_id TEXT NOT NULL,digest TEXT NOT NULL,
+    PRIMARY KEY(connection_id,record_type,record_id)
+  ) STRICT`);
   const saved = database.prepare(
     "SELECT cursor FROM bees_connection_sync_cursors WHERE connection_id = ?"
   ).get(connectionId)?.cursor ?? "0";
@@ -583,19 +604,29 @@ export async function syncTeamRecords(database, request, organizationId, connect
   const waiting = new Set(database.prepare(`SELECT w.id FROM work_items w JOIN bees_work_receipts r ON r.work_item_id = w.id
     WHERE w.runtime_phase = 'ready' AND w.deleted_at IS NULL AND w.archived_at IS NULL AND r.idempotency_key LIKE 'proposal:%'`)
     .all().map(({ id }) => id));
+  const sent = database.prepare('SELECT digest FROM bees_sync_sent WHERE connection_id=? AND record_type=? AND record_id=?');
+  const remember = database.prepare(`INSERT INTO bees_sync_sent VALUES (?,?,?,?)
+    ON CONFLICT(connection_id,record_type,record_id) DO UPDATE SET digest=excluded.digest`);
+  const digest = (entry) => createHash('sha256').update(JSON.stringify(entry)).digest('hex');
   const outgoing = teamRecords(database, organizationId, connectionId)
-    .filter(({ recordType, recordId }) => recordType !== "team_work_item" || !waiting.has(recordId));
+    .filter(({ recordType, recordId }) => recordType !== "team_work_item" || !waiting.has(recordId))
+    .filter((entry) => sent.get(connectionId,entry.recordType,entry.recordId)?.digest !== digest(entry));
   const rejected = [];
   let pushError = null;
   for (let index = 0; index < outgoing.length; index += PUSH_LIMIT) {
     const chunk = outgoing.slice(index, index + PUSH_LIMIT);
     try {
-      const result = await request("/api/sync/push", { method: "POST", organizationId, body: { records: chunk } });
+      const result = await request("/api/sync/push", { method: "POST", organizationId,
+        body: { records: chunk, machineId: currentIdentity(database).deviceId } });
       rejected.push(...(result.rejected ?? []));
+      const refused = new Set((result.rejected ?? []).map(({ recordId }) => recordId));
+      for (const entry of chunk) if (!refused.has(entry.recordId))
+        remember.run(connectionId,entry.recordType,entry.recordId,digest(entry));
     } catch (error) { pushError = error; break; }
   }
   // still pull what the server has, then fail so the caller sees the push did not finish
-  const settled = await pull(database, request, organizationId, connectionId, incoming.cursor);
+  const settled = outgoing.length ? await pull(database, request, organizationId, connectionId, incoming.cursor)
+    : { count: 0, cursor: incoming.cursor };
   if (pushError) throw pushError;
   return {
     pushed: outgoing.length - rejected.length,

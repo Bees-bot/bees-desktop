@@ -10,7 +10,7 @@ const stageChangedSignal = defineSignal("stageChanged");
 const runFailedSignal = defineSignal("runFailed");
 
 const { projectWorkItem, createRecurringWorkItem } = proxyActivities({
-  // a new scheduled run is pushed to the team server before it is leased
+  // Initial publication and ownership happen once, before a shared run starts.
   startToCloseTimeout: "1 minute",
   retry: { maximumAttempts: 5 }
 });
@@ -70,7 +70,7 @@ export async function processWorkflow(input) {
     processId: input.processId,
     stageId: input.stages[index].id,
     phase: "running",
-    attempt: input.restart?.attempt ?? input.correction?.attempt ?? 1,
+    attempt: input.restart?.attempt ?? input.correction?.attempt ?? input.resumeAttempt ?? 1,
     retryRequest: 0,
     reviewCycle: 0,
     // attempt keeps climbing so every session id stays unique; this one is what maxAttempts means

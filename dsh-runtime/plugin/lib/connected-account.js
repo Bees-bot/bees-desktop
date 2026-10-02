@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import {
-  currentIdentity, insertDefaultWorkspace, stableUuid, transaction
+  currentIdentity, insertDefaultWorkspace, stableUuid, transaction, workItemLineage, workRunItems
 } from "./product-database.js";
 import { syncTeamRecords, teamRecords } from "./team-sync.js";
 
@@ -38,6 +38,10 @@ export class ConnectedAccount {
     this.rejectedSyncs = new Map();
     this.processQuestions = new Map();
     this.processExecutions = new Map();
+    database.exec(`CREATE TABLE IF NOT EXISTS bees_execution_owners (
+      work_item_id TEXT PRIMARY KEY, claim_json TEXT NOT NULL, state TEXT NOT NULL
+        CHECK(state IN ('owned','relinquishing','released'))
+    ) STRICT`);
   }
 
   accounts() {
@@ -493,12 +497,25 @@ export class ConnectedAccount {
   }
 
   executionClaims() {
-    const acquire = async (kind, id, teamId, occurrenceAt = "", accountUserId = "") => {
+    const owner = (id) => {
+      const rootId = workItemLineage(this.database, id)[0].id;
+      const row = this.database.prepare("SELECT claim_json AS claim, state FROM bees_execution_owners WHERE work_item_id=?").get(rootId);
+      return row ? { ...JSON.parse(row.claim), state: row.state } : null;
+    };
+    const acquire = async (kind, id, teamId, occurrenceAt = "", accountUserId = "", { explicit = false, continueWork = false, handoffId, checkpoints } = {}) => {
       const teamWorkItem = kind === "work_item";
+      if (teamWorkItem) id = workItemLineage(this.database, id)[0].id;
       const ownerScope = this.claimScope(teamId, accountUserId);
       const scope = ownerScope ?? (teamWorkItem ? this.teamConnection(teamId, currentIdentity(this.database).userId) : null);
       if (!scope) return null;
       if (!scope.connectionId) return { local: true, accountUserId: "" };
+      const cached = teamWorkItem && owner(id);
+      if (cached?.state === 'owned') {
+        if (cached.machineId !== currentIdentity(this.database).deviceId) return null;
+        if (!this.accounts().some((account) => account.userId === cached.accountUserId && account.enabled)) return null;
+        return cached;
+      }
+      if (cached?.state === 'relinquishing' || teamWorkItem && !explicit) return null;
       const claimId = kind === "work_item" ? id : stableUuid(`${kind}:${id}:${occurrenceAt}`);
       const appProcessId = this.database.prepare(`SELECT a.process_id FROM app_process_owners a
         JOIN ${kind === 'work_item' ? 'work_items' : 'recurring_work'} w ON w.process_id=a.process_id WHERE w.id=?`).get(id)?.process_id;
@@ -509,7 +526,7 @@ export class ConnectedAccount {
         result = await this.request(`/api/execution-claims/${encodeURIComponent(claimId)}`, {
           method: "POST", organizationId: scope.organizationId,
           accountUserId: scope.accountUserId ?? accountUserId,
-          body: { teamId, machineId, machineName, permanent: kind !== "work_item", appProcessId, teamWorkItem }
+          body: { teamId, machineId, machineName, permanent: kind !== "work_item", appProcessId, teamWorkItem, continueWork, handoffId }
         });
       } catch (error) {
         if (teamWorkItem && error?.status === 409) return null;
@@ -523,46 +540,63 @@ export class ConnectedAccount {
         }).catch(() => undefined);
         return null;
       }
-      return result.acquired
+      const claim = result.acquired
         ? {
             claimId, teamId, machineId, organizationId: scope.organizationId,
             accountUserId: scope.accountUserId ?? accountUserId, token: result.token,
-            permanent: kind !== "work_item", appProcessId, teamWorkItem
+            permanent: kind !== "work_item", appProcessId, teamWorkItem, machineName,
+            ...(continueWork && checkpoints ? { continuation: checkpoints } : {})
           }
         : null;
-    };
-    const renew = async (claim) => {
-      if (claim.local) return claim;
-      const result = await this.request(`/api/execution-claims/${encodeURIComponent(claim.claimId)}`, {
-        method: "POST", organizationId: claim.organizationId, accountUserId: claim.accountUserId,
-        body: { teamId: claim.teamId, machineId: claim.machineId, token: claim.token,
-          appProcessId: claim.appProcessId, teamWorkItem: claim.teamWorkItem }
+      if (claim && teamWorkItem) transaction(this.database, () => {
+        this.database.prepare(`INSERT INTO bees_execution_owners VALUES (?,?,'owned')
+          ON CONFLICT(work_item_id) DO UPDATE SET claim_json=excluded.claim_json,state='owned'`).run(id, JSON.stringify(claim));
+        for (const entry of claim.continuation ?? []) this.database.prepare(`UPDATE work_items SET stage_id=?,
+          runtime_phase='ready',runtime_attempt=?,runtime_review_cycle=0,runtime_execution_id=NULL,runtime_error=NULL,
+          account_user_id=?,updated_at=? WHERE id=?`).run(entry.stageId,entry.attempt,claim.accountUserId,new Date().toISOString(),entry.workItemId);
       });
-      // an unreadable reply is not the server saying another device has it
-      if (typeof result.acquired !== "boolean") throw new Error("The Bees server gave no claim answer");
-      return result.acquired ? claim : null;
+      return claim;
     };
-    const release = async (claim) => {
+    const release = async (claim, checkpoints = []) => {
       if (claim?.local || claim?.permanent || !claim) return;
-      await this.request(`/api/execution-claims/${encodeURIComponent(claim.claimId)}`, {
+      const result = await this.request(`/api/execution-claims/${encodeURIComponent(claim.claimId)}`, {
         method: "DELETE", organizationId: claim.organizationId, accountUserId: claim.accountUserId,
         body: { teamId: claim.teamId, machineId: claim.machineId, token: claim.token,
-          appProcessId: claim.appProcessId, teamWorkItem: claim.teamWorkItem }
+          appProcessId: claim.appProcessId, teamWorkItem: claim.teamWorkItem, relinquish: true, checkpoints }
       });
+      if (!result.released) {
+        const execution = (await this.listProcessExecutions(claim.teamId, claim.claimId))[0];
+        // A lost release reply may be followed by a colleague claiming the run before our retry.
+        if (!execution || !execution.relinquishedAt && execution.machineId === claim.machineId && execution.userId === claim.accountUserId)
+          throw new Error('Only the owning user and machine can relinquish this work');
+      }
+      this.database.prepare("UPDATE bees_execution_owners SET state='released' WHERE work_item_id=?").run(claim.claimId);
+      await this.listProcessExecutions(claim.teamId, claim.claimId).catch(() => undefined);
     };
-    // push just this item so its creator claims it at once; a full sync gave a teammate's device time to start it first
-    const publish = async (workItemId) => {
+    // Delegated work inherits the run's ownership and needs no cloud round trip to start.
+    const publish = async (workItemId, { handoff = false, sharedQuestion = false } = {}) => {
+      if (!handoff && !sharedQuestion && owner(workItemId)?.state === 'owned') return;
       const item = this.database.prepare(`SELECT w.team_id AS teamId, i.account_user_id AS accountUserId FROM work_items i
         JOIN processes p ON p.id=i.process_id JOIN workspaces w ON w.id=p.workspace_id WHERE i.id=?`).get(workItemId);
       const scope = item && this.teamConnection(item.teamId, item.accountUserId || currentIdentity(this.database).userId);
       if (!scope) return;
+      const ids = new Set(handoff ? workRunItems(this.database, workItemId)
+        : sharedQuestion ? workItemLineage(this.database, workItemId).map(({ id }) => id) : [workItemId]);
       const records = teamRecords(this.database, scope.organizationId, scope.connectionId)
-        .filter(({ recordType, recordId }) => recordType === "team_work_item" && recordId === workItemId);
-      await this.request("/api/sync/push", {
-        method: "POST", organizationId: scope.organizationId, accountUserId: scope.accountUserId, body: { records }
-      }).catch((error) => this.logger.warn?.(`bees: could not publish ${workItemId}: ${error instanceof Error ? error.message : error}`));
+        .filter(({ recordType, recordId, payload }) => recordType === "team_work_item" && ids.has(recordId)
+          || handoff && recordType === 'team_run' && ids.has(payload.workItemId));
+      for (let offset = 0; offset < records.length; offset += 500) {
+        const result = await this.request("/api/sync/push", {
+          method: "POST", organizationId: scope.organizationId, accountUserId: scope.accountUserId,
+          body: { records: records.slice(offset, offset + 500), machineId: currentIdentity(this.database).deviceId }
+        });
+        if (result.rejected?.length) throw new Error(result.rejected[0].reason);
+      }
     };
-    return { acquire, renew, release, publish };
+    const relinquishing = (claim) => this.database.prepare(
+      "UPDATE bees_execution_owners SET state='relinquishing',claim_json=? WHERE work_item_id=? AND state<>'released'"
+    ).run(JSON.stringify(claim), claim.claimId);
+    return { acquire, release, publish, owner, relinquishing };
   }
 
   processQuestionAccount(teamId) {
@@ -583,17 +617,22 @@ export class ConnectedAccount {
     return questions;
   }
 
-  async listProcessExecutions(teamId) {
+  async listProcessExecutions(teamId, workItemId) {
     const account = this.processQuestionAccount(teamId);
     if (!account) return [];
-    const { executions } = await this.request(`/api/teams/${teamId}/process-executions`, account);
-    this.processExecutions.set(teamId, executions);
+    const { executions } = await this.request(`/api/teams/${teamId}/process-executions${workItemId ? `?workItemId=${encodeURIComponent(workItemId)}` : ''}`, account);
+    this.processExecutions.set(teamId, workItemId
+      ? [...(this.processExecutions.get(teamId) ?? []).filter((row) => row.workItemId !== workItemId), ...executions]
+      : executions);
     return executions;
   }
 
   async askProcessQuestion(teamId, input) {
-    const account = this.processQuestionAccount(teamId);
+    const claim = this.executionClaims().owner(input.workItemId);
+    const account = claim ? { organizationId: claim.organizationId, accountUserId: claim.accountUserId }
+      : this.processQuestionAccount(teamId);
     if (!account) throw new Error("Sign in to this team to ask a shared question");
+    await this.executionClaims().publish(input.workItemId, { sharedQuestion: true });
     const { question } = await this.request(`/api/teams/${teamId}/process-questions`, {
       ...account, method: "POST", body: { ...input, deviceId: currentIdentity(this.database).deviceId }
     });

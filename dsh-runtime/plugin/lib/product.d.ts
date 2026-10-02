@@ -3,7 +3,7 @@ export class BeesProduct {
   constructor(database: any, agents: any, processes: any, defaultWorkspace: string, services?: Record<string, any>);
   initialize(): Promise<void>;
   recoverRuns(): Promise<void>;
-  canStartItem(workItemId: string): Promise<{ ready: boolean; reason?: string }>;
+  canStartItem(workItemId: string, stageId?: string): Promise<{ ready: boolean; reason?: string }>;
   runProcessStage(stage: Record<string, any>, signal?: AbortSignal): Promise<any>;
   snapshot(): Promise<any>;
   references(query: string, workspaceId: string): Promise<any>;
@@ -20,5 +20,7 @@ export class BeesProduct {
   storeProposal(input: Record<string, any>): any;
   createSubitems(input: { parentId: string; executionId?: string; items: Array<{ title: string; description?: string; agentAssignmentId?: string }> }): Promise<any[]>;
   startWork(input: Record<string, any>): Promise<any>;
+  relinquishWork(workItemId: string): Promise<any>;
+  continueWork(workItemId: string): Promise<any>;
   command(input: Record<string, any>): Promise<any>;
 }

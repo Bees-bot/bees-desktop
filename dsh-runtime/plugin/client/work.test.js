@@ -8,7 +8,7 @@ import { build } from "esbuild";
 const require = createRequire(new URL("../../package.json", import.meta.url));
 const { outputFiles } = await build({
   stdin: {
-    contents: 'export { WorkItemDetails } from "./work.js"; export { SharedWorkContext, WorkDiscussion, ProcessMemoryPanel } from "./collaboration.js"; export { configureRuntime, NativeUi } from "./runtime.js";',
+    contents: 'export { WorkItemDetails, ExecutionControl } from "./work.js"; export { SharedWorkContext, WorkDiscussion, ProcessMemoryPanel } from "./collaboration.js"; export { configureRuntime, NativeUi } from "./runtime.js";',
     resolveDir: fileURLToPath(new URL(".", import.meta.url))
   },
   plugins: [{ name: "test-private-component", setup(builder) {
@@ -28,6 +28,20 @@ configureRuntime((name) => ["react", "react-dom"].includes(name) ? require(name)
   : name === "@deepseek-ai/dsh-client-ui-primitives" ? { MarkdownText: ({ text }) => text } : {});
 const { createElement } = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
+
+test('process control offers relinquishment only to the owner and continuation only after release', () => {
+  const render = (data) => renderToStaticMarkup(createElement(bundle.exports.ExecutionControl, { data,
+    item: { id: 'work' }, act() {} }));
+  const execution = { workItemId: 'work', machineName: 'Owner laptop' };
+  assert(render({ currentDeviceId:'owner', executionOwners:[{ workItemId:'work',machineId:'owner',state:'owned' }] }).includes('Relinquish control'));
+  const observing = render({ currentDeviceId:'other',processExecutions:[execution] });
+  assert(observing.includes('The owner must relinquish control') && !observing.includes('<button'));
+  assert(render({ processExecutions:[{ ...execution,relinquishedAt:'2026-10-02' }] }).includes('Continue on this machine'));
+  assert(render({ currentDeviceId:'owner',executionOwners:[{ workItemId:'work',machineId:'owner',state:'owned',continuing:true }] }).includes('Finish continuing'));
+  const recovery = { ...execution,machineId:'owner',userId:'owner-account',handoff:[] };
+  assert(render({ currentDeviceId:'owner',accounts:[{ userId:'owner-account',enabled:true }],processExecutions:[recovery] }).includes('Continue on this machine'));
+  assert(!render({ currentDeviceId:'other',accounts:[{ userId:'owner-account',enabled:true }],processExecutions:[recovery] }).includes('<button'));
+});
 
 test("pending questions, approvals and reviews follow history in the conversation, including delegated runs", () => {
   for (const kind of ["question", "approval", "work-review"]) for (const delegated of [false, true]) {

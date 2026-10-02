@@ -5,7 +5,7 @@ import {
   Client, Connection, WorkflowExecutionAlreadyStartedError, WorkflowFailedError, WorkflowNotFoundError
 } from "@temporalio/client";
 import { NativeConnection, Worker } from "@temporalio/worker";
-import { iso, message, transaction } from "./product-database.js";
+import { iso, message, transaction, workItemLineage, workRunItems } from "./product-database.js";
 import { step } from "./startup.js";
 
 export const PROCESS_TASK_QUEUE = "bees-processes-v1";
@@ -25,10 +25,13 @@ export class ProcessRuntime {
     this.workerFactory = options.workerFactory;
     this.claims = options.claims;
     this.abortAgent = options.abortAgent;
+    this.stopAgents = options.stopAgents;
     this.notify = options.notify ?? (() => {});
-    this.claimWatchers = new Map();
-    this.scheduledLeases = new Map();
-    this.startingItems = new Set();
+    this.workflows = new Map();
+    this.scheduledOwners = new Map();
+    this.startingItems = new Map();
+    this.recurringRevisions = new Map();
+    this.handoffs = new Map();
     this.needsRecovery = options.needsRecovery ?? (() => false);
     this.pendingInteraction = options.pendingInteraction ?? (() => null);
     this.canStart = options.canStart ?? (() => ({ ready: true }));
@@ -72,8 +75,9 @@ export class ProcessRuntime {
     const correction = item.parentId && item.attempt > 0 ? this.database.prepare(`
       SELECT metadata_json AS metadata FROM dsh_audit_events
       WHERE event_type = 'peer-work-correction' AND json_extract(metadata_json, '$.workItemId') = ?
+        AND json_extract(metadata_json, '$.attempt') = ?
       ORDER BY rowid DESC LIMIT 1
-    `).get(item.id) : null;
+    `).get(item.id, item.attempt) : null;
     const restart = this.database.prepare(`SELECT metadata_json AS metadata FROM dsh_audit_events
       WHERE event_type = 'work-restarted' AND json_extract(metadata_json, '$.workItemId') = ?
         AND json_extract(metadata_json, '$.attempt') = ? ORDER BY rowid DESC LIMIT 1`)
@@ -82,6 +86,7 @@ export class ProcessRuntime {
       workItemId: item.id, processId: item.processId, stageId: item.stageId,
       accountUserId: item.accountUserId ?? "", stages, maxAttempts: 3,
       parentReview: Boolean(item.parentId),
+      resumeAttempt: item.attempt || 1,
       // Its own field so runs already in flight replay on the path they started with.
       peerAssignment: Boolean(item.parentId),
       ...(restart ? { restart: JSON.parse(restart.metadata) }
@@ -122,6 +127,12 @@ export class ProcessRuntime {
       };
       const runDshStage = async (stage) => {
         const context = Context.current();
+        const item = this.item(stage.workItemId);
+        const migrated = item.executionId && !this.claims?.owner?.(item.id) &&
+          this.database.prepare("SELECT 1 FROM execution_links WHERE execution_id=?").get(item.executionId);
+        const ownership = this.claims ? await this.claims.acquire("work_item", item.id, item.teamId, "", item.accountUserId ?? "",
+          { explicit: Boolean(migrated) }) : { local: true };
+        if (!ownership) throw ApplicationFailure.nonRetryable("This machine does not own this process run", "OwnershipRequired");
         const heartbeat = setInterval(() => context.heartbeat(), 10_000);
         heartbeat.unref();
         try {
@@ -289,6 +300,10 @@ export class ProcessRuntime {
 
   async reconcileRecurring(recurringWorkId) {
     const eligible = new Set(this.executorAccounts(recurringWorkId));
+    const definition = this.recurring(recurringWorkId);
+    const revision = JSON.stringify([definition, [...eligible]]);
+    if (this.recurringRevisions.get(recurringWorkId) === revision)
+      return { nextRunAt: this.database.prepare('SELECT next_run_at AS nextRunAt FROM recurring_work WHERE id=?').get(recurringWorkId).nextRunAt };
     const existing = this.database.prepare(`
       SELECT account_user_id AS accountUserId, temporal_schedule_id AS temporalScheduleId
       FROM bees_recurring_executors WHERE recurring_work_id = ?
@@ -311,6 +326,7 @@ export class ProcessRuntime {
     for (const accountUserId of eligible)
       nextRuns.push(await this.ensureRecurringExecutor(recurringWorkId, accountUserId));
     this.refreshAggregateNextRun(recurringWorkId);
+    this.recurringRevisions.set(recurringWorkId, revision);
     return { nextRunAt: nextRuns.filter(Boolean).sort()[0] ?? null };
   }
 
@@ -372,29 +388,23 @@ export class ProcessRuntime {
       `).run(id, recurring.sourceWorkItemId);
       return this.input(id);
     });
-    // the server refuses a lease on a run it has not seen, and then the schedule stops holding the run
     await this.claims?.publish(work.workItemId);
-    // only the lease holder runs it; refused or unreachable, the run waits and a later sync starts it wherever the lease goes
-    const lease = await this.claims?.acquire("work_item", work.workItemId, recurring.teamId, "", accountUserId)
-      .catch(() => null);
-    if (lease === null) return null;
-    if (lease) this.scheduledLeases.set(work.workItemId, lease);
+    const owner = await this.claims?.acquire("work_item", work.workItemId, recurring.teamId, "", accountUserId, { explicit: true });
+    if (owner === null) return null;
+    if (owner) this.scheduledOwners.set(work.workItemId, owner);
     return work;
   }
 
   async close() {
     this.closing = true;
-    const claims = [...this.claimWatchers.values()];
-    this.claimWatchers.clear();
-    // let the leases lapse: a release ends the run on the server, and then no device may resume it
-    for (const watcher of claims) clearInterval(watcher.heartbeat);
+    this.workflows.clear();
     this.worker?.shutdown();
     await this.running;
     await this.workerConnection?.close();
     await this.connection?.close();
   }
 
-  async reconcile() {
+  async reconcileSchedules() {
     const schedules = this.database.prepare(
       "SELECT id FROM recurring_work ORDER BY created_at"
     ).all();
@@ -402,6 +412,10 @@ export class ProcessRuntime {
       await this.reconcileRecurring(id);
     }))) if (settled.status === "rejected")
       this.logger.warn?.(`bees: a recurring schedule failed to reconcile: ${message(settled.reason)}`);
+  }
+
+  async reconcile() {
+    await this.reconcileSchedules();
     const items = this.database.prepare(`
       SELECT w.id, w.runtime_phase AS phase, w.runtime_execution_id AS executionId,
              EXISTS (SELECT 1 FROM bees_stage_waits h WHERE h.work_item_id = w.id) AS humanWait
@@ -453,17 +467,15 @@ export class ProcessRuntime {
       .signal("stageChanged", executionId);
   }
 
-  async startItem(workItemId) {
+  async startItem(workItemId, options = {}) {
     const key = `work-item:${workItemId}`;
-    // reconcile and a user Start can both get past the watcher check while awaiting
-    if (this.claimWatchers.has(key) || this.startingItems.has(key))
-      return { automatic: true, workflowId: processWorkflowId(workItemId), claimed: true };
-    this.startingItems.add(key);
-    try { return await this.startItemOnce(workItemId); }
-    finally { this.startingItems.delete(key); }
+    if (this.startingItems.has(key)) return this.startingItems.get(key);
+    const starting = this.startItemOnce(workItemId, options).finally(() => this.startingItems.delete(key));
+    this.startingItems.set(key, starting);
+    return starting;
   }
 
-  async startItemOnce(workItemId) {
+  async startItemOnce(workItemId, options) {
     const input = this.input(workItemId);
     if (!this.isAutomatic(input.processId)) return { automatic: false };
     // only the device that parked a run holds its question, another would rerun the stage cold
@@ -476,18 +488,20 @@ export class ProcessRuntime {
       automatic: true, claimed: false, waitingFor: readiness?.reason ?? "This device is not ready"
     };
     const claimKey = `work-item:${workItemId}`;
-    if (this.claimWatchers.has(claimKey)) {
+    if (this.workflows.has(claimKey) && this.claims?.owner?.(workItemId)?.state !== 'relinquishing') {
       return { automatic: true, workflowId: processWorkflowId(workItemId), claimed: true };
     }
-    const scheduled = this.scheduledLeases.get(workItemId);
-    this.scheduledLeases.delete(workItemId);
-    // a parked lease may have lapsed while this waited, so confirm it is still ours before running
-    const claim = scheduled ? await this.claims.renew(scheduled) : (this.claims
+    const scheduled = this.scheduledOwners.get(workItemId);
+    this.scheduledOwners.delete(workItemId);
+    const migrated = !this.claims?.owner?.(workItemId) && this.database.prepare(
+      "SELECT 1 FROM execution_links WHERE work_item_id=? LIMIT 1").get(workItemId);
+    const claim = scheduled ?? (this.claims
       ? await this.claims.acquire(
-          "work_item", workItemId, this.item(workItemId).teamId, "", input.accountUserId ?? ""
+          "work_item", workItemId, this.item(workItemId).teamId, "", input.accountUserId ?? "",
+          { ...options, explicit: options.explicit || Boolean(migrated) }
         )
       : { local: true });
-    if (!claim) return { automatic: true, claimed: false };
+    if (!claim) return { automatic: true, claimed: false, waitingFor: "This process run stays on its owning machine until its owner relinquishes control" };
     let handle;
     try {
       handle = await this.client.workflow.start("processWorkflow", {
@@ -497,10 +511,9 @@ export class ProcessRuntime {
       });
     } catch (error) {
       if (!(error instanceof WorkflowExecutionAlreadyStartedError) && error?.name !== "WorkflowExecutionAlreadyStartedError") {
-        await this.claims?.release(claim).catch(() => undefined);
         // the scheduler's own wording ("Failed to start Workflow") names no next step for the person reading it
         const reason = String(error?.message ?? error);
-        this.project({ ...input, phase: "failed", error: `Bees could not start this work (${reason}). Try again, and reopen Bees if it keeps failing.` });
+        this.project({ ...input, attempt: input.resumeAttempt, phase: "failed", error: `Bees could not start this work (${reason}). Try again, and reopen Bees if it keeps failing.` });
         throw error;
       }
       handle = this.client.workflow.getHandle(processWorkflowId(workItemId));
@@ -510,7 +523,7 @@ export class ProcessRuntime {
       WHERE id = ? AND runtime_phase = 'ready'
     `).run(new Date().toISOString(), workItemId);
     this.notify({ type: "workflow-started", workItemId });
-    this.watchClaim(claimKey, claim, handle);
+    this.watchWorkflow(claimKey, handle);
     return { automatic: true, workflowId: processWorkflowId(workItemId), claimed: true };
   }
 
@@ -528,9 +541,9 @@ export class ProcessRuntime {
     const item = this.item(workItemId);
     if (!item.parentId || item.runtimePhase !== "completed" || item.archivedAt)
       throw new Error("Only completed delegated work can be corrected");
-    // The completed projection precedes Temporal closing the workflow and releasing its claim.
+    // The completed projection precedes Temporal closing the workflow.
     await this.client.workflow.getHandle(processWorkflowId(workItemId)).result();
-    await this.claimWatchers.get(`work-item:${workItemId}`)?.settled;
+    await this.workflows.get(`work-item:${workItemId}`)?.settled;
     signal?.throwIfAborted();
     const first = this.stages(item.processId).find(({ driver }) => ["agent", "discussion"].includes(driver));
     if (!first) throw new Error("Delegated work has no work stage");
@@ -579,7 +592,7 @@ export class ProcessRuntime {
       await handle.cancel();
     }
     await handle.result().catch((error) => { if (!(error instanceof WorkflowFailedError)) throw error; });
-    await this.claimWatchers.get(`work-item:${workItemId}`)?.settled;
+    await this.workflows.get(`work-item:${workItemId}`)?.settled;
     const first = this.stages(item.processId)[0];
     transaction(this.database, () => {
       const current = this.item(workItemId);
@@ -628,9 +641,9 @@ export class ProcessRuntime {
       if (replacementWorkItemId) {
         if (item.runtimePhase === "failed") await this.signal(workItemId, "cancel");
         else if (item.runtimePhase !== "cancelled") throw new Error("The failed child has already resumed");
-        // Failed workflows are still open, waiting for retry. Close them and release their claim.
+        // Failed workflows are still open, waiting for retry. Close them before replacing the work.
         await this.client.workflow.getHandle(processWorkflowId(workItemId)).result();
-        await this.claimWatchers.get(`work-item:${workItemId}`)?.settled;
+        await this.workflows.get(`work-item:${workItemId}`)?.settled;
         if (this.item(workItemId).runtimePhase !== "cancelled")
           throw new Error("The failed child has not finished cancellation");
       } else if (item.runtimePhase === "failed" && item.attempt === receipt.attempt) {
@@ -644,37 +657,65 @@ export class ProcessRuntime {
     return { id: workItemId, action: replacementWorkItemId ? "superseded" : "retry", replacementWorkItemId };
   }
 
-  watchClaim(key, claim, handle) {
-    if (claim.local || !this.claims || typeof handle?.result !== "function") return;
-    clearInterval(this.claimWatchers.get(key)?.heartbeat);
-    let renewing = false;
-    const heartbeat = setInterval(async () => {
-      if (renewing) return;
-      renewing = true;
-      try {
-        if (await this.claims.renew(claim)) return;
-        this.logger.warn?.(`bees: ${key} is claimed by another device, stopping it here`);
-        await handle.cancel();
-      } catch (error) {
-        // A 4xx is the server saying this claim is not ours any more, so the work must stop. Any
-        // other failure is our own connection: cancelling on that threw away a waiting run.
-        // 401, 408 and 429 are a sign-in blip or a busy server after a wake, not another owner.
-        if (error?.status >= 400 && error?.status < 500 && ![401, 408, 429].includes(error.status))
-          await handle.cancel().catch(() => undefined);
-        this.logger.warn?.(`bees: execution claim heartbeat failed: ${message(error)}`);
-      } finally { renewing = false; }
-    }, 20_000);
-    heartbeat.unref();
-    const watcher = { claim, heartbeat, settled: null };
-    this.claimWatchers.set(key, watcher);
-    watcher.settled = handle.result().catch(() => undefined).finally(async () => {
-      const current = this.claimWatchers.get(key);
-      if (current?.claim !== claim) return;
-      clearInterval(heartbeat);
-      await this.claims.release(claim).catch((error) =>
-        this.logger.warn?.(`bees: execution claim release failed: ${message(error)}`));
-      this.claimWatchers.delete(key);
+  watchWorkflow(key, handle) {
+    if (typeof handle?.result !== "function" || this.workflows.has(key)) return;
+    const watcher = { settled: null };
+    this.workflows.set(key, watcher);
+    watcher.settled = handle.result().catch(() => undefined).finally(() => {
+      if (this.workflows.get(key) === watcher) this.workflows.delete(key);
     });
+  }
+
+  relinquish(workItemId, saveCheckpoint) {
+    if (this.handoffs.has(workItemId)) return this.handoffs.get(workItemId);
+    const pending = this.relinquishOnce(workItemId, saveCheckpoint).finally(() => this.handoffs.delete(workItemId));
+    this.handoffs.set(workItemId, pending);
+    return pending;
+  }
+
+  async relinquishOnce(workItemId, saveCheckpoint) {
+    const root = workItemLineage(this.database, workItemId)[0];
+    if (root.id !== workItemId) throw new Error("Relinquish control from the parent process run");
+    const claim = this.claims?.owner(root.id);
+    if (!claim || !['owned','relinquishing'].includes(claim.state))
+      throw new Error("Only the owning user and machine can relinquish this process run");
+    this.claims.relinquishing(claim);
+    // Block new admissions before waiting for launches already in progress.
+    await Promise.all(workRunItems(this.database, root.id).map((id) => this.startingItems.get(`work-item:${id}`)));
+    const ids = workRunItems(this.database, root.id);
+    let checkpoints = claim.checkpoints ?? [];
+    for (const id of claim.checkpoints ? [] : ids) {
+      const item = this.item(id);
+      if (['completed','cancelled'].includes(item.runtimePhase)) continue;
+      const stages = this.stages(item.processId);
+      let stage = stages.find(({ id }) => id === item.stageId);
+      // Reviewer evidence is local; replay its producer using the saved outputs on the next machine.
+      if (stage?.driver === 'review') stage = stages.slice(0, stages.indexOf(stage)).findLast(({ driver }) => ['agent','discussion'].includes(driver));
+      if (!stage) throw new Error('This work has no resumable stage');
+      checkpoints.push({ workItemId: id, stageId: stage.id, attempt: Number(item.attempt) + 1 });
+    }
+    this.claims.relinquishing({ ...claim, checkpoints });
+    for (const id of ids) {
+      const item = this.item(id);
+      if (item.executionId) this.abortAgent?.(item.executionId);
+      const handle = this.client.workflow.getHandle(processWorkflowId(id));
+      try {
+        await handle.cancel();
+        await handle.result().catch((error) => { if (!(error instanceof WorkflowFailedError)) throw error; });
+      } catch (error) { if (!(error instanceof WorkflowNotFoundError)) throw error; }
+      await this.workflows.get(`work-item:${id}`)?.settled;
+    }
+    await this.stopAgents?.(ids);
+    checkpoints = checkpoints.filter(({ workItemId }) => this.item(workItemId).runtimePhase !== 'completed');
+    this.claims.relinquishing({ ...claim, checkpoints });
+    await saveCheckpoint(checkpoints);
+    await this.claims.publish(root.id, { handoff: true });
+    await this.claims.release(claim, checkpoints);
+    for (const checkpoint of checkpoints) this.database.prepare(`UPDATE work_items SET
+      stage_id=?,runtime_phase='paused',runtime_attempt=?,runtime_review_cycle=0,runtime_execution_id=NULL,
+      runtime_error=NULL,updated_at=? WHERE id=?`).run(checkpoint.stageId,checkpoint.attempt,iso(),checkpoint.workItemId);
+    this.notify({ type: 'execution-relinquished', workItemId: root.id });
+    return { id: root.id };
   }
 
   async signal(workItemId, type, message) {
@@ -690,13 +731,15 @@ export class ProcessRuntime {
     if (!allowed[type]?.includes(item.runtimePhase))
       throw new Error(`Cannot ${type} work while it is ${item.runtimePhase}`);
     if (type === "start") {
-      // a plan's items stay off the team until Start, and the server leases only an item it has seen
+      // Initial publication establishes the shared run before its owner starts it.
       await this.claims?.publish(workItemId);
-      const started = await this.startItem(workItemId);
+      const started = await this.startItem(workItemId, { explicit: true });
       // a device that can't run it leaves it ready, so say why instead of doing nothing
       if (started.waitingFor) throw new Error(`Can't start yet: ${started.waitingFor}`);
       return started;
     }
+    const ownership = this.claims ? await this.claims.acquire("work_item", workItemId, item.teamId, "", item.accountUserId ?? "") : { local: true };
+    if (!ownership) throw new Error("This process run is controlled on another machine");
     const handle = this.client.workflow.getHandle(processWorkflowId(workItemId));
     // a teammate's device ran this item, and only that device holds its workflow
     const elsewhere = (error) => {
@@ -790,11 +833,9 @@ export class ProcessRuntime {
           AND status IN ('running', 'waiting_for_input', 'waiting_for_approval')
       `).run(new Date().toISOString(), state.workItemId, state.executionId);
     });
-    // a scheduled run's first projection means its workflow exists, so its lease can be renewed from here on
-    const lease = this.scheduledLeases.get(state.workItemId);
-    if (lease) {
-      this.scheduledLeases.delete(state.workItemId);
-      this.watchClaim(`work-item:${state.workItemId}`, lease, this.client.workflow.getHandle(processWorkflowId(state.workItemId)));
+    if (this.scheduledOwners.has(state.workItemId)) {
+      this.scheduledOwners.delete(state.workItemId);
+      this.watchWorkflow(`work-item:${state.workItemId}`, this.client.workflow.getHandle(processWorkflowId(state.workItemId)));
     }
     this.notify({
       type: "work-item-changed", workItemId: state.workItemId,

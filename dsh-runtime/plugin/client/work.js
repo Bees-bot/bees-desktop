@@ -395,6 +395,7 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
       h("span", { className: `bees-detail-badge ${item.runtimePhase || "default"}` }, item.runtimePhase?.replaceAll("_", " ") || "pending"),
       h("span", { style: { flex: 1 } }),
       h("div", { className: "bees-tab-actions" },
+        !plan && !item.parentId && !isScheduleDefinition(item) ? h(ExecutionControl, { data, item, act }) : null,
         schedulable && item.runtimePhase === "ready" && !isScheduleDefinition(item) ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "start_item", itemId: item.id }) }, "Start") : null,
         run && !elsewhere && item.runtimePhase === "paused" ? h("button", { className: "bees-btn-primary", onClick: () => act({ action: "resume_item", itemId: item.id }) }, "Resume") : null,
         run && !elsewhere && !plan && item.runtimePhase === "running" ? h("button", { className: "bees-btn-secondary", onClick: () => act({ action: "pause_item", itemId: item.id }) }, "Pause") : null,
@@ -568,6 +569,36 @@ function WorkItemDetails({ ctx, data, item, teamId, act, capabilities, onOpenWor
       }
     })
   );
+}
+
+export function ExecutionControl({ data, item, act }) {
+  const local = (data.executionOwners ?? []).find((row) => row.workItemId === item.id);
+  const listed = (data.processExecutions ?? []).find((row) => row.workItemId === item.id);
+  const [older, setOlder] = useState(null);
+  useEffect(() => {
+    if (listed || local && local.state !== 'released') return;
+    const abort = new AbortController();
+    request('/bees-api/command', { method:'POST', signal:abort.signal,
+      body:JSON.stringify({ action:'read_execution_owner',itemId:item.id }) })
+      .then(({ execution }) => { if (!abort.signal.aborted) setOlder(execution); }).catch(() => {});
+    return () => abort.abort();
+  }, [item.id, Boolean(listed), local?.state]);
+  const execution = listed ?? (older?.workItemId === item.id ? older : null);
+  if (local && local.state !== 'released' && local.machineId === data.currentDeviceId) return h('span', null,
+    local.continuing ? h(Button, { onClick: () => act({ action: 'continue_item', itemId: item.id }) }, 'Finish continuing') : null,
+    h(Button, {
+    onClick: async () => {
+      if (local.state !== 'relinquishing' && !await confirmAction('Stop this process run and its delegated work, save its checkpoint beside the run files, and relinquish control? Another user can then continue on their machine. The unfinished stage will restart using the saved files.')) return;
+      return act({ action: 'relinquish_item', itemId: item.id });
+    }
+  }, local.state === 'relinquishing' ? 'Finish relinquishing control' : 'Relinquish control'));
+  const recovering = execution?.handoff && execution.machineId === data.currentDeviceId &&
+    (data.accounts ?? []).some((account) => account.userId === execution.userId && account.enabled);
+  if (execution?.relinquishedAt || recovering) return h(Button, { className: 'primary',
+    onClick: () => act({ action: 'continue_item', itemId: item.id })
+  }, 'Continue on this machine');
+  if (execution) return h('span', { className: 'bees-muted' }, `Controlled on ${execution.machineName}. The owner must relinquish control before you can continue.`);
+  return null;
 }
 
 function RunTraces({ run }) {
