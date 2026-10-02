@@ -1091,6 +1091,31 @@ export function initializeProductDatabase(database) {
     }
     database.exec("PRAGMA user_version = 38");
   });
+  // An unpinned add-on fetched whatever was newest at each start, so a bad release broke runs overnight.
+  // Only the exact spec Bees shipped moves; an argument the person changed stays as they left it.
+  if (version < 39) transaction(database, () => {
+    const pinned = {
+      "@modelcontextprotocol/server-filesystem": "@modelcontextprotocol/server-filesystem@2026.8.31",
+      "@modelcontextprotocol/server-memory": "@modelcontextprotocol/server-memory@2026.8.31",
+      "@modelcontextprotocol/server-sequential-thinking": "@modelcontextprotocol/server-sequential-thinking@2026.8.31",
+      "mcp-server-git": "mcp-server-git==2026.8.18",
+      "mcp-server-fetch": "mcp-server-fetch==2026.8.18",
+      "mcp-server-time": "mcp-server-time==2026.8.18",
+      "@playwright/mcp@latest": "@playwright/mcp@0.0.83",
+      "@upstash/context7-mcp": "@upstash/context7-mcp@4.1.1",
+      "firecrawl-mcp": "firecrawl-mcp@3.27.2",
+      "chrome-devtools-mcp@latest": "chrome-devtools-mcp@1.10.1"
+    };
+    for (const row of database.prepare("SELECT id, args_json AS args FROM mcp_servers WHERE catalog_id != ''").all()) {
+      let args;
+      try { args = JSON.parse(row.args); } catch { continue; }
+      if (!Array.isArray(args)) continue;
+      const next = args.map((arg) => typeof arg === "string" && Object.hasOwn(pinned, arg) ? pinned[arg] : arg);
+      if (next.some((arg, index) => arg !== args[index]))
+        database.prepare("UPDATE mcp_servers SET args_json = ? WHERE id = ?").run(JSON.stringify(next), row.id);
+    }
+    database.exec("PRAGMA user_version = 39");
+  });
   // every stored folder is read against the root this computer keeps for that workspace
   refreshFolderRoots(database);
   database.function("resolved", (path, workspaceId) => path && resolveStored(workspaceId, path));

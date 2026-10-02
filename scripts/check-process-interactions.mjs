@@ -58,7 +58,7 @@ For a substantial independent assignment, use bees_delegate_work with an agentAs
   assert.deepEqual(executives().find(({ id }) => id === "custom-cfo"), priorAgents.find(({ id }) => id === "custom-cfo"));
   assert.equal(executives().find(({ name }) => name === "COO").instructions, EXECUTIVE_AGENTS.find(({ name }) => name === "COO").instructions);
   assert.equal(executives().length, 6, "reuse an existing role even with different letter case");
-  assert.equal(agentDatabase.prepare("PRAGMA user_version").get().user_version, 38);
+  assert.equal(agentDatabase.prepare("PRAGMA user_version").get().user_version, 39);
   const migratedAgents = executives();
   initializeProductDatabase(agentDatabase);
   assert.deepEqual(executives(), migratedAgents, "restarting must not rewrite or duplicate agents");

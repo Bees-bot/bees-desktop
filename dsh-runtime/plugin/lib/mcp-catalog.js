@@ -19,7 +19,7 @@ const ENTRIES = [
     access: "Full read and write inside the folder you pick, and nowhere else. No network.",
     transport: "stdio",
     command: "npx",
-    args: ["-y", "@modelcontextprotocol/server-filesystem"],
+    args: ["-y", "@modelcontextprotocol/server-filesystem@2026.8.31"],
     // The folder is the last argument, so a picked path appends cleanly.
     requiresDirectory: true,
     directoryLabel: "Folder this server may read and write",
@@ -36,7 +36,7 @@ const ENTRIES = [
     access: "Writes one local memory file. No network, no access to your other files.",
     transport: "stdio",
     command: "npx",
-    args: ["-y", "@modelcontextprotocol/server-memory"],
+    args: ["-y", "@modelcontextprotocol/server-memory@2026.8.31"],
     env: [],
     headers: []
   },
@@ -50,7 +50,7 @@ const ENTRIES = [
     access: "Nothing outside the conversation. No files, no network.",
     transport: "stdio",
     command: "npx",
-    args: ["-y", "@modelcontextprotocol/server-sequential-thinking"],
+    args: ["-y", "@modelcontextprotocol/server-sequential-thinking@2026.8.31"],
     env: [],
     headers: []
   },
@@ -64,7 +64,7 @@ const ENTRIES = [
     access: "Reads and commits in the repository you pick. Never pushes. No network.",
     transport: "stdio",
     command: "uvx",
-    args: ["mcp-server-git", "--repository"],
+    args: ["mcp-server-git==2026.8.18", "--repository"],
     requiresDirectory: true,
     directoryLabel: "Repository folder",
     prerequisite: "Needs the uv toolchain (uvx) on this machine.",
@@ -81,7 +81,7 @@ const ENTRIES = [
     access: "Outbound requests to any address the agent chooses, including your local network.",
     transport: "stdio",
     command: "uvx",
-    args: ["mcp-server-fetch"],
+    args: ["mcp-server-fetch==2026.8.18"],
     prerequisite: "Needs the uv toolchain (uvx) on this machine.",
     env: [],
     headers: []
@@ -96,7 +96,7 @@ const ENTRIES = [
     access: "Nothing outside the conversation. No files, no network.",
     transport: "stdio",
     command: "uvx",
-    args: ["mcp-server-time"],
+    args: ["mcp-server-time==2026.8.18"],
     prerequisite: "Needs the uv toolchain (uvx) on this machine.",
     env: [],
     headers: []
@@ -114,7 +114,7 @@ const ENTRIES = [
     command: "npx",
     // One headless server per run: a shared profile is what let runs read each other's pages. The
     // only window a person sees is the one Bees opens for a sign-in; the state file carries it across.
-    args: ["-y", "@playwright/mcp@latest", "--headless", "--isolated", "--storage-state", "{browserState}"],
+    args: ["-y", "@playwright/mcp@0.0.83", "--headless", "--isolated", "--storage-state", "{browserState}"],
     env: [],
     headers: []
   },
@@ -128,7 +128,7 @@ const ENTRIES = [
     access: "Sends the library name and your question to Upstash's service over the internet.",
     transport: "stdio",
     command: "npx",
-    args: ["-y", "@upstash/context7-mcp"],
+    args: ["-y", "@upstash/context7-mcp@4.1.1"],
     env: [],
     headers: []
   },
@@ -222,7 +222,7 @@ const ENTRIES = [
     access: "Sends the pages you ask for to Firecrawl's service, billed against your API key.",
     transport: "stdio",
     command: "npx",
-    args: ["-y", "firecrawl-mcp"],
+    args: ["-y", "firecrawl-mcp@3.27.2"],
     env: [{
       name: "FIRECRAWL_API_KEY",
       label: "Firecrawl API key",
@@ -244,7 +244,7 @@ const ENTRIES = [
     // Attach to the window Bees opened, which is the person's own browser on a team that asked for it.
     // Left to itself this server starts one with --enable-automation and a mock keychain, and Google
     // refuses every sign-in in that one.
-    args: ["-y", "chrome-devtools-mcp@latest", "--browserUrl", "{browserUrl}"],
+    args: ["-y", "chrome-devtools-mcp@1.10.1", "--browserUrl", "{browserUrl}"],
     env: [],
     headers: []
   },

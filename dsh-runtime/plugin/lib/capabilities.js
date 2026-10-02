@@ -68,7 +68,7 @@ const FOLDER = "{folder}";
 const needsFolder = (catalogId) => Boolean(catalogEntry(catalogId)?.requiresDirectory);
 const argsFor = (server, mode = "own") => mode === "personal" && server.catalogId === "playwright"
   // the person's own browser, attached through the gate rather than a headless copy of their cookies
-  ? ["-y", "@playwright/mcp@latest", "--cdp-endpoint", placed("{browserUrl}", mode)]
+  ? [...server.args.slice(0, 2), "--cdp-endpoint", placed("{browserUrl}", mode)]
   : server.args.map((arg) => arg === FOLDER ? serverFolder(server.id) || arg : placed(arg, mode));
 
 // the read fence skips add-on tools, so a folder holding keys or logins would hand them over
