@@ -443,12 +443,8 @@ function isMachO(path) {
   }
 }
 
-// The bundled runtime ships under the app's Resources with its own native addons and CLIs.
-// The bundler signs MacOS, Frameworks, Plugins and the sidecar binaries, not Resources, so
-// without this pass the bundle carries ad-hoc signed code and Apple refuses the lot.
-// Every installer carried every system's native builds. Keep only what this target can load:
-// about 165 MB of the Mac download is Windows, Linux and Intel binaries nothing here runs.
-function pruneForeignBinaries(runtimeRoot) {
+// every installer carried every system's native builds plus test, type and build-only files. keep only what this target loads.
+function pruneRuntime(runtimeRoot) {
   const nodePlatform = [
     target.includes("apple-darwin") ? "darwin" : target.includes("windows") ? "win32" : "linux",
     target.startsWith("aarch64") ? "arm64" : "x64"
@@ -464,16 +460,28 @@ function pruneForeignBinaries(runtimeRoot) {
   keepOnly(join(nodeModules, ...bridge), target);
   keepOnly(join(nodeModules, "node-pty", "prebuilds"), nodePlatform);
   if (!nodePlatform.startsWith("win32")) rmSync(join(nodeModules, "node-pty", "third_party", "conpty"), { recursive: true, force: true });
-  for (const entry of readdirSync(nodeModules))
-    if (entry.startsWith("tree-sitter")) keepOnly(join(nodeModules, entry, "prebuilds"), nodePlatform);
-  // npm also installs the arm, cuda and vulkan builds here; node-llama-cpp falls back to this cpu one
+  // qmd only loads each grammar's .wasm, the rest is native source and prebuilds
+  for (const entry of readdirSync(nodeModules).filter((entry) => entry.startsWith("tree-sitter")))
+    for (const file of readdirSync(join(nodeModules, entry)))
+      if (!/^(package\.json|LICENSE)$|\.wasm$/.test(file)) rmSync(join(nodeModules, entry, file), { recursive: true, force: true });
+  // npm installs every gpu and arch build here; keep the one node-llama-cpp picks first for this target
   const llama = nodePlatform.replace("darwin", "mac").replace("win32", "win") + (nodePlatform === "darwin-arm64" ? "-metal" : "");
   keepOnly(join(nodeModules, "@node-llama-cpp"), llama);
-  // musl builds never load on the glibc linux we target, and linuxdeploy stops looking for their libc
+  // build-only: a qmd peer nothing loads, and the sources the native addons were compiled from
+  for (const dir of ["typescript", "better-sqlite3/deps", "@temporalio/core-bridge/sdk-core"])
+    rmSync(join(nodeModules, dir), { recursive: true, force: true });
+  // musl never loads on our glibc linux and trips linuxdeploy; types and maps are unread except by temporal's bundler
   for (const entry of readdirSync(nodeModules, { recursive: true, withFileTypes: true }))
-    if (entry.isDirectory() && entry.name.includes("musl")) rmSync(join(entry.parentPath, entry.name), { recursive: true, force: true });
+    if (entry.isDirectory() ? entry.name.includes("musl") : /\.d\.[cm]?ts$|\.[cm]?[jt]s\.map$/.test(entry.name) && !/@temporalio|nexus-rpc/.test(entry.parentPath))
+      rmSync(join(entry.parentPath, entry.name), { recursive: true, force: true });
+  // tauri copies what each .bin link points at, and fails on links into a package removed above
+  const bin = join(nodeModules, ".bin");
+  for (const link of readdirSync(bin)) if (!existsSync(join(bin, link))) rmSync(join(bin, link), { force: true });
 }
 
+// The bundled runtime ships under the app's Resources with its own native addons and CLIs.
+// The bundler signs MacOS, Frameworks, Plugins and the sidecar binaries, not Resources, so
+// without this pass the bundle carries ad-hoc signed code and Apple refuses the lot.
 function signMacBundledRuntime(runtimeRoot) {
   // Reads 46k files, so only when there is a real identity to put on them: an ad-hoc pass
   // here buys nothing a local build needs, and notarization refuses ad-hoc code anyway.
@@ -582,6 +590,6 @@ rmSync(resolve(desktopRoot, "dsh-runtime", "node_modules", "@bees", "memory-runt
 
 // Pruning is in place, so a local cross-build would delete this machine's own native builds and
 // break its dev runs. Each runner builds its own target, so nothing ships unpruned.
-if (target === hostTarget) pruneForeignBinaries(resolve(desktopRoot, "dsh-runtime"));
+if (target === hostTarget) pruneRuntime(resolve(desktopRoot, "dsh-runtime"));
 
 signMacBundledRuntime(resolve(desktopRoot, "dsh-runtime"));
