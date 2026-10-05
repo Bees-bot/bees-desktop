@@ -9,7 +9,7 @@
         {
           "type": "application",
           "name": "npm",
-          "version": "11.3.0"
+          "version": "11.19.0"
         },
         {
           "type": "library",
@@ -103,7 +103,7 @@
       "properties": [
         {
           "name": "cdx:npm:package:constraint:engine:node",
-          "value": ">=24.0.0 <25.0.0"
+          "value": ">=24.7.0 <25.0.0"
         },
         {
           "name": "cdx:npm:package:path",
@@ -2917,40 +2917,6 @@
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/@deepseek-ai/dsh-client-store"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "dsh-client-test-runtime",
-      "group": "@deepseek-ai",
-      "version": "0.1.7-rc.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-client-test-runtime@0.1.7-rc.2",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40deepseek-ai/dsh-client-test-runtime@0.1.7-rc.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@deepseek-ai/dsh-client-test-runtime/-/dsh-client-test-runtime-0.1.7-rc.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "1ce82837ceb228c1874a9d0bdfcd6b864c629b8aa77c0a34be0cce46526c235ccc47e61a37b67acc69756c9a8a31168cacd0b00276b9b2bc7a08fb1a742a61c8"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@deepseek-ai/dsh-client-test-runtime"
         }
       ]
     },
@@ -6934,40 +6900,6 @@
     },
     {
       "type": "library",
-      "name": "dsh-loader-smoke",
-      "group": "@deepseek-ai",
-      "version": "0.1.7-rc.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-loader-smoke@0.1.7-rc.2",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40deepseek-ai/dsh-loader-smoke@0.1.7-rc.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@deepseek-ai/dsh-loader-smoke/-/dsh-loader-smoke-0.1.7-rc.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "8837abb34ccf98dcf96c15cb554471930eb2640148596b63a4e326c316c0af8fec1813030cd7f7981a7e68ef28a10b3d7a04aafa80378c057e491e592d38401d"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@deepseek-ai/dsh-loader-smoke"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "name": "dsh-lsp-stdio",
       "group": "@deepseek-ai",
       "version": "0.1.7-rc.2",
@@ -8527,40 +8459,6 @@
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/@deepseek-ai/dsh-session-reference"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "dsh-session-snapshot",
-      "group": "@deepseek-ai",
-      "version": "0.1.7-rc.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-session-snapshot@0.1.7-rc.2",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40deepseek-ai/dsh-session-snapshot@0.1.7-rc.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@deepseek-ai/dsh-session-snapshot/-/dsh-session-snapshot-0.1.7-rc.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "310e025240caa372c616f0145104bd20cbf3c39f714b15c817d16fe88d44f60516a0e135b61e6e56e9308a93777a71d86eb009ac87c5551f8b7af766f38b3b22"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@deepseek-ai/dsh-session-snapshot"
         }
       ]
     },
@@ -10776,75 +10674,6 @@
     },
     {
       "type": "library",
-      "name": "dsh-typert-generator",
-      "group": "@deepseek-ai",
-      "version": "0.1.7-rc.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-typert-generator@0.1.7-rc.2",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40deepseek-ai/dsh-typert-generator@0.1.7-rc.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@deepseek-ai/dsh-typert-generator/-/dsh-typert-generator-0.1.7-rc.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "6f76aad9093514c0cd5d95aae2c48b250b7ca049330c6f4da987c1b5679086d3657b8ac8944083032856db7fa3a243cfc70b5b1172b5e0c2cfd7d204236e5fc8"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@deepseek-ai/dsh-typert-generator"
-        }
-      ],
-      "components": [
-        {
-          "type": "library",
-          "name": "typescript",
-          "version": "6.0.3",
-          "bom-ref": "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-typert-generator@0.1.7-rc.2|typescript@6.0.3",
-          "licenses": [
-            {
-              "license": {
-                "id": "Apache-2.0"
-              }
-            }
-          ],
-          "purl": "pkg:npm/typescript@6.0.3",
-          "externalReferences": [
-            {
-              "url": "https://registry.npmjs.org/typescript/-/typescript-6.0.3.tgz",
-              "type": "distribution",
-              "hashes": [
-                {
-                  "alg": "SHA-512",
-                  "content": "cb64efbb14993c3c906a490544f6472859be28a56a222b1d83dfc26709bd7edbca5cb3fc3515a3dfcfce0e335baf8dd2b285ea36e022b047f519d0b1a9671d07"
-                }
-              ],
-              "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-            }
-          ],
-          "properties": [
-            {
-              "name": "cdx:npm:package:path",
-              "value": "node_modules/@deepseek-ai/dsh-typert-generator/node_modules/typescript"
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "type": "library",
       "name": "dsh-typert-loader",
       "group": "@deepseek-ai",
       "version": "0.1.7-rc.2",
@@ -12250,916 +12079,6 @@
     },
     {
       "type": "library",
-      "name": "aix-ppc64",
-      "group": "@esbuild",
-      "version": "0.28.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@esbuild/aix-ppc64@0.28.2",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40esbuild/aix-ppc64@0.28.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@esbuild/aix-ppc64/-/aix-ppc64-0.28.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "5c4c5c3be76f2cabd5b4d4e26d24c17a3d4d0806da1a15a7f56c3564fc7cd2ab1a8613c57bff238163f421c84d7b41771f0914ee7f1e8e11fc6e3a27aa1b7c99"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@esbuild/aix-ppc64"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "android-arm",
-      "group": "@esbuild",
-      "version": "0.28.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@esbuild/android-arm@0.28.2",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40esbuild/android-arm@0.28.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@esbuild/android-arm/-/android-arm-0.28.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "9175e888f55519072721818e79aa2fc0e511a678830694aae00d37aa443e04c42ab461ba1d86a9df19def42d4ed72a384d1deac65097e48aaa997e9f168d8baa"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@esbuild/android-arm"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "android-arm64",
-      "group": "@esbuild",
-      "version": "0.28.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@esbuild/android-arm64@0.28.2",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40esbuild/android-arm64@0.28.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@esbuild/android-arm64/-/android-arm64-0.28.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "e587ca79e23ca967c16485febb6c590b76656f73acfe02d2dac6c428cf88e1939cb169874b658bcac09c4190c0151b250d45393a2ab8e207fa3d8375bc6c06e4"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@esbuild/android-arm64"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "android-x64",
-      "group": "@esbuild",
-      "version": "0.28.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@esbuild/android-x64@0.28.2",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40esbuild/android-x64@0.28.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@esbuild/android-x64/-/android-x64-0.28.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "3b7f3b8ad7bb4b353209ccb72505f83f86cbb4403b6cb2e4c7e7acbdee491e7c987cd4f1715a57668f6385d07495328de38833b442d3754ee74bc36bd7a16cd5"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@esbuild/android-x64"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "darwin-arm64",
-      "group": "@esbuild",
-      "version": "0.28.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@esbuild/darwin-arm64@0.28.2",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40esbuild/darwin-arm64@0.28.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@esbuild/darwin-arm64/-/darwin-arm64-0.28.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "9f82aa90e42badac4725c82333546fc1b8a07d028828956933bc69f8ab318b2512ad17485e7b7bdd586b3c0c747d5e388607e62152a3c4c37d275b798f249593"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@esbuild/darwin-arm64"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "darwin-x64",
-      "group": "@esbuild",
-      "version": "0.28.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@esbuild/darwin-x64@0.28.2",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40esbuild/darwin-x64@0.28.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@esbuild/darwin-x64/-/darwin-x64-0.28.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "baaeacb885983f7eeacc675d04a3f0e501103e2e8788b1ac3bb5269297f2698350dc3fab37ac3a59fc07fa7baa7065d6bdac06c31384ae83b86069c587de5acf"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@esbuild/darwin-x64"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "freebsd-arm64",
-      "group": "@esbuild",
-      "version": "0.28.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@esbuild/freebsd-arm64@0.28.2",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40esbuild/freebsd-arm64@0.28.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@esbuild/freebsd-arm64/-/freebsd-arm64-0.28.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "9fe234053491228cbe77a44f2a7115c2a979530049a25cadbd8e2600e204268aca96a80f208f22c7ab25555adf6794e78fb825219be5a3295b07f1093cc5845f"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@esbuild/freebsd-arm64"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "freebsd-x64",
-      "group": "@esbuild",
-      "version": "0.28.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@esbuild/freebsd-x64@0.28.2",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40esbuild/freebsd-x64@0.28.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@esbuild/freebsd-x64/-/freebsd-x64-0.28.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "efc5c94c992f3ecd24cf6c3ad77d353c98d797883bab726a898319fccff2548ef710706b0914e0921bbda2a1bbbcfaaaf9aff269d116f1a0fe6a02a5939c6b9a"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@esbuild/freebsd-x64"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "linux-arm",
-      "group": "@esbuild",
-      "version": "0.28.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@esbuild/linux-arm@0.28.2",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40esbuild/linux-arm@0.28.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@esbuild/linux-arm/-/linux-arm-0.28.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "5e50e7bb6ab9ca8a9e9acfb16b2eb0480720f430c3ecaf512ca64404e3199b7724369241bce5f6d2d49f6f2f0a7ebae120d0f2bfd57661564a63f4a9a06248f3"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@esbuild/linux-arm"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "linux-arm64",
-      "group": "@esbuild",
-      "version": "0.28.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@esbuild/linux-arm64@0.28.2",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40esbuild/linux-arm64@0.28.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@esbuild/linux-arm64/-/linux-arm64-0.28.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "a56e000b43f78adf1cedda3d315338a79d45cc7cdd33f4d9adeaeeae045c1c9d964dad55435088ab5f319dc7e9049c38a23922659aca5b6c8805604ff768fa52"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@esbuild/linux-arm64"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "linux-ia32",
-      "group": "@esbuild",
-      "version": "0.28.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@esbuild/linux-ia32@0.28.2",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40esbuild/linux-ia32@0.28.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@esbuild/linux-ia32/-/linux-ia32-0.28.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "0986e78fbf07b08780f8386050a80509fbcdb131c584c32b8a752b319a435c95ca37c4f75d589367ffb0b47795c44598f1ec12cd314dfa74664b03b6b5968b51"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@esbuild/linux-ia32"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "linux-loong64",
-      "group": "@esbuild",
-      "version": "0.28.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@esbuild/linux-loong64@0.28.2",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40esbuild/linux-loong64@0.28.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@esbuild/linux-loong64/-/linux-loong64-0.28.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "6eec2477c9eca61e11f9a8d1bf0d2a3391e36bf4d7428c37a6dcd63b611b1bf72a70890796846b76506d425b21c98193345bdf91f279b693cb5646380edb0f7d"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@esbuild/linux-loong64"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "linux-mips64el",
-      "group": "@esbuild",
-      "version": "0.28.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@esbuild/linux-mips64el@0.28.2",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40esbuild/linux-mips64el@0.28.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@esbuild/linux-mips64el/-/linux-mips64el-0.28.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "655ca46c3ca4ef9d7d57088d6fd2dc8fd9bc5cceafe55f6e28fbeb10c92411e7557b07fed22b6485a869e070e98044578702d1a56172a6c19b1bf27cb3442324"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@esbuild/linux-mips64el"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "linux-ppc64",
-      "group": "@esbuild",
-      "version": "0.28.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@esbuild/linux-ppc64@0.28.2",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40esbuild/linux-ppc64@0.28.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@esbuild/linux-ppc64/-/linux-ppc64-0.28.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "0805e5f83b5df5452e25df2928a77087a30b9b7314322a8c3e6859ded4d25cfa9fc90def0e5e91e6165d67f918a232b8a1f5ed75f4afd6d16af17cd6c7785e35"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@esbuild/linux-ppc64"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "linux-riscv64",
-      "group": "@esbuild",
-      "version": "0.28.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@esbuild/linux-riscv64@0.28.2",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40esbuild/linux-riscv64@0.28.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@esbuild/linux-riscv64/-/linux-riscv64-0.28.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "19e5c27a3e0842d53507e4250d5f16fd146f6f32373bf4adb2cfbf6c25efe25665b3958646dbb66bedc9900de2e2a21494c5e970779b5a917c024261013a30b8"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@esbuild/linux-riscv64"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "linux-s390x",
-      "group": "@esbuild",
-      "version": "0.28.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@esbuild/linux-s390x@0.28.2",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40esbuild/linux-s390x@0.28.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@esbuild/linux-s390x/-/linux-s390x-0.28.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "dc7d707936193f1b7f58e841caccd06726d2f70e652b3527d450ccb2010285b1d64301d841045f071802719bcf8631df2b22632227afbcc98451ac09add63d0e"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@esbuild/linux-s390x"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "linux-x64",
-      "group": "@esbuild",
-      "version": "0.28.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@esbuild/linux-x64@0.28.2",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40esbuild/linux-x64@0.28.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-0.28.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "e314d9af5154992a105b85c85a68addedcd0ad44d933e3773f45d5f3144e298179d177c8ef178ef74fb56d9bcdc3122e7d0f610d0551247e588603d517c03f1d"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@esbuild/linux-x64"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "netbsd-arm64",
-      "group": "@esbuild",
-      "version": "0.28.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@esbuild/netbsd-arm64@0.28.2",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40esbuild/netbsd-arm64@0.28.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@esbuild/netbsd-arm64/-/netbsd-arm64-0.28.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "b120134633de0c1837a5d807a107e8601a1bd752a4d4519af65ba2e51207642a029096bd40a96f977fef2b3daeb02998623b3bca6251ff6367b2a7be1e3b799f"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@esbuild/netbsd-arm64"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "netbsd-x64",
-      "group": "@esbuild",
-      "version": "0.28.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@esbuild/netbsd-x64@0.28.2",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40esbuild/netbsd-x64@0.28.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@esbuild/netbsd-x64/-/netbsd-x64-0.28.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "96a9f3095fa633480800368a8a188283a89f81f5362f7879137deb35004dd58e0c6951a7cebcb39afbdfed41f1a6ba50744f21a6a2e8949f5197e4a42110e9cb"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@esbuild/netbsd-x64"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "openbsd-arm64",
-      "group": "@esbuild",
-      "version": "0.28.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@esbuild/openbsd-arm64@0.28.2",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40esbuild/openbsd-arm64@0.28.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@esbuild/openbsd-arm64/-/openbsd-arm64-0.28.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "00bdaa2482c7ee5363ac3982403bddc4c7c0508bfc28c3593afaf0010f22f3ffe7b4bf457e584ec8c27c39948c05bf3f0165dedffe6fe52db4cb7cc2a1958aa1"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@esbuild/openbsd-arm64"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "openbsd-x64",
-      "group": "@esbuild",
-      "version": "0.28.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@esbuild/openbsd-x64@0.28.2",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40esbuild/openbsd-x64@0.28.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@esbuild/openbsd-x64/-/openbsd-x64-0.28.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "42d8ae3f2b5c851c82e2bc142a17b125d40abc3b99ea15a5a22de282a3d03542424b5feff4488edd44ce5d1e80dc5a0ca387e700a6d625da9a23084ece1f2a13"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@esbuild/openbsd-x64"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "openharmony-arm64",
-      "group": "@esbuild",
-      "version": "0.28.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@esbuild/openharmony-arm64@0.28.2",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40esbuild/openharmony-arm64@0.28.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@esbuild/openharmony-arm64/-/openharmony-arm64-0.28.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "5a48580e6a538cbbc6952700d6bc234549a197893ca174777086eda969842e053f7457871e51259710ef75670d255f6b6f309ec41e6fcfc82d35ec162e0093ed"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@esbuild/openharmony-arm64"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "sunos-x64",
-      "group": "@esbuild",
-      "version": "0.28.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@esbuild/sunos-x64@0.28.2",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40esbuild/sunos-x64@0.28.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@esbuild/sunos-x64/-/sunos-x64-0.28.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "18f3129133ad327bf653617c8317b8228eaa995b3e60aca9f37d84b6aab1af48459e0997437af3c32b5e966dc6227ed3e15be245495fdec3a004e89376f69fee"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@esbuild/sunos-x64"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "win32-arm64",
-      "group": "@esbuild",
-      "version": "0.28.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@esbuild/win32-arm64@0.28.2",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40esbuild/win32-arm64@0.28.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@esbuild/win32-arm64/-/win32-arm64-0.28.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "3c886112413db8f06579106b404269527ecc06789b6736c6cd858f998df1f98a1583ff79cdb8c1e02c4f3ce43c979b5860ce2631a0ad845f3fd4321f05043259"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@esbuild/win32-arm64"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "win32-ia32",
-      "group": "@esbuild",
-      "version": "0.28.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@esbuild/win32-ia32@0.28.2",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40esbuild/win32-ia32@0.28.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@esbuild/win32-ia32/-/win32-ia32-0.28.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "62625b7d396f53b49d9fd041fb83d1112e2807aa71812dfb30038d8fe841aff7295d2d5a04f297c4d9c36eef900963e3d28f5d832c5eabbf60e9ce4ff0a7ae60"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@esbuild/win32-ia32"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "win32-x64",
-      "group": "@esbuild",
-      "version": "0.28.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@esbuild/win32-x64@0.28.2",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40esbuild/win32-x64@0.28.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@esbuild/win32-x64/-/win32-x64-0.28.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "e5e6e9c6bde758cceb2ffae7508ef9e4992e79ed1b1cbfc6ab459317d96f729bfbdf0029e5ebbc31f0548162bd6e15af6638fbc97f1eb5fffcb48f0d7b2ebde6"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@esbuild/win32-x64"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "name": "regexpp",
       "group": "@eslint-community",
       "version": "4.12.2",
@@ -13264,8 +12183,8 @@
       "type": "library",
       "name": "grpc-js",
       "group": "@grpc",
-      "version": "1.14.4",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@grpc/grpc-js@1.14.4",
+      "version": "1.14.5",
+      "bom-ref": "@bees/dsh-runtime@0.1.0|@grpc/grpc-js@1.14.5",
       "licenses": [
         {
           "license": {
@@ -13273,15 +12192,15 @@
           }
         }
       ],
-      "purl": "pkg:npm/%40grpc/grpc-js@1.14.4",
+      "purl": "pkg:npm/%40grpc/grpc-js@1.14.5",
       "externalReferences": [
         {
-          "url": "https://registry.npmjs.org/@grpc/grpc-js/-/grpc-js-1.14.4.tgz",
+          "url": "https://registry.npmjs.org/@grpc/grpc-js/-/grpc-js-1.14.5.tgz",
           "type": "distribution",
           "hashes": [
             {
               "alg": "SHA-512",
-              "content": "93d0e3dc357f8ad2bd0f4e98f1fd7dd10828a7bfd48be0f49e3155dcb1cc3f03d3ef90e95cb428844f569b3d10125ac99f3b2307b28f5a22896ce97b20f0c0ad"
+              "content": "ed564cf9255d11c514a9241e348df333c42cfc18502999dd3e8da1e5591890033c233d302486bc98a5797a4406a86f1452c9e443434cc48c709081d8be3d2a3b"
             }
           ],
           "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
@@ -18233,40 +17152,6 @@
     },
     {
       "type": "library",
-      "name": "types",
-      "group": "@oxc-project",
-      "version": "0.149.0",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@oxc-project/types@0.149.0",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40oxc-project/types@0.149.0",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@oxc-project/types/-/types-0.149.0.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "11f71cfa21748f705febb62312a22a5976d7e5775d5e82bf330e0ad7f26e5f044267c375e9547b893db79e509cf57aef785561fc4e51aacd92b53d15f2ff4b74"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@oxc-project/types"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "name": "parseargs",
       "group": "@pkgjs",
       "version": "0.11.0",
@@ -18918,565 +17803,6 @@
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/@reflink/reflink"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "binding-android-arm-eabi",
-      "group": "@rolldown",
-      "version": "1.2.8",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-android-arm-eabi@1.2.8",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40rolldown/binding-android-arm-eabi@1.2.8",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@rolldown/binding-android-arm-eabi/-/binding-android-arm-eabi-1.2.8.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "b4de5aced624282b5ee22e5222baf3e722bf1cc8c4b82a8248225ae35f23395f2d675701637605da8b7107592d3f1cec2c0d41793ab06a92b46df8f136f1c957"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@rolldown/binding-android-arm-eabi"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "binding-android-arm64",
-      "group": "@rolldown",
-      "version": "1.2.8",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-android-arm64@1.2.8",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40rolldown/binding-android-arm64@1.2.8",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@rolldown/binding-android-arm64/-/binding-android-arm64-1.2.8.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "7486135a5f57a6b314890168739e4a53293fa12f122981f7cc59742d347b453d178f8860495cae25cae81fc254bbc45ca45f1f4c1e84d1a3b00a466860f70349"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@rolldown/binding-android-arm64"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "binding-darwin-arm64",
-      "group": "@rolldown",
-      "version": "1.2.8",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-darwin-arm64@1.2.8",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40rolldown/binding-darwin-arm64@1.2.8",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@rolldown/binding-darwin-arm64/-/binding-darwin-arm64-1.2.8.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "3c24834065c3d88c93105adc80fc8133c8c9b869ab6c232ea0839775b10655e9abb8a0025e82d026b6fe038e59d0be6dd5142475f269ac060f92291b87b77374"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@rolldown/binding-darwin-arm64"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "binding-darwin-x64",
-      "group": "@rolldown",
-      "version": "1.2.8",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-darwin-x64@1.2.8",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40rolldown/binding-darwin-x64@1.2.8",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@rolldown/binding-darwin-x64/-/binding-darwin-x64-1.2.8.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "524ee546c1a13c51d55ffb00502e83e47f4e977d1d14777a8aaba8925976b61dcba5d2771790b3401fbb0c79f4462da61be53b936cd788f1c3af065e9d787048"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@rolldown/binding-darwin-x64"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "binding-freebsd-x64",
-      "group": "@rolldown",
-      "version": "1.2.8",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-freebsd-x64@1.2.8",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40rolldown/binding-freebsd-x64@1.2.8",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@rolldown/binding-freebsd-x64/-/binding-freebsd-x64-1.2.8.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "0e3b33693115a203ea0396d8cec11ea83090c5b729d9f7b143029c46ca588e2db2cd1ebc7c27fe7b87f1ea4052443c17e7f6eb65a1f0fe1592f7e03ffbfc3db1"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@rolldown/binding-freebsd-x64"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "binding-linux-arm-gnueabihf",
-      "group": "@rolldown",
-      "version": "1.2.8",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-linux-arm-gnueabihf@1.2.8",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40rolldown/binding-linux-arm-gnueabihf@1.2.8",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@rolldown/binding-linux-arm-gnueabihf/-/binding-linux-arm-gnueabihf-1.2.8.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "ce6c1aec54e677307a69a104bae96cd7c1fa029e499893d2a0f4ee5e2c5e25957ab46e344b22e402942dcf583ca6d66d8842aa8fd38cd2834b3e1d4082f137d5"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@rolldown/binding-linux-arm-gnueabihf"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "binding-linux-arm64-gnu",
-      "group": "@rolldown",
-      "version": "1.2.8",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-linux-arm64-gnu@1.2.8",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40rolldown/binding-linux-arm64-gnu@1.2.8",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@rolldown/binding-linux-arm64-gnu/-/binding-linux-arm64-gnu-1.2.8.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "29d6100cf1f02559db17075318c831b08f52a9b941973e924c633ec3559efdde41f0e59689d607d0cc2453fb80d703397c8a4ed8c90e5715eb373cee661c3d7b"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@rolldown/binding-linux-arm64-gnu"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "binding-linux-arm64-musl",
-      "group": "@rolldown",
-      "version": "1.2.8",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-linux-arm64-musl@1.2.8",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40rolldown/binding-linux-arm64-musl@1.2.8",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@rolldown/binding-linux-arm64-musl/-/binding-linux-arm64-musl-1.2.8.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "8c525389f1e734f63ecb33a835941f488cacad5c97cc440f84f9ce523983d5b7101871fab3b73c71588a59aafc62995022613937d251a8c08baccd827713ab64"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@rolldown/binding-linux-arm64-musl"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "binding-linux-ppc64-gnu",
-      "group": "@rolldown",
-      "version": "1.2.8",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-linux-ppc64-gnu@1.2.8",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40rolldown/binding-linux-ppc64-gnu@1.2.8",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@rolldown/binding-linux-ppc64-gnu/-/binding-linux-ppc64-gnu-1.2.8.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "16188ece204358f0636dc991cdf2f22099da3fb0153055d3ed80973e35f18fbc0a537bf1db8463ac234dff38ef55af8ddaf5681c9c02a1406fb2b37f0c6df320"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@rolldown/binding-linux-ppc64-gnu"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "binding-linux-s390x-gnu",
-      "group": "@rolldown",
-      "version": "1.2.8",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-linux-s390x-gnu@1.2.8",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40rolldown/binding-linux-s390x-gnu@1.2.8",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@rolldown/binding-linux-s390x-gnu/-/binding-linux-s390x-gnu-1.2.8.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "5a71df003333395d98e79c25c75873cd09daaffc03b7f55dbd6483f7daf5f0ccfdca536278818e911c77515db587b9bf789be3c9260990edba56f18d164c2c21"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@rolldown/binding-linux-s390x-gnu"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "binding-linux-x64-gnu",
-      "group": "@rolldown",
-      "version": "1.2.8",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-linux-x64-gnu@1.2.8",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40rolldown/binding-linux-x64-gnu@1.2.8",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@rolldown/binding-linux-x64-gnu/-/binding-linux-x64-gnu-1.2.8.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "1fdb51af989b7d71552f16cf3ac7957b07b0169976f33704763443b7615351953ba1dc4fd2012fd648b8fe41a67063a1efca11c19bae4259462d9f734c9a7ce2"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@rolldown/binding-linux-x64-gnu"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "binding-linux-x64-musl",
-      "group": "@rolldown",
-      "version": "1.2.8",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-linux-x64-musl@1.2.8",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40rolldown/binding-linux-x64-musl@1.2.8",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@rolldown/binding-linux-x64-musl/-/binding-linux-x64-musl-1.2.8.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "51e7e2a9f3370fa21536567cb521acf7e1238ee7764fea313b4207003538e58fa5c848c3d9d545c991db91f5f42d46f966e828fe822fd5e08efca55886060960"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@rolldown/binding-linux-x64-musl"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "binding-openharmony-arm64",
-      "group": "@rolldown",
-      "version": "1.2.8",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-openharmony-arm64@1.2.8",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40rolldown/binding-openharmony-arm64@1.2.8",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@rolldown/binding-openharmony-arm64/-/binding-openharmony-arm64-1.2.8.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "eb7eca7b89164b2eaba7d73143d80c3979713e0230fdcd5b780495e0cfffdfef48e2ec0154e3a5ef81be7b7cf2537bb5f54ed191197f1ee7b08b167f67af918e"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@rolldown/binding-openharmony-arm64"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "binding-win32-arm64-msvc",
-      "group": "@rolldown",
-      "version": "1.2.8",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-win32-arm64-msvc@1.2.8",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40rolldown/binding-win32-arm64-msvc@1.2.8",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@rolldown/binding-win32-arm64-msvc/-/binding-win32-arm64-msvc-1.2.8.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "c560643ce17543d93f1afd674179d574bc4abbbe235e9a6e38ce19de69f2a55509249c0bb0c97b84d246440509a06f00e4c80e23500228cfb0045c522732b2e0"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@rolldown/binding-win32-arm64-msvc"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "binding-win32-x64-msvc",
-      "group": "@rolldown",
-      "version": "1.2.8",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-win32-x64-msvc@1.2.8",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40rolldown/binding-win32-x64-msvc@1.2.8",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@rolldown/binding-win32-x64-msvc/-/binding-win32-x64-msvc-1.2.8.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "bb3d99bdf8176f1a8dc228e38dbc6b9ef00bc29c8e0c37207354f537c377adffc35ca426685c260782d7e32ca3820a70376a1b7502dbdab822ad7e5f7c25989e"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@rolldown/binding-win32-x64-msvc"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "pluginutils",
-      "group": "@rolldown",
-      "version": "1.0.1",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@rolldown/pluginutils@1.0.1",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40rolldown/pluginutils@1.0.1",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@rolldown/pluginutils/-/pluginutils-1.0.1.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "da3f5b1ade4987c863faf3ed8333ed97bda3d324711c0cae9a8a3a4cd7c08ec2c1d3852da52bcf6cf703701331cfb9fef42601d1cd46c501716118368e29aa1b"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@rolldown/pluginutils"
         }
       ]
     },
@@ -20833,74 +19159,6 @@
     },
     {
       "type": "library",
-      "name": "dom",
-      "group": "@testing-library",
-      "version": "10.4.1",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@testing-library/dom@10.4.1",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40testing-library/dom@10.4.1",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@testing-library/dom/-/dom-10.4.1.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "a383d725089da8997cd9c90569751ea005be5f2b0f2dab98238dc06e48b984005df39de23218ada2873ace73a773381b4d89843fa53aff2d59c8a008b2f30a1a"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@testing-library/dom"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "react",
-      "group": "@testing-library",
-      "version": "16.3.3",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@testing-library/react@16.3.3",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40testing-library/react@16.3.3",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@testing-library/react/-/react-16.3.3.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "528d7ddcd8106cf333ea5aeb86d45040570c0ba45efc42cb15b6ee54bdf4583959c65a597fdfe53074c05713d12f0d6ad62bbd389991d5cd812e210d46cb5d06"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@testing-library/react"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "name": "content-disposition",
       "group": "@tinyhttp",
       "version": "2.2.4",
@@ -21173,108 +19431,6 @@
     },
     {
       "type": "library",
-      "name": "aria-query",
-      "group": "@types",
-      "version": "5.0.4",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@types/aria-query@5.0.4",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40types/aria-query@5.0.4",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@types/aria-query/-/aria-query-5.0.4.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "adf4fddee8f9b343d12fb13371c18cb376eba6585cae08670e8576e8da8a842012d61568f9674db0fbc4ff26fa8a57ebe618b630493a77911625329dc60f2357"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@types/aria-query"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "chai",
-      "group": "@types",
-      "version": "5.2.3",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@types/chai@5.2.3",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40types/chai@5.2.3",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@types/chai/-/chai-5.2.3.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "330e79f28780f5f15bbfae7fcb8987b570ecf5b3e714c6402ff8f174f154a4e1c72175fdd667201076d2e4b6a1afea7064547c03b19095e456788e9c1850b650"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@types/chai"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "deep-eql",
-      "group": "@types",
-      "version": "4.0.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@types/deep-eql@4.0.2",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40types/deep-eql@4.0.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@types/deep-eql/-/deep-eql-4.0.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "73d87d75554c8a030f7386f04ef0b9771aada8967040f78fb168cf96948e9e88dba2bea91aa764e78d657c0ec0a8542be6907505176ad23b98f5d6fcd41c3217"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@types/deep-eql"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "name": "estree",
       "group": "@types",
       "version": "1.0.9",
@@ -21406,244 +19562,6 @@
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/@types/retry"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "expect",
-      "group": "@vitest",
-      "version": "4.1.11",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@vitest/expect@4.1.11",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40vitest/expect@4.1.11",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@vitest/expect/-/expect-4.1.11.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "557db1e6f3495c44f8eca005cf011123e29132d4d30925937d230ab16ec9b14b17578a6cabef9edc3bd9a6e4c33a91dcc72b620ecea9da78556f6b550e289463"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@vitest/expect"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "mocker",
-      "group": "@vitest",
-      "version": "4.1.11",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@vitest/mocker@4.1.11",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40vitest/mocker@4.1.11",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@vitest/mocker/-/mocker-4.1.11.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "d972550f9e5dd68e40668bace42086292ef883fae23a3f68744b766d0a4255979b947c8776731e165e239745e3536d6cb5fe266e35247b0d9e5d066deb983909"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@vitest/mocker"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "pretty-format",
-      "group": "@vitest",
-      "version": "4.1.11",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@vitest/pretty-format@4.1.11",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40vitest/pretty-format@4.1.11",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@vitest/pretty-format/-/pretty-format-4.1.11.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "ca26733db1934bd4abfc9a4597ccc7adc2240287cd6c557a936d6f22040dfdc63fa3165e5e126fe6c73f3012798c5296996b3ea091f0d145cb66399ff77d7e57"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@vitest/pretty-format"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "runner",
-      "group": "@vitest",
-      "version": "4.1.11",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@vitest/runner@4.1.11",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40vitest/runner@4.1.11",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@vitest/runner/-/runner-4.1.11.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "2f3b6f52077030d24c2248f78509e7c620b65f2d73371abddbc5bfc618c22da342cea4d93ae763c1b41feaff489ed6463f0d77da2d8bab6ae04d16470f724737"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@vitest/runner"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "snapshot",
-      "group": "@vitest",
-      "version": "4.1.11",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@vitest/snapshot@4.1.11",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40vitest/snapshot@4.1.11",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@vitest/snapshot/-/snapshot-4.1.11.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "a4dee2927d4e37b87c79ee20200a78033c8afb306d24fcd56ea3a0bb92c2121e1568955b3d072061060920c1903d755e249ab57e77dace2b3b6b9a4534f6a1a2"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@vitest/snapshot"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "spy",
-      "group": "@vitest",
-      "version": "4.1.11",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@vitest/spy@4.1.11",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40vitest/spy@4.1.11",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@vitest/spy/-/spy-4.1.11.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "6a935afe9ad0cb6a827b2c219e2c4e1cf442806361be0ed3e036a97e5d466a12e9fd1fae8419b970fc85a0d572aac35dda1d672712fa06aa9d22388004beb460"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@vitest/spy"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "utils",
-      "group": "@vitest",
-      "version": "4.1.11",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|@vitest/utils@4.1.11",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/%40vitest/utils@4.1.11",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/@vitest/utils/-/utils-4.1.11.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "cd30951a9c85b0658186594ec8a953c3fbe7afa0fdab1b1f483c9f6f26664f28c7c3937f56ebf31e91e84239b6649ce7e11260c79c38afb5747abebd0a62e03d"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/@vitest/utils"
         }
       ]
     },
@@ -23146,72 +21064,6 @@
     },
     {
       "type": "library",
-      "name": "aria-query",
-      "version": "5.3.0",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|aria-query@5.3.0",
-      "licenses": [
-        {
-          "license": {
-            "id": "Apache-2.0"
-          }
-        }
-      ],
-      "purl": "pkg:npm/aria-query@5.3.0",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/aria-query/-/aria-query-5.3.0.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "6f43f4b193cab72bbc1e479101f0aad087d44592be4aec0c8d8d545c6054dbbc290224f0400225ab9e886c83becad93f2634b57cc475e1e7b958105f2a2e49e8"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/aria-query"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "assertion-error",
-      "version": "2.0.1",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|assertion-error@2.0.1",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/assertion-error@2.0.1",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/assertion-error/-/assertion-error-2.0.1.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "2338bc45071f7ea09e3558058a02a58b5b2c92521ba479c261ce809275c662807a82b26ac9e6f2ee3bf5d895108264c09c80e76dc935bb192c4f87733773d604"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/assertion-error"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "name": "async-retry",
       "version": "1.3.3",
       "bom-ref": "@bees/dsh-runtime@0.1.0|async-retry@1.3.3",
@@ -23611,8 +21463,8 @@
     {
       "type": "library",
       "name": "brace-expansion",
-      "version": "2.1.4",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|brace-expansion@2.1.4",
+      "version": "2.1.7",
+      "bom-ref": "@bees/dsh-runtime@0.1.0|brace-expansion@2.1.7",
       "licenses": [
         {
           "license": {
@@ -23620,15 +21472,15 @@
           }
         }
       ],
-      "purl": "pkg:npm/brace-expansion@2.1.4",
+      "purl": "pkg:npm/brace-expansion@2.1.7",
       "externalReferences": [
         {
-          "url": "https://registry.npmjs.org/brace-expansion/-/brace-expansion-2.1.4.tgz",
+          "url": "https://registry.npmjs.org/brace-expansion/-/brace-expansion-2.1.7.tgz",
           "type": "distribution",
           "hashes": [
             {
               "alg": "SHA-512",
-              "content": "8467d5ccfc6d85b7f7fb6ca383f441b3ad1c074161a814bfcef755ff8c27e3f0663746cd30c1cf73857f05b1627aa7f54ca0061801e76387928da8c29747f65e"
+              "content": "b996dec3536a7663c34cc27c6a1d72f9bfbd40426b7e45c593745c4d0c375f48d6ff1454bc52ac83509f41d49819d4db5d9584c6d53727771cc6d9dfc35162d2"
             }
           ],
           "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
@@ -24001,39 +21853,6 @@
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/caniuse-lite"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "chai",
-      "version": "6.2.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|chai@6.2.2",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/chai@6.2.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/chai/-/chai-6.2.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "3543d196e39f3a24ca04abd63ed483e0f845bd60aa3a2d01192b4d5ace7b5fd8eced7193a6b4a6168cf9174b56851e163e335e47d8d7a9d0bbfd4a522539e546"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/chai"
         }
       ]
     },
@@ -24802,39 +22621,6 @@
     },
     {
       "type": "library",
-      "name": "convert-source-map",
-      "version": "2.0.0",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|convert-source-map@2.0.0",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/convert-source-map@2.0.0",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/convert-source-map/-/convert-source-map-2.0.0.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "2afa78e7d1eb576144275080b22d4abbe318de46ac1f5f53172913cf6c5698c7aae9b936354dd75ef7c9f90eb59b4c64b56c2dfb51d261fdc966c4e6b3769126"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/convert-source-map"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "name": "cookie-signature",
       "version": "1.2.2",
       "bom-ref": "@bees/dsh-runtime@0.1.0|cookie-signature@1.2.2",
@@ -25264,39 +23050,6 @@
     },
     {
       "type": "library",
-      "name": "dequal",
-      "version": "2.0.3",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|dequal@2.0.3",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/dequal@2.0.3",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/dequal/-/dequal-2.0.3.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "d237bea8f28710ca21bdf453084a370ab3c6e9c033018826ccacb1462612483912e9e1897725499bb59a600e4409a003f702c1d93e0411eca603968555c61708"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/dequal"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "name": "destroy",
       "version": "1.2.0",
       "bom-ref": "@bees/dsh-runtime@0.1.0|destroy@1.2.0",
@@ -25424,39 +23177,6 @@
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/diff"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "dom-accessibility-api",
-      "version": "0.5.16",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|dom-accessibility-api@0.5.16",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/dom-accessibility-api@0.5.16",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/dom-accessibility-api/-/dom-accessibility-api-0.5.16.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "5fb049db2125b27389df4a59178b882037c1115805e17101c4bf41c61cba767ae6e61933aa6b161c64e21ea46221336133214bc808969dd2093fb675353b5e0e"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/dom-accessibility-api"
         }
       ]
     },
@@ -25924,39 +23644,6 @@
     },
     {
       "type": "library",
-      "name": "esbuild",
-      "version": "0.28.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|esbuild@0.28.2",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/esbuild@0.28.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/esbuild/-/esbuild-0.28.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "1ca54b4bc76f208fb1a0a5bd926ab16d12ab9d61177c926bfc56618499a2a880747b4e7740d605a8e068b9330efe4e6c203e0cbc28940afbfc6fd338877db020"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/esbuild"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "name": "escalade",
       "version": "3.2.0",
       "bom-ref": "@bees/dsh-runtime@0.1.0|escalade@3.2.0",
@@ -26152,39 +23839,6 @@
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/estraverse"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "estree-walker",
-      "version": "3.0.3",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|estree-walker@3.0.3",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/estree-walker@3.0.3",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/estree-walker/-/estree-walker-3.0.3.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "ed150a7d781230c933b7a66e5e6a9aa4ebab2c63cf7e08fa97db9167b9511a896f934cb6ca871cdf92dd731282e4f419767d8332a8a8010d8da1672b4ca9a6ea"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/estree-walker"
         }
       ]
     },
@@ -26487,39 +24141,6 @@
     },
     {
       "type": "library",
-      "name": "expect-type",
-      "version": "1.4.0",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|expect-type@1.4.0",
-      "licenses": [
-        {
-          "license": {
-            "id": "Apache-2.0"
-          }
-        }
-      ],
-      "purl": "pkg:npm/expect-type@1.4.0",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/expect-type/-/expect-type-1.4.0.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "29f61b9a9466d156cb8c4bd56bdc86c028bd188df8c6f8bb03f1d761640eeb90920f6bb731ccd4252bb05ca148c651ac801422cd5f6ae49f4d1e3e151b49fea4"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/expect-type"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "name": "express-rate-limit",
       "version": "8.6.1",
       "bom-ref": "@bees/dsh-runtime@0.1.0|express-rate-limit@8.6.1",
@@ -26719,8 +24340,8 @@
     {
       "type": "library",
       "name": "fast-uri",
-      "version": "3.1.7",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|fast-uri@3.1.7",
+      "version": "3.1.8",
+      "bom-ref": "@bees/dsh-runtime@0.1.0|fast-uri@3.1.8",
       "licenses": [
         {
           "license": {
@@ -26728,15 +24349,15 @@
           }
         }
       ],
-      "purl": "pkg:npm/fast-uri@3.1.7",
+      "purl": "pkg:npm/fast-uri@3.1.8",
       "externalReferences": [
         {
-          "url": "https://registry.npmjs.org/fast-uri/-/fast-uri-3.1.7.tgz",
+          "url": "https://registry.npmjs.org/fast-uri/-/fast-uri-3.1.8.tgz",
           "type": "distribution",
           "hashes": [
             {
               "alg": "SHA-512",
-              "content": "74ebd95738dd65dcfba6177dbfa8c26f0c6b056ddf2ba9fc45cd02b5d98ce1bba6ccc9f1cb005886ea61e89f35f51470fe4bbeacb6de9707ccba792dbb35551e"
+              "content": "19932d6544cd4693952040a85f02cd652e7150613e99535b4c1f21ffb4708764c559c05088fcd3832662d39045f543192a42c9bfc5c14494e553bce0f3e65f32"
             }
           ],
           "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
@@ -26779,39 +24400,6 @@
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/fastq"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "fdir",
-      "version": "6.5.0",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|fdir@6.5.0",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/fdir@6.5.0",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/fdir/-/fdir-6.5.0.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "b486d8b596ee70eb340511aa3c992c84951874bf920c7edd54cf208f2f84469dd60148cb105244fb4da46a7c87b708d63a7c2b298062c0098cd29e242c90275e"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/fdir"
         }
       ]
     },
@@ -27408,40 +24996,6 @@
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/fs-monkey"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "fsevents",
-      "version": "2.3.3",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|fsevents@2.3.3",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/fsevents@2.3.3",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/fsevents/-/fsevents-2.3.3.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "e71a037d7f9f2fb7da0139da82658fa5b16dc21fd1efb5a630caaa1c64bae42defbc1d181eb805f81d58999df8e35b4c8f99fade4d36d765cda09c339617df43"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/fsevents"
         }
       ]
     },
@@ -28638,8 +26192,8 @@
     {
       "type": "library",
       "name": "ip-address",
-      "version": "10.4.0",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|ip-address@10.4.0",
+      "version": "10.7.2",
+      "bom-ref": "@bees/dsh-runtime@0.1.0|ip-address@10.7.2",
       "licenses": [
         {
           "license": {
@@ -28647,15 +26201,15 @@
           }
         }
       ],
-      "purl": "pkg:npm/ip-address@10.4.0",
+      "purl": "pkg:npm/ip-address@10.7.2",
       "externalReferences": [
         {
-          "url": "https://registry.npmjs.org/ip-address/-/ip-address-10.4.0.tgz",
+          "url": "https://registry.npmjs.org/ip-address/-/ip-address-10.7.2.tgz",
           "type": "distribution",
           "hashes": [
             {
               "alg": "SHA-512",
-              "content": "a122bde86ae6dda3fa3ab4b6eb7c55c5b3431952fbaf306d61da46aa50c6f2241da1e9c3a13b3f9e4922f837e561b00413c5e5ea8e58c61c65acabc8de7a8a5d"
+              "content": "ec7ff68054888adc5cd211b79ce2358254bc40ba3f10704514b93cbc45235d8ff1bb401d2fc8d9f54d48cced8f526d1dd83fe87d070089f6f483a38192df14ef"
             }
           ],
           "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
@@ -30025,413 +27579,6 @@
     },
     {
       "type": "library",
-      "name": "lightningcss-android-arm64",
-      "version": "1.33.0",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|lightningcss-android-arm64@1.33.0",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MPL-2.0"
-          }
-        }
-      ],
-      "purl": "pkg:npm/lightningcss-android-arm64@1.33.0",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/lightningcss-android-arm64/-/lightningcss-android-arm64-1.33.0.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "804a514da94a768b29e016fca96b5cda23a013949e2079694b5ba9f5b16adb003262197551d4ce6d88877bdf3310cf5242f4a8a906752100f424da60dcc979a6"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/lightningcss-android-arm64"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "lightningcss-darwin-arm64",
-      "version": "1.33.0",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|lightningcss-darwin-arm64@1.33.0",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MPL-2.0"
-          }
-        }
-      ],
-      "purl": "pkg:npm/lightningcss-darwin-arm64@1.33.0",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/lightningcss-darwin-arm64/-/lightningcss-darwin-arm64-1.33.0.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "49c89acfc79e9cd4ca9fd6f7b7bfb1af48a94e9f58c4a418e27a704379ab46e2f404054704bc99c687e168a04056dce6b5167fcd3ca8d3fb68e01d6e586fc38e"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/lightningcss-darwin-arm64"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "lightningcss-darwin-x64",
-      "version": "1.33.0",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|lightningcss-darwin-x64@1.33.0",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MPL-2.0"
-          }
-        }
-      ],
-      "purl": "pkg:npm/lightningcss-darwin-x64@1.33.0",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/lightningcss-darwin-x64/-/lightningcss-darwin-x64-1.33.0.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "67950f031ceb8e558d3721b2ea2eb9709cf3be02790f74fac0cbecfa05a963d77ba9184036bc6a029e8b871220661584c35f117c94c6711c63b8b201afe9bc5d"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/lightningcss-darwin-x64"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "lightningcss-freebsd-x64",
-      "version": "1.33.0",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|lightningcss-freebsd-x64@1.33.0",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MPL-2.0"
-          }
-        }
-      ],
-      "purl": "pkg:npm/lightningcss-freebsd-x64@1.33.0",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/lightningcss-freebsd-x64/-/lightningcss-freebsd-x64-1.33.0.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "41033f4e2fe141a8c9c0263e4625ae099f6c76d23f5d093b9c32b9bc2f2491dc22c5ecce94382f0f1efe453f908cae857054f8329b2ea019c7228fcedd2b5146"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/lightningcss-freebsd-x64"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "lightningcss-linux-arm-gnueabihf",
-      "version": "1.33.0",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|lightningcss-linux-arm-gnueabihf@1.33.0",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MPL-2.0"
-          }
-        }
-      ],
-      "purl": "pkg:npm/lightningcss-linux-arm-gnueabihf@1.33.0",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/lightningcss-linux-arm-gnueabihf/-/lightningcss-linux-arm-gnueabihf-1.33.0.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "37b15505eea24b6e0c94ce91ff84414f11a14217991aceed890f54df652d17be4dccfe50ef158f46a2c108ac65450464deb6358c220f2f3c7b5b33a1b942112d"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/lightningcss-linux-arm-gnueabihf"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "lightningcss-linux-arm64-gnu",
-      "version": "1.33.0",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|lightningcss-linux-arm64-gnu@1.33.0",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MPL-2.0"
-          }
-        }
-      ],
-      "purl": "pkg:npm/lightningcss-linux-arm64-gnu@1.33.0",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/lightningcss-linux-arm64-gnu/-/lightningcss-linux-arm64-gnu-1.33.0.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "8f6bff8ad9b2e0794dc6573abe829762006a362d0d8362d2860e33ec6b9fa4482cd393fedacb815728bd23a607ab9ba8545c7d1138a7dde08484b5725c64272a"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/lightningcss-linux-arm64-gnu"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "lightningcss-linux-arm64-musl",
-      "version": "1.33.0",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|lightningcss-linux-arm64-musl@1.33.0",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MPL-2.0"
-          }
-        }
-      ],
-      "purl": "pkg:npm/lightningcss-linux-arm64-musl@1.33.0",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/lightningcss-linux-arm64-musl/-/lightningcss-linux-arm64-musl-1.33.0.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "ca23b944e32e6108176c2eb4ca3654e4261215918a5cbd071404d7b7d987267d7ecd6e79a02b4c23d35f7158582cc1432fb815ee804fa27fc498c3068363afb5"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/lightningcss-linux-arm64-musl"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "lightningcss-linux-x64-gnu",
-      "version": "1.33.0",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|lightningcss-linux-x64-gnu@1.33.0",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MPL-2.0"
-          }
-        }
-      ],
-      "purl": "pkg:npm/lightningcss-linux-x64-gnu@1.33.0",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/lightningcss-linux-x64-gnu/-/lightningcss-linux-x64-gnu-1.33.0.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "6abf89bbb2e670dd09a381692f88691726f0346f7fdc0fc1af9296da7da3c8e0e0dcc1195da0d800375e9a8352f810cd7cc80abf29492e3e12e6dc9101cb6e02"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/lightningcss-linux-x64-gnu"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "lightningcss-linux-x64-musl",
-      "version": "1.33.0",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|lightningcss-linux-x64-musl@1.33.0",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MPL-2.0"
-          }
-        }
-      ],
-      "purl": "pkg:npm/lightningcss-linux-x64-musl@1.33.0",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/lightningcss-linux-x64-musl/-/lightningcss-linux-x64-musl-1.33.0.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "4588986e4a24c34b6b7caaaacdf179e658229f010fac3dce2437d3b89cc5b3530aea21670de9dacf57ea2cbb57e084c6dce92d2505ce7936b0d5ac2b0409593f"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/lightningcss-linux-x64-musl"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "lightningcss-win32-arm64-msvc",
-      "version": "1.33.0",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|lightningcss-win32-arm64-msvc@1.33.0",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MPL-2.0"
-          }
-        }
-      ],
-      "purl": "pkg:npm/lightningcss-win32-arm64-msvc@1.33.0",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/lightningcss-win32-arm64-msvc/-/lightningcss-win32-arm64-msvc-1.33.0.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "d4af8c3df2d2155a69873a5d6df92195693ac01ad339b0734b64fa75bd743cd399811f46a15b005b3c0dcae8546186d3a76de3fb846b9dc7ee8d9e2e0335efc0"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/lightningcss-win32-arm64-msvc"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "lightningcss-win32-x64-msvc",
-      "version": "1.33.0",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|lightningcss-win32-x64-msvc@1.33.0",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MPL-2.0"
-          }
-        }
-      ],
-      "purl": "pkg:npm/lightningcss-win32-x64-msvc@1.33.0",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/lightningcss-win32-x64-msvc/-/lightningcss-win32-x64-msvc-1.33.0.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "3a5108083c7f5e5d05a92a786ebcbccc59c2bc6a628371a5e200aabaf6301eea892840b5fa7f4d8039e216fa871a632fd5992a0c9ac3a8a292ca44c35fe7a1b8"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/lightningcss-win32-x64-msvc"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "lightningcss",
-      "version": "1.33.0",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|lightningcss@1.33.0",
-      "licenses": [
-        {
-          "license": {
-            "id": "MPL-2.0"
-          }
-        }
-      ],
-      "purl": "pkg:npm/lightningcss@1.33.0",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/lightningcss/-/lightningcss-1.33.0.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "5a4503ae88ee26cd3192019fdae756c5adf21814713edc54901efd8ba68264b46073b3ccf1f65ef53a2c7cf0dcbc4a5065bb850129c762644b04b51b98b38820"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/lightningcss"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "name": "lodash.camelcase",
       "version": "4.3.0",
       "bom-ref": "@bees/dsh-runtime@0.1.0|lodash.camelcase@4.3.0",
@@ -30658,72 +27805,6 @@
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/lru-cache"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "lz-string",
-      "version": "1.5.0",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|lz-string@1.5.0",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/lz-string@1.5.0",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/lz-string/-/lz-string-1.5.0.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "8796e0256a7124db306d4eea0ab574b4829009a4b76e53c3aea296c7e431ceeccbd73194ce28fd5c258bad22ec24fbb9b7e79603fc9c7adcd800ee4838c71601"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/lz-string"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "magic-string",
-      "version": "0.30.21",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|magic-string@0.30.21",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/magic-string@0.30.21",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/magic-string/-/magic-string-0.30.21.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "bddd85e1853211728670b1e8abe4c4c828f1b9e49e1e7171cb28cda7cd328345d5e2f5219c37abfe5bef96a33f6ab0796d740de4adbfde88a7c82472c7c4f609"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/magic-string"
         }
       ]
     },
@@ -32425,39 +29506,6 @@
     },
     {
       "type": "library",
-      "name": "obug",
-      "version": "2.2.1",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|obug@2.2.1",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/obug@2.2.1",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/obug/-/obug-2.2.1.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "5ebb2b853e6cc9bb4a23ac1a92bd923ce9466565986d45d9edad234fcfd039e00f6aefb55ff6d27a035ee5847be6826611941b2a78a7822ae618e10908893ad5"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/obug"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "name": "officeparser",
       "version": "7.5.1",
       "bom-ref": "@bees/dsh-runtime@0.1.0|officeparser@7.5.1",
@@ -33186,39 +30234,6 @@
     },
     {
       "type": "library",
-      "name": "pathe",
-      "version": "2.0.3",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|pathe@2.0.3",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/pathe@2.0.3",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/pathe/-/pathe-2.0.3.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "5948c6700a8fd6041a72841ef8e049b0503b2dde03c97b9422367971cef970b1ef27b76d36c4ee8298712000f0b294be02b68051e3c22ab495b4f2c58ff17cf3"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/pathe"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "name": "pdfjs-dist",
       "version": "6.2.108",
       "bom-ref": "@bees/dsh-runtime@0.1.0|pdfjs-dist@6.2.108",
@@ -33351,74 +30366,6 @@
     },
     {
       "type": "library",
-      "name": "postcss",
-      "version": "8.5.28",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|postcss@8.5.28",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/postcss@8.5.28",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/postcss/-/postcss-8.5.28.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "451bb3a83b6de58f61deabb3e615a12be4cf9ec995b3a5b0494e8b90931e6381ecb54103b984c6f1425275ac0c4739b302d57e284a06f0ddd0836a8bcb9bccfc"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/postcss"
-        }
-      ],
-      "components": [
-        {
-          "type": "library",
-          "name": "nanoid",
-          "version": "3.3.19",
-          "bom-ref": "@bees/dsh-runtime@0.1.0|postcss@8.5.28|nanoid@3.3.19",
-          "licenses": [
-            {
-              "license": {
-                "id": "MIT"
-              }
-            }
-          ],
-          "purl": "pkg:npm/nanoid@3.3.19",
-          "externalReferences": [
-            {
-              "url": "https://registry.npmjs.org/nanoid/-/nanoid-3.3.19.tgz",
-              "type": "distribution",
-              "hashes": [
-                {
-                  "alg": "SHA-512",
-                  "content": "636b54372e28bb0eadab9a0348a7906063b286450184d39c195ff4d8a0beea477d7831aa75977efa68cc8880e296b058be3127098bd5b6cb870ae3fea2449fba"
-                }
-              ],
-              "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-            }
-          ],
-          "properties": [
-            {
-              "name": "cdx:npm:package:path",
-              "value": "node_modules/postcss/node_modules/nanoid"
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "type": "library",
       "name": "powershell-utils",
       "version": "0.2.1",
       "bom-ref": "@bees/dsh-runtime@0.1.0|powershell-utils@0.2.1",
@@ -33513,74 +30460,6 @@
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/pretty-bytes"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "pretty-format",
-      "version": "27.5.1",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|pretty-format@27.5.1",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/pretty-format@27.5.1",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/pretty-format/-/pretty-format-27.5.1.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "41bd60cb93ab3f9fb30dfd81be7cdd9778ec4dfd6a5d531acdbbc2a0a86d2aa56ce3f60ae28cd7e2029024957235ef9c6a334f9f42a80b4302dc552668758499"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/pretty-format"
-        }
-      ],
-      "components": [
-        {
-          "type": "library",
-          "name": "ansi-styles",
-          "version": "5.2.0",
-          "bom-ref": "@bees/dsh-runtime@0.1.0|pretty-format@27.5.1|ansi-styles@5.2.0",
-          "licenses": [
-            {
-              "license": {
-                "id": "MIT"
-              }
-            }
-          ],
-          "purl": "pkg:npm/ansi-styles@5.2.0",
-          "externalReferences": [
-            {
-              "url": "https://registry.npmjs.org/ansi-styles/-/ansi-styles-5.2.0.tgz",
-              "type": "distribution",
-              "hashes": [
-                {
-                  "alg": "SHA-512",
-                  "content": "0b1c29b7649f4f34ed5dc7ce97318479ef0ef9cf8c994806acd8817179ee5b1b852477ba6b91f3eeac21c1ee4e81a498234209be42ea597d40486f9c24e90488"
-                }
-              ],
-              "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-            }
-          ],
-          "properties": [
-            {
-              "name": "cdx:npm:package:path",
-              "value": "node_modules/pretty-format/node_modules/ansi-styles"
-            }
-          ]
         }
       ]
     },
@@ -34083,39 +30962,6 @@
     },
     {
       "type": "library",
-      "name": "react-is",
-      "version": "17.0.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|react-is@17.0.2",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/react-is@17.0.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/react-is/-/react-is-17.0.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "c361accae90beb62099e569f7ff9d17a03d047de02fd75da9af3169921d1278cbb4ecff8a1c1919931ef3acf0f484ea90777563ab0ff9ee7ae539b1db81b10e3"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/react-is"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "name": "react",
       "version": "18.3.1",
       "bom-ref": "@bees/dsh-runtime@0.1.0|react@18.3.1",
@@ -34542,39 +31388,6 @@
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/rimraf"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "rolldown",
-      "version": "1.2.8",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|rolldown@1.2.8",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/rolldown@1.2.8",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/rolldown/-/rolldown-1.2.8.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "67aee74e68597bb6a7aa733f123237f76c398bf00d5229e38a9ed062c3b2377ee86b276ec6dde4b1d5f485fe4e39a9a401de770622077db7d2cdf526cca150a9"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/rolldown"
         }
       ]
     },
@@ -35479,39 +32292,6 @@
     },
     {
       "type": "library",
-      "name": "siginfo",
-      "version": "2.0.0",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|siginfo@2.0.0",
-      "licenses": [
-        {
-          "license": {
-            "id": "ISC"
-          }
-        }
-      ],
-      "purl": "pkg:npm/siginfo@2.0.0",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/siginfo/-/siginfo-2.0.0.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "c9bc7458ed7ff1b4812c459766f11dee0316dd29f7245956dd3bd7d674446c32d135035a78d37c58ad26781c0f74068e23b4ed4514499ff12cd7386bac21eeee"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/siginfo"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "name": "signal-exit",
       "version": "3.0.7",
       "bom-ref": "@bees/dsh-runtime@0.1.0|signal-exit@3.0.7",
@@ -36183,39 +32963,6 @@
     },
     {
       "type": "library",
-      "name": "stackback",
-      "version": "0.0.2",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|stackback@0.0.2",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/stackback@0.0.2",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/stackback/-/stackback-0.0.2.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "d573091397d0a358c61fa63fede6e7c0f3811242049d3e10177d9de51d7e557757bde334201309b7ccdf6b15f53f7421570ad87bee7bebe8e400db524b69816f"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/stackback"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "name": "standardwebhooks",
       "version": "1.1.1",
       "bom-ref": "@bees/dsh-runtime@0.1.0|standardwebhooks@1.1.1",
@@ -36277,39 +33024,6 @@
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/statuses"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "std-env",
-      "version": "4.2.0",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|std-env@4.2.0",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/std-env@4.2.0",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/std-env/-/std-env-4.2.0.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "a0250a4aea4a4c75f9dc4ca30edb9943ae298cb27ac980ada66130d20a18c6d8c6f4aa5b45ef0a02c976b4150653d0f231c27447027c1aa2401733177175b547"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/std-env"
         }
       ]
     },
@@ -37313,138 +34027,6 @@
     },
     {
       "type": "library",
-      "name": "tinybench",
-      "version": "2.9.0",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|tinybench@2.9.0",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/tinybench@2.9.0",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/tinybench/-/tinybench-2.9.0.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "d3e0d4bea58c55a94b9a16ba96be240fc88030ad47cd5d3f68a9c2b566fdbfdeb8d539cffcc15becf7366f1a314234d7004aebc9756050e7efd98a8d965a867a"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/tinybench"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "tinyexec",
-      "version": "1.3.1",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|tinyexec@1.3.1",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/tinyexec@1.3.1",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/tinyexec/-/tinyexec-1.3.1.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "182bc1ddaa32b3de88b8314131c4c1e3a24e47a99d32d013a2ac225bc2655a1b288759a11e2ff19fdb2cfc383b379e791a227212ddaace81bf3470b033a87510"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/tinyexec"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "tinyglobby",
-      "version": "0.2.17",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|tinyglobby@0.2.17",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/tinyglobby@0.2.17",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/tinyglobby/-/tinyglobby-0.2.17.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "c1747f758a5ca8a99f5a911d66388a24ec023459dd0f40cc9eb5bf7188d51adb449017d581c2c51e836b963e3b9a339589cf72c8dbbae5a96c805e0d4324dada"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/tinyglobby"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "tinyrainbow",
-      "version": "3.1.1",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|tinyrainbow@3.1.1",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/tinyrainbow@3.1.1",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/tinyrainbow/-/tinyrainbow-3.1.1.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "c9abbcc89753b7df3d326d0177fdb7e909f31223dfdb12cb4ea51945424ea3fdc2074efc2d2c337a2df8dc382d25599f24a244dd3308358d6ee36490b0fea65f"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/tinyrainbow"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "name": "to-regex-range",
       "version": "5.0.1",
       "bom-ref": "@bees/dsh-runtime@0.1.0|to-regex-range@5.0.1",
@@ -38011,39 +34593,6 @@
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/tslib"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "tsx",
-      "version": "4.23.13",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|tsx@4.23.13",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/tsx@4.23.13",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/tsx/-/tsx-4.23.13.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "04be4c1a44659fa6836216f4c5b4251001b0ef8dc169961675b5ad749381ae26096e82a051460269d169dbf16904166ab810bf7b33419fbc0c30fc7b1436540f"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/tsx"
         }
       ]
     },
@@ -38770,72 +35319,6 @@
     },
     {
       "type": "library",
-      "name": "vite",
-      "version": "8.3.0",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|vite@8.3.0",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/vite@8.3.0",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/vite/-/vite-8.3.0.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "96164156f10779f804f874190bd3bb101260094fe757314d97bbe44b8444d003ed58b3f4dbff10548910b730713eaba1ee5ab9ffbf0d1e2a538fb38343a5eec9"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/vite"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "vitest",
-      "version": "4.1.11",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|vitest@4.1.11",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/vitest@4.1.11",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/vitest/-/vitest-4.1.11.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "7e1002acd5d489d21b19206be4595bb8190eed5582d59c8b9740cee025360eb42800fc57f3862cc6cf877864298a2e656565754388016534eee3d985f80e8477"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/vitest"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "name": "wasm-feature-detect",
       "version": "1.9.0",
       "bom-ref": "@bees/dsh-runtime@0.1.0|wasm-feature-detect@1.9.0",
@@ -39161,39 +35644,6 @@
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/which"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "why-is-node-running",
-      "version": "2.3.0",
-      "bom-ref": "@bees/dsh-runtime@0.1.0|why-is-node-running@2.3.0",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "purl": "pkg:npm/why-is-node-running@2.3.0",
-      "externalReferences": [
-        {
-          "url": "https://registry.npmjs.org/why-is-node-running/-/why-is-node-running-2.3.0.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "854ae669605d543731bd8aa7ca1d3dcee9cacd13968db65388dcbc741123912ede8440d089b5c9ed7be59ad6f0b9372552223237e0b25d00f8566928f1f366f3"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/why-is-node-running"
         }
       ]
     },
@@ -39774,7 +36224,6 @@
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-client-locale@0.1.7-rc.2",
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-client-modules@0.1.7-rc.2",
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-client-store@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-client-test-runtime@0.1.7-rc.2",
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-client-ui-agent-preset@0.1.7-rc.2",
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-client-ui-approval@0.1.7-rc.2",
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-client-ui-attachment@0.1.7-rc.2",
@@ -39863,7 +36312,6 @@
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-llm-replay@0.1.7-rc.2",
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-llm-retry@0.1.7-rc.2",
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-loader-smoke@0.1.7-rc.2",
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-lsp-stdio@0.1.7-rc.2",
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-lsp@0.1.7-rc.2",
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-mcp-client@0.1.7-rc.2",
@@ -39899,7 +36347,6 @@
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-session-query-sqlite@0.1.7-rc.2",
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-session-query@0.1.7-rc.2",
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-session-reference@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-session-snapshot@0.1.7-rc.2",
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-session-stats@0.1.7-rc.2",
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-session-telemetry-otel@0.1.7-rc.2",
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-session-telemetry@0.1.7-rc.2",
@@ -39960,7 +36407,6 @@
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-tool-web@0.1.7-rc.2",
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-tool-workflow@0.1.7-rc.2",
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-tools@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-typert-generator@0.1.7-rc.2",
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-typert-loader@0.1.7-rc.2",
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-typert-registry@0.1.7-rc.2",
@@ -39991,6 +36437,7 @@
         "@bees/dsh-runtime@0.1.0|@temporalio/workflow@1.22.0",
         "@bees/dsh-runtime@0.1.0|@tobilu/qmd@2.5.3",
         "@bees/dsh-runtime@0.1.0|better-sqlite3@12.10.0",
+        "@bees/dsh-runtime@0.1.0|cronstrue@3.24.0",
         "@bees/dsh-runtime@0.1.0|google-auth-library@10.5.0",
         "@bees/dsh-runtime@0.1.0|gridstack@13.2.0",
         "@bees/dsh-runtime@0.1.0|officeparser@7.5.1",
@@ -39998,6 +36445,7 @@
         "@bees/dsh-runtime@0.1.0|react-dom@18.3.1",
         "@bees/dsh-runtime@0.1.0|react@18.3.1",
         "@bees/dsh-runtime@0.1.0|typescript@5.9.3",
+        "@bees/dsh-runtime@0.1.0|ws@8.21.3",
         "@bees/dsh-runtime@0.1.0|yaml@2.9.0",
         "@bees/dsh-runtime@0.1.0|zod@4.6.2"
       ]
@@ -40328,6 +36776,7 @@
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/cordis@4.0.4",
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-agent-default-model@0.1.7-rc.2",
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-agent@0.1.7-rc.2",
+        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-atomic-write@0.1.7-rc.2",
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-credentials@0.1.7-rc.2",
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-experimental-agent-team@0.1.7-rc.2",
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-llm@0.1.7-rc.2",
@@ -40943,38 +37392,6 @@
       "ref": "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-client-store@0.1.7-rc.2",
       "dependsOn": [
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/cordis@4.0.4"
-      ]
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-client-test-runtime@0.1.7-rc.2",
-      "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/cordis-plugin-include@1.0.9",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/cordis-plugin-loader@1.0.5",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/cordis@4.0.4",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-api-gateway@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-api-session-controller@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-api-workspace-controller@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-attachment@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-client-connection@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-client-hmr@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-client-modules@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-client-store@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-client-ui-chat@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-client-ui-conversation@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-client-ui-renderer@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-client-ui-session@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-client-ui-settings@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-client-ui-slots@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-client-web@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-subagent@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@testing-library/dom@10.4.1",
-        "@bees/dsh-runtime@0.1.0|@testing-library/react@16.3.3",
-        "@bees/dsh-runtime@0.1.0|js-yaml@4.3.2",
-        "@bees/dsh-runtime@0.1.0|react-dom@18.3.1",
-        "@bees/dsh-runtime@0.1.0|react@18.3.1",
-        "@bees/dsh-runtime@0.1.0|vitest@4.1.11"
       ]
     },
     {
@@ -42015,18 +38432,6 @@
       ]
     },
     {
-      "ref": "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-loader-smoke@0.1.7-rc.2",
-      "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/cordis@4.0.4",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-http-proxy@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|execa@10.0.1",
-        "@bees/dsh-runtime@0.1.0|tsx@4.23.13"
-      ]
-    },
-    {
       "ref": "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-lsp-stdio@0.1.7-rc.2",
       "dependsOn": [
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/cordis@4.0.4",
@@ -42584,21 +38989,6 @@
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-util-values@0.1.7-rc.2",
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/schemastery@3.18.4",
         "@bees/dsh-runtime@0.1.0|zod@4.6.2"
-      ]
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-session-snapshot@0.1.7-rc.2",
-      "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|@agentclientprotocol/sdk@1.4.0",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/cordis-plugin-include@1.0.9",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/cordis@4.0.4",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-http-proxy@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-llm-replay@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-loader-smoke@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-session-format@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@bees/dsh-runtime@0.1.0|js-yaml@4.3.2",
-        "@bees/dsh-runtime@0.1.0|vitest@4.1.11"
       ]
     },
     {
@@ -43387,17 +39777,6 @@
       ]
     },
     {
-      "ref": "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-typert-generator@0.1.7-rc.2",
-      "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/cordis@4.0.4",
-        "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-typert-generator@0.1.7-rc.2|typescript@6.0.3",
-        "@bees/dsh-runtime@0.1.0|@jridgewell/gen-mapping@0.3.13"
-      ]
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-typert-generator@0.1.7-rc.2|typescript@6.0.3"
-    },
-    {
       "ref": "@bees/dsh-runtime@0.1.0|@deepseek-ai/dsh-typert-loader@0.1.7-rc.2",
       "dependsOn": [
         "@bees/dsh-runtime@0.1.0|@deepseek-ai/cordis-plugin-loader@1.0.5",
@@ -43925,84 +40304,6 @@
       ]
     },
     {
-      "ref": "@bees/dsh-runtime@0.1.0|@esbuild/aix-ppc64@0.28.2"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@esbuild/android-arm@0.28.2"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@esbuild/android-arm64@0.28.2"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@esbuild/android-x64@0.28.2"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@esbuild/darwin-arm64@0.28.2"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@esbuild/darwin-x64@0.28.2"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@esbuild/freebsd-arm64@0.28.2"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@esbuild/freebsd-x64@0.28.2"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@esbuild/linux-arm@0.28.2"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@esbuild/linux-arm64@0.28.2"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@esbuild/linux-ia32@0.28.2"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@esbuild/linux-loong64@0.28.2"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@esbuild/linux-mips64el@0.28.2"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@esbuild/linux-ppc64@0.28.2"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@esbuild/linux-riscv64@0.28.2"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@esbuild/linux-s390x@0.28.2"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@esbuild/linux-x64@0.28.2"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@esbuild/netbsd-arm64@0.28.2"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@esbuild/netbsd-x64@0.28.2"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@esbuild/openbsd-arm64@0.28.2"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@esbuild/openbsd-x64@0.28.2"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@esbuild/openharmony-arm64@0.28.2"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@esbuild/sunos-x64@0.28.2"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@esbuild/win32-arm64@0.28.2"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@esbuild/win32-ia32@0.28.2"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@esbuild/win32-x64@0.28.2"
-    },
-    {
       "ref": "@bees/dsh-runtime@0.1.0|@eslint-community/regexpp@4.12.2"
     },
     {
@@ -44022,7 +40323,7 @@
       ]
     },
     {
-      "ref": "@bees/dsh-runtime@0.1.0|@grpc/grpc-js@1.14.4",
+      "ref": "@bees/dsh-runtime@0.1.0|@grpc/grpc-js@1.14.5",
       "dependsOn": [
         "@bees/dsh-runtime@0.1.0|@grpc/proto-loader@0.8.1",
         "@bees/dsh-runtime@0.1.0|@js-sdsl/ordered-map@4.4.2"
@@ -44798,9 +41099,6 @@
       "ref": "@bees/dsh-runtime@0.1.0|@opentelemetry/semantic-conventions@1.43.0"
     },
     {
-      "ref": "@bees/dsh-runtime@0.1.0|@oxc-project/types@0.149.0"
-    },
-    {
       "ref": "@bees/dsh-runtime@0.1.0|@pkgjs/parseargs@0.11.0"
     },
     {
@@ -44869,54 +41167,6 @@
         "@bees/dsh-runtime@0.1.0|@reflink/reflink-win32-arm64-msvc@0.1.19",
         "@bees/dsh-runtime@0.1.0|@reflink/reflink-win32-x64-msvc@0.1.19"
       ]
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-android-arm-eabi@1.2.8"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-android-arm64@1.2.8"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-darwin-arm64@1.2.8"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-darwin-x64@1.2.8"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-freebsd-x64@1.2.8"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-linux-arm-gnueabihf@1.2.8"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-linux-arm64-gnu@1.2.8"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-linux-arm64-musl@1.2.8"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-linux-ppc64-gnu@1.2.8"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-linux-s390x-gnu@1.2.8"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-linux-x64-gnu@1.2.8"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-linux-x64-musl@1.2.8"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-openharmony-arm64@1.2.8"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-win32-arm64-msvc@1.2.8"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@rolldown/binding-win32-x64-msvc@1.2.8"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@rolldown/pluginutils@1.0.1"
     },
     {
       "ref": "@bees/dsh-runtime@0.1.0|@sec-ant/readable-stream@0.4.1"
@@ -45085,7 +41335,7 @@
     {
       "ref": "@bees/dsh-runtime@0.1.0|@temporalio/client@1.22.0",
       "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|@grpc/grpc-js@1.14.4",
+        "@bees/dsh-runtime@0.1.0|@grpc/grpc-js@1.14.5",
         "@bees/dsh-runtime@0.1.0|@temporalio/common@1.22.0",
         "@bees/dsh-runtime@0.1.0|@temporalio/proto@1.22.0",
         "@bees/dsh-runtime@0.1.0|abort-controller@3.0.0",
@@ -45110,7 +41360,7 @@
     {
       "ref": "@bees/dsh-runtime@0.1.0|@temporalio/core-bridge@1.22.0",
       "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|@grpc/grpc-js@1.14.4",
+        "@bees/dsh-runtime@0.1.0|@grpc/grpc-js@1.14.5",
         "@bees/dsh-runtime@0.1.0|@temporalio/common@1.22.0"
       ]
     },
@@ -45134,7 +41384,7 @@
     {
       "ref": "@bees/dsh-runtime@0.1.0|@temporalio/worker@1.22.0",
       "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|@grpc/grpc-js@1.14.4",
+        "@bees/dsh-runtime@0.1.0|@grpc/grpc-js@1.14.5",
         "@bees/dsh-runtime@0.1.0|@swc/core@1.15.47",
         "@bees/dsh-runtime@0.1.0|@temporalio/activity@1.22.0",
         "@bees/dsh-runtime@0.1.0|@temporalio/client@1.22.0",
@@ -45162,28 +41412,6 @@
         "@bees/dsh-runtime@0.1.0|@temporalio/common@1.22.0",
         "@bees/dsh-runtime@0.1.0|@temporalio/proto@1.22.0",
         "@bees/dsh-runtime@0.1.0|nexus-rpc@0.0.2"
-      ]
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@testing-library/dom@10.4.1",
-      "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|@babel/code-frame@7.29.7",
-        "@bees/dsh-runtime@0.1.0|@babel/runtime@7.29.7",
-        "@bees/dsh-runtime@0.1.0|@types/aria-query@5.0.4",
-        "@bees/dsh-runtime@0.1.0|aria-query@5.3.0",
-        "@bees/dsh-runtime@0.1.0|dom-accessibility-api@0.5.16",
-        "@bees/dsh-runtime@0.1.0|lz-string@1.5.0",
-        "@bees/dsh-runtime@0.1.0|picocolors@1.1.1",
-        "@bees/dsh-runtime@0.1.0|pretty-format@27.5.1"
-      ]
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@testing-library/react@16.3.3",
-      "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|@babel/runtime@7.29.7",
-        "@bees/dsh-runtime@0.1.0|@testing-library/dom@10.4.1",
-        "@bees/dsh-runtime@0.1.0|react-dom@18.3.1",
-        "@bees/dsh-runtime@0.1.0|react@18.3.1"
       ]
     },
     {
@@ -45258,19 +41486,6 @@
       "ref": "@bees/dsh-runtime@0.1.0|@tokenizer/token@0.3.0"
     },
     {
-      "ref": "@bees/dsh-runtime@0.1.0|@types/aria-query@5.0.4"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@types/chai@5.2.3",
-      "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|@types/deep-eql@4.0.2",
-        "@bees/dsh-runtime@0.1.0|assertion-error@2.0.1"
-      ]
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@types/deep-eql@4.0.2"
-    },
-    {
       "ref": "@bees/dsh-runtime@0.1.0|@types/estree@1.0.9"
     },
     {
@@ -45284,59 +41499,6 @@
     },
     {
       "ref": "@bees/dsh-runtime@0.1.0|@types/retry@0.12.0"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@vitest/expect@4.1.11",
-      "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|@standard-schema/spec@1.1.0",
-        "@bees/dsh-runtime@0.1.0|@types/chai@5.2.3",
-        "@bees/dsh-runtime@0.1.0|@vitest/spy@4.1.11",
-        "@bees/dsh-runtime@0.1.0|@vitest/utils@4.1.11",
-        "@bees/dsh-runtime@0.1.0|chai@6.2.2",
-        "@bees/dsh-runtime@0.1.0|tinyrainbow@3.1.1"
-      ]
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@vitest/mocker@4.1.11",
-      "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|@vitest/spy@4.1.11",
-        "@bees/dsh-runtime@0.1.0|estree-walker@3.0.3",
-        "@bees/dsh-runtime@0.1.0|magic-string@0.30.21",
-        "@bees/dsh-runtime@0.1.0|vite@8.3.0"
-      ]
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@vitest/pretty-format@4.1.11",
-      "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|tinyrainbow@3.1.1"
-      ]
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@vitest/runner@4.1.11",
-      "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|@vitest/utils@4.1.11",
-        "@bees/dsh-runtime@0.1.0|pathe@2.0.3"
-      ]
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@vitest/snapshot@4.1.11",
-      "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|@vitest/pretty-format@4.1.11",
-        "@bees/dsh-runtime@0.1.0|@vitest/utils@4.1.11",
-        "@bees/dsh-runtime@0.1.0|magic-string@0.30.21",
-        "@bees/dsh-runtime@0.1.0|pathe@2.0.3"
-      ]
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@vitest/spy@4.1.11"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|@vitest/utils@4.1.11",
-      "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|@vitest/pretty-format@4.1.11",
-        "@bees/dsh-runtime@0.1.0|convert-source-map@2.0.0",
-        "@bees/dsh-runtime@0.1.0|tinyrainbow@3.1.1"
-      ]
     },
     {
       "ref": "@bees/dsh-runtime@0.1.0|@vscode/ripgrep-darwin-arm64@1.18.0"
@@ -45543,7 +41705,7 @@
       "ref": "@bees/dsh-runtime@0.1.0|ajv@8.20.0",
       "dependsOn": [
         "@bees/dsh-runtime@0.1.0|fast-deep-equal@3.1.3",
-        "@bees/dsh-runtime@0.1.0|fast-uri@3.1.7",
+        "@bees/dsh-runtime@0.1.0|fast-uri@3.1.8",
         "@bees/dsh-runtime@0.1.0|json-schema-traverse@1.0.0",
         "@bees/dsh-runtime@0.1.0|require-from-string@2.0.2"
       ]
@@ -45562,15 +41724,6 @@
     },
     {
       "ref": "@bees/dsh-runtime@0.1.0|argparse@2.0.1"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|aria-query@5.3.0",
-      "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|dequal@2.0.3"
-      ]
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|assertion-error@2.0.1"
     },
     {
       "ref": "@bees/dsh-runtime@0.1.0|async-retry@1.3.3",
@@ -45635,7 +41788,7 @@
       "ref": "@bees/dsh-runtime@0.1.0|bowser@2.14.1"
     },
     {
-      "ref": "@bees/dsh-runtime@0.1.0|brace-expansion@2.1.4",
+      "ref": "@bees/dsh-runtime@0.1.0|brace-expansion@2.1.7",
       "dependsOn": [
         "@bees/dsh-runtime@0.1.0|balanced-match@1.0.2"
       ]
@@ -45700,9 +41853,6 @@
     },
     {
       "ref": "@bees/dsh-runtime@0.1.0|caniuse-lite@1.0.30001809"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|chai@6.2.2"
     },
     {
       "ref": "@bees/dsh-runtime@0.1.0|chalk@5.6.2"
@@ -45818,9 +41968,6 @@
       "ref": "@bees/dsh-runtime@0.1.0|content-type@1.0.5"
     },
     {
-      "ref": "@bees/dsh-runtime@0.1.0|convert-source-map@2.0.0"
-    },
-    {
       "ref": "@bees/dsh-runtime@0.1.0|cookie-signature@1.2.2"
     },
     {
@@ -45879,9 +42026,6 @@
       "ref": "@bees/dsh-runtime@0.1.0|depd@2.0.0"
     },
     {
-      "ref": "@bees/dsh-runtime@0.1.0|dequal@2.0.3"
-    },
-    {
       "ref": "@bees/dsh-runtime@0.1.0|destroy@1.2.0"
     },
     {
@@ -45892,9 +42036,6 @@
     },
     {
       "ref": "@bees/dsh-runtime@0.1.0|diff@9.0.0"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|dom-accessibility-api@0.5.16"
     },
     {
       "ref": "@bees/dsh-runtime@0.1.0|dunder-proto@1.0.1",
@@ -45957,37 +42098,6 @@
       ]
     },
     {
-      "ref": "@bees/dsh-runtime@0.1.0|esbuild@0.28.2",
-      "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|@esbuild/aix-ppc64@0.28.2",
-        "@bees/dsh-runtime@0.1.0|@esbuild/android-arm@0.28.2",
-        "@bees/dsh-runtime@0.1.0|@esbuild/android-arm64@0.28.2",
-        "@bees/dsh-runtime@0.1.0|@esbuild/android-x64@0.28.2",
-        "@bees/dsh-runtime@0.1.0|@esbuild/darwin-arm64@0.28.2",
-        "@bees/dsh-runtime@0.1.0|@esbuild/darwin-x64@0.28.2",
-        "@bees/dsh-runtime@0.1.0|@esbuild/freebsd-arm64@0.28.2",
-        "@bees/dsh-runtime@0.1.0|@esbuild/freebsd-x64@0.28.2",
-        "@bees/dsh-runtime@0.1.0|@esbuild/linux-arm@0.28.2",
-        "@bees/dsh-runtime@0.1.0|@esbuild/linux-arm64@0.28.2",
-        "@bees/dsh-runtime@0.1.0|@esbuild/linux-ia32@0.28.2",
-        "@bees/dsh-runtime@0.1.0|@esbuild/linux-loong64@0.28.2",
-        "@bees/dsh-runtime@0.1.0|@esbuild/linux-mips64el@0.28.2",
-        "@bees/dsh-runtime@0.1.0|@esbuild/linux-ppc64@0.28.2",
-        "@bees/dsh-runtime@0.1.0|@esbuild/linux-riscv64@0.28.2",
-        "@bees/dsh-runtime@0.1.0|@esbuild/linux-s390x@0.28.2",
-        "@bees/dsh-runtime@0.1.0|@esbuild/linux-x64@0.28.2",
-        "@bees/dsh-runtime@0.1.0|@esbuild/netbsd-arm64@0.28.2",
-        "@bees/dsh-runtime@0.1.0|@esbuild/netbsd-x64@0.28.2",
-        "@bees/dsh-runtime@0.1.0|@esbuild/openbsd-arm64@0.28.2",
-        "@bees/dsh-runtime@0.1.0|@esbuild/openbsd-x64@0.28.2",
-        "@bees/dsh-runtime@0.1.0|@esbuild/openharmony-arm64@0.28.2",
-        "@bees/dsh-runtime@0.1.0|@esbuild/sunos-x64@0.28.2",
-        "@bees/dsh-runtime@0.1.0|@esbuild/win32-arm64@0.28.2",
-        "@bees/dsh-runtime@0.1.0|@esbuild/win32-ia32@0.28.2",
-        "@bees/dsh-runtime@0.1.0|@esbuild/win32-x64@0.28.2"
-      ]
-    },
-    {
       "ref": "@bees/dsh-runtime@0.1.0|escalade@3.2.0"
     },
     {
@@ -46011,12 +42121,6 @@
     },
     {
       "ref": "@bees/dsh-runtime@0.1.0|estraverse@4.3.0"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|estree-walker@3.0.3",
-      "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|@types/estree@1.0.9"
-      ]
     },
     {
       "ref": "@bees/dsh-runtime@0.1.0|etag@1.8.1"
@@ -46063,14 +42167,11 @@
       "ref": "@bees/dsh-runtime@0.1.0|expand-template@2.0.3"
     },
     {
-      "ref": "@bees/dsh-runtime@0.1.0|expect-type@1.4.0"
-    },
-    {
       "ref": "@bees/dsh-runtime@0.1.0|express-rate-limit@8.6.1",
       "dependsOn": [
         "@bees/dsh-runtime@0.1.0|debug@4.4.3",
         "@bees/dsh-runtime@0.1.0|express@5.2.1",
-        "@bees/dsh-runtime@0.1.0|ip-address@10.4.0"
+        "@bees/dsh-runtime@0.1.0|ip-address@10.7.2"
       ]
     },
     {
@@ -46126,18 +42227,12 @@
       "ref": "@bees/dsh-runtime@0.1.0|fast-sha256@1.3.0"
     },
     {
-      "ref": "@bees/dsh-runtime@0.1.0|fast-uri@3.1.7"
+      "ref": "@bees/dsh-runtime@0.1.0|fast-uri@3.1.8"
     },
     {
       "ref": "@bees/dsh-runtime@0.1.0|fastq@1.20.1",
       "dependsOn": [
         "@bees/dsh-runtime@0.1.0|reusify@1.1.0"
-      ]
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|fdir@6.5.0",
-      "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|picomatch@4.0.7"
       ]
     },
     {
@@ -46243,9 +42338,6 @@
     },
     {
       "ref": "@bees/dsh-runtime@0.1.0|fs-monkey@1.1.0"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|fsevents@2.3.3"
     },
     {
       "ref": "@bees/dsh-runtime@0.1.0|function-bind@1.1.2"
@@ -46448,7 +42540,7 @@
       "ref": "@bees/dsh-runtime@0.1.0|ini@1.3.8"
     },
     {
-      "ref": "@bees/dsh-runtime@0.1.0|ip-address@10.4.0"
+      "ref": "@bees/dsh-runtime@0.1.0|ip-address@10.7.2"
     },
     {
       "ref": "@bees/dsh-runtime@0.1.0|ipaddr.js@1.9.1"
@@ -46672,56 +42764,6 @@
       "ref": "@bees/dsh-runtime@0.1.0|lifecycle-utils@3.2.0"
     },
     {
-      "ref": "@bees/dsh-runtime@0.1.0|lightningcss-android-arm64@1.33.0"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|lightningcss-darwin-arm64@1.33.0"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|lightningcss-darwin-x64@1.33.0"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|lightningcss-freebsd-x64@1.33.0"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|lightningcss-linux-arm-gnueabihf@1.33.0"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|lightningcss-linux-arm64-gnu@1.33.0"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|lightningcss-linux-arm64-musl@1.33.0"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|lightningcss-linux-x64-gnu@1.33.0"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|lightningcss-linux-x64-musl@1.33.0"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|lightningcss-win32-arm64-msvc@1.33.0"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|lightningcss-win32-x64-msvc@1.33.0"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|lightningcss@1.33.0",
-      "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|detect-libc@2.1.2",
-        "@bees/dsh-runtime@0.1.0|lightningcss-android-arm64@1.33.0",
-        "@bees/dsh-runtime@0.1.0|lightningcss-darwin-arm64@1.33.0",
-        "@bees/dsh-runtime@0.1.0|lightningcss-darwin-x64@1.33.0",
-        "@bees/dsh-runtime@0.1.0|lightningcss-freebsd-x64@1.33.0",
-        "@bees/dsh-runtime@0.1.0|lightningcss-linux-arm-gnueabihf@1.33.0",
-        "@bees/dsh-runtime@0.1.0|lightningcss-linux-arm64-gnu@1.33.0",
-        "@bees/dsh-runtime@0.1.0|lightningcss-linux-arm64-musl@1.33.0",
-        "@bees/dsh-runtime@0.1.0|lightningcss-linux-x64-gnu@1.33.0",
-        "@bees/dsh-runtime@0.1.0|lightningcss-linux-x64-musl@1.33.0",
-        "@bees/dsh-runtime@0.1.0|lightningcss-win32-arm64-msvc@1.33.0",
-        "@bees/dsh-runtime@0.1.0|lightningcss-win32-x64-msvc@1.33.0"
-      ]
-    },
-    {
       "ref": "@bees/dsh-runtime@0.1.0|lodash.camelcase@4.3.0"
     },
     {
@@ -46751,15 +42793,6 @@
     },
     {
       "ref": "@bees/dsh-runtime@0.1.0|lru-cache@10.4.3"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|lz-string@1.5.0"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|magic-string@0.30.21",
-      "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|@jridgewell/sourcemap-codec@1.5.5"
-      ]
     },
     {
       "ref": "@bees/dsh-runtime@0.1.0|math-intrinsics@1.1.0"
@@ -46823,7 +42856,7 @@
     {
       "ref": "@bees/dsh-runtime@0.1.0|minimatch@9.0.9",
       "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|brace-expansion@2.1.4"
+        "@bees/dsh-runtime@0.1.0|brace-expansion@2.1.7"
       ]
     },
     {
@@ -47047,9 +43080,6 @@
       "ref": "@bees/dsh-runtime@0.1.0|object-inspect@1.13.4"
     },
     {
-      "ref": "@bees/dsh-runtime@0.1.0|obug@2.2.1"
-    },
-    {
       "ref": "@bees/dsh-runtime@0.1.0|officeparser@7.5.1",
       "dependsOn": [
         "@bees/dsh-runtime@0.1.0|@xmldom/xmldom@0.9.12",
@@ -47169,9 +43199,6 @@
       "ref": "@bees/dsh-runtime@0.1.0|path-to-regexp@8.4.2"
     },
     {
-      "ref": "@bees/dsh-runtime@0.1.0|pathe@2.0.3"
-    },
-    {
       "ref": "@bees/dsh-runtime@0.1.0|pdfjs-dist@6.2.108",
       "dependsOn": [
         "@bees/dsh-runtime@0.1.0|@napi-rs/canvas@1.0.3"
@@ -47185,17 +43212,6 @@
     },
     {
       "ref": "@bees/dsh-runtime@0.1.0|pkce-challenge@5.0.1"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|postcss@8.5.28",
-      "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|picocolors@1.1.1",
-        "@bees/dsh-runtime@0.1.0|postcss@8.5.28|nanoid@3.3.19",
-        "@bees/dsh-runtime@0.1.0|source-map-js@1.2.1"
-      ]
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|postcss@8.5.28|nanoid@3.3.19"
     },
     {
       "ref": "@bees/dsh-runtime@0.1.0|powershell-utils@0.2.1"
@@ -47219,17 +43235,6 @@
     },
     {
       "ref": "@bees/dsh-runtime@0.1.0|pretty-bytes@6.1.1"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|pretty-format@27.5.1",
-      "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|ansi-regex@5.0.1",
-        "@bees/dsh-runtime@0.1.0|pretty-format@27.5.1|ansi-styles@5.2.0",
-        "@bees/dsh-runtime@0.1.0|react-is@17.0.2"
-      ]
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|pretty-format@27.5.1|ansi-styles@5.2.0"
     },
     {
       "ref": "@bees/dsh-runtime@0.1.0|pretty-ms@9.3.0",
@@ -47338,9 +43343,6 @@
       ]
     },
     {
-      "ref": "@bees/dsh-runtime@0.1.0|react-is@17.0.2"
-    },
-    {
       "ref": "@bees/dsh-runtime@0.1.0|react@18.3.1",
       "dependsOn": [
         "@bees/dsh-runtime@0.1.0|loose-envify@1.4.0"
@@ -47392,28 +43394,6 @@
       "ref": "@bees/dsh-runtime@0.1.0|rimraf@5.0.10",
       "dependsOn": [
         "@bees/dsh-runtime@0.1.0|glob@10.5.0"
-      ]
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|rolldown@1.2.8",
-      "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|@oxc-project/types@0.149.0",
-        "@bees/dsh-runtime@0.1.0|@rolldown/binding-android-arm-eabi@1.2.8",
-        "@bees/dsh-runtime@0.1.0|@rolldown/binding-android-arm64@1.2.8",
-        "@bees/dsh-runtime@0.1.0|@rolldown/binding-darwin-arm64@1.2.8",
-        "@bees/dsh-runtime@0.1.0|@rolldown/binding-darwin-x64@1.2.8",
-        "@bees/dsh-runtime@0.1.0|@rolldown/binding-freebsd-x64@1.2.8",
-        "@bees/dsh-runtime@0.1.0|@rolldown/binding-linux-arm-gnueabihf@1.2.8",
-        "@bees/dsh-runtime@0.1.0|@rolldown/binding-linux-arm64-gnu@1.2.8",
-        "@bees/dsh-runtime@0.1.0|@rolldown/binding-linux-arm64-musl@1.2.8",
-        "@bees/dsh-runtime@0.1.0|@rolldown/binding-linux-ppc64-gnu@1.2.8",
-        "@bees/dsh-runtime@0.1.0|@rolldown/binding-linux-s390x-gnu@1.2.8",
-        "@bees/dsh-runtime@0.1.0|@rolldown/binding-linux-x64-gnu@1.2.8",
-        "@bees/dsh-runtime@0.1.0|@rolldown/binding-linux-x64-musl@1.2.8",
-        "@bees/dsh-runtime@0.1.0|@rolldown/binding-openharmony-arm64@1.2.8",
-        "@bees/dsh-runtime@0.1.0|@rolldown/binding-win32-arm64-msvc@1.2.8",
-        "@bees/dsh-runtime@0.1.0|@rolldown/binding-win32-x64-msvc@1.2.8",
-        "@bees/dsh-runtime@0.1.0|@rolldown/pluginutils@1.0.1"
       ]
     },
     {
@@ -47607,9 +43587,6 @@
       ]
     },
     {
-      "ref": "@bees/dsh-runtime@0.1.0|siginfo@2.0.0"
-    },
-    {
       "ref": "@bees/dsh-runtime@0.1.0|signal-exit@3.0.7"
     },
     {
@@ -47708,9 +43685,6 @@
       ]
     },
     {
-      "ref": "@bees/dsh-runtime@0.1.0|stackback@0.0.2"
-    },
-    {
       "ref": "@bees/dsh-runtime@0.1.0|standardwebhooks@1.1.1",
       "dependsOn": [
         "@bees/dsh-runtime@0.1.0|@stablelib/base64@1.0.1",
@@ -47719,9 +43693,6 @@
     },
     {
       "ref": "@bees/dsh-runtime@0.1.0|statuses@2.0.2"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|std-env@4.2.0"
     },
     {
       "ref": "@bees/dsh-runtime@0.1.0|stdin-discarder@0.3.2"
@@ -47901,22 +43872,6 @@
       "ref": "@bees/dsh-runtime@0.1.0|tiny-inflate@1.0.3"
     },
     {
-      "ref": "@bees/dsh-runtime@0.1.0|tinybench@2.9.0"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|tinyexec@1.3.1"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|tinyglobby@0.2.17",
-      "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|fdir@6.5.0",
-        "@bees/dsh-runtime@0.1.0|picomatch@4.0.7"
-      ]
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|tinyrainbow@3.1.1"
-    },
-    {
       "ref": "@bees/dsh-runtime@0.1.0|to-regex-range@5.0.1",
       "dependsOn": [
         "@bees/dsh-runtime@0.1.0|is-number@7.0.0"
@@ -47998,13 +43953,6 @@
     },
     {
       "ref": "@bees/dsh-runtime@0.1.0|tslib@2.8.1"
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|tsx@4.23.13",
-      "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|esbuild@0.28.2",
-        "@bees/dsh-runtime@0.1.0|fsevents@2.3.3"
-      ]
     },
     {
       "ref": "@bees/dsh-runtime@0.1.0|tunnel-agent@0.6.0",
@@ -48100,49 +44048,6 @@
       "ref": "@bees/dsh-runtime@0.1.0|vary@1.1.2"
     },
     {
-      "ref": "@bees/dsh-runtime@0.1.0|vite@8.3.0",
-      "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|@types/node@26.1.2",
-        "@bees/dsh-runtime@0.1.0|esbuild@0.28.2",
-        "@bees/dsh-runtime@0.1.0|fsevents@2.3.3",
-        "@bees/dsh-runtime@0.1.0|lightningcss@1.33.0",
-        "@bees/dsh-runtime@0.1.0|picomatch@4.0.7",
-        "@bees/dsh-runtime@0.1.0|postcss@8.5.28",
-        "@bees/dsh-runtime@0.1.0|rolldown@1.2.8",
-        "@bees/dsh-runtime@0.1.0|terser@5.49.0",
-        "@bees/dsh-runtime@0.1.0|tinyglobby@0.2.17",
-        "@bees/dsh-runtime@0.1.0|tsx@4.23.13",
-        "@bees/dsh-runtime@0.1.0|yaml@2.9.0"
-      ]
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|vitest@4.1.11",
-      "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|@opentelemetry/api@1.9.1",
-        "@bees/dsh-runtime@0.1.0|@types/node@26.1.2",
-        "@bees/dsh-runtime@0.1.0|@vitest/expect@4.1.11",
-        "@bees/dsh-runtime@0.1.0|@vitest/mocker@4.1.11",
-        "@bees/dsh-runtime@0.1.0|@vitest/pretty-format@4.1.11",
-        "@bees/dsh-runtime@0.1.0|@vitest/runner@4.1.11",
-        "@bees/dsh-runtime@0.1.0|@vitest/snapshot@4.1.11",
-        "@bees/dsh-runtime@0.1.0|@vitest/spy@4.1.11",
-        "@bees/dsh-runtime@0.1.0|@vitest/utils@4.1.11",
-        "@bees/dsh-runtime@0.1.0|es-module-lexer@2.3.1",
-        "@bees/dsh-runtime@0.1.0|expect-type@1.4.0",
-        "@bees/dsh-runtime@0.1.0|magic-string@0.30.21",
-        "@bees/dsh-runtime@0.1.0|obug@2.2.1",
-        "@bees/dsh-runtime@0.1.0|pathe@2.0.3",
-        "@bees/dsh-runtime@0.1.0|picomatch@4.0.7",
-        "@bees/dsh-runtime@0.1.0|std-env@4.2.0",
-        "@bees/dsh-runtime@0.1.0|tinybench@2.9.0",
-        "@bees/dsh-runtime@0.1.0|tinyexec@1.3.1",
-        "@bees/dsh-runtime@0.1.0|tinyglobby@0.2.17",
-        "@bees/dsh-runtime@0.1.0|tinyrainbow@3.1.1",
-        "@bees/dsh-runtime@0.1.0|vite@8.3.0",
-        "@bees/dsh-runtime@0.1.0|why-is-node-running@2.3.0"
-      ]
-    },
-    {
       "ref": "@bees/dsh-runtime@0.1.0|wasm-feature-detect@1.9.0"
     },
     {
@@ -48202,13 +44107,6 @@
       "ref": "@bees/dsh-runtime@0.1.0|which@2.0.2",
       "dependsOn": [
         "@bees/dsh-runtime@0.1.0|isexe@2.0.0"
-      ]
-    },
-    {
-      "ref": "@bees/dsh-runtime@0.1.0|why-is-node-running@2.3.0",
-      "dependsOn": [
-        "@bees/dsh-runtime@0.1.0|siginfo@2.0.0",
-        "@bees/dsh-runtime@0.1.0|stackback@0.0.2"
       ]
     },
     {
