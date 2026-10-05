@@ -117,7 +117,7 @@ export function nextThemePreset(preference = {}) {
   const current = THEME_PRESETS.find(({ id }) => id === preference.themePreset)
     ?? THEME_PRESETS.find(({ id }) => id === "halloween");
   const currentMode = selectedColorMode(preference, current);
-  const fallback = currentMode === "dark" ? "bumblebee" : "halloween";
+  const fallback = currentMode === "dark" ? "corporate" : "halloween";
   const savedCandidate = currentMode === "dark" ? preference.lightThemePreset : preference.darkThemePreset;
   const savedPreset = THEME_PRESETS.find(({ id }) => id === savedCandidate);
   const validSaved = savedPreset && (currentMode === "dark" ? !savedPreset.dark : savedPreset.dark);

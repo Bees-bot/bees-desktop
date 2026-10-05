@@ -285,7 +285,7 @@
         themePreset: halloween
         colorMode: dark
         darkThemePreset: business
-        lightThemePreset: cmyk
+        lightThemePreset: corporate
         dashboards:
           - id: home
             name: Home
