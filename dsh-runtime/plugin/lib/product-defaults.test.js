@@ -189,7 +189,8 @@ test("the product catalog is independent of saved settings and is not a writable
   const defaults = composeEntries([shipped]).find((row) => row.id === "bees").config;
   assert.ok(shippedModelCatalog.length);
   assert.deepEqual(shippedModelCatalog, defaults.localModelCatalog);
-  const personal = { localModelWantedIds: [defaults.localModelCatalog[0].id], colorMode: "light" };
+  const personal = { localModelWantedIds: [defaults.localModelCatalog[0].id], colorMode: "light",
+    localModels: [{ id: "user-personal", name: "Personal", fileName: "personal.gguf", url: "https://example.com/personal.gguf", bytes: 0 }] };
   const resolve = (config) => {
     const row = composeEntries([shipped, [{ id: "bees", config }]]).find((row) => row.id === "bees");
     const parsed = Config["~standard"].validate(row.config);
@@ -198,8 +199,9 @@ test("the product catalog is independent of saved settings and is not a writable
   };
   const parsed = resolve(personal);
   assert.deepEqual(parsed.localModelWantedIds.get(), personal.localModelWantedIds);
+  assert.deepEqual(parsed.localModels.get(), personal.localModels);
   assert.equal(parsed.colorMode.get(), "light");
-  for (const key of ["localModelCatalog", "localModels", "removedLocalModelIds"]) assert.equal(Config.dict[key], undefined);
+  for (const key of ["localModelCatalog", "removedLocalModelIds"]) assert.equal(Config.dict[key], undefined);
   resolve({ ...personal, localModelCatalog: [], removedLocalModelIds: personal.localModelWantedIds });
   assert.deepEqual(shippedModelCatalog, defaults.localModelCatalog);
 });
