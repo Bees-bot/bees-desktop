@@ -15,6 +15,7 @@
     "check:process-interactions": "node scripts/check-process-interactions.mjs",
     "check:page-fetch": "node scripts/check-page-fetch.mjs",
     "typecheck": "tsc --noEmit",
+    "sbom": "npm sbom --sbom-format cyclonedx --package-lock-only --omit dev > docs/sbom/desktop-runtime.cdx.json && cd dsh-runtime && npm sbom --sbom-format cyclonedx --package-lock-only --omit dev > ../docs/sbom/dsh-runtime.cdx.json",
     "check": "npm run typecheck && node --test dsh-runtime/plugin/lib/folder-roots.test.js && node --test dsh-runtime/plugin/client/home.test.js dsh-runtime/plugin/client/work.test.js dsh-runtime/plugin/client/skills.test.js dsh-runtime/plugin/client/getting-started.test.js dsh-runtime/plugin/client/location-fields.test.js && npm run check:schedules && npm run check:page-fetch && npm run check:process-interactions && npm run check:sync && npm run check:dsh-upgrade && npm run check:file-locks && npm run check:product-defaults && npm run check:local-ai && npm run build",
     "check:sync": "node --test dsh-runtime/plugin/lib/connected-account.test.js",
     "check:local-ai": "node --test dsh-runtime/plugins/local-ai/lib/client.test.js dsh-runtime/plugin/lib/local-inference.test.js",

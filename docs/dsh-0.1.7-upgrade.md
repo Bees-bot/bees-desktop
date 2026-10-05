@@ -69,7 +69,6 @@ survives a restart, and reads back into the interface. The desktop check suite,
 `cargo check`, and the packaged critical flow from the upgrade checklist remain
 this branch's gate.
 
-The checked-in SBOM under `docs/sbom/` is older than the 0.1.5 pin and was not
-regenerated here, because the CycloneDX step runs in the release pipeline and
-`npm sbom` cannot read this workspace (file dependencies plus a test-only peer
-absent from the install).
+Rebuild the checked-in SBOMs under `docs/sbom/` with `npm run sbom`. It reads the
+lockfiles with dev dependencies left out, because plain `npm sbom` cannot read the
+installed tree (file dependencies plus a test-only peer absent from the install).

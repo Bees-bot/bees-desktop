@@ -2,10 +2,10 @@
   "$schema": "http://cyclonedx.org/schema/bom-1.5.schema.json",
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
-  "serialNumber": "urn:uuid:b862d286-005a-44ea-ba26-50bee146a658",
+  "serialNumber": "urn:uuid:c8a8b478-c66a-4bc0-8b4f-b84a5340d242",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-09-25T08:35:10.780Z",
+    "timestamp": "2026-10-05T11:04:34.146Z",
     "lifecycles": [
       {
         "phase": "pre-build"
@@ -15,13 +15,13 @@
       {
         "vendor": "npm",
         "name": "cli",
-        "version": "11.3.0"
+        "version": "11.19.0"
       }
     ],
     "component": {
       "bom-ref": "@bees/desktop@0.2.0",
       "type": "library",
-      "name": "bees-desktop",
+      "name": "sbom-wt",
       "version": "0.2.0",
       "scope": "required",
       "purl": "pkg:npm/%40bees/desktop@0.2.0",
