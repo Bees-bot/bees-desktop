@@ -1,6 +1,5 @@
 # Builds the Intel Mac, Linux and Windows apps that this Mac cannot. scripts/release.sh
 # starts it, downloads the results, signs the updates and publishes. Nothing here publishes.
-# A pull request that changes this file runs it too, so a broken build is seen before a release.
 
 name: Build desktop
 
@@ -10,9 +9,6 @@ on:
       sha:
         description: Commit to build
         required: true
-  pull_request:
-    paths:
-      - .github/workflows/build.yml
 
 permissions:
   contents: read
