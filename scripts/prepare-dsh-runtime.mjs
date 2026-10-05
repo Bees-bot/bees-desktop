@@ -11,7 +11,6 @@ import {
   readFileSync,
   readdirSync,
   readSync,
-  realpathSync,
   rmSync,
   statSync,
   writeFileSync
@@ -57,35 +56,17 @@ const temporalDestination = resolve(
 mkdirSync(dirname(destination), { recursive: true });
 stageExecutable(process.execPath, destination, "Node");
 
-// b10153 is the first release with the `nanbeige` architecture the seeded model uses.
-const llamaRelease = "b10164";
+// Upstream does not support K2 Horizon yet. Pin the model author's fork, which also
+// supports the seeded Nanbeige model, and build the same runtime on every platform.
+const llamaCommit = "42adf019f76013dac873b5b43950d54d5ab27216";
 const macTarget = target.endsWith("-apple-darwin");
-// Both macOS arches share the same source release, with a per-target build marker.
 const llamaRuntimeRevision = macTarget
-  ? `${llamaRelease}-macos13-static-1-${target}`
-  : `${llamaRelease}-1-${target}`;
+  ? `${llamaCommit}-macos13-static-1-${target}`
+  : `${llamaCommit}-static-1-${target}`;
 const llamaSource = [
-  `llama.cpp-${llamaRelease}.tar.gz`,
-  "1d38f33c3b9fa8cd9af2ed37b7d3b60c7ba074d245a82e37c0bf3be2f6e94c66"
+  `llama.cpp-${llamaCommit}.tar.gz`,
+  "c58cab48ce95510c65ed7f7abe20a3c70c5a0874908dd48268daa552d348aabb"
 ];
-const llamaAssets = {
-  "aarch64-unknown-linux-gnu": [
-    "llama-b10164-bin-ubuntu-arm64.tar.gz",
-    "51ef9c5479e1a35c67bb672d5945faa70291ee9c92357fd3a31c5119e9be9467"
-  ],
-  "x86_64-unknown-linux-gnu": [
-    "llama-b10164-bin-ubuntu-x64.tar.gz",
-    "e837eafd90e7c46cc5c4b6326df1bdc54a215c5cf785ccfa7ac226a365597ffa"
-  ],
-  "aarch64-pc-windows-msvc": [
-    "llama-b10164-bin-win-cpu-arm64.zip",
-    "34d428a36014c68b060704aaafb32399a45a500646921009b53a72e200fe509c"
-  ],
-  "x86_64-pc-windows-msvc": [
-    "llama-b10164-bin-win-cpu-x64.zip",
-    "3ce47be7fe67ea3cae38d0e6932efa38c17cf889c8d438d6befa044dc8141464"
-  ]
-};
 const temporalRelease = "1.8.2";
 const temporalAssets = {
   "aarch64-apple-darwin": [
@@ -141,23 +122,6 @@ function findFile(root, name) {
     }
   }
   return undefined;
-}
-
-function copyRuntimeDirectory(source, destination) {
-  mkdirSync(destination, { recursive: true });
-  for (const entry of readdirSync(source, { withFileTypes: true })) {
-    const sourcePath = join(source, entry.name);
-    const destinationPath = join(destination, entry.name);
-    if (entry.isDirectory()) {
-      copyRuntimeDirectory(sourcePath, destinationPath);
-    } else if (entry.isSymbolicLink()) {
-      const resolved = realpathSync(sourcePath);
-      if (statSync(resolved).isDirectory()) copyRuntimeDirectory(resolved, destinationPath);
-      else copyFileSync(resolved, destinationPath);
-    } else if (entry.isFile()) {
-      copyFileSync(sourcePath, destinationPath);
-    }
-  }
 }
 
 async function downloadVerified(url, expectedSha256) {
@@ -303,10 +267,10 @@ function stageExecutable(source, destination, label) {
   }
 }
 
-async function buildMacLlamaRuntime(temporaryRoot, runtimeRoot, serverName) {
+async function buildLlamaRuntime(temporaryRoot, runtimeRoot, serverName) {
   const [fileName, expectedSha256] = llamaSource;
-  const url = `https://github.com/ggml-org/llama.cpp/archive/refs/tags/${llamaRelease}.tar.gz`;
-  console.log(`Building llama-server ${llamaRelease} for ${target} (macOS 13.3+)...`);
+  const url = `https://github.com/ifm-ai/llama.cpp/archive/${llamaCommit}.tar.gz`;
+  console.log(`Building llama-server ${llamaCommit.slice(0, 8)} for ${target}...`);
   const archive = await downloadVerified(url, expectedSha256);
   const archivePath = join(temporaryRoot, fileName);
   const sourceParent = join(temporaryRoot, "source");
@@ -320,7 +284,7 @@ async function buildMacLlamaRuntime(temporaryRoot, runtimeRoot, serverName) {
   try {
     execFileSync("cmake", ["--version"], { stdio: "ignore" });
   } catch {
-    throw new Error("Building the macOS local-model runtime requires CMake (`brew install cmake`).");
+    throw new Error("Building the local-model runtime requires CMake and a C++ compiler.");
   }
 
   const architecture = target.startsWith("aarch64-") ? "arm64" : "x86_64";
@@ -332,15 +296,18 @@ async function buildMacLlamaRuntime(temporaryRoot, runtimeRoot, serverName) {
       "-B",
       build,
       "-DCMAKE_BUILD_TYPE=Release",
-      `-DCMAKE_OSX_ARCHITECTURES=${architecture}`,
-      "-DCMAKE_OSX_DEPLOYMENT_TARGET=13.3",
+      ...(macTarget ? [
+        `-DCMAKE_OSX_ARCHITECTURES=${architecture}`,
+        "-DCMAKE_OSX_DEPLOYMENT_TARGET=13.3"
+      ] : []),
+      ...(target.includes("windows") ? ["-A", target.startsWith("aarch64-") ? "ARM64" : "x64"] : []),
       "-DBUILD_SHARED_LIBS=OFF",
       "-DGGML_NATIVE=OFF",
       "-DGGML_CCACHE=OFF",
-      `-DGGML_METAL=${architecture === "arm64" ? "ON" : "OFF"}`,
+      `-DGGML_METAL=${macTarget && architecture === "arm64" ? "ON" : "OFF"}`,
       "-DGGML_METAL_EMBED_LIBRARY=ON",
-      "-DLLAMA_BUILD_NUMBER=10164",
-      "-DLLAMA_BUILD_COMMIT=b62b350",
+      "-DLLAMA_BUILD_NUMBER=0",
+      `-DLLAMA_BUILD_COMMIT=${llamaCommit.slice(0, 8)}`,
       "-DLLAMA_BUILD_EXAMPLES=OFF",
       "-DLLAMA_BUILD_TESTS=OFF",
       "-DLLAMA_BUILD_TOOLS=ON",
@@ -367,7 +334,7 @@ async function buildMacLlamaRuntime(temporaryRoot, runtimeRoot, serverName) {
     { stdio: "inherit" }
   );
   const server = findFile(build, serverName);
-  if (!server) throw new Error(`The ${llamaRelease} build did not produce ${serverName}.`);
+  if (!server) throw new Error(`The ${llamaCommit} build did not produce ${serverName}.`);
 
   rmSync(runtimeRoot, { recursive: true, force: true });
   mkdirSync(runtimeRoot);
@@ -503,8 +470,8 @@ function signMacBundledRuntime(runtimeRoot) {
 }
 
 async function prepareLlamaRuntime() {
-  const asset = llamaAssets[target];
-  if (!asset && !macTarget) {
+  if (!["aarch64-apple-darwin", "x86_64-apple-darwin", "aarch64-unknown-linux-gnu",
+    "x86_64-unknown-linux-gnu", "aarch64-pc-windows-msvc", "x86_64-pc-windows-msvc"].includes(target)) {
     throw new Error(`No bundled llama-server runtime is configured for ${target}.`);
   }
 
@@ -518,23 +485,7 @@ async function prepareLlamaRuntime() {
 
   const temporaryRoot = mkdtempSync(join(tmpdir(), "bees-llama-"));
   try {
-    if (macTarget) {
-      await buildMacLlamaRuntime(temporaryRoot, runtimeRoot, serverName);
-    } else {
-      const [fileName, expectedSha256] = asset;
-      const url = `https://github.com/ggml-org/llama.cpp/releases/download/${llamaRelease}/${fileName}`;
-      console.log(`Preparing llama-server ${llamaRelease} for ${target}...`);
-      const archive = await downloadVerified(url, expectedSha256);
-      const archivePath = join(temporaryRoot, basename(fileName));
-      const extracted = join(temporaryRoot, "extracted");
-      mkdirSync(extracted);
-      writeFileSync(archivePath, archive);
-      execFileSync("tar", ["-xf", archivePath, "-C", extracted]);
-      const server = findFile(extracted, serverName);
-      if (!server) throw new Error(`${fileName} did not contain ${serverName}.`);
-      rmSync(runtimeRoot, { recursive: true, force: true });
-      copyRuntimeDirectory(dirname(server), runtimeRoot);
-    }
+    await buildLlamaRuntime(temporaryRoot, runtimeRoot, serverName);
     if (!target.includes("windows")) chmodSync(join(runtimeRoot, serverName), 0o755);
     signMacRuntime(runtimeRoot);
     markPrepared(marker, join(runtimeRoot, serverName), llamaRuntimeRevision);
