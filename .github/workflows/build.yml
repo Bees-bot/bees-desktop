@@ -1,0 +1,95 @@
+# Builds the Intel Mac, Linux and Windows apps that this Mac cannot. scripts/release.sh
+# starts it, downloads the results, signs the updates and publishes. Nothing here publishes.
+# A pull request that changes this file runs it too, so a broken build is seen before a release.
+
+name: Build desktop
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Commit to build
+        required: true
+  pull_request:
+    paths:
+      - .github/workflows/build.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    timeout-minutes: 120
+    strategy:
+      matrix:
+        include:
+          - os: macos-15-intel
+            bundles: app
+          - os: ubuntu-24.04
+            bundles: appimage,deb
+          - os: windows-2025
+            bundles: nsis
+    runs-on: ${{ matrix.os }}
+    env:
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.sha }}
+
+      - name: Install Linux build deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      # the build signs the runtime it bundles before tauri would import the certificate, so import it first
+      - name: Import the Developer ID certificate
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ github.run_id }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          certificate="$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+          echo -n "$APPLE_CERTIFICATE" | base64 --decode -o "$certificate"
+          security import "$certificate" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$keychain"
+          security list-keychain -d user -s "$keychain" login.keychain-db
+          rm "$certificate"
+
+      - run: npx tauri build --bundles ${{ matrix.bundles }}
+
+      # artifacts drop symlinks and execute bits, which an app bundle needs. the release script notarizes it.
+      - name: Pack the Mac app
+        if: runner.os == 'macOS'
+        run: COPYFILE_DISABLE=1 tar -czf src-tauri/target/release/bundle/Bees.app.tar.gz -C src-tauri/target/release/bundle/macos Bees.app
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.os }}
+          path: |
+            src-tauri/target/release/bundle/Bees.app.tar.gz
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
