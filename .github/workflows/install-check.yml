@@ -1,0 +1,63 @@
+# Installs a published release on clean Linux and Windows machines and checks the engine starts.
+# Run by hand only, the free minutes are shared.
+
+name: Install check
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release to install
+        default: v0.2.0
+
+permissions:
+  contents: read
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  TAG: ${{ inputs.tag }}
+
+jobs:
+  linux:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install the deb
+        run: |
+          gh release download "$TAG" -p '*_amd64.deb' -p '*_amd64.AppImage'
+          sudo apt-get update && sudo apt-get install -y ./Bees_*_amd64.deb xvfb
+          PKG=$(dpkg-deb -f Bees_*_amd64.deb Package) && dpkg -L "$PKG" | grep -E '^/usr/bin/'
+          echo "BIN=$(dirname "$(dpkg -L "$PKG" | grep '/bees-node$')")" >> "$GITHUB_ENV"
+          echo "RT=$(dirname "$(dpkg -L "$PKG" | grep '/dsh-runtime/start.mjs$')")" >> "$GITHUB_ENV"
+          echo "APP=$(dpkg -L "$PKG" | grep -E '^/usr/bin/' | grep -vE 'bees-node|temporal' | head -1)" >> "$GITHUB_ENV"
+      - name: Check libraries
+        run: |
+          for f in $(dpkg -L "$(dpkg-deb -f Bees_*_amd64.deb Package)" | grep -E '^/usr/bin/'); do
+            ldd "$f" 2>&1 | tee /dev/stderr | grep 'not found' && exit 1 || true
+          done
+      - name: Unpack the AppImage
+        run: chmod +x Bees_*.AppImage && ./Bees_*.AppImage --appimage-extract > /dev/null && test -x squashfs-root/AppRun
+      - name: Start the engine
+        run: bash scripts/install-check-boot.sh "$BIN" "$RT"
+      - name: Open the window for 20 seconds
+        run: HOME=$RUNNER_TEMP/gui timeout 20 xvfb-run -a "$APP" || [ $? -eq 124 ]
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install silently
+        shell: pwsh
+        run: |
+          gh release download $env:TAG -p '*_x64-setup.exe'
+          Start-Process -Wait -FilePath (Get-Item Bees_*_x64-setup.exe).FullName -ArgumentList '/S'
+          $node = Get-ChildItem $env:LOCALAPPDATA, $env:ProgramFiles -Recurse -Depth 3 -Filter bees-node.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $node) { throw 'bees-node.exe not found after install' }
+          Get-ChildItem $node.DirectoryName -Filter *.exe | ForEach-Object { $_.FullName }
+          if (-not (Test-Path "$($node.DirectoryName)\dsh-runtime\start.mjs")) { throw 'dsh-runtime missing' }
+          "BIN=$($node.DirectoryName)" >> $env:GITHUB_ENV
+      - name: Start the engine
+        shell: bash
+        run: bash scripts/install-check-boot.sh "$BIN" "$BIN/dsh-runtime"
