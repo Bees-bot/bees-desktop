@@ -76,7 +76,8 @@ jobs:
           security list-keychain -d user -s "$keychain" login.keychain-db
           rm "$certificate"
 
-      - run: npx tauri build --bundles ${{ matrix.bundles }}
+      # verbose, or a failed linuxdeploy prints nothing but its name
+      - run: npx tauri build --verbose --bundles ${{ matrix.bundles }}
 
       # artifacts drop symlinks and execute bits, which an app bundle needs. the release script notarizes it.
       - name: Pack the Mac app

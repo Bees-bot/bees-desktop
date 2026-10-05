@@ -15,7 +15,9 @@ Nothing builds on a tag or a schedule. The Mac builds Apple Silicon itself and s
   keep a backup somewhere safe. Never commit it.
 - `gh` signed in with write access to `Bees-bot/bees-desktop`, and Node 24.
 - The repository secrets `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD` and
-  `APPLE_SIGNING_IDENTITY`, so GitHub signs the Intel build. This Mac notarizes it.
+  `APPLE_SIGNING_IDENTITY`, so GitHub signs the Intel build. This Mac notarizes it. Export the
+  certificate with `openssl pkcs12 -export -legacy`, because the macOS keychain reports an
+  OpenSSL 3 default export as a wrong password.
 
 ## Release
 
