@@ -28,7 +28,7 @@ jobs:
       - name: Install Linux build deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf cmake build-essential
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -47,8 +47,7 @@ jobs:
 
       # Tauri's build script resolves externalBin, so cargo check fails with
       # "resource path binaries/bees-node-... doesn't exist" until prepare:dsh
-      # has staged the Node sidecar. On Linux this pulls a prebuilt llama-server
-      # rather than compiling one, so it costs a download and not a build.
+      # has staged the Node sidecar and built the pinned local-model runtime.
       - run: npm run prepare:dsh
 
       # Rust only. A full tauri build also bundles and signs, which a PR does

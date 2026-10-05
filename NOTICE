@@ -18,6 +18,7 @@ This product includes software developed by third parties:
 
   llama.cpp
   https://github.com/ggml-org/llama.cpp
+  K2 Horizon support: https://github.com/ifm-ai/llama.cpp (42adf019f76013dac873b5b43950d54d5ab27216)
   Copyright (c) 2023-2026 The ggml authors
   Licensed under the MIT License
 
