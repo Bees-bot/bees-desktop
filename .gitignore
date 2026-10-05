@@ -1,5 +1,6 @@
 node_modules/
 dist/
+graphify-out/
 src-tauri/target/
 src-tauri/binaries/
 llama-runtime/*
