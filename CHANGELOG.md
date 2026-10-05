@@ -13,8 +13,10 @@ Notable changes, newest first. Dates are release dates.
   update. Back up your 0.1.1 data, then install 0.2.0 by hand.
 - Building from source needs Rust 1.88 instead of 1.84, which clears the open security
   alerts in the shipped dependencies.
-- The installer is about 200 MB smaller: each download now carries only the builds for the
-  computer it runs on, and the memory installer ships once instead of twice.
+- The Mac download is about 300 MB smaller: each download now carries only the builds for the
+  computer it runs on, the memory installer ships once instead of twice, and the test tools,
+  type files and native sources the app never reads are left out.
+- You can add your own local model from a direct HTTPS link to a .gguf file.
 - OpenCode Zen connects like every other AI connection, so an OpenCode Go plan runs the
   models it offers.
 - Agents cannot read passwords, browser profiles or Bees' own files, and they ask before
