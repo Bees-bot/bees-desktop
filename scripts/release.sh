@@ -101,8 +101,14 @@ publish)
   files=("Bees_${version}_aarch64.dmg" "Bees_${version}_x64.dmg" "${updates[@]}")
   (cd "$out" && shasum -a 256 "${files[@]}" > SHA256SUMS)
 
-  gh release create "$tag" --repo $repo --target "$sha" --title "Bees $tag" --notes "$notes" --latest \
-    "${files[@]/#/$out/}" "$out/bees-update.json" "$out/SHA256SUMS"
+  # gh deletes a draft whose upload dies, so the draft starts empty and each file retries on its own
+  trap - EXIT
+  try() { for n in 1 2 3 4 5; do "$@" && return; sleep 30; done; die "github kept failing: $*. the signed files are in $out"; }
+  draft() { gh release view "$tag" --repo $repo >/dev/null 2>&1 || gh release create "$tag" --repo $repo --target "$sha" --title "Bees $tag" --notes "$notes" --draft; }
+  try draft
+  for file in "${files[@]}" bees-update.json SHA256SUMS; do try gh release upload "$tag" --repo $repo --clobber "$out/$file"; done
+  try gh release edit "$tag" --repo $repo --draft=false --latest
+  rm -rf "$out"
   live=$(curl -fsSL https://github.com/$repo/releases/latest/download/bees-update.json | node -p 'JSON.parse(require("fs").readFileSync(0)).version') \
     || die "$tag is published but bees-update.json could not be read back."
   [[ $live == "$version" ]] || die "$tag is published but strangers are offered '$live'."
