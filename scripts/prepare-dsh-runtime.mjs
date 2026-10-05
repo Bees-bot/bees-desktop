@@ -115,20 +115,22 @@ function markPrepared(marker, artifact, revision) {
   writeFileSync(marker, `${revision} ${statSync(artifact).size}\n`);
 }
 
+// check a folder's own files before its subfolders, since windows lists llama.cpp's app/ ahead of its CMakeLists.txt
 function findFile(root, name) {
-  for (const entry of readdirSync(root, { withFileTypes: true })) {
-    const path = join(root, entry.name);
-    if (entry.isFile() && entry.name === name) return path;
-    if (entry.isDirectory()) {
-      const found = findFile(path, name);
-      if (found) return found;
-    }
+  const entries = readdirSync(root, { withFileTypes: true });
+  if (entries.some((entry) => entry.isFile() && entry.name === name)) return join(root, name);
+  for (const entry of entries) {
+    const found = entry.isDirectory() && findFile(join(root, entry.name), name);
+    if (found) return found;
   }
   return undefined;
 }
 
+// one retry, because a connection left idle through a long compile can be dead on reuse
+const get = (url, init = { headers: { "User-Agent": "Bees build" } }) => fetch(url, init).catch(() => fetch(url, init));
+
 async function downloadVerified(url, expectedSha256) {
-  const response = await fetch(url, { headers: { "User-Agent": "Bees build" } });
+  const response = await get(url);
   if (!response.ok) throw new Error(`Could not download ${basename(url)}: HTTP ${response.status}`);
   const archive = Buffer.from(await response.arrayBuffer());
   const actualSha256 = createHash("sha256").update(archive).digest("hex");
@@ -493,7 +495,7 @@ async function prepareMemoryInstaller() {
   const binary = join(directory, `uv${extension}`);
   const marker = join(directory, ".prepared");
   if (preparedAlready(marker, binary, `${release}-${target}`)) return;
-  const checksum = await fetch(`${base}/${archiveName}.sha256`);
+  const checksum = await get(`${base}/${archiveName}.sha256`);
   if (!checksum.ok) throw new Error(`uv does not provide the memory installer for ${target}`);
   const hash = (await checksum.text()).trim().split(/\s+/)[0];
   if (!/^[a-f0-9]{64}$/.test(hash)) throw new Error("Invalid uv release checksum");
@@ -509,7 +511,7 @@ async function prepareMemoryInstaller() {
     mkdirSync(directory, { recursive: true });
     copyFileSync(executable, binary);
     chmodSync(binary, 0o755);
-    const license = await fetch(`https://raw.githubusercontent.com/astral-sh/uv/${release}/LICENSE-MIT`);
+    const license = await get(`https://raw.githubusercontent.com/astral-sh/uv/${release}/LICENSE-MIT`);
     if (!license.ok) throw new Error("uv license download failed");
     writeFileSync(join(directory, "LICENSE-MIT"), await license.text());
     signMacRuntime(directory);
