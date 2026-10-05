@@ -898,7 +898,7 @@ fn build_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> 
 }
 
 /// An unavailable run count is not an idle run. Blocks on the network and a dialog, so keep it off the main thread.
-fn quit_allowed(app: &tauri::AppHandle) -> bool {
+fn quit_allowed(app: &tauri::AppHandle, action: &str) -> bool {
     let connection = app.try_state::<DshManager>().and_then(|state| {
         state.0.lock().ok().and_then(|managed| managed.as_ref()
             .map(|dsh| (dsh.port, dsh.token.clone())))
@@ -920,9 +920,9 @@ fn quit_allowed(app: &tauri::AppHandle) -> bool {
         || "Bees could not check whether work is still active.".to_string(),
         |count| format!("Bees has {count} active or queued run(s)."),
     );
-    app.dialog().message(format!("{detail} Quitting interrupts work and stops local schedules until Bees opens again. Close the window to keep working in the background."))
-        .title("Quit Bees?")
-        .buttons(MessageDialogButtons::OkCancelCustom("Quit Bees".into(), "Keep working".into()))
+    app.dialog().message(format!("{detail} This interrupts work and stops local schedules until Bees opens again."))
+        .title(format!("{action}?"))
+        .buttons(MessageDialogButtons::OkCancelCustom(action.into(), "Keep working".into()))
         .blocking_show()
 }
 
@@ -931,7 +931,7 @@ fn confirm_quit(app: tauri::AppHandle, exit_code: i32) {
         return;
     }
     thread::spawn(move || {
-        if quit_allowed(&app) {
+        if quit_allowed(&app, "Quit Bees") {
             QUIT_CONFIRMED.store(true, Ordering::SeqCst);
             app.exit(exit_code);
         }
@@ -941,11 +941,15 @@ fn confirm_quit(app: tauri::AppHandle, exit_code: i32) {
 
 #[tauri::command]
 async fn check_for_update(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    // a dev build or a copy run from the disk image has no app folder the updater can replace
+    if cfg!(debug_assertions) || std::env::current_exe().is_ok_and(|exe| { let path = exe.to_string_lossy(); path.starts_with("/Volumes/Bees") || path.contains("/AppTranslocation/") }) {
+        return Ok(None);
+    }
     let update = app.updater().map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())?;
     Ok(update.map(|update| update.version))
 }
 
-/// Asks about active runs before downloading, since installing swaps the files the running app serves.
+/// Asks about active runs once downloaded, since installing swaps the files the running app serves.
 #[tauri::command]
 async fn install_update(app: tauri::AppHandle) -> Result<bool, String> {
     if UPDATING.swap(true, Ordering::SeqCst) {
@@ -959,16 +963,23 @@ async fn install_update(app: tauri::AppHandle) -> Result<bool, String> {
 }
 
 async fn install(app: &tauri::AppHandle) -> Result<bool, String> {
+    // windows installs by exiting the process outright, which skips RunEvent::Exit
+    let handle = app.clone();
+    let update = app.updater_builder().on_before_exit(move || { shutdown(&handle); handle.cleanup_before_exit(); }).build().map_err(|e| e.to_string())?
+        .check().await.map_err(|e| e.to_string())?
+        .ok_or("Bees is already up to date.")?;
+    let bytes = update.download(|_, _| {}, || {}).await.map_err(|e| e.to_string())?;
     let asked = app.clone();
-    if !tauri::async_runtime::spawn_blocking(move || quit_allowed(&asked)).await.map_err(|e| e.to_string())? {
+    if !tauri::async_runtime::spawn_blocking(move || quit_allowed(&asked, "Update and restart")).await.map_err(|e| e.to_string())? {
         return Ok(false);
     }
-    let update = app.updater().map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())?
-        .ok_or("Bees is already up to date.")?;
-    update.download_and_install(|_, _| {}, || {}).await.map_err(|e| e.to_string())?;
-    QUIT_CONFIRMED.store(true, Ordering::SeqCst);
-    app.request_restart();
-    Ok(true)
+    let installed = update.install(bytes);
+    // a failed installer launch on windows comes after the engine stopped, so restart either way
+    if installed.is_ok() || cfg!(windows) {
+        QUIT_CONFIRMED.store(true, Ordering::SeqCst);
+        app.request_restart();
+    }
+    installed.map(|_| true).map_err(|e| e.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1067,37 +1078,41 @@ pub fn run() {
             }
             // Tauri exits the process directly on quit, so the children are dropped by hand here.
             if matches!(event, tauri::RunEvent::Exit) {
-                if let Some(dsh) = handle.try_state::<DshManager>() {
-                    // startup holds this lock through its waits; give up after ~2 s and let the next launch reap
-                    for _ in 0..20 {
-                        match dsh.0.try_lock() {
-                            Ok(mut managed) => {
-                                managed.take();
-                                break;
-                            }
-                            Err(std::sync::TryLockError::Poisoned(poisoned)) => {
-                                poisoned.into_inner().take();
-                                break;
-                            }
-                            Err(std::sync::TryLockError::WouldBlock) => thread::sleep(Duration::from_millis(100)),
-                        }
-                    }
-                }
-                if let Some(models) = handle.try_state::<LocalModelManager>() {
-                    models.shutdown();
-                }
-                if let Ok(state) = state_dir(handle) {
-                    reap_agent_browsers(&state);
-                }
-                // the only place the folder lock comes off, since quitting kills the harness outright
-                if let Some(lock) = CLAIMED.lock().unwrap_or_else(|e| e.into_inner()).take() {
-                    let _ = fs::remove_file(lock);
-                }
-                // last, so the files the sidecars were holding are closed before the folder goes
-                if let Some(folder) = REMOVE_ON_EXIT.lock().unwrap_or_else(|e| e.into_inner()).take() {
-                    kill_local_memory_server();
-                    let _ = fs::remove_dir_all(folder);
-                }
+                shutdown(handle);
             }
         });
+}
+
+fn shutdown(handle: &tauri::AppHandle) {
+    if let Some(dsh) = handle.try_state::<DshManager>() {
+        // startup holds this lock through its waits; give up after ~2 s and let the next launch reap
+        for _ in 0..20 {
+            match dsh.0.try_lock() {
+                Ok(mut managed) => {
+                    managed.take();
+                    break;
+                }
+                Err(std::sync::TryLockError::Poisoned(poisoned)) => {
+                    poisoned.into_inner().take();
+                    break;
+                }
+                Err(std::sync::TryLockError::WouldBlock) => thread::sleep(Duration::from_millis(100)),
+            }
+        }
+    }
+    if let Some(models) = handle.try_state::<LocalModelManager>() {
+        models.shutdown();
+    }
+    if let Ok(state) = state_dir(handle) {
+        reap_agent_browsers(&state);
+    }
+    // the only place the folder lock comes off, since quitting kills the harness outright
+    if let Some(lock) = CLAIMED.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        let _ = fs::remove_file(lock);
+    }
+    // last, so the files the sidecars were holding are closed before the folder goes
+    if let Some(folder) = REMOVE_ON_EXIT.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        kill_local_memory_server();
+        let _ = fs::remove_dir_all(folder);
+    }
 }
