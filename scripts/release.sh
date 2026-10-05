@@ -91,7 +91,7 @@ publish)
     while read -r id name; do
       curl -fsSL -C - --retry 30 --retry-all-errors --retry-delay 20 --speed-limit 1024 --speed-time 60 \
         -H @<(echo "Authorization: Bearer $(gh auth token)") -o "$out/$id.zip" "https://api.github.com/repos/$repo/actions/artifacts/$id/zip" || return
-      rm -rf "$out/ci/$name"; unzip -oq "$out/$id.zip" -d "$out/ci/$name" || { rm -f "$out/$id.zip"; return 1; }
+      rm -rf "$out/ci/$name"; mkdir -p "$out/ci"; unzip -oq "$out/$id.zip" -d "$out/ci/$name" || { rm -f "$out/$id.zip"; return 1; }
     done < "$out/artifacts"
   }
   try ci
