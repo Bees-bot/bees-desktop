@@ -9,7 +9,15 @@ repo=Bees-bot/bees-desktop
 identity="Developer ID Application: FunCove LLC (T9AGT95JD7)"
 key=../bees-signing/bees-updater.key
 die() { echo "stop: $*" >&2; exit 1; }
-notarize() { xcrun notarytool submit "$1" --keychain-profile bees-notary --wait | tee /dev/stderr | grep "status: Accepted" >/dev/null || die "apple rejected $1"; }
+# the line here drops for a minute at a time, so every long network call gets retried
+try() { for n in 1 2 3 4 5 6; do "$@" && return; sleep 60; done; die "kept failing: $*"; }
+notarize() {
+  local id
+  id=$(try xcrun notarytool submit "$1" --keychain-profile bees-notary | awk '/^  id:/ { id = $2 } END { print id }')
+  [[ -n $id ]] || die "apple gave no submission id for $1"
+  try xcrun notarytool wait "$id" --keychain-profile bees-notary | tee /dev/stderr | grep "status: Accepted" >/dev/null \
+    || die "apple rejected $1. xcrun notarytool log $id --keychain-profile bees-notary says why"
+}
 # notarizes and staples an app, then makes its update package and disk image in $out
 mac() {
   local app=$1 name=Bees_${version}_$2
@@ -74,8 +82,9 @@ publish)
   APPLE_SIGNING_IDENTITY=$identity npx tauri build --bundles app
   mac src-tauri/target/release/bundle/macos/Bees.app aarch64
 
-  gh run watch "$run" --repo $repo --interval 60 --exit-status >/dev/null || die "the github build failed: https://github.com/$repo/actions/runs/$run"
-  gh run download "$run" --repo $repo --dir "$out/ci"
+  try gh run watch "$run" --repo $repo --interval 60 --exit-status >/dev/null
+  ci() { rm -rf "$out/ci"; gh run download "$run" --repo $repo --dir "$out/ci"; }
+  try ci
   mkdir "$out/intel"
   tar -xzf "$out/ci/macos-15-intel/Bees.app.tar.gz" -C "$out/intel"
   mac "$out/intel/Bees.app" x64
@@ -103,7 +112,6 @@ publish)
 
   # gh deletes a draft whose upload dies, so the draft starts empty and each file retries on its own
   trap - EXIT
-  try() { for n in 1 2 3 4 5; do "$@" && return; sleep 30; done; die "github kept failing: $*. the signed files are in $out"; }
   draft() { gh release view "$tag" --repo $repo >/dev/null 2>&1 || gh release create "$tag" --repo $repo --target "$sha" --title "Bees $tag" --notes "$notes" --draft; }
   try draft
   for file in "${files[@]}" bees-update.json SHA256SUMS; do try gh release upload "$tag" --repo $repo --clobber "$out/$file"; done
