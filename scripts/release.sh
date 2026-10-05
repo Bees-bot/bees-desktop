@@ -73,8 +73,10 @@ publish)
   rc=0; git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null || rc=$?
   [[ $rc == 2 ]] || die "$tag already exists or github could not be reached. a used version is never reused."
   [[ -r $key && -r $key.password ]] || die "the updater key is missing from ../bees-signing."
+  caffeinate -i -w $$ &
   out=$(mktemp -d)
-  trap 'rm -rf "$out"' EXIT
+  # a failed run should not leave github building for nothing
+  trap 'gh run cancel "${run:-0}" --repo $repo >/dev/null 2>&1; rm -rf "$out"' EXIT
 
   # this Mac cannot build Intel, Linux or Windows, so github builds those while it builds Apple Silicon
   run=$(gh workflow run build.yml --repo $repo --ref main -f sha="$sha" | grep -o 'runs/[0-9]*' | cut -d/ -f2) || die "github did not start the build."
@@ -83,7 +85,15 @@ publish)
   mac src-tauri/target/release/bundle/macos/Bees.app aarch64
 
   try gh run watch "$run" --repo $repo --interval 60 --exit-status >/dev/null
-  ci() { rm -rf "$out/ci"; gh run download "$run" --repo $repo --dir "$out/ci"; }
+  # curl resumes each zip after a drop, and set -e is off inside try, hence the returns
+  ci() {
+    gh api "repos/$repo/actions/runs/$run/artifacts" --jq '.artifacts[] | "\(.id) \(.name)"' > "$out/artifacts" || return
+    while read -r id name; do
+      curl -fsSL -C - --retry 30 --retry-all-errors --retry-delay 20 --speed-limit 1024 --speed-time 60 \
+        -H @<(echo "Authorization: Bearer $(gh auth token)") -o "$out/$id.zip" "https://api.github.com/repos/$repo/actions/artifacts/$id/zip" || return
+      rm -rf "$out/ci/$name"; unzip -oq "$out/$id.zip" -d "$out/ci/$name" || { rm -f "$out/$id.zip"; return 1; }
+    done < "$out/artifacts"
+  }
   try ci
   mkdir "$out/intel"
   tar -xzf "$out/ci/macos-15-intel/Bees.app.tar.gz" -C "$out/intel"
@@ -93,7 +103,7 @@ publish)
   updates=("Bees_${version}_aarch64.app.tar.gz" "Bees_${version}_x64.app.tar.gz" "Bees_${version}_x64-setup.exe" "Bees_${version}_amd64.AppImage" "Bees_${version}_amd64.deb")
   # 2.12 binds each signature to the version, which requireSignedVersion in tauri.conf.json checks
   for file in "${updates[@]}"; do
-    TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$(cat "$key.password") npx -y @tauri-apps/cli@2.12.1 signer sign --app-version "$version" -f "$key" "$out/$file"
+    TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$(cat "$key.password") try npx -y @tauri-apps/cli@2.12.1 signer sign --app-version "$version" -f "$key" "$out/$file"
   done
   # a new file name on purpose: 0.1.1 still polls latest.json here and must never be offered this build
   V=$version BASE=https://github.com/$repo/releases/download/$tag OUT=$out node -e '
@@ -115,7 +125,8 @@ publish)
   draft() { gh release view "$tag" --repo $repo >/dev/null 2>&1 || gh release create "$tag" --repo $repo --target "$sha" --title "Bees $tag" --notes "$notes" --draft; }
   try draft
   for file in "${files[@]}" bees-update.json SHA256SUMS; do try gh release upload "$tag" --repo $repo --clobber "$out/$file"; done
-  try gh release edit "$tag" --repo $repo --draft=false --latest
+  # a draft left by an earlier run may point at an older commit
+  try gh release edit "$tag" --repo $repo --target "$sha" --notes "$notes" --draft=false --latest
   rm -rf "$out"
   live=$(curl -fsSL https://github.com/$repo/releases/latest/download/bees-update.json | node -p 'JSON.parse(require("fs").readFileSync(0)).version') \
     || die "$tag is published but bees-update.json could not be read back."

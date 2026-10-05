@@ -9,17 +9,10 @@ dsh-runtime/freellmapi/*
 dsh-runtime/plugin/lib/client.js
 dsh-runtime/memory-runtime/*
 src-tauri/gen/schemas/
-.serena/
 .env
 .env.*
 *.db
 *.db-shm
 *.db-wal
-coverage/
 .DS_Store
-services/api-bridge/bridge.mjs
-.playwright-cli/
-graphify-out/
 CLAUDE.md
-docs/sbom/dsh-runtime.cdx.json
-dsh-runtime/package-lock.json

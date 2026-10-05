@@ -2,10 +2,10 @@
   "$schema": "http://cyclonedx.org/schema/bom-1.5.schema.json",
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
-  "serialNumber": "urn:uuid:e5b506b1-7aee-49e8-b71b-886faf313fd3",
+  "serialNumber": "urn:uuid:20683c18-6adb-4f33-b922-fde109b177b1",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-10-05T11:04:34.708Z",
+    "timestamp": "2026-10-05T14:28:22.665Z",
     "lifecycles": [
       {
         "phase": "pre-build"
@@ -27820,34 +27820,6 @@
       ]
     },
     {
-      "bom-ref": "typescript@5.9.3",
-      "type": "library",
-      "name": "typescript",
-      "version": "5.9.3",
-      "scope": "required",
-      "purl": "pkg:npm/typescript@5.9.3",
-      "properties": [],
-      "externalReferences": [
-        {
-          "type": "distribution",
-          "url": "https://registry.npmjs.org/typescript/-/typescript-5.9.3.tgz"
-        }
-      ],
-      "hashes": [
-        {
-          "alg": "SHA-512",
-          "content": "8e5d6f6733c38a72ebf5e52ddc9feded5e8580d130f508ef04f772b33f4a7d00c3e357d0ac2d98e2f290762694a454f86d795bd511e12e9a7cc2d9ba3394e04b"
-        }
-      ],
-      "licenses": [
-        {
-          "license": {
-            "id": "Apache-2.0"
-          }
-        }
-      ]
-    },
-    {
       "bom-ref": "uint8array-extras@1.5.0",
       "type": "library",
       "name": "uint8array-extras",
@@ -29160,6 +29132,7 @@
         "@deepseek-ai/dsh-deepseek-llm-api-extensions@0.1.7-rc.2",
         "@deepseek-ai/dsh-deque@0.1.7-rc.2",
         "@deepseek-ai/dsh-experimental-agent-team@0.1.7-rc.2",
+        "@deepseek-ai/dsh-experimental-client-ui-agent-team@0.1.7-rc.2",
         "@deepseek-ai/dsh-experimental-tool-agent-team@0.1.7-rc.2",
         "@deepseek-ai/dsh-file-reference@0.1.7-rc.2",
         "@deepseek-ai/dsh-file-reference-local@0.1.7-rc.2",
@@ -29322,23 +29295,18 @@
         "react@18.3.1",
         "react-cron-generator@2.6.0",
         "react-dom@18.3.1",
-        "typescript@5.9.3",
         "ws@8.21.3",
         "yaml@2.9.0",
-        "zod@4.6.2",
-        "@deepseek-ai/dsh-experimental-client-ui-agent-team@0.1.7-rc.2"
-      ]
-    },
-    {
-      "ref": "@agentclientprotocol/sdk@1.4.0",
-      "dependsOn": [
         "zod@4.6.2"
       ]
     },
     {
+      "ref": "@agentclientprotocol/sdk@1.4.0",
+      "dependsOn": []
+    },
+    {
       "ref": "@anthropic-ai/sdk@0.123.0",
       "dependsOn": [
-        "zod@4.6.2",
         "json-schema-to-ts@3.1.1",
         "standardwebhooks@1.1.1"
       ]
@@ -29638,24 +29606,17 @@
     {
       "ref": "@deepseek-ai/cordis@4.0.4",
       "dependsOn": [
-        "@deepseek-ai/cordis-plugin-include@1.0.9",
-        "@deepseek-ai/cordis-plugin-loader@1.0.5",
         "@deepseek-ai/cosmokit@1.8.5",
         "@standard-schema/spec@1.1.0"
       ]
     },
     {
       "ref": "@deepseek-ai/cordis-plugin-group@1.0.4",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/cordis-plugin-loader@1.0.5"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/cordis-plugin-hmr@1.0.18",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/cordis-plugin-timer@1.1.6",
         "@babel/code-frame@7.29.7",
         "@deepseek-ai/cosmokit@1.8.5",
         "@deepseek-ai/schemastery@3.18.4",
@@ -29666,8 +29627,6 @@
     {
       "ref": "@deepseek-ai/cordis-plugin-include@1.0.9",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/cordis-plugin-loader@1.0.5",
         "@deepseek-ai/cosmokit@1.8.5",
         "js-yaml@4.3.2"
       ]
@@ -29675,8 +29634,6 @@
     {
       "ref": "@deepseek-ai/cordis-plugin-loader@1.0.5",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "node-addon-require-builtin@0.1.6",
         "@deepseek-ai/cosmokit@1.8.5",
         "@deepseek-ai/schemastery@3.18.4"
       ]
@@ -29684,7 +29641,6 @@
     {
       "ref": "@deepseek-ai/cordis-plugin-logger-console@1.0.3",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/cosmokit@1.8.5",
         "@deepseek-ai/schemastery@3.18.4",
         "supports-color@9.4.0"
@@ -29697,7 +29653,6 @@
     {
       "ref": "@deepseek-ai/cordis-plugin-timer@1.1.6",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/cosmokit@1.8.5"
       ]
     },
@@ -29794,15 +29749,6 @@
     {
       "ref": "@deepseek-ai/dsh-acp@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-attachment@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-mcp-client@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-persistence@0.1.7-rc.2",
-        "@deepseek-ai/dsh-user-approval@0.1.7-rc.2",
-        "@deepseek-ai/dsh-token-meter@0.1.7-rc.2",
         "@agentclientprotocol/sdk@1.4.0",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
@@ -29811,7 +29757,6 @@
     {
       "ref": "@deepseek-ai/dsh-acp-app@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/dsh-acp@0.1.7-rc.2",
         "@deepseek-ai/dsh-cmdline@0.1.7-rc.2",
         "commander@15.0.0"
@@ -29819,25 +29764,11 @@
     },
     {
       "ref": "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-scope@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
-        "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
-        "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
-        "@deepseek-ai/dsh-workspace@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-agent-default-model@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
         "@deepseek-ai/dsh-config-editor@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
@@ -29845,14 +29776,6 @@
     {
       "ref": "@deepseek-ai/dsh-agent-instructions@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-fs@0.1.7-rc.2",
-        "@deepseek-ai/dsh-home-paths@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
@@ -29860,16 +29783,6 @@
     {
       "ref": "@deepseek-ai/dsh-agent-loop@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-scope@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-persistence@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
@@ -29878,41 +29791,17 @@
     },
     {
       "ref": "@deepseek-ai/dsh-agent-loop-testkit@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-agent-loop@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-agent-preset@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/cordis-plugin-loader@1.0.5",
-        "@deepseek-ai/dsh-agent-preset-registry@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-agent-preset-registry@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/cordis-plugin-include@1.0.9",
-        "@deepseek-ai/cordis-plugin-loader@1.0.5",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-scope@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-settings@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
-        "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
         "@deepseek-ai/dsh-app-boot@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "js-yaml@4.3.2",
@@ -29922,34 +29811,22 @@
     {
       "ref": "@deepseek-ai/dsh-agent-tool-presentation@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-anonymous-user-id@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-brand@0.1.7-rc.2",
-        "@deepseek-ai/dsh-home-paths@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-api-account-controller@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-deepseek-account@0.1.7-rc.2",
-        "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
         "zod@4.6.2"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-api-gateway@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-client-connection@0.1.7-rc.2",
         "@deepseek-ai/dsh-deque@0.1.7-rc.2",
         "@deepseek-ai/dsh-timeout@0.1.7-rc.2",
         "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
@@ -29960,7 +29837,6 @@
     {
       "ref": "@deepseek-ai/dsh-api-job-controller@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "zod@4.6.2"
@@ -29969,8 +29845,6 @@
     {
       "ref": "@deepseek-ai/dsh-api-remotes@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-scope@0.1.7-rc.2",
         "@deepseek-ai/dsh-deque@0.1.7-rc.2",
         "@deepseek-ai/dsh-session@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2"
@@ -29979,36 +29853,6 @@
     {
       "ref": "@deepseek-ai/dsh-api-session-controller@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-agent-default-model@0.1.7-rc.2",
-        "@deepseek-ai/dsh-agent-preset-registry@0.1.7-rc.2",
-        "@deepseek-ai/dsh-api-gateway@0.1.7-rc.2",
-        "@deepseek-ai/dsh-attachment@0.1.7-rc.2",
-        "@deepseek-ai/dsh-client-connection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-client-file-upload@0.1.7-rc.2",
-        "@deepseek-ai/dsh-commands@0.1.7-rc.2",
-        "@deepseek-ai/dsh-credentials@0.1.7-rc.2",
-        "@deepseek-ai/dsh-file-reference@0.1.7-rc.2",
-        "@deepseek-ai/dsh-fs@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-native-command@0.1.7-rc.2",
-        "@deepseek-ai/dsh-scope@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-query@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-title@0.1.7-rc.2",
-        "@deepseek-ai/dsh-skill@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subagent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
-        "@deepseek-ai/dsh-typert-registry@0.1.7-rc.2",
-        "@deepseek-ai/dsh-util-time@0.1.7-rc.2",
-        "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
-        "@deepseek-ai/dsh-util-workspace-path@0.1.7-rc.2",
-        "@deepseek-ai/dsh-workspace@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-persistence@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection-cache@0.1.7-rc.2",
-        "@deepseek-ai/dsh-settings@0.1.7-rc.2",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2",
         "@deepseek-ai/dsh-deque@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
@@ -30019,13 +29863,6 @@
     {
       "ref": "@deepseek-ai/dsh-api-settings-controller@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent-preset-registry@0.1.7-rc.2",
-        "@deepseek-ai/dsh-credentials@0.1.7-rc.2",
-        "@deepseek-ai/dsh-native-command@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-settings@0.1.7-rc.2",
-        "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "zod@4.6.2"
       ]
@@ -30033,8 +29870,6 @@
     {
       "ref": "@deepseek-ai/dsh-api-terminal-controller@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-subprocess@0.1.7-rc.2",
         "@deepseek-ai/dsh-deque@0.1.7-rc.2",
         "@deepseek-ai/dsh-lazy-require@0.1.7-rc.2",
         "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
@@ -30047,14 +29882,6 @@
     {
       "ref": "@deepseek-ai/dsh-api-workspace-controller@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-api-gateway@0.1.7-rc.2",
-        "@deepseek-ai/dsh-client-connection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-host-directory-picker@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-storage-domain@0.1.7-rc.2",
-        "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
-        "@deepseek-ai/dsh-workspace@0.1.7-rc.2",
         "@deepseek-ai/dsh-deque@0.1.7-rc.2",
         "@deepseek-ai/dsh-native-command@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
@@ -30064,7 +29891,6 @@
     {
       "ref": "@deepseek-ai/dsh-api-workspace-files@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/dsh-deque@0.1.7-rc.2",
         "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
@@ -30074,13 +29900,6 @@
     {
       "ref": "@deepseek-ai/dsh-app-boot@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/cordis-plugin-group@1.0.4",
-        "@deepseek-ai/cordis-plugin-include@1.0.9",
-        "@deepseek-ai/cordis-plugin-loader@1.0.5",
-        "@deepseek-ai/dsh-home-paths@0.1.7-rc.2",
-        "@deepseek-ai/dsh-launch-environment@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
         "@deepseek-ai/dsh-atomic-write@0.1.7-rc.2",
         "@deepseek-ai/dsh-package-manifest@0.1.7-rc.2",
         "@eslint-community/regexpp@4.12.2",
@@ -30093,23 +29912,15 @@
     },
     {
       "ref": "@deepseek-ai/dsh-atomic-write@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-attachment@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-brand@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-attachment-local@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-attachment@0.1.7-rc.2",
-        "@deepseek-ai/dsh-home-paths@0.1.7-rc.2",
         "@deepseek-ai/dsh-lazy-require@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "sharp@0.35.4"
@@ -30117,17 +29928,11 @@
     },
     {
       "ref": "@deepseek-ai/dsh-authorization@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-credentials@0.1.7-rc.2",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-base@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/cordis-plugin-timer@1.1.6",
         "@deepseek-ai/dsh-agent@0.1.7-rc.2",
         "@deepseek-ai/dsh-agent-default-model@0.1.7-rc.2",
@@ -30225,41 +30030,26 @@
     {
       "ref": "@deepseek-ai/dsh-bash-local@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-shell@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subprocess@0.1.7-rc.2",
-        "@deepseek-ai/dsh-timeout@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-bash-sandbox@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-bash-local@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox-policy@0.1.7-rc.2",
-        "@deepseek-ai/dsh-shell@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-brand@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-chunked-list@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "zod@4.6.2"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-client-connection@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-scope@0.1.7-rc.2",
         "@deepseek-ai/dsh-credentials@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "zod@4.6.2"
@@ -30268,8 +30058,6 @@
     {
       "ref": "@deepseek-ai/dsh-client-file-upload@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-scope@0.1.7-rc.2",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2",
         "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
         "zod@4.6.2"
@@ -30278,33 +30066,26 @@
     {
       "ref": "@deepseek-ai/dsh-client-hmr@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-client-locale@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-client-modules@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-resources@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-shortcuts@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/dsh-util-crypto@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
@@ -30312,137 +30093,97 @@
     },
     {
       "ref": "@deepseek-ai/dsh-client-store@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-agent-preset@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-approval@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-attachment@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-brand-official@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-chat@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-commands@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-conversation@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-cordis@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-deliverables@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-directory-picker-browse@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-directory-picker-native@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-goal@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-input-trigger@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-jobs@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-layout@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-message-feedback@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-model-selection@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-open-in-app@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-permission-presets@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-plan@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-plugin-manager@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/dsh-timeout@0.1.7-rc.2",
         "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
@@ -30451,275 +30192,176 @@
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-primitives@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-reference@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-renderer@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-schedule@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-session@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-settings@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-settings-account@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-settings-agent-loop@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-settings-general@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-settings-models@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-settings-plugin-inventory@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-settings-plugins@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-settings-shell@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-settings-subagent@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-settings-web-search@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-shortcuts@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-sidebar@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-sidebar-browser@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-sidebar-documentpreview@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-sidebar-files@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-sidebar-right@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-sidebar-terminal@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-skill@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-slots@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-subagent@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-theme@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-tool@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-trajectory@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-user-questions@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-workflow-run@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-ui-workspace@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-client-web@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-cmdline@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/cordis-plugin-loader@1.0.5"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-command-compact@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-commands@0.1.7-rc.2",
-        "@deepseek-ai/dsh-compaction@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-command-feedback@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-anonymous-user-id@0.1.7-rc.2",
-        "@deepseek-ai/dsh-commands@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
         "zod@4.6.2"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-command-goal@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-commands@0.1.7-rc.2",
-        "@deepseek-ai/dsh-goal@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-commands@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-attachment@0.1.7-rc.2",
-        "@deepseek-ai/dsh-brand@0.1.7-rc.2",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-scope@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-crypto@0.1.7-rc.2",
         "zod@4.6.2"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-compaction@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-brand@0.1.7-rc.2",
-        "@deepseek-ai/dsh-commands@0.1.7-rc.2",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-compaction-basic@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-commands@0.1.7-rc.2",
-        "@deepseek-ai/dsh-compaction@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-token-meter@0.1.7-rc.2",
-        "@deepseek-ai/dsh-compaction-tool-result-pruner@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
@@ -30727,22 +30369,12 @@
     {
       "ref": "@deepseek-ai/dsh-compaction-image-offload@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-compaction@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-compaction-tool-result-pruner@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-compaction@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-token-meter@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
@@ -30750,11 +30382,6 @@
     {
       "ref": "@deepseek-ai/dsh-config-editor@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/cordis-plugin-include@1.0.9",
-        "@deepseek-ai/cordis-plugin-loader@1.0.5",
-        "@deepseek-ai/dsh-app-boot@0.1.7-rc.2",
-        "@deepseek-ai/dsh-hmr@0.1.7-rc.2",
         "@deepseek-ai/dsh-atomic-write@0.1.7-rc.2",
         "js-yaml@4.3.2",
         "yaml@2.9.0"
@@ -30762,21 +30389,11 @@
     },
     {
       "ref": "@deepseek-ai/dsh-cordis-client-runner@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-cordis-host-runner@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-brand@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-scope@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
-        "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "zod@4.6.2"
@@ -30785,19 +30402,12 @@
     {
       "ref": "@deepseek-ai/dsh-credentials@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-credentials-local@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-atomic-write@0.1.7-rc.2",
-        "@deepseek-ai/dsh-credentials@0.1.7-rc.2",
-        "@deepseek-ai/dsh-home-paths@0.1.7-rc.2",
-        "@deepseek-ai/dsh-launch-environment@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "chokidar@4.0.3",
         "yaml@2.9.0"
@@ -30805,48 +30415,26 @@
     },
     {
       "ref": "@deepseek-ai/dsh-deepseek-account@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-brand@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-deepseek-account-platform@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-authorization@0.1.7-rc.2",
-        "@deepseek-ai/dsh-credentials@0.1.7-rc.2",
-        "@deepseek-ai/dsh-deepseek-account@0.1.7-rc.2",
-        "@deepseek-ai/dsh-host-webserver@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "zod@4.6.2"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-deepseek-llm-api-extensions@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-deque@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-experimental-agent-team@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-persistence@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subagent@0.1.7-rc.2",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "zod@4.6.2"
@@ -30855,7 +30443,6 @@
     {
       "ref": "@deepseek-ai/dsh-experimental-agent-team-profile@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/dsh-experimental-agent-team@0.1.7-rc.2",
         "@deepseek-ai/dsh-experimental-client-ui-agent-team@0.1.7-rc.2",
         "@deepseek-ai/dsh-experimental-tool-agent-team@0.1.7-rc.2"
@@ -30864,9 +30451,6 @@
     {
       "ref": "@deepseek-ai/dsh-experimental-api-speech-to-text@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-experimental-speech-to-text@0.1.7-rc.2",
-        "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "zod@4.6.2"
       ]
@@ -30874,59 +30458,20 @@
     {
       "ref": "@deepseek-ai/dsh-experimental-auto-review@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-agent-instructions@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-permission-presets@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-experimental-client-ui-agent-team@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-api-session-controller@0.1.7-rc.2",
-        "@deepseek-ai/dsh-client-locale@0.1.7-rc.2",
-        "@deepseek-ai/dsh-client-ui-conversation@0.1.7-rc.2",
-        "@deepseek-ai/dsh-client-ui-primitives@0.1.7-rc.2",
-        "@deepseek-ai/dsh-client-ui-renderer@0.1.7-rc.2",
-        "@deepseek-ai/dsh-client-ui-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-client-ui-slots@0.1.7-rc.2",
-        "@deepseek-ai/dsh-client-ui-workspace@0.1.7-rc.2",
-        "@deepseek-ai/dsh-experimental-agent-team@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-experimental-client-ui-voice-input@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-api-gateway@0.1.7-rc.2",
-        "@deepseek-ai/dsh-api-remotes@0.1.7-rc.2",
-        "@deepseek-ai/dsh-api-session-controller@0.1.7-rc.2",
-        "@deepseek-ai/dsh-client-locale@0.1.7-rc.2",
-        "@deepseek-ai/dsh-client-store@0.1.7-rc.2",
-        "@deepseek-ai/dsh-client-ui-conversation@0.1.7-rc.2",
-        "@deepseek-ai/dsh-client-ui-plugin-manager@0.1.7-rc.2",
-        "@deepseek-ai/dsh-client-ui-primitives@0.1.7-rc.2",
-        "@deepseek-ai/dsh-client-ui-renderer@0.1.7-rc.2",
-        "@deepseek-ai/dsh-client-ui-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-client-ui-slots@0.1.7-rc.2",
-        "@deepseek-ai/dsh-experimental-api-speech-to-text@0.1.7-rc.2",
-        "@deepseek-ai/dsh-experimental-speech-to-text@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-experimental-speech-to-text@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-settings@0.1.7-rc.2",
-        "@deepseek-ai/cordis-plugin-loader@1.0.5",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
@@ -30934,9 +30479,6 @@
     {
       "ref": "@deepseek-ai/dsh-experimental-speech-to-text-sensevoice@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-experimental-speech-to-text@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subprocess@0.1.7-rc.2",
         "@deepseek-ai/dsh-timeout@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "sherpa-onnx-node@1.13.8",
@@ -30946,19 +30488,12 @@
     {
       "ref": "@deepseek-ai/dsh-experimental-tool-agent-team@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-experimental-agent-team@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-experimental-voice-input-bundle@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/dsh-experimental-api-speech-to-text@0.1.7-rc.2",
         "@deepseek-ai/dsh-experimental-client-ui-voice-input@0.1.7-rc.2",
         "@deepseek-ai/dsh-experimental-speech-to-text@0.1.7-rc.2",
@@ -30967,37 +30502,21 @@
     },
     {
       "ref": "@deepseek-ai/dsh-file-reference@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-file-reference-local@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-file-reference@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-fs@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-brand@0.1.7-rc.2",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-fs-local@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-fs@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "chokidar@4.0.3",
         "koffi@3.3.1"
@@ -31005,59 +30524,26 @@
     },
     {
       "ref": "@deepseek-ai/dsh-fs-observation-policy@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-fs@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-fs-sandbox@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-fs@0.1.7-rc.2",
-        "@deepseek-ai/dsh-fs-local@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox-policy@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-goal@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-brand@0.1.7-rc.2",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-scope@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "zod@4.6.2"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-goal-round-driver@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-goal@0.1.7-rc.2",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-headless@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/cordis-plugin-loader@1.0.5",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-agent-default-model@0.1.7-rc.2",
-        "@deepseek-ai/dsh-fs@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-query@0.1.7-rc.2",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2",
         "@deepseek-ai/dsh-cmdline@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
@@ -31068,12 +30554,6 @@
     {
       "ref": "@deepseek-ai/dsh-hmr@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/cordis-plugin-include@1.0.9",
-        "@deepseek-ai/cordis-plugin-loader@1.0.5",
-        "@deepseek-ai/cordis-plugin-timer@1.1.6",
-        "@deepseek-ai/dsh-app-boot@0.1.7-rc.2",
-        "@deepseek-ai/dsh-cmdline@0.1.7-rc.2",
         "@babel/code-frame@7.29.7",
         "@deepseek-ai/schemastery@3.18.4",
         "chokidar@4.0.3",
@@ -31082,69 +30562,37 @@
     },
     {
       "ref": "@deepseek-ai/dsh-home-paths@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-hook-protocol@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-shell@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-hooks-claude-code@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-hook-protocol@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subagent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-hooks-codex@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-hook-protocol@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-host-directory-picker@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-host-directory-picker-auto@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/cordis-plugin-loader@1.0.5",
-        "@deepseek-ai/dsh-client-ui-directory-picker-browse@0.1.7-rc.2",
-        "@deepseek-ai/dsh-client-ui-directory-picker-native@0.1.7-rc.2",
-        "@deepseek-ai/dsh-host-directory-picker-browse@0.1.7-rc.2",
-        "@deepseek-ai/dsh-host-directory-picker-native@0.1.7-rc.2",
-        "@deepseek-ai/dsh-host-webserver@0.1.7-rc.2",
         "@deepseek-ai/dsh-launch-environment@0.1.7-rc.2"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-host-directory-picker-browse@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/dsh-host-directory-picker@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
@@ -31152,7 +30600,6 @@
     {
       "ref": "@deepseek-ai/dsh-host-directory-picker-native@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/dsh-host-directory-picker@0.1.7-rc.2",
         "@deepseek-ai/dsh-native-command@0.1.7-rc.2",
         "koffi@3.3.1"
@@ -31161,16 +30608,12 @@
     {
       "ref": "@deepseek-ai/dsh-host-frontend-static@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-client-connection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-host-webserver@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-host-open-in-app@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/dsh-launch-environment@0.1.7-rc.2",
         "@deepseek-ai/dsh-native-command@0.1.7-rc.2",
         "@deepseek-ai/dsh-subprocess@0.1.7-rc.2",
@@ -31180,18 +30623,12 @@
     {
       "ref": "@deepseek-ai/dsh-host-plugin-inventory@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/cordis-plugin-loader@1.0.5",
-        "@deepseek-ai/dsh-brand@0.1.7-rc.2",
-        "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
-        "@deepseek-ai/dsh-agent-preset-registry@0.1.7-rc.2",
         "zod@4.6.2"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-host-webserver@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/schemastery@3.18.4",
         "compression@1.8.2",
         "negotiator@1.0.0"
@@ -31200,55 +30637,36 @@
     {
       "ref": "@deepseek-ai/dsh-http-proxy@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "undici@8.10.2"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-jobs@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-brand@0.1.7-rc.2",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-workspace@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-jobs-local@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-jobs@0.1.7-rc.2",
-        "@deepseek-ai/dsh-scope@0.1.7-rc.2",
-        "@deepseek-ai/dsh-timeout@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-launch-environment@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-lazy-require@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-llm@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2",
         "@deepseek-ai/dsh-timeout@0.1.7-rc.2",
         "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
@@ -31261,17 +30679,6 @@
     {
       "ref": "@deepseek-ai/dsh-llm-deepseek@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-anonymous-user-id@0.1.7-rc.2",
-        "@deepseek-ai/dsh-atomic-write@0.1.7-rc.2",
-        "@deepseek-ai/dsh-attachment@0.1.7-rc.2",
-        "@deepseek-ai/dsh-deepseek-llm-api-extensions@0.1.7-rc.2",
-        "@deepseek-ai/dsh-fs@0.1.7-rc.2",
-        "@deepseek-ai/dsh-home-paths@0.1.7-rc.2",
-        "@deepseek-ai/dsh-launch-environment@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-timeout@0.1.7-rc.2",
-        "@deepseek-ai/cordis-plugin-loader@1.0.5",
         "@deepseek-ai/cosmokit@1.8.5",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
@@ -31281,45 +30688,21 @@
     },
     {
       "ref": "@deepseek-ai/dsh-llm-deepseek-account@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-launch-environment@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm-deepseek@0.1.7-rc.2",
-        "@deepseek-ai/cordis-plugin-loader@1.0.5",
-        "@deepseek-ai/dsh-deepseek-account@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-llm-deepseek-api-key@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-credentials@0.1.7-rc.2",
-        "@deepseek-ai/dsh-launch-environment@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm-deepseek@0.1.7-rc.2",
-        "@deepseek-ai/cordis-plugin-loader@1.0.5",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-llm-mock-server@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-llm-pi-ai@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-attachment@0.1.7-rc.2",
-        "@deepseek-ai/dsh-authorization@0.1.7-rc.2",
-        "@deepseek-ai/dsh-credentials@0.1.7-rc.2",
-        "@deepseek-ai/dsh-fs@0.1.7-rc.2",
-        "@deepseek-ai/dsh-launch-environment@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-timeout@0.1.7-rc.2",
-        "@deepseek-ai/cordis-plugin-loader@1.0.5",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
@@ -31329,11 +30712,6 @@
     {
       "ref": "@deepseek-ai/dsh-llm-replay@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-compaction@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-deepseek-llm-api-extensions@0.1.7-rc.2",
         "@deepseek-ai/dsh-session-format-catalog@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2"
       ]
@@ -31341,36 +30719,17 @@
     {
       "ref": "@deepseek-ai/dsh-llm-retry@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-brand@0.1.7-rc.2",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-timeout@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "zod@4.6.2"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-lsp@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-brand@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-lsp-stdio@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-brand@0.1.7-rc.2",
-        "@deepseek-ai/dsh-fs@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-lsp@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subprocess@0.1.7-rc.2",
-        "@deepseek-ai/dsh-timeout@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
@@ -31378,15 +30737,6 @@
     {
       "ref": "@deepseek-ai/dsh-mcp-client@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-attachment@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-scope@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subprocess@0.1.7-rc.2",
-        "@deepseek-ai/dsh-timeout@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
-        "@deepseek-ai/dsh-mcp-resources@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "@modelcontextprotocol/client@2.0.0"
@@ -31395,38 +30745,23 @@
     {
       "ref": "@deepseek-ai/dsh-mcp-resources@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-scope@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-message-feedback@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-brand@0.1.7-rc.2",
-        "@deepseek-ai/dsh-command-feedback@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-persistence@0.1.7-rc.2",
-        "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "zod@4.6.2"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-native-command@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-office-to-pdf@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2",
         "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
         "@deepseek-ai/libreoffice-kit@0.1.1",
@@ -31436,29 +30771,15 @@
     },
     {
       "ref": "@deepseek-ai/dsh-output-retention@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-package-manifest@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-permission-presets@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-commands@0.1.7-rc.2",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox-policy@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-shell@0.1.7-rc.2",
-        "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
-        "@deepseek-ai/dsh-user-approval@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "zod@4.6.2"
       ]
@@ -31466,24 +30787,12 @@
     {
       "ref": "@deepseek-ai/dsh-persona@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-plan-mode@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
-        "@deepseek-ai/dsh-user-questions@0.1.7-rc.2",
-        "@deepseek-ai/dsh-commands@0.1.7-rc.2",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2",
         "zod@4.6.2"
       ]
@@ -31491,17 +30800,6 @@
     {
       "ref": "@deepseek-ai/dsh-plugin-manager@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/cordis-plugin-loader@1.0.5",
-        "@deepseek-ai/dsh-brand@0.1.7-rc.2",
-        "@deepseek-ai/dsh-host-plugin-inventory@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox-policy@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subprocess@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
-        "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
-        "@deepseek-ai/dsh-hmr@0.1.7-rc.2",
-        "@deepseek-ai/dsh-user-approval@0.1.7-rc.2",
         "@deepseek-ai/dsh-app-boot@0.1.7-rc.2",
         "@deepseek-ai/dsh-atomic-write@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
@@ -31514,34 +30812,17 @@
     {
       "ref": "@deepseek-ai/dsh-plugin-package-inventory-deepseek@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/cordis-plugin-loader@1.0.5",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-deepseek-llm-api-extensions@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-agent-preset-registry@0.1.7-rc.2",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-ptc-runtime@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-sandbox@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-ptc-runtime-node@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-fs@0.1.7-rc.2",
-        "@deepseek-ai/dsh-ptc-runtime@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox-policy@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subprocess@0.1.7-rc.2",
-        "@deepseek-ai/dsh-timeout@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
@@ -31549,48 +30830,28 @@
     {
       "ref": "@deepseek-ai/dsh-pwsh-local@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-shell@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subprocess@0.1.7-rc.2",
-        "@deepseek-ai/dsh-timeout@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-pwsh-sandbox@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-pwsh-local@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox-policy@0.1.7-rc.2",
-        "@deepseek-ai/dsh-shell@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-repeat-tool-reminder@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-sandbox@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-sandbox-local@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
         "@deepseek-ai/dsh-sandbox-windows-acl@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
         "@deepseek-ai/node-addon-system@0.1.2",
@@ -31600,13 +30861,6 @@
     {
       "ref": "@deepseek-ai/dsh-sandbox-policy@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "zod@4.6.2"
       ]
@@ -31614,8 +30868,6 @@
     {
       "ref": "@deepseek-ai/dsh-sandbox-windows-acl@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-subprocess@0.1.7-rc.2",
         "@deepseek-ai/dsh-lazy-require@0.1.7-rc.2",
         "@deepseek-ai/dsh-win32-process@0.1.7-rc.2",
         "koffi@3.3.1"
@@ -31624,19 +30876,6 @@
     {
       "ref": "@deepseek-ai/dsh-schedule@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-api-session-controller@0.1.7-rc.2",
-        "@deepseek-ai/dsh-brand@0.1.7-rc.2",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-persistence@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-storage-domain@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
-        "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
-        "@deepseek-ai/dsh-workspace@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "@js-temporal/polyfill@0.5.1",
         "zod@4.6.2"
@@ -31644,15 +30883,11 @@
     },
     {
       "ref": "@deepseek-ai/dsh-scope@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-sdk-app@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/dsh-cmdline@0.1.7-rc.2",
         "@deepseek-ai/dsh-sdk-jsonrpc-server@0.1.7-rc.2",
         "@deepseek-ai/dsh-skill-office@0.1.7-rc.2",
@@ -31664,25 +30899,12 @@
     {
       "ref": "@deepseek-ai/dsh-sdk-client@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sdk-protocol@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
         "@deepseek-ai/dsh@0.1.7-rc.2"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-sdk-jsonrpc-server@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-attachment@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm-deepseek-api-key@0.1.7-rc.2",
-        "@deepseek-ai/dsh-scope@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sdk-protocol@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subagent@0.1.7-rc.2",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
@@ -31690,7 +30912,6 @@
     {
       "ref": "@deepseek-ai/dsh-sdk-minimal@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/cordis-plugin-timer@1.1.6",
         "@deepseek-ai/dsh-agent@0.1.7-rc.2",
         "@deepseek-ai/dsh-agent-loop@0.1.7-rc.2",
@@ -31723,18 +30944,11 @@
     },
     {
       "ref": "@deepseek-ai/dsh-sdk-protocol@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subagent@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-session@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-scope@0.1.7-rc.2",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2",
         "@deepseek-ai/dsh-llm@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2"
@@ -31742,27 +30956,17 @@
     },
     {
       "ref": "@deepseek-ai/dsh-session-checkpoint-policy@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-persistence@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-session-format@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-session-format-catalog@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
         "@deepseek-ai/dsh-compaction-image-offload@0.1.7-rc.2",
         "@deepseek-ai/dsh-session-format@0.1.7-rc.2",
         "@deepseek-ai/dsh-session-format-v0-to-v1@0.1.7-rc.2",
@@ -31774,7 +30978,6 @@
     {
       "ref": "@deepseek-ai/dsh-session-format-v0-to-v1@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/dsh-session-format@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2"
       ]
@@ -31782,7 +30985,6 @@
     {
       "ref": "@deepseek-ai/dsh-session-format-v1-to-v2@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/dsh-llm@0.1.7-rc.2",
         "@deepseek-ai/dsh-session-format@0.1.7-rc.2",
         "@deepseek-ai/dsh-session-format-v0-to-v1@0.1.7-rc.2",
@@ -31792,7 +30994,6 @@
     {
       "ref": "@deepseek-ai/dsh-session-format-v2-to-v3@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/dsh-session-format@0.1.7-rc.2",
         "@deepseek-ai/dsh-session-format-v0-to-v1@0.1.7-rc.2",
         "@deepseek-ai/dsh-session-format-v1-to-v2@0.1.7-rc.2"
@@ -31801,7 +31002,6 @@
     {
       "ref": "@deepseek-ai/dsh-session-format-v3-to-v4@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/dsh-session-format@0.1.7-rc.2",
         "@deepseek-ai/dsh-session-format-v2-to-v3@0.1.7-rc.2"
       ]
@@ -31809,10 +31009,6 @@
     {
       "ref": "@deepseek-ai/dsh-session-log-deepseek@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-deepseek-llm-api-extensions@0.1.7-rc.2",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
@@ -31821,9 +31017,6 @@
     {
       "ref": "@deepseek-ai/dsh-session-log-export@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-persistence@0.1.7-rc.2",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2",
         "@deepseek-ai/dsh-session-format@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
@@ -31833,19 +31026,12 @@
     {
       "ref": "@deepseek-ai/dsh-session-persistence@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-brand@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-timeout@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-session-persistence-jsonl@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-persistence@0.1.7-rc.2",
         "@deepseek-ai/dsh-llm@0.1.7-rc.2",
         "@deepseek-ai/dsh-session-format@0.1.7-rc.2",
         "@deepseek-ai/dsh-session-format-catalog@0.1.7-rc.2",
@@ -31858,18 +31044,12 @@
     {
       "ref": "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
         "zod@4.6.2"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-session-projection-cache@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-storage-domain@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "zod@4.6.2"
@@ -31878,45 +31058,18 @@
     {
       "ref": "@deepseek-ai/dsh-session-query@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-brand@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-title@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tool-todo@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-persistence@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection-cache@0.1.7-rc.2",
         "@deepseek-ai/dsh-session-format-catalog@0.1.7-rc.2"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-session-query-sqlite@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-query@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-persistence@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-session-reference@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-compaction@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-output-retention@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-query@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-title@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subagent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
-        "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection-cache@0.1.7-rc.2",
-        "@deepseek-ai/dsh-spill@0.1.7-rc.2",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
@@ -31926,31 +31079,16 @@
     {
       "ref": "@deepseek-ai/dsh-session-stats@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
         "zod@4.6.2"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-session-telemetry@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-session-telemetry-otel@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-anonymous-user-id@0.1.7-rc.2",
-        "@deepseek-ai/dsh-command-feedback@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-message-feedback@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-telemetry@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "@opentelemetry/api@1.9.1",
         "@opentelemetry/api-logs@0.220.0",
@@ -31963,13 +31101,6 @@
     {
       "ref": "@deepseek-ai/dsh-session-title@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-brand@0.1.7-rc.2",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "zod@4.6.2"
@@ -31978,33 +31109,18 @@
     {
       "ref": "@deepseek-ai/dsh-session-title-all-prompts-llm@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-title@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-title-llm@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-session-title-first-prompt-llm@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-title@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-title-llm@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-session-title-llm@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-title@0.1.7-rc.2",
-        "@deepseek-ai/dsh-timeout@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
@@ -32012,21 +31128,12 @@
     {
       "ref": "@deepseek-ai/dsh-session-turn-outline@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
         "zod@4.6.2"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-settings@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-brand@0.1.7-rc.2",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/schemastery@3.18.4",
         "@deepseek-ai/cordis-plugin-loader@1.0.5",
         "@deepseek-ai/cosmokit@1.8.5",
         "@deepseek-ai/dsh-config-editor@0.1.7-rc.2",
@@ -32036,47 +31143,28 @@
     },
     {
       "ref": "@deepseek-ai/dsh-shell@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-sandbox@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subprocess@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-shell-env@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-app-boot@0.1.7-rc.2",
-        "@deepseek-ai/dsh-home-paths@0.1.7-rc.2",
-        "@deepseek-ai/dsh-shell@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-skill@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-scope@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-skill-badge@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-skill@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-skill-filesystem@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-fs@0.1.7-rc.2",
-        "@deepseek-ai/dsh-home-paths@0.1.7-rc.2",
-        "@deepseek-ai/dsh-skill@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "chokidar@5.0.0",
         "yaml@2.9.0"
@@ -32095,8 +31183,6 @@
     {
       "ref": "@deepseek-ai/dsh-skill-office@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-skill@0.1.7-rc.2",
         "@deepseek-ai/libreoffice-kit@0.1.1",
         "@deepseek-ai/schemastery@3.18.4",
         "yaml@2.9.0"
@@ -32104,48 +31190,27 @@
     },
     {
       "ref": "@deepseek-ai/dsh-spill@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-brand@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-spill-local@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-spill@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-spill-policy@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-attachment@0.1.7-rc.2",
-        "@deepseek-ai/dsh-fs@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-output-retention@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-spill@0.1.7-rc.2",
-        "@deepseek-ai/dsh-token-meter@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-storage@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-storage-domain@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-storage@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "zod@4.6.2"
       ]
@@ -32153,43 +31218,18 @@
     {
       "ref": "@deepseek-ai/dsh-storage-json@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-storage@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-storage-sqlite@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-storage@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-subagent@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-attachment@0.1.7-rc.2",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-scope@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
-        "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
-        "@deepseek-ai/dsh-util-time@0.1.7-rc.2",
-        "@deepseek-ai/dsh-agent-preset-registry@0.1.7-rc.2",
-        "@deepseek-ai/dsh-jobs@0.1.7-rc.2",
-        "@deepseek-ai/dsh-permission-presets@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox-policy@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-persistence@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-query@0.1.7-rc.2",
-        "@deepseek-ai/dsh-user-approval@0.1.7-rc.2",
-        "@deepseek-ai/dsh-workspace@0.1.7-rc.2",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2",
         "@deepseek-ai/dsh-chunked-list@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
@@ -32200,13 +31240,6 @@
     {
       "ref": "@deepseek-ai/dsh-subagent-acp@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subagent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subprocess@0.1.7-rc.2",
-        "@deepseek-ai/dsh-timeout@0.1.7-rc.2",
         "@agentclientprotocol/sdk@1.4.0",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
@@ -32215,13 +31248,6 @@
     {
       "ref": "@deepseek-ai/dsh-subagent-dsh-sdk@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sdk-client@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subagent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subprocess@0.1.7-rc.2",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
@@ -32229,49 +31255,28 @@
     {
       "ref": "@deepseek-ai/dsh-subagent-fork-in-process@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subagent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subagent-in-process-driver@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-subagent-in-process-driver@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subagent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-subagent-spawn-in-process@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-subagent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subagent-in-process-driver@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-subprocess@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-http-proxy@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-subprocess-local@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-subprocess@0.1.7-rc.2",
-        "@deepseek-ai/dsh-timeout@0.1.7-rc.2",
         "@deepseek-ai/dsh-lazy-require@0.1.7-rc.2",
         "@deepseek-ai/dsh-win32-process@0.1.7-rc.2",
         "koffi@3.3.1",
@@ -32281,32 +31286,16 @@
     {
       "ref": "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-scope@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-terminal@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-brand@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-terminal-bash@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox-policy@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subprocess@0.1.7-rc.2",
-        "@deepseek-ai/dsh-terminal@0.1.7-rc.2",
         "@deepseek-ai/dsh-lazy-require@0.1.7-rc.2",
         "@deepseek-ai/dsh-pwsh-local@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
@@ -32316,12 +31305,6 @@
     {
       "ref": "@deepseek-ai/dsh-time-context@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "zod@4.6.2"
@@ -32329,18 +31312,11 @@
     },
     {
       "ref": "@deepseek-ai/dsh-timeout@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-tmux-context@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-shell@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "zod@4.6.2"
       ]
@@ -32348,13 +31324,6 @@
     {
       "ref": "@deepseek-ai/dsh-token-meter@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-compaction@0.1.7-rc.2",
-        "@deepseek-ai/dsh-compaction-image-offload@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm-retry@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "zod@4.6.2"
@@ -32362,75 +31331,31 @@
     },
     {
       "ref": "@deepseek-ai/dsh-tool-ask-user@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
-        "@deepseek-ai/dsh-user-questions@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-tool-bash@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-jobs@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox-policy@0.1.7-rc.2",
-        "@deepseek-ai/dsh-shell@0.1.7-rc.2",
-        "@deepseek-ai/dsh-shell-env@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
-        "@deepseek-ai/dsh-user-approval@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-tool-bash-persistent@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-output-retention@0.1.7-rc.2",
-        "@deepseek-ai/dsh-terminal@0.1.7-rc.2",
-        "@deepseek-ai/dsh-timeout@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-tool-call-timeout-policy@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-timeout@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-tool-cordis@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/cordis-plugin-loader@1.0.5",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-app-boot@0.1.7-rc.2",
-        "@deepseek-ai/dsh-cordis-host-runner@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-tool-fs@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-attachment@0.1.7-rc.2",
-        "@deepseek-ai/dsh-fs@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox-policy@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
-        "@deepseek-ai/dsh-user-approval@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-code-language@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "diff@9.0.0"
@@ -32439,15 +31364,6 @@
     {
       "ref": "@deepseek-ai/dsh-tool-fs-search@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-output-retention@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-spill@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subprocess@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
-        "@deepseek-ai/dsh-timeout@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "@vscode/ripgrep@1.18.0"
       ]
@@ -32455,39 +31371,18 @@
     {
       "ref": "@deepseek-ai/dsh-tool-goal@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-goal@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-tool-jobs@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-jobs@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-output-retention@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-tool-lsp@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-lsp@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
-        "@deepseek-ai/dsh-timeout@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
@@ -32495,70 +31390,30 @@
     {
       "ref": "@deepseek-ai/dsh-tool-present@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-fs@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-tool-pwsh@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-jobs@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox-policy@0.1.7-rc.2",
-        "@deepseek-ai/dsh-shell@0.1.7-rc.2",
-        "@deepseek-ai/dsh-shell-env@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
-        "@deepseek-ai/dsh-user-approval@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-tool-pwsh-persistent@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-output-retention@0.1.7-rc.2",
-        "@deepseek-ai/dsh-terminal@0.1.7-rc.2",
-        "@deepseek-ai/dsh-timeout@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-tool-ralph@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subagent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
-        "@deepseek-ai/dsh-workflow@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-tool-session-query@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-query@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
-        "@deepseek-ai/dsh-timeout@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
@@ -32566,40 +31421,18 @@
     {
       "ref": "@deepseek-ai/dsh-tool-skill@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-skill@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-tool-str-replace-editor@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-fs@0.1.7-rc.2",
-        "@deepseek-ai/dsh-output-retention@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox-policy@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-tool-subagent@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-jobs@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-scope@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subagent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "zod@4.6.2"
       ]
@@ -32607,11 +31440,6 @@
     {
       "ref": "@deepseek-ai/dsh-tool-subagent-control@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subagent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2"
       ]
@@ -32619,26 +31447,12 @@
     {
       "ref": "@deepseek-ai/dsh-tool-terminal@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-jobs@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-output-retention@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
-        "@deepseek-ai/dsh-terminal@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-tool-todo@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-projection@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "zod@4.6.2"
       ]
@@ -32646,11 +31460,6 @@
     {
       "ref": "@deepseek-ai/dsh-tool-web@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
-        "@deepseek-ai/dsh-web@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "@joplin/turndown-plugin-gfm@1.0.68",
@@ -32660,40 +31469,18 @@
     {
       "ref": "@deepseek-ai/dsh-tool-workflow@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-jobs@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
-        "@deepseek-ai/dsh-workflow@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-tool-workspace-dependencies@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-tools@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-ptc-runtime@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox-policy@0.1.7-rc.2",
-        "@deepseek-ai/dsh-scope@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
-        "@deepseek-ai/dsh-user-approval@0.1.7-rc.2",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
@@ -32702,94 +31489,60 @@
     {
       "ref": "@deepseek-ai/dsh-typert-loader@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/cordis-plugin-loader@1.0.5",
-        "@deepseek-ai/dsh-typert-registry@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-typert-registry@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "zod@4.6.2"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-user-approval@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-brand@0.1.7-rc.2",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-scope@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-user-questions@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-scope@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-util-code-language@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-util-crypto@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-util-time@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-util-workspace-path@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-web@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-web-app@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/cordis-plugin-loader@1.0.5",
-        "@deepseek-ai/dsh-shell-env@0.1.7-rc.2",
-        "@deepseek-ai/dsh-system-prompt@0.1.7-rc.2",
         "@deepseek-ai/dsh-agent-instructions@0.1.7-rc.2",
         "@deepseek-ai/dsh-agent-preset@0.1.7-rc.2",
         "@deepseek-ai/dsh-agent-preset-registry@0.1.7-rc.2",
@@ -32922,10 +31675,6 @@
     {
       "ref": "@deepseek-ai/dsh-web-fetch-http@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-http-proxy@0.1.7-rc.2",
-        "@deepseek-ai/dsh-timeout@0.1.7-rc.2",
-        "@deepseek-ai/dsh-web@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "ipaddr.js@2.5.0",
         "undici@8.10.2"
@@ -32942,46 +31691,24 @@
     {
       "ref": "@deepseek-ai/dsh-web-search-deepseek@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-credentials@0.1.7-rc.2",
-        "@deepseek-ai/dsh-launch-environment@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-web@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-web-search-exa@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-launch-environment@0.1.7-rc.2",
-        "@deepseek-ai/dsh-web@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-web-search-perplexity@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-launch-environment@0.1.7-rc.2",
-        "@deepseek-ai/dsh-web@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-webhook@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-agent-default-model@0.1.7-rc.2",
-        "@deepseek-ai/dsh-agent-preset-registry@0.1.7-rc.2",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-permission-presets@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-title@0.1.7-rc.2",
-        "@deepseek-ai/dsh-workspace@0.1.7-rc.2",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2"
       ]
@@ -32989,11 +31716,6 @@
     {
       "ref": "@deepseek-ai/dsh-webhook-github@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-credentials@0.1.7-rc.2",
-        "@deepseek-ai/dsh-host-webserver@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-webhook@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "@octokit/webhooks@14.2.0"
@@ -33002,35 +31724,17 @@
     {
       "ref": "@deepseek-ai/dsh-win32-process@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
         "@deepseek-ai/dsh-lazy-require@0.1.7-rc.2",
         "koffi@3.3.1"
       ]
     },
     {
       "ref": "@deepseek-ai/dsh-workflow@0.1.7-rc.2",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-brand@0.1.7-rc.2",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@deepseek-ai/dsh-workflow-ptc@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-ptc-runtime@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox@0.1.7-rc.2",
-        "@deepseek-ai/dsh-sandbox-policy@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subagent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
-        "@deepseek-ai/dsh-workflow@0.1.7-rc.2",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2",
         "@deepseek-ai/dsh-util-values@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4"
@@ -33039,13 +31743,6 @@
     {
       "ref": "@deepseek-ai/dsh-workspace@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-invariants@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session-persistence@0.1.7-rc.2",
-        "@deepseek-ai/dsh-storage@0.1.7-rc.2",
-        "@deepseek-ai/dsh-storage-domain@0.1.7-rc.2",
-        "@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2",
         "@deepseek-ai/dsh-brand@0.1.7-rc.2",
         "zod@4.6.2"
       ]
@@ -33053,11 +31750,6 @@
     {
       "ref": "@deepseek-ai/dsh-workspace-changes@0.1.7-rc.2",
       "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subprocess@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
         "@deepseek-ai/schemastery@3.18.4",
         "diff@9.0.0"
       ]
@@ -33159,7 +31851,6 @@
     {
       "ref": "@google/genai@1.52.0",
       "dependsOn": [
-        "@modelcontextprotocol/sdk@1.30.0",
         "google-auth-library@10.5.0",
         "p-retry@4.6.2",
         "protobufjs@7.6.5",
@@ -33190,9 +31881,7 @@
     },
     {
       "ref": "@hono/node-server@2.1.1",
-      "dependsOn": [
-        "hono@4.13.8"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@huggingface/jinja@0.5.9",
@@ -33428,26 +32117,19 @@
     },
     {
       "ref": "@jsonjoy.com/base64@1.1.2",
-      "dependsOn": [
-        "tslib@2.8.1"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@jsonjoy.com/buffers@17.67.0",
-      "dependsOn": [
-        "tslib@2.8.1"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@jsonjoy.com/codegen@1.0.0",
-      "dependsOn": [
-        "tslib@2.8.1"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@jsonjoy.com/fs-core@4.68.0",
       "dependsOn": [
-        "tslib@2.8.1",
         "@jsonjoy.com/fs-node-builtins@4.68.0",
         "@jsonjoy.com/fs-node-utils@4.68.0",
         "thingies@2.6.1"
@@ -33456,7 +32138,6 @@
     {
       "ref": "@jsonjoy.com/fs-fsa@4.68.0",
       "dependsOn": [
-        "tslib@2.8.1",
         "@jsonjoy.com/fs-core@4.68.0",
         "@jsonjoy.com/fs-node-builtins@4.68.0",
         "@jsonjoy.com/fs-node-utils@4.68.0",
@@ -33466,7 +32147,6 @@
     {
       "ref": "@jsonjoy.com/fs-node@4.68.0",
       "dependsOn": [
-        "tslib@2.8.1",
         "@jsonjoy.com/fs-core@4.68.0",
         "@jsonjoy.com/fs-node-builtins@4.68.0",
         "@jsonjoy.com/fs-node-utils@4.68.0",
@@ -33478,14 +32158,11 @@
     },
     {
       "ref": "@jsonjoy.com/fs-node-builtins@4.68.0",
-      "dependsOn": [
-        "tslib@2.8.1"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@jsonjoy.com/fs-node-to-fsa@4.68.0",
       "dependsOn": [
-        "tslib@2.8.1",
         "@jsonjoy.com/fs-fsa@4.68.0",
         "@jsonjoy.com/fs-node-builtins@4.68.0",
         "@jsonjoy.com/fs-node-utils@4.68.0"
@@ -33494,7 +32171,6 @@
     {
       "ref": "@jsonjoy.com/fs-node-utils@4.68.0",
       "dependsOn": [
-        "tslib@2.8.1",
         "@jsonjoy.com/fs-node-builtins@4.68.0",
         "glob-to-regex.js@1.2.0"
       ]
@@ -33502,7 +32178,6 @@
     {
       "ref": "@jsonjoy.com/fs-print@4.68.0",
       "dependsOn": [
-        "tslib@2.8.1",
         "@jsonjoy.com/fs-node-utils@4.68.0",
         "tree-dump@1.1.0"
       ]
@@ -33510,7 +32185,6 @@
     {
       "ref": "@jsonjoy.com/fs-snapshot@4.68.0",
       "dependsOn": [
-        "tslib@2.8.1",
         "@jsonjoy.com/buffers@17.67.0",
         "@jsonjoy.com/fs-node-utils@4.68.0",
         "@jsonjoy.com/json-pack@17.67.0",
@@ -33519,20 +32193,15 @@
     },
     {
       "ref": "@jsonjoy.com/base64@17.67.0",
-      "dependsOn": [
-        "tslib@2.8.1"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@jsonjoy.com/codegen@17.67.0",
-      "dependsOn": [
-        "tslib@2.8.1"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@jsonjoy.com/json-pack@17.67.0",
       "dependsOn": [
-        "tslib@2.8.1",
         "@jsonjoy.com/base64@17.67.0",
         "@jsonjoy.com/buffers@17.67.0",
         "@jsonjoy.com/codegen@17.67.0",
@@ -33546,14 +32215,12 @@
     {
       "ref": "@jsonjoy.com/json-pointer@17.67.0",
       "dependsOn": [
-        "tslib@2.8.1",
         "@jsonjoy.com/util@17.67.0"
       ]
     },
     {
       "ref": "@jsonjoy.com/util@17.67.0",
       "dependsOn": [
-        "tslib@2.8.1",
         "@jsonjoy.com/buffers@17.67.0",
         "@jsonjoy.com/codegen@17.67.0"
       ]
@@ -33561,7 +32228,6 @@
     {
       "ref": "@jsonjoy.com/json-pack@1.21.0",
       "dependsOn": [
-        "tslib@2.8.1",
         "@jsonjoy.com/base64@1.1.2",
         "@jsonjoy.com/buffers@1.2.1",
         "@jsonjoy.com/codegen@1.0.0",
@@ -33574,14 +32240,11 @@
     },
     {
       "ref": "@jsonjoy.com/buffers@1.2.1",
-      "dependsOn": [
-        "tslib@2.8.1"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@jsonjoy.com/json-pointer@1.0.2",
       "dependsOn": [
-        "tslib@2.8.1",
         "@jsonjoy.com/codegen@1.0.0",
         "@jsonjoy.com/util@1.9.0"
       ]
@@ -33589,7 +32252,6 @@
     {
       "ref": "@jsonjoy.com/util@1.9.0",
       "dependsOn": [
-        "tslib@2.8.1",
         "@jsonjoy.com/buffers@1.2.1",
         "@jsonjoy.com/codegen@1.0.0"
       ]
@@ -33903,14 +32565,12 @@
     {
       "ref": "@opentelemetry/core@2.9.0",
       "dependsOn": [
-        "@opentelemetry/api@1.9.1",
         "@opentelemetry/semantic-conventions@1.43.0"
       ]
     },
     {
       "ref": "@opentelemetry/exporter-logs-otlp-http@0.220.0",
       "dependsOn": [
-        "@opentelemetry/api@1.9.1",
         "@opentelemetry/api-logs@0.220.0",
         "@opentelemetry/core@2.9.0",
         "@opentelemetry/otlp-exporter-base@0.220.0",
@@ -33921,7 +32581,6 @@
     {
       "ref": "@opentelemetry/otlp-exporter-base@0.220.0",
       "dependsOn": [
-        "@opentelemetry/api@1.9.1",
         "@opentelemetry/core@2.9.0",
         "@opentelemetry/otlp-transformer@0.220.0"
       ]
@@ -33929,7 +32588,6 @@
     {
       "ref": "@opentelemetry/otlp-transformer@0.220.0",
       "dependsOn": [
-        "@opentelemetry/api@1.9.1",
         "@opentelemetry/api-logs@0.220.0",
         "@opentelemetry/core@2.9.0",
         "@opentelemetry/resources@2.9.0",
@@ -33941,7 +32599,6 @@
     {
       "ref": "@opentelemetry/resources@2.9.0",
       "dependsOn": [
-        "@opentelemetry/api@1.9.1",
         "@opentelemetry/core@2.9.0",
         "@opentelemetry/semantic-conventions@1.43.0"
       ]
@@ -33949,7 +32606,6 @@
     {
       "ref": "@opentelemetry/resources@2.11.0",
       "dependsOn": [
-        "@opentelemetry/api@1.9.1",
         "@opentelemetry/core@2.11.0",
         "@opentelemetry/semantic-conventions@1.43.0"
       ]
@@ -33957,14 +32613,12 @@
     {
       "ref": "@opentelemetry/core@2.11.0",
       "dependsOn": [
-        "@opentelemetry/api@1.9.1",
         "@opentelemetry/semantic-conventions@1.43.0"
       ]
     },
     {
       "ref": "@opentelemetry/sdk-logs@0.220.0",
       "dependsOn": [
-        "@opentelemetry/api@1.9.1",
         "@opentelemetry/api-logs@0.220.0",
         "@opentelemetry/core@2.9.0",
         "@opentelemetry/resources@2.9.0",
@@ -33974,7 +32628,6 @@
     {
       "ref": "@opentelemetry/sdk-metrics@2.9.0",
       "dependsOn": [
-        "@opentelemetry/api@1.9.1",
         "@opentelemetry/core@2.9.0",
         "@opentelemetry/resources@2.9.0"
       ]
@@ -33982,7 +32635,6 @@
     {
       "ref": "@opentelemetry/sdk-trace@2.9.0",
       "dependsOn": [
-        "@opentelemetry/api@1.9.1",
         "@opentelemetry/core@2.9.0",
         "@opentelemetry/resources@2.9.0",
         "@opentelemetry/semantic-conventions@1.43.0"
@@ -34173,7 +32825,6 @@
     {
       "ref": "@swc/core@1.15.47",
       "dependsOn": [
-        "@swc/helpers@0.5.23",
         "@swc/counter@0.1.3",
         "@swc/types@0.1.28",
         "@swc/core-darwin-arm64@1.15.47",
@@ -34351,7 +33002,6 @@
     {
       "ref": "@tobilu/qmd@2.5.3",
       "dependsOn": [
-        "typescript@5.9.3",
         "@modelcontextprotocol/sdk@1.29.0",
         "better-sqlite3@12.10.0",
         "fast-glob@3.3.3",
@@ -34374,9 +33024,7 @@
     },
     {
       "ref": "@hono/node-server@1.19.17",
-      "dependsOn": [
-        "hono@4.13.8"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@modelcontextprotocol/sdk@1.29.0",
@@ -34667,7 +33315,6 @@
     {
       "ref": "ajv-keywords@5.1.0",
       "dependsOn": [
-        "ajv@8.20.0",
         "fast-deep-equal@3.1.3"
       ]
     },
@@ -35223,7 +33870,6 @@
     {
       "ref": "express-rate-limit@8.6.1",
       "dependsOn": [
-        "express@5.2.1",
         "debug@4.4.3",
         "ip-address@10.7.2"
       ]
@@ -35448,9 +34094,7 @@
     },
     {
       "ref": "glob-to-regex.js@1.2.0",
-      "dependsOn": [
-        "tslib@2.8.1"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "google-auth-library@10.5.0",
@@ -35938,7 +34582,6 @@
     {
       "ref": "minimizer-webpack-plugin@5.6.1",
       "dependsOn": [
-        "webpack@5.109.2",
         "@jridgewell/trace-mapping@0.3.31",
         "jest-worker@27.5.1",
         "schema-utils@4.3.3",
@@ -36075,7 +34718,6 @@
     {
       "ref": "node-llama-cpp@3.18.1",
       "dependsOn": [
-        "typescript@5.9.3",
         "@huggingface/jinja@0.5.9",
         "async-retry@1.3.3",
         "bytes@3.1.2",
@@ -36197,10 +34839,7 @@
     },
     {
       "ref": "openai@6.40.0",
-      "dependsOn": [
-        "ws@8.21.3",
-        "zod@4.6.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "opencollective-postinstall@2.0.3",
@@ -36411,15 +35050,12 @@
     {
       "ref": "react-cron-generator@2.6.0",
       "dependsOn": [
-        "react@18.3.1",
-        "react-dom@18.3.1",
         "cronstrue@3.24.0"
       ]
     },
     {
       "ref": "react-dom@18.3.1",
       "dependsOn": [
-        "react@18.3.1",
         "loose-envify@1.4.0",
         "scheduler@0.23.2"
       ]
@@ -36733,7 +35369,6 @@
     {
       "ref": "source-map-loader@5.0.0",
       "dependsOn": [
-        "webpack@5.109.2",
         "iconv-lite@0.6.3",
         "source-map-js@1.2.1"
       ]
@@ -36868,8 +35503,6 @@
     {
       "ref": "swc-loader@0.2.7",
       "dependsOn": [
-        "@swc/core@1.15.47",
-        "webpack@5.109.2",
         "@swc/counter@0.1.3"
       ]
     },
@@ -36949,9 +35582,7 @@
     },
     {
       "ref": "thingies@2.6.1",
-      "dependsOn": [
-        "tslib@2.8.1"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "tiny-inflate@1.0.3",
@@ -36981,9 +35612,7 @@
     },
     {
       "ref": "tree-dump@1.1.0",
-      "dependsOn": [
-        "tslib@2.8.1"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "tree-sitter-go@0.25.0",
@@ -37054,10 +35683,6 @@
       "dependsOn": []
     },
     {
-      "ref": "typescript@5.9.3",
-      "dependsOn": []
-    },
-    {
       "ref": "uint8array-extras@1.5.0",
       "dependsOn": []
     },
@@ -37104,7 +35729,6 @@
     {
       "ref": "update-browserslist-db@1.3.0",
       "dependsOn": [
-        "browserslist@4.28.7",
         "escalade@3.2.0",
         "picocolors@1.1.1"
       ]
@@ -37274,32 +35898,11 @@
     },
     {
       "ref": "zod-to-json-schema@3.25.2",
-      "dependsOn": [
-        "zod@4.6.2"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@bees/dsh-plugin@0.1.1",
-      "dependsOn": [
-        "@bees/dsh-custom-ai@0.1.0",
-        "@bees/dsh-free-ai@0.1.0",
-        "@bees/dsh-local-ai@0.1.0",
-        "@bees/dsh-subscriptions@0.1.0",
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-agent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-agent-default-model@0.1.7-rc.2",
-        "@deepseek-ai/dsh-atomic-write@0.1.7-rc.2",
-        "@deepseek-ai/dsh-credentials@0.1.7-rc.2",
-        "@deepseek-ai/dsh-experimental-agent-team@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@deepseek-ai/dsh-mcp-client@0.1.7-rc.2",
-        "@deepseek-ai/dsh-scope@0.1.7-rc.2",
-        "@deepseek-ai/dsh-session@0.1.7-rc.2",
-        "@deepseek-ai/dsh-settings@0.1.7-rc.2",
-        "@deepseek-ai/dsh-subagent@0.1.7-rc.2",
-        "@deepseek-ai/dsh-tools@0.1.7-rc.2",
-        "@deepseek-ai/schemastery@3.18.4"
-      ]
+      "dependsOn": []
     },
     {
       "ref": "@bees/dsh-custom-ai@0.1.0",
@@ -37315,12 +35918,7 @@
     },
     {
       "ref": "@bees/dsh-subscriptions@0.1.0",
-      "dependsOn": [
-        "@deepseek-ai/cordis@4.0.4",
-        "@deepseek-ai/dsh-credentials@0.1.7-rc.2",
-        "@deepseek-ai/dsh-llm@0.1.7-rc.2",
-        "@earendil-works/pi-ai@0.85.1"
-      ]
+      "dependsOn": []
     }
   ]
 }

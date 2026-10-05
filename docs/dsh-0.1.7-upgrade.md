@@ -4,11 +4,8 @@ Pinned runtime: **0.1.7-rc.2**, from the official npm registry. This remains a p
 
 - [RC2 release notes](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.1.7-rc.2)
 - [RC1 → RC2 changes](https://github.com/deepseek-ai/deepseek-harness/compare/dsh-v0.1.7-rc.1...dsh-v0.1.7-rc.2)
-- [Current implementation and validation](dsh-0.1.7-rc2-validation.md)
 
-## Original alpha.1 migration (historical)
-
-The following describes the original alpha.1 upgrade. RC2 removes the HMR response-completion patch mentioned below; its current patch inventory and validation supersede the historical validation here.
+## Why the overlay moved
 
 0.1.7 hands the profile's patch document to DSH's own settings layer. Every
 setting the browser writes lands in `<profile>/cordis.patch.yml`, which is the
@@ -56,18 +53,16 @@ expected to write. Anything else in that file is left alone.
   itself, and the runtime context arrives as a user message whose
   `source.kind` is `runtime-context`. The client's pending questions moved to
   `ctx.uiSession.sessionStatus`.
-- The installer patch set is re-anchored for 0.1.7. Both long-standing fixes
-  (Agent Team model routing, HMR response completion) are still required, and
-  the patch applier fails loudly if an anchor moves.
+- The installer patch set is re-anchored for 0.1.7. The Agent Team model
+  routing fix is still required, and the patch applier fails loudly if an
+  anchor moves.
 
 ## Validation
 
 Runtime boot under a sandbox profile: every profile entry activates, the web
 server answers, and the Bees routes answer with the launch token. A settings
 write from the running UI lands as a patch row for both `bees` and `llm-pi-ai`,
-survives a restart, and reads back into the interface. The desktop check suite,
-`cargo check`, and the packaged critical flow from the upgrade checklist remain
-this branch's gate.
+survives a restart, and reads back into the interface.
 
 Rebuild the checked-in SBOMs under `docs/sbom/` with `npm run sbom`. It reads the
 lockfiles with dev dependencies left out, because plain `npm sbom` cannot read the

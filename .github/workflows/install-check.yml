@@ -8,7 +8,7 @@ on:
     inputs:
       tag:
         description: Release to install
-        default: v0.2.0
+        required: true
 
 permissions:
   contents: read

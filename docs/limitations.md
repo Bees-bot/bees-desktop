@@ -39,7 +39,6 @@ leaves the data folder behind, and the next install reads it as it was.
 
 ## What the app does not do yet
 
-- Workspaces and runs from earlier Bees versions are not migrated. Product data starts fresh.
 - Turning memory off stops new retention. It does not erase sources already stored.
 - A failed terminal extraction needs a manual retry from the interface.
 - Shared application state is capped at 16 MB and is not a general-purpose data store.

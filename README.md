@@ -43,7 +43,7 @@ Get the build for your computer from the [download page](https://bees.bot/downlo
 
 You need 8 GB of memory for a cloud model, or 16 GB for a local model, plus 15 GB of free disk space. A local model is 2 to 5 GB, and the data folder can grow to about 10 GB.
 
-Bees updates itself. When a new version is out, it offers to install it and restart.
+Bees updates itself. When a new version is out, it offers to install it and restart. It asks first if work is still running.
 
 Open Bees. It creates a private workspace on this computer with no sign-in, so you can try it right away.
 

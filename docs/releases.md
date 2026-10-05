@@ -13,7 +13,7 @@ Nothing builds on a tag or a schedule. The Mac builds Apple Silicon itself and s
   `bees-updater.key.password` next to it. Its public half is `plugins.updater.pubkey` in
   `src-tauri/tauri.conf.json`. Lose the key and installed copies can never update again, so
   keep a backup somewhere safe. Never commit it.
-- `gh` signed in with write access to `Bees-bot/bees-desktop`, and Node 24.
+- `gh` signed in with write access to `Bees-bot/bees-desktop`, and Node 24.7 or a newer 24.x.
 - The repository secrets `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD` and
   `APPLE_SIGNING_IDENTITY`, so GitHub signs the Intel build. This Mac notarizes it. Export the
   certificate with `openssl pkcs12 -export -legacy`, because the macOS keychain reports an
@@ -35,8 +35,8 @@ install the DMG and open it once. A build that packages fine can still fail to s
 ## In-app updates
 
 The app checks `releases/latest/download/bees-update.json` at launch and every six hours,
-and offers to install a newer version and restart. If runs are still active it asks before
-downloading, since installing replaces the files the running app uses. Each signature carries
+and offers to install a newer version and restart. If runs are still active it asks once the
+download is done, since installing replaces the files the running app uses. Each signature carries
 its version, and the app refuses an update whose manifest names a different one.
 
 Version 0.1.1 polls `latest.json` in this repository and trusts a different key. Its data
@@ -45,6 +45,7 @@ never publish a `latest.json` here, and never sign a release with the old `updat
 
 ## Failure and recovery
 
+- Keep the lid open for the whole run, about 90 minutes. A locked keychain stops signing.
 - The script stops at the first failed step and publishes nothing until the end, so fix the
-  cause and run `publish` again.
+  cause and run `publish` again. That rebuilds everything and reuses the unpublished draft.
 - A published version is never rebuilt. Ship a new patch version instead.
