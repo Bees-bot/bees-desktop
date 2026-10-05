@@ -19,8 +19,9 @@ Notable changes, newest first. Dates are release dates.
 - You can add your own local model from a direct HTTPS link to a .gguf file.
 - OpenCode Zen connects like every other AI connection, so an OpenCode Go plan runs the
   models it offers.
-- Agents cannot read passwords, browser profiles or Bees' own files, and they ask before
-  sending email. Removing Bees asks in a real macOS window a script cannot skip.
+- Agents cannot read passwords, browser profiles or Bees' own files. On a stage that needs
+  approval, sending email waits for a yes. Removing Bees asks in a real macOS window a script
+  cannot skip.
 - Only the app's own window can reach the local server that answers Bees.
 - A run that failed no longer keeps showing as running, and Bees stops trying to recover it on
   every start.
