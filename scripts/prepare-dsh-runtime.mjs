@@ -470,9 +470,8 @@ function pruneForeignBinaries(runtimeRoot) {
   const llama = nodePlatform.replace("darwin", "mac").replace("win32", "win") + (nodePlatform === "darwin-arm64" ? "-metal" : "");
   keepOnly(join(nodeModules, "@node-llama-cpp"), llama);
   // musl builds never load on the glibc linux we target, and linuxdeploy stops looking for their libc
-  for (const scope of ["", ...readdirSync(nodeModules).filter((entry) => entry.startsWith("@"))])
-    for (const entry of readdirSync(join(nodeModules, scope)))
-      if (entry.includes("musl")) rmSync(join(nodeModules, scope, entry), { recursive: true, force: true });
+  for (const entry of readdirSync(nodeModules, { recursive: true, withFileTypes: true }))
+    if (entry.isDirectory() && entry.name.includes("musl")) rmSync(join(entry.parentPath, entry.name), { recursive: true, force: true });
 }
 
 function signMacBundledRuntime(runtimeRoot) {
