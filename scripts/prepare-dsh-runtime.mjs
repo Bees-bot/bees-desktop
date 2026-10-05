@@ -40,6 +40,10 @@ if (!existsSync(dshEntry)) {
 const hostTarget = execFileSync("rustc", ["--print", "host-tuple"], { encoding: "utf8" }).trim();
 const target = process.env.CARGO_BUILD_TARGET || hostTarget;
 const extension = target.includes("windows") ? ".exe" : "";
+const macTarget = target.endsWith("-apple-darwin");
+// the variable the tauri build reads too, and `-` is its spelling of ad-hoc
+const identity = (process.env.APPLE_SIGNING_IDENTITY ?? "").trim();
+const adhoc = !identity || identity === "-";
 const destination = resolve(
   desktopRoot,
   "src-tauri",
@@ -59,7 +63,6 @@ stageExecutable(process.execPath, destination, "Node");
 // Upstream does not support K2 Horizon yet. Pin the model author's fork, which also
 // supports the seeded Nanbeige model, and build the same runtime on every platform.
 const llamaCommit = "42adf019f76013dac873b5b43950d54d5ab27216";
-const macTarget = target.endsWith("-apple-darwin");
 const llamaRuntimeRevision = macTarget
   ? `${llamaCommit}-macos13-static-1-${target}`
   : `${llamaCommit}-static-1-${target}`;
@@ -240,10 +243,8 @@ function hasValidMacSignature(path) {
 }
 
 function signMacBinary(path, label) {
-  if (!(target.includes("apple") || target.includes("darwin") || target.includes("macos"))) return;
+  if (!macTarget) return;
   execFileSync("xattr", ["-c", path]);
-  const identity = (process.env.APPLE_SIGNING_IDENTITY ?? "").trim();
-  const adhoc = !identity || identity === "-";
   if (adhoc && hasValidMacSignature(path)) return;
   const signArgs = adhoc
     ? ["--force", "--timestamp=none", "--sign", "-"]
@@ -342,24 +343,9 @@ async function buildLlamaRuntime(temporaryRoot, runtimeRoot, serverName) {
   copyFileSync(join(dirname(cmakeFile), "LICENSE"), join(runtimeRoot, "LICENSE"));
 }
 
-// Re-sign on macOS: downloaded and locally linked binaries can carry linker
-// signatures (flags 0x20002) that macOS rejects after they are copied.
-//
-// An ad-hoc signature is fine locally but notarization rejects it, and rejects the whole
-// bundle rather than just this file. A release build needs the real Developer ID, a
-// secure timestamp and the hardened runtime; the last two are notarization requirements
-// on their own, so Apple refuses the binary without them even with the right identity.
-//
-// This runs on every build, not only when the runtime is first fetched. The runtime is
-// cached between builds, so signing it at fetch time left a cached ad-hoc copy in every
-// later release build, and Apple rejected the bundle for it.
-//
-// APPLE_SIGNING_IDENTITY is the variable the Tauri build already reads, so the runtime
-// and the app around it are signed by the same identity. `-` is Tauri's spelling of
-// ad-hoc, so it counts as no real identity here too.
+// linker signatures (flags 0x20002) fail once copied, and this runs every build because a
+// runtime cached after signing at fetch time shipped ad-hoc and apple refused the bundle
 function signMac(paths, label) {
-  const identity = (process.env.APPLE_SIGNING_IDENTITY ?? "").trim();
-  const adhoc = !identity || identity === "-";
   // Entitlements live in the binary, not the source, so a plain re-sign silently drops them.
   const signArgs = adhoc
     ? ["--force", "--timestamp=none", "--preserve-metadata=entitlements", "--sign", "-"]
@@ -423,19 +409,18 @@ function pruneRuntime(runtimeRoot) {
     if (!existsSync(join(parent, keep))) return;
     for (const entry of readdirSync(parent)) if (entry !== keep) rmSync(join(parent, entry), { recursive: true, force: true });
   };
-  const bridge = ["@temporalio", "core-bridge", "releases"];
-  keepOnly(join(nodeModules, ...bridge), target);
+  keepOnly(join(nodeModules, "@temporalio", "core-bridge", "releases"), target);
   keepOnly(join(nodeModules, "node-pty", "prebuilds"), nodePlatform);
   if (!nodePlatform.startsWith("win32")) rmSync(join(nodeModules, "node-pty", "third_party", "conpty"), { recursive: true, force: true });
   // qmd only loads each grammar's .wasm, the rest is native source and prebuilds
   for (const entry of readdirSync(nodeModules).filter((entry) => entry.startsWith("tree-sitter")))
     for (const file of readdirSync(join(nodeModules, entry)))
       if (!/^(package\.json|LICENSE)$|\.wasm$/.test(file)) rmSync(join(nodeModules, entry, file), { recursive: true, force: true });
-  // npm installs every gpu and arch build here; keep the one node-llama-cpp picks first for this target
+  // keep metal on apple silicon and the cpu build elsewhere, so cuda and vulkan cards run qmd on the cpu
   const llama = nodePlatform.replace("darwin", "mac").replace("win32", "win") + (nodePlatform === "darwin-arm64" ? "-metal" : "");
   keepOnly(join(nodeModules, "@node-llama-cpp"), llama);
-  // build-only: a qmd peer nothing loads, and the sources the native addons were compiled from
-  for (const dir of ["typescript", "better-sqlite3/deps", "@temporalio/core-bridge/sdk-core"])
+  // the sources the native addons were compiled from
+  for (const dir of ["better-sqlite3/deps", "@temporalio/core-bridge/sdk-core"])
     rmSync(join(nodeModules, dir), { recursive: true, force: true });
   // musl never loads on our glibc linux and trips linuxdeploy; types and maps are unread except by temporal's bundler
   for (const entry of readdirSync(nodeModules, { recursive: true, withFileTypes: true }))
@@ -450,10 +435,8 @@ function pruneRuntime(runtimeRoot) {
 // The bundler signs MacOS, Frameworks, Plugins and the sidecar binaries, not Resources, so
 // without this pass the bundle carries ad-hoc signed code and Apple refuses the lot.
 function signMacBundledRuntime(runtimeRoot) {
-  // Reads 46k files, so only when there is a real identity to put on them: an ad-hoc pass
-  // here buys nothing a local build needs, and notarization refuses ad-hoc code anyway.
-  const identity = (process.env.APPLE_SIGNING_IDENTITY ?? "").trim();
-  if (!macTarget || !identity || identity === "-") return;
+  // reads 46k files, so skip it for ad-hoc builds, which notarization refuses anyway
+  if (!macTarget || adhoc) return;
   const binaries = [];
   const collect = (directory) => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -529,15 +512,12 @@ async function prepareMemoryInstaller() {
     const license = await fetch(`https://raw.githubusercontent.com/astral-sh/uv/${release}/LICENSE-MIT`);
     if (!license.ok) throw new Error("uv license download failed");
     writeFileSync(join(directory, "LICENSE-MIT"), await license.text());
-    if (macTarget) signMacRuntime(directory);
+    signMacRuntime(directory);
     markPrepared(marker, binary, `${release}-${target}`);
   } finally { rmSync(staging, { recursive: true, force: true }); }
 }
 
 await prepareMemoryInstaller();
-
-// Builds up to 28 Sept copied the installer beside the plugin as well. Drop that stale copy.
-rmSync(resolve(desktopRoot, "dsh-runtime", "node_modules", "@bees", "memory-runtime"), { recursive: true, force: true });
 
 // Pruning is in place, so a local cross-build would delete this machine's own native builds and
 // break its dev runs. Each runner builds its own target, so nothing ships unpruned.
