@@ -50,3 +50,10 @@ leaves the data folder behind, and the next install reads it as it was.
 - Shared writes need a reachable server. A write that cannot be confirmed is refused locally
   rather than queued as an offline approval.
 - Model weights are downloaded at first run and are not distributed with the software.
+- The agent's own Chrome listens on a local debugging port, 9333, that has no password. While
+  it runs, any other program on the same computer can drive it, along with every site it is
+  signed in to. The gate on port 9332, in front of your own browser when you allow that, has
+  the same gap. We plan to close both.
+- Gmail, Google Calendar and Google Drive connect through a Bees Google app that Google has not
+  verified yet. Google shows an unverified-app warning when you sign in, and only the first 100
+  people can connect.
