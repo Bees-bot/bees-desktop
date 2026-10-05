@@ -26,7 +26,8 @@ jobs:
         include:
           - os: macos-15-intel
             bundles: app
-          - os: ubuntu-24.04
+          # the oldest runner on purpose: a linux build only runs on systems with its glibc or newer
+          - os: ubuntu-22.04
             bundles: appimage,deb
           - os: windows-2025
             bundles: nsis

@@ -2,6 +2,10 @@
 
 Notable changes, newest first. Dates are release dates.
 
+## Unreleased
+
+- Linux builds run on Ubuntu 22.04 and newer. The 0.2.0 Linux downloads need Ubuntu 24.04.
+
 ## 0.2.0
 
 - Releases cover Apple Silicon and Intel Macs, Windows x64 and Linux x64 (DEB and AppImage).

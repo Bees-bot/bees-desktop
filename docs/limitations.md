@@ -7,7 +7,7 @@ reviewed 5 October 2026.
 
 - Windows installers are unsigned and SmartScreen warns on them. They stay unsigned until
   there is an Azure signing account.
-- Linux packages are not signed.
+- Linux packages are not signed. The 0.2.0 Linux downloads need Ubuntu 24.04 or newer (glibc 2.39). Later releases run on Ubuntu 22.04 too.
 - macOS builds are signed with a Developer ID and notarized by Apple. A build from source
   without that certificate is ad-hoc signed, and Gatekeeper blocks its first launch.
 - Only the latest release receives security fixes.

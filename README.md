@@ -39,7 +39,7 @@ Get the build for your computer from the [download page](https://bees.bot/downlo
 
 - **macOS:** open the DMG and drag Bees to Applications. It is signed and notarized by Apple, so Gatekeeper lets it open.
 - **Windows:** run the installer. It is not code-signed yet, so SmartScreen warns. Click "More info", check the name reads Bees, then click "Run anyway".
-- **Linux:** install the DEB, or run the AppImage directly. Linux packages are not signed.
+- **Linux:** install the DEB, or run the AppImage directly. Linux packages are not signed. The 0.2.0 Linux downloads need Ubuntu 24.04 or newer (glibc 2.39), later releases run on 22.04 too.
 
 You need 8 GB of memory for a cloud model, or 16 GB for a local model, plus 15 GB of free disk space. A local model is 2 to 5 GB, and the data folder can grow to about 10 GB.
 
