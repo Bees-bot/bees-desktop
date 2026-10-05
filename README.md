@@ -8,13 +8,13 @@ Bees runs a team of AI agents on your computer instead of one assistant in a sin
 
 Download the build for your computer from the [download page](https://bees.bot/download/), or go straight to the [latest GitHub release](https://github.com/Bees-bot/bees-desktop/releases/latest).
 
-- **macOS:** open the DMG and drag Bees to Applications. Builds we publish are signed and notarized by Apple, so Gatekeeper lets them open.
+- **macOS:** open the DMG and drag Bees to Applications. It is signed and notarized by Apple, so Gatekeeper lets it open.
 - **Windows:** run the installer. It is not code-signed yet, so SmartScreen will warn. Click "More info," check the name reads Bees, then "Run anyway."
 - **Linux:** install the DEB, or run the AppImage directly. Linux packages are not signed.
 
 You need 8 GB of memory for a cloud model, or 16 GB for a local model, plus 15 GB of free disk space. A local model itself is 2 to 5 GB, and the data folder can grow to about 10 GB.
 
-Bees does not update itself yet. Watch the [releases page](https://github.com/Bees-bot/bees-desktop/releases) for new versions.
+Bees updates itself. When a new version is out, it offers to install it and restart.
 
 Open Bees. It creates a private workspace on this computer with no sign-in needed, so you can try it right away.
 
@@ -92,22 +92,16 @@ Bees runs its own local memory service (Hindsight) so agents can recall earlier 
 
 ## Supported systems
 
-Release builds cover four targets, and all four have to succeed before a release goes out:
-
-- macOS, Apple Silicon
-- macOS, Intel
-- Linux x64 (DEB and AppImage)
-- Windows x64 (MSI and EXE)
+Every release covers macOS on Apple Silicon and Intel, Windows x64 (EXE installer) and Linux x64 (DEB and AppImage).
 
 macOS builds are signed with a Developer ID and notarized by Apple. Windows and Linux installers are not signed yet, so Windows shows a SmartScreen warning. The Mac build has had far more real use so far than Linux and Windows.
 
-See [Known limitations](docs/limitations.md) for the full list of what does not work yet, including why there is no in-app updater and why upgrading from version 0.1.1 does not bring your data across. Read it before you install.
+See [Known limitations](docs/limitations.md) for the full list of what does not work yet, including why upgrading from version 0.1.1 does not bring your data across. Read it before you install.
 
 ## Roadmap
 
 There is no separate roadmap document, only work the team has already flagged:
 
-- An in-app updater, brought back once upgrading from old local data is safe. It shipped in 0.1.1 and was dropped in the 0.2 rewrite because the two versions use different local databases.
 - Signed Windows installers, once the Azure signing account behind them is set up.
 
 See [Known limitations](docs/limitations.md) for everything else that is deliberately not built yet.

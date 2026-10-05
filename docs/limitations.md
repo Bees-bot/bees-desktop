@@ -1,25 +1,21 @@
 # Known limitations
 
 What the 0.2 series does not do yet. Everything here is deliberate, not a bug list. Last
-reviewed 22 September 2026.
+reviewed 5 October 2026.
 
 ## Installing
 
-- macOS builds are signed with a Developer ID and notarized by Apple. Without the Apple
-  credentials available to CI the build falls back to ad-hoc signing, and Gatekeeper blocks
-  the first launch.
-- Windows installers are unsigned and SmartScreen warns on them. Enabling signing needs both
-  Azure credentials and a `signCommand` in the Tauri bundle config; the second is deliberately
-  absent until the first exists.
+- Windows installers are unsigned and SmartScreen warns on them. They stay unsigned until
+  there is an Azure signing account.
 - Linux packages are not signed.
-- Downloads need access to `Bees-bot/bees-desktop`. While that repository is private, anonymous
-  downloads fall back to the release page, which also needs access.
+- macOS builds are signed with a Developer ID and notarized by Apple. A build from source
+  without that certificate is ad-hoc signed, and Gatekeeper blocks its first launch.
 - Only the latest release receives security fixes.
 
 ## Updating and upgrading
 
-- The 0.2 series has no in-app updater. 0.1.1 had one; the rewrite dropped it, and publishing
-  the `latest.json` it reads is explicitly rejected.
+- Bees updates itself starting with 0.2.0. Version 0.1.1 looks for updates somewhere else, so
+  it never sees 0.2 and has to be replaced by hand.
 - A 0.1.1 installation does not take its data with it. 0.1.1 used the legacy runtime database
   and 0.2 uses a different one, so an upgrade opens an app with no existing workspaces or runs.
   Back up the old data and keep the old installation until you have moved what you need.
@@ -36,10 +32,8 @@ leaves the data folder behind, and the next install reads it as it was.
 
 ## Platforms
 
-- Release builds are configured for Apple Silicon, Intel Mac, Linux x64 and Windows x64. All
-  four must succeed before a release becomes public.
-- 0.1.1 shipped Apple Silicon only and produced no Windows installer.
-- The Mac build has had far more use than the Linux and Windows builds.
+- Releases cover Apple Silicon and Intel Macs, Linux x64 and Windows x64. The Mac build has
+  had far more use than the Linux and Windows builds.
 - The desktop bundles neither Docker nor PostgreSQL nor Python. Memory downloads its own Python
   the first time it starts.
 

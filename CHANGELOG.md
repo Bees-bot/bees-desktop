@@ -2,8 +2,15 @@
 
 Notable changes, newest first. Dates are release dates.
 
-## Unreleased
+## 0.2.0
 
+- Releases cover Apple Silicon and Intel Macs, Windows x64 and Linux x64 (DEB and AppImage).
+  Windows and Linux installers are not signed yet. Downloads include SHA-256 checksums.
+- Bees updates itself. When a new version is out it offers to install it and restart, and
+  asks first if work is still running.
+- Upgrade notice: the 0.2 series uses a different local database from 0.1.1. Existing
+  0.1.1 data is not automatically migrated, and 0.1.1 is never offered this version as an
+  update. Back up your 0.1.1 data, then install 0.2.0 by hand.
 - Building from source needs Rust 1.88 instead of 1.84, which clears the open security
   alerts in the shipped dependencies.
 - The installer is about 200 MB smaller: each download now carries only the builds for the
@@ -48,16 +55,8 @@ Notable changes, newest first. Dates are release dates.
 - Fixed an issue where the same output folder could not be selected multiple times by returning the existing mapped folder.
 - The custom answer box for conversational reviews with options is now a multi-line text area instead of a single-line input.
 - Planning runs (Process planner executions) now properly show up in the Process Runs list ("Recent process runs").
-
-
 - Completed reviews now show the worker's plain-language result and files in the conversation,
   followed by the review verdict, while detailed evidence remains separate.
-- Releases build installers for Apple Silicon, Intel Mac, Linux x64, and Windows x64.
-  All builds must succeed before the release becomes public. Downloads include SHA-256 checksums.
-- Published release notes are announced to the community's Discord updates channel.
-- Upgrade notice: the 0.2 series uses a different local database from 0.1.1. Existing
-  0.1.1 data is not automatically migrated. Back up your existing application data and
-  keep your old installation before trying the new version. Automatic updates remain disabled.
 
 ## 0.1.1
 

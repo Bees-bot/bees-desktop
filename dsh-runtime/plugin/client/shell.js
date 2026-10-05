@@ -720,6 +720,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
         }, "Create new Dashboard") : null),
       platform.editing ? h("div", { className: "bees-callout", role: "status", "data-product-defaults": true },
         "Editing product defaults — saved changes apply here and ship in future builds. Personal settings take priority.") : null,
+      h(UpdateBar),
       data.rootFolder?.folder && onboarding.version && !onboarding.finished ? h(GettingStartedBar, { state: onboarding, update: updateOnboarding, navigate, aiReady, aiStatus: aiReady ? "AI ready" : "AI setup can continue while you explore.", data, openWorkItem: openStarter }) : null,
       error ? h("div", { className: "bees-error", role: "alert", style: { display: "flex", alignItems: "center", gap: "12px" } },
         h("span", { style: { flex: 1, minWidth: 0, overflowWrap: "anywhere" } }, error),
@@ -728,6 +729,31 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
       h("main", { className: "bees-content", ref: content }, h("div", { key: visit, className: `bees-panel ${route === "home" || section.id === "work" && workItemId ? "bees-panel-wide" : ""} ${section.id === "work" && workItemId ? "bees-panel-full-height" : ""}` }, page))
     )
   ));
+}
+
+// a failed check stays quiet and tries again on the next round
+function UpdateBar() {
+  const [version, setVersion] = useState(null);
+  const [status, setStatus] = useState("");
+  useEffect(() => {
+    const invoke = window.__TAURI__?.core?.invoke;
+    if (!invoke) return undefined;
+    const check = () => invoke("check_for_update").then(setVersion, () => {});
+    check();
+    const timer = setInterval(check, 6 * 60 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, []);
+  if (!version) return null;
+  const installing = status === "installing";
+  const install = () => {
+    setStatus("installing");
+    window.__TAURI__.core.invoke("install_update").then((restarting) => { if (!restarting) setStatus(""); }, (error) => setStatus(`Update failed: ${error}`));
+  };
+  return h("div", { className: "bees-callout", role: "status", style: { display: "flex", alignItems: "center", gap: "12px" } },
+    h("span", { style: { flex: 1, minWidth: 0 } }, status && !installing ? status : `Bees ${version} is ready to install.`),
+    h(Button, { onClick: () => void openExternal(`https://github.com/Bees-bot/bees-desktop/releases/tag/v${version}`) }, "What's new"),
+    h(Button, { disabled: installing, onClick: install }, installing ? "Downloading…" : "Update and restart"),
+    h(Button, { disabled: installing, onClick: () => setVersion(null) }, "Later"));
 }
 
 function AppHeader({ routeLabel, parts, ctx, preferences, children }) {

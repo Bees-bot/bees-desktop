@@ -1,5 +1,5 @@
-# Checks on every pull request. release.yml only runs on a tag, which is too late
-# to find out that a change does not compile.
+# Checks on every pull request, so a change that does not compile is caught
+# before it reaches main.
 #
 # Actions are pinned to commit SHAs. A tag can be moved by whoever owns the
 # action, a SHA cannot.

@@ -234,7 +234,8 @@ async function prepareFreeLlmRuntime() {
     execFileSync(
       "npm",
       ["ci", "--omit=dev", "--omit=optional", "--workspace", "server", "--workspace", "shared", "--ignore-scripts"],
-      { cwd: sourceRoot, stdio: "inherit" }
+      // npm is npm.cmd on windows, which node only starts through a shell
+      { cwd: sourceRoot, stdio: "inherit", shell: process.platform === "win32" }
     );
 
     rmSync(runtimeRoot, { recursive: true, force: true });
