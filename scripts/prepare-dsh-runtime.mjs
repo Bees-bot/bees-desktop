@@ -466,6 +466,9 @@ function pruneForeignBinaries(runtimeRoot) {
   if (!nodePlatform.startsWith("win32")) rmSync(join(nodeModules, "node-pty", "third_party", "conpty"), { recursive: true, force: true });
   for (const entry of readdirSync(nodeModules))
     if (entry.startsWith("tree-sitter")) keepOnly(join(nodeModules, entry, "prebuilds"), nodePlatform);
+  // npm also installs the arm, cuda and vulkan builds here; node-llama-cpp falls back to this cpu one
+  const llama = nodePlatform.replace("darwin", "mac").replace("win32", "win") + (nodePlatform === "darwin-arm64" ? "-metal" : "");
+  keepOnly(join(nodeModules, "@node-llama-cpp"), llama);
   // musl builds never load on the glibc linux we target, and linuxdeploy stops looking for their libc
   for (const scope of ["", ...readdirSync(nodeModules).filter((entry) => entry.startsWith("@"))])
     for (const entry of readdirSync(join(nodeModules, scope)))
