@@ -65,7 +65,6 @@ Select **Run**. Bees starts the work with your team's agents and opens it. A rev
 - Multi-agent processes: agents work through stages on a shared board, and a separate reviewer checks each result before it moves on.
 - Bring your own AI: connect Codex, Claude Code, a hosted provider, or a local model, per agent or as the system default.
 - MCP servers and skills, scoped per agent: give one agent every tool, none, or a named few.
-- Apps: install ready-made app packages from a catalog. Each one shows its publisher, what it can access, and its sources before you install it.
 - Local knowledge search (Company Brain) over folders and Google Drive locations you map yourself.
 - Long-term memory: Bees runs its own local memory service, so agents recall past work without a cloud memory provider.
 - Scheduling: turn a request into a recurring process, like a weekly report.
@@ -181,7 +180,7 @@ Credentials, downloads, and running models are device settings and are never wri
 
 ### The Apps catalog
 
-Apps loads a hosted catalog when you open the Apps tab or select Refresh. Users inspect a package's name, description, publisher, access, and sources, then Install, finish setup, and Open. Packages live in `bees-apps`, and installing one needs no JSON upload or GitHub credentials of your own.
+The Apps screen is hidden from the sidebar for now. It loads a hosted catalog when you open it or select Refresh. Users inspect a package's name, description, publisher, access, and sources, then Install, finish setup, and Open. Packages live in `bees-apps`, and installing one needs no JSON upload or GitHub credentials of your own.
 
 Installed versions are pinned. Updating one needs a separate approval, keeps existing results, and requires stopping any schedule or active work on it first. An offline catalog is browse-only, while installs you already have keep working.
 
