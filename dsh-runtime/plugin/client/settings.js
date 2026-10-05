@@ -247,13 +247,13 @@ function AppearanceSettings({ ctx, preferences }) {
   const darkDefault = THEME_PRESETS.some(({ id, dark }) => id === preference.darkThemePreset && dark)
     ? preference.darkThemePreset : "halloween";
   const lightDefault = THEME_PRESETS.some(({ id, dark }) => id === preference.lightThemePreset && !dark)
-    ? preference.lightThemePreset : "bumblebee";
+    ? preference.lightThemePreset : "corporate";
   useEffect(() => {
     if (preference.darkThemePreset && !THEME_PRESETS.find(({ id }) => id === preference.darkThemePreset)?.dark) {
       void preferences.set("darkThemePreset", "halloween");
     }
     if (preference.lightThemePreset && THEME_PRESETS.find(({ id }) => id === preference.lightThemePreset)?.dark) {
-      void preferences.set("lightThemePreset", "bumblebee");
+      void preferences.set("lightThemePreset", "corporate");
     }
   }, [preference.darkThemePreset, preference.lightThemePreset, preferences]);
   const chooseTheme = async (option) => {
@@ -272,7 +272,7 @@ function AppearanceSettings({ ctx, preferences }) {
         ...THEME_PRESETS.map((option) => h("option", { key: option.id, value: option.id }, option.id === "halloween" ? `${option.label} (Recommended)` : option.label)))),
         h("label", null, "Default Light Theme", h("select", { className: "bees-select", value: lightDefault,
           "data-theme-default": "light", onChange: (event) => void preferences.set("lightThemePreset", event.target.value) },
-        ...THEME_PRESETS.map((option) => h("option", { key: option.id, value: option.id }, option.id === "bumblebee" ? `${option.label} (Recommended)` : option.label)))))),
+        ...THEME_PRESETS.map((option) => h("option", { key: option.id, value: option.id }, option.label)))))),
     h("section", { className: "bees-box bees-appearance-card" }, 
       h("h3", { className: "bees-section-title" }, "Theme"),
       h("p", { className: "bees-muted" }, preferences.productDefaults
