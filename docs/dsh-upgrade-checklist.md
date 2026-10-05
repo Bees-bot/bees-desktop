@@ -40,8 +40,8 @@ From `bees-server`, run the Stage 1 size gate:
 ./scripts/count-lines-of-code.sh
 ```
 
-Review new licenses and native artifacts, and refresh the two checked-in CycloneDX
-files under `docs/sbom/` by hand; nothing regenerates them automatically. Finally,
+Review new licenses and native artifacts, and run `npm run sbom` to rebuild the two
+checked-in CycloneDX files under `docs/sbom/` from the lockfiles. Finally,
 exercise this packaged critical flow without a network connection:
 
 1. launch with no account and create a team plus two workspaces;
