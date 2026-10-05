@@ -2,9 +2,13 @@
 
 Notable changes, newest first. Dates are release dates.
 
-## Unreleased
+## 0.2.1
 
 - Linux builds run on Ubuntu 22.04 and newer. The 0.2.0 Linux downloads need Ubuntu 24.04.
+- On Windows, an update stops Bees' background work before it installs, and Bees opens
+  again if the installer fails to start.
+- An update asks about running work once the download is done, not before it starts.
+- The local model engine runs K2 Horizon models.
 
 ## 0.2.0
 
