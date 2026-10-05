@@ -66,8 +66,5 @@ supports two public DSH ABIs at once.
 
 ## RC2 candidate status
 
-See [the dated validation record](dsh-0.1.7-rc2-validation.md). The local upgrade
-is implemented and checked; unchecked packaged/offline/cross-platform scenarios
-remain release gates. The two-workspaces-per-team scenario above predates the
-current one-default-workspace-per-team command surface and needs a product-owned
-replacement acceptance scenario; it is not counted as passed.
+The two-workspaces-per-team scenario above predates the one-default-workspace-per-team
+command surface. It needs a product-owned replacement scenario and is not counted as passed.
