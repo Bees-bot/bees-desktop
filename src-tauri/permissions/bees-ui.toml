@@ -14,5 +14,7 @@ commands.allow = [
   "local_model_connection",
   "open_external_url",
   "bees_data_size",
-  "uninstall_bees"
+  "uninstall_bees",
+  "check_for_update",
+  "install_update"
 ]

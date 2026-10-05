@@ -49,5 +49,12 @@
       "../licenses/LICENSE-LGPL-3.0": "licenses/LICENSE-LGPL-3.0",
       "../licenses/LICENSE-GPL-3.0": "licenses/LICENSE-GPL-3.0"
     }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDkyMTlGNjlFMDBBNTI4NApSV1NFVWdyZ2FaOGhDYUxPVE4xWWRTU2RlYXlpaitxRXB2Ui9tbUZUWEJ0N1Q4VUw1MU5heCswVgo=",
+      "endpoints": ["https://github.com/Bees-bot/bees-desktop/releases/latest/download/bees-update.json"],
+      "requireSignedVersion": true
+    }
   }
 }

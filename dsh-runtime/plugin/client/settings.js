@@ -987,12 +987,7 @@ function SettingsLayout({ route, navigate, organization, team, platform, childre
             onClick: () => navigate(id) }, label)),
           organization ? h(SettingsGroup, { label: organization.name, routes: ORGANIZATION_SETTINGS, route, navigate,
             role: organization.role, connected: organization.connected }) : null)),
-    h("section", { className: "bees-settings-content" },
-      h("div", { className: "bees-callout", style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px", marginBottom: "24px" } },
-        h("div", null, "Bees does not update itself yet. Watch the releases page for new versions."),
-        h(Button, { onClick: () => void openExternal("https://github.com/Bees-bot/bees-desktop/releases") }, "Releases on GitHub")
-      ),
-      children));
+    h("section", { className: "bees-settings-content" }, children));
 }
 
 export function SettingsPage({

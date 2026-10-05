@@ -28,6 +28,7 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+use tauri_plugin_updater::UpdaterExt;
 
 struct ManagedDsh {
     child: Sidecar,
@@ -42,6 +43,7 @@ struct DshManager(Mutex<Option<ManagedDsh>>);
 static WATCHING_DSH: AtomicBool = AtomicBool::new(false);
 static QUIT_PENDING: AtomicBool = AtomicBool::new(false);
 static QUIT_CONFIRMED: AtomicBool = AtomicBool::new(false);
+static UPDATING: AtomicBool = AtomicBool::new(false);
 
 struct DshRuntimeInfo {
     base_url: String,
@@ -895,46 +897,78 @@ fn build_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> 
     Ok(())
 }
 
-/// Check the authenticated sidecar off the UI thread; an unavailable count is not an idle run.
+/// An unavailable run count is not an idle run. Blocks on the network and a dialog, so keep it off the main thread.
+fn quit_allowed(app: &tauri::AppHandle) -> bool {
+    let connection = app.try_state::<DshManager>().and_then(|state| {
+        state.0.lock().ok().and_then(|managed| managed.as_ref()
+            .map(|dsh| (dsh.port, dsh.token.clone())))
+    });
+    let count = match connection {
+        None => Some(0),
+        Some((port, token)) => reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(2)).build().ok()
+            .and_then(|client| client.get(format!("http://127.0.0.1:{port}/bees-api/active-runs"))
+                .bearer_auth(token).send().ok())
+            .and_then(|response| response.error_for_status().ok())
+            .and_then(|response| response.text().ok())
+            .and_then(|text| text.parse::<usize>().ok()),
+    };
+    if count == Some(0) {
+        return true;
+    }
+    let detail = count.map_or_else(
+        || "Bees could not check whether work is still active.".to_string(),
+        |count| format!("Bees has {count} active or queued run(s)."),
+    );
+    app.dialog().message(format!("{detail} Quitting interrupts work and stops local schedules until Bees opens again. Close the window to keep working in the background."))
+        .title("Quit Bees?")
+        .buttons(MessageDialogButtons::OkCancelCustom("Quit Bees".into(), "Keep working".into()))
+        .blocking_show()
+}
+
 fn confirm_quit(app: tauri::AppHandle, exit_code: i32) {
     if QUIT_PENDING.swap(true, Ordering::SeqCst) {
         return;
     }
     thread::spawn(move || {
-        let connection = app.try_state::<DshManager>().and_then(|state| {
-            state.0.lock().ok().and_then(|managed| managed.as_ref()
-                .map(|dsh| (dsh.port, dsh.token.clone())))
-        });
-        let count = match connection {
-            None => Some(0),
-            Some((port, token)) => reqwest::blocking::Client::builder()
-                .timeout(Duration::from_secs(2)).build().ok()
-                .and_then(|client| client.get(format!("http://127.0.0.1:{port}/bees-api/active-runs"))
-                    .bearer_auth(token).send().ok())
-                .and_then(|response| response.error_for_status().ok())
-                .and_then(|response| response.text().ok())
-                .and_then(|text| text.parse::<usize>().ok()),
-        };
-        if count == Some(0) {
+        if quit_allowed(&app) {
             QUIT_CONFIRMED.store(true, Ordering::SeqCst);
             app.exit(exit_code);
-            return;
         }
-        let detail = count.map_or_else(
-            || "Bees could not check whether work is still active.".to_string(),
-            |count| format!("Bees has {count} active or queued run(s)."),
-        );
-        app.dialog().message(format!("{detail} Quitting interrupts work and stops local schedules until Bees opens again. Close the window to keep working in the background."))
-            .title("Quit Bees?")
-            .buttons(MessageDialogButtons::OkCancelCustom("Quit Bees".into(), "Keep working".into()))
-            .show(move |confirmed| {
-                QUIT_PENDING.store(false, Ordering::SeqCst);
-                if confirmed {
-                    QUIT_CONFIRMED.store(true, Ordering::SeqCst);
-                    app.exit(exit_code);
-                }
-            });
+        QUIT_PENDING.store(false, Ordering::SeqCst);
     });
+}
+
+#[tauri::command]
+async fn check_for_update(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let update = app.updater().map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())?;
+    Ok(update.map(|update| update.version))
+}
+
+/// Asks about active runs before downloading, since installing swaps the files the running app serves.
+#[tauri::command]
+async fn install_update(app: tauri::AppHandle) -> Result<bool, String> {
+    if UPDATING.swap(true, Ordering::SeqCst) {
+        return Ok(false);
+    }
+    let result = install(&app).await;
+    if !matches!(result, Ok(true)) {
+        UPDATING.store(false, Ordering::SeqCst);
+    }
+    result
+}
+
+async fn install(app: &tauri::AppHandle) -> Result<bool, String> {
+    let asked = app.clone();
+    if !tauri::async_runtime::spawn_blocking(move || quit_allowed(&asked)).await.map_err(|e| e.to_string())? {
+        return Ok(false);
+    }
+    let update = app.updater().map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())?
+        .ok_or("Bees is already up to date.")?;
+    update.download_and_install(|_, _| {}, || {}).await.map_err(|e| e.to_string())?;
+    QUIT_CONFIRMED.store(true, Ordering::SeqCst);
+    app.request_restart();
+    Ok(true)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -949,7 +983,9 @@ pub fn run() {
             show_main_window(app);
         }));
     }
-    builder = builder.plugin(tauri_plugin_dialog::init());
+    builder = builder
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build());
     builder
         .setup(|app| {
             if let Ok(state) = state_dir(app.handle()) {
@@ -998,7 +1034,9 @@ pub fn run() {
             local_model_connection,
             open_external_url,
             bees_data_size,
-            uninstall_bees
+            uninstall_bees,
+            check_for_update,
+            install_update
         ])
         .on_page_load(|_window, payload| {
             // Do not log the URL: the initial handoff carries an authentication token.
