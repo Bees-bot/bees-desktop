@@ -75,6 +75,16 @@ export const Config = z.object({
   pageLayouts: z.dict(z.array(DashboardWidget)).default({}).volatile(),
   seenFiles: z.dict(z.array(z.string())).default({}).volatile(),
   memoryModel: z.string().default("").volatile(),
+  localModels: z.array(z.object({
+    id: z.string().required(),
+    name: z.string().required(),
+    fileName: z.string(),
+    url: z.string(),
+    localPath: z.string(),
+    bytes: z.natural().default(0),
+    sha256: z.string(),
+    contextSize: z.natural()
+  })).default([]).volatile(),
   localModelWantedIds: z.array(z.string()).default([]).volatile(),
   themePreset: z.string().default("halloween").volatile(),
   colorMode: z.string().default("dark").volatile(),

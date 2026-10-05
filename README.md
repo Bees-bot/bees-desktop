@@ -80,6 +80,7 @@ When an agent runs, content you select can go straight from your computer to the
 Settings → AI connections offers four ways to add a model, and each sends your work differently:
 
 - **Bees AI** (a local model) runs on this device through the bundled `llama.cpp` server. Only the first model download uses the network; after that, prompts stay on the machine.
+  In **Settings → AI connections → Bees AI — local models**, use **Add a model** with a direct HTTPS `.gguf` download link to add a personal model. Turn **Run** on to download and start it, then choose it as your **System default**. **Delete** removes a personal model and its downloaded copy; choose another default first if it is selected. Platform administrators manage the shipped catalog separately through **Edit product defaults**.
 - **AI subscriptions** (Claude Code or Codex): Codex signs in with your OpenAI account and talks to OpenAI directly from this computer. Claude Code runs the command-line tool you already installed and signed into; your prompts pass through it under your own subscription.
 - **General AI APIs** (your own API keys) send your prompt and key straight from this computer to the provider you picked, such as OpenRouter, Google, or Groq.
 - **Free LLM**, the built-in free-tier router, runs locally in the app, then sends your prompt on to the free-tier provider you picked and added a key for.

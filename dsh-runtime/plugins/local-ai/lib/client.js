@@ -36,6 +36,8 @@ window.__ModuleLoader__.load({
     const settingValue = (scope) => scope.getSnapshot().value ?? {};
     const wantedModelIds = (config) =>
       Array.isArray(config.localModelWantedIds) ? [...new Set(config.localModelWantedIds)] : [];
+    const localModels = (catalog, config) => [...catalog, ...(config.localModels ?? [])
+      .filter((model) => !catalog.some(({ id }) => id === model.id))];
 
     function invokeLocal(command, args = {}) {
       const invoke = window.__TAURI__?.core?.invoke;
@@ -94,7 +96,7 @@ window.__ModuleLoader__.load({
         if (started.current || !catalog || preferences.getSnapshot().status !== "ready" || !window.__TAURI__?.core?.invoke) return;
         started.current = true;
         const config = settingValue(preferences);
-        const models = catalog;
+        const models = localModels(catalog, config);
         const wanted = wantedModelIds(config);
         void (async () => {
           for (const id of wanted) {
@@ -113,11 +115,18 @@ window.__ModuleLoader__.load({
       return null;
     }
 
-    function LocalModels({ modelSettings, preferences, catalog: shippedCatalog, ask, Button, confirmAction }) {
+    function LocalModels({ modelSettings, preferences, systemDefault, catalog: shippedCatalog, ask, Button, confirmAction }) {
       const config = usePreference(preferences);
       const productDefaults = preferences.productDefaults === true;
       const catalog = (productDefaults ? config.localModelCatalog : shippedCatalog) ?? [];
-      const models = catalog;
+      const models = productDefaults ? catalog : localModels(catalog, config);
+      const personalModel = (model) => !catalog.some(({ id }) => id === model.id);
+      const protects = (model) => {
+        if (systemDefault?.provider === providerId(model)) return true;
+        const providers = settingValue(modelSettings).providers ?? {};
+        return systemDefault?.provider === "local-openai" && Boolean(providers[providerId(model)]) &&
+          providers["local-openai"]?.baseURL === providers[providerId(model)].baseURL;
+      };
       const [statuses, setStatuses] = useState({});
       const [hardware, setHardware] = useState(null);
       const [hardwareError, setHardwareError] = useState("");
@@ -194,15 +203,24 @@ window.__ModuleLoader__.load({
         });
       };
       const remove = async (model) => {
-        if (!productDefaults) return;
-        if (!await confirmAction(`Delete ${model.name} from the model list?`)) return;
+        if (!productDefaults && (!personalModel(model) || protects(model))) return;
+        if (!await confirmAction(productDefaults ? `Delete ${model.name} from the model list?`
+          : `Remove ${model.name} and its downloaded copy from this device?`)) return;
         await perform("delete", model, async () => {
-          await preferences.set("localModelCatalog", catalog.filter(({ id }) => id !== model.id));
+          if (productDefaults) {
+            await preferences.set("localModelCatalog", catalog.filter(({ id }) => id !== model.id));
+          } else {
+            await updateWantedModels(preferences, (ids) => ids.filter((id) => id !== model.id));
+            await invokeLocal("delete_local_model", { spec: model });
+            const remaining = (settingValue(preferences).localModels ?? []).filter(({ id }) => id !== model.id);
+            await preferences.set("localModels", remaining);
+            await syncLocalProviders(localModels(catalog, { localModels: remaining }), modelSettings);
+            setProgress((current) => { const next = { ...current }; delete next[model.id]; return next; });
+          }
         });
       };
       const addModel = async () => {
-        if (!productDefaults) return;
-        const name = await ask("Model name", "My local model");
+        const name = (await ask("Model name", "My local model"))?.trim();
         if (!name) return;
         const raw = await ask("Direct HTTPS link to a GGUF model", "https://huggingface.co/");
         if (!raw) return;
@@ -210,12 +228,15 @@ window.__ModuleLoader__.load({
           const url = new URL(raw);
           if (url.protocol !== "https:") throw new Error("Use an https:// model link");
           const fileName = decodeURIComponent(url.pathname.split("/").pop() || "");
-          if (!fileName.toLowerCase().endsWith(".gguf") || !/^[a-z0-9._-]+$/i.test(fileName)) {
+          if (!fileName.endsWith(".gguf") || fileName.length > 120 || !/^[a-z0-9._-]+$/i.test(fileName)) {
             throw new Error("The link must point directly to a .gguf file");
           }
-          const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "model";
-          const model = { id: `${slug}-${Date.now().toString(36)}`, name, fileName, url: url.toString(), bytes: 0 };
-          await preferences.set("localModelCatalog", [...catalog, model]);
+          const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 80) || "model";
+          const id = productDefaults ? `${slug}-${Date.now().toString(36)}` : `user-${crypto.randomUUID()}`;
+          const model = { id, name, fileName: productDefaults ? fileName : `${id}.gguf`, url: url.toString(), bytes: 0 };
+          const current = settingValue(preferences);
+          const key = productDefaults ? "localModelCatalog" : "localModels";
+          await preferences.set(key, [...(current[key] ?? []), model]);
           setError("");
         } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
       };
@@ -240,12 +261,12 @@ window.__ModuleLoader__.load({
               : recommendedStatus?.state === "ready" ? "Use installed model" : `Download and use · ${bytes(recommended.bytes)}`) : null),
         h("div", { className: "bees-ai-head", style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "14px", marginBottom: "16px" } }, h("div", null,
           h("h3", { className: "bees-section-title", style: { marginBottom: "4px" } }, "Bees AI — local models"),
-          h("p", { className: "bees-muted", style: { margin: 0 } }, productDefaults ? "Models listed here ship in the Bees catalog. Downloads and running models remain personal." : "Models stay private on this device. Run as many as this computer's memory can hold.")),
-          productDefaults ? h(Button, { className: "primary", onClick: addModel }, "Add a model") : null),
+          h("p", { className: "bees-muted", style: { margin: 0 } }, productDefaults ? "Models listed here ship in the Bees catalog. Downloads and running models remain personal." : "Add your own models with a GGUF download link. Models stay private on this device. Run as many as this computer's memory can hold.")),
+          h(Button, { className: "primary", onClick: addModel }, "Add a model")),
         h("div", { className: "bees-local-model-table" }, h("table", null,
           h("thead", null, h("tr", null,
             h("th", null, "Model"), h("th", null, "Status"), h("th", null, "Download"),
-            h("th", null, "Run"), productDefaults ? h("th", null, "Delete") : null)),
+            h("th", null, "Run"), h("th", null, "Delete"))),
           h("tbody", null, ...models.map((model) => {
             const status = statuses[model.id];
             const event = progress[model.id];
@@ -271,7 +292,8 @@ window.__ModuleLoader__.load({
             return h("tr", { key: model.id, "data-model-id": model.id },
               h("td", null,
                 h("div", { className: "bees-local-model-name" }, model.name,
-                  model.id === catalog[0]?.id ? h("span", { className: "bees-badge" }, "Default") : null),
+                  personalModel(model) ? h("span", { className: "bees-badge" }, "Personal")
+                    : h("span", { className: "bees-badge" }, "Default")),
                 h("div", { className: "bees-muted" }, `${model.bytes ? bytes(model.bytes) : "Size found when downloaded"} · private on this device`)),
               h("td", { className: "bees-local-model-status" },
                 h("span", { className: `bees-status ${running ? "bees-running" : ""}` }, productDefaults ? "Product catalog" : label),
@@ -288,19 +310,21 @@ window.__ModuleLoader__.load({
                   disabled: productDefaults || modelBusy && !runPending,
                   onChange: (change) => change.target.checked ? run(model) : stop(model) }),
                 h("span", null, runChecked ? "On" : "Off"))),
-              productDefaults ? h("td", null, h(Button, { className: "danger bees-local-delete",
-                "aria-label": `Delete ${model.name} from the product catalog`, disabled: modelBusy,
-                onClick: () => remove(model) }, "Delete")) : null);
+              h("td", null, productDefaults || personalModel(model) ? h(Button, { className: "danger bees-local-delete",
+                "aria-label": productDefaults ? `Delete ${model.name} from the product catalog` : `Delete ${model.name} from this device`,
+                title: !productDefaults && protects(model) ? "Choose another System default before removing this model." : undefined,
+                disabled: modelBusy || !productDefaults && protects(model),
+                onClick: () => remove(model) }, "Delete") : null));
           })))),
         error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
     }
 
-    function LocalAiSettings({ modelSettings, preferences, catalog, ask, confirmAction, Button }) {
+    function LocalAiSettings({ modelSettings, preferences, systemDefault, catalog, ask, confirmAction, Button }) {
       return h("section", { "data-bees-plugin": "@bees/dsh-local-ai" },
         h("div", { className: "bees-ai-head", style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "14px", marginBottom: "16px" } }, h("div", null,
           h("h3", { className: "bees-section-title", style: { marginBottom: "4px" } }, "BEES AI"),
           h("p", { className: "bees-muted", style: { margin: 0 } }, "Run AI completely locally on your hardware."))),
-        h(LocalModels, { modelSettings, preferences, catalog, ask, Button, confirmAction }));
+        h(LocalModels, { modelSettings, preferences, systemDefault, catalog, ask, Button, confirmAction }));
     }
 
     function ExternalLocalAiSettings({ modelSettings, preferences, systemDefault, ask, Button }) {
