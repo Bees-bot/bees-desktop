@@ -73,6 +73,11 @@ This product includes software developed by third parties:
   https://github.com/parcel-bundler/lightningcss
   Licensed under the Mozilla Public License 2.0
 
+  uv, bundled to install memory's Python on first run
+  https://github.com/astral-sh/uv
+  Copyright (c) 2025 Astral Software Inc.
+  Licensed under either the MIT License or Apache License 2.0
+
 Model weights are downloaded at first run and are not distributed with this
 software. The default model is Qwen3 4B Instruct 2507, licensed under the
 Apache License, Version 2.0.
