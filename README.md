@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  <a href="https://bees.bot/assets/bees-intro.mp4">Watch the intro film</a>
+  <a href="https://bees.bot/assets/bees-intro-female.mp4">Watch the intro film</a>
 </p>
 
 Bees runs a team of AI agents on your computer instead of one assistant in a single chat window. Describe an outcome in plain language, and Bees turns it into stages. Agents work through them on a shared board, and a separate reviewer checks each result before it moves on.
