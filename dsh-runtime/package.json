@@ -255,7 +255,7 @@
     "@deepseek-ai/dsh-workspace": "0.1.7-rc.2",
     "@deepseek-ai/schemastery": "3.18.4",
     "@googleapis/drive": "21.0.0",
-    "@modelcontextprotocol/sdk": "1.30.0",
+    "@modelcontextprotocol/sdk": "1.31.0",
     "@temporalio/activity": "1.22.0",
     "@temporalio/client": "1.22.0",
     "@temporalio/worker": "1.22.0",
