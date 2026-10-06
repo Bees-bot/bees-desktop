@@ -1,4 +1,4 @@
-# Installs a published release on clean Linux and Windows machines and checks the engine starts.
+# Installs a published release on clean Linux, Windows and Mac machines and checks the engine starts.
 # Run by hand only, the free minutes are shared.
 
 name: Install check
@@ -65,3 +65,31 @@ jobs:
       - name: Start the engine
         shell: bash
         run: bash scripts/install-check-boot.sh "$BIN" "$BIN/dsh-runtime"
+
+  mac:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-15-intel, arch: x64 }
+          - { os: macos-15, arch: aarch64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install from the dmg
+        run: |
+          gh release download "$TAG" -p "*_${{ matrix.arch }}.dmg"
+          MNT=$(hdiutil attach -nobrowse Bees_*.dmg | grep -o '/Volumes/.*' | head -1)
+          cp -R "$MNT/Bees.app" /Applications/ && hdiutil detach "$MNT"
+      - name: Check signature and notarization
+        run: |
+          codesign --verify --deep --strict -vv /Applications/Bees.app
+          spctl -a -vv -t exec /Applications/Bees.app
+          xcrun stapler validate /Applications/Bees.app
+      - name: Start the engine
+        run: bash scripts/install-check-boot.sh /Applications/Bees.app/Contents/MacOS /Applications/Bees.app/Contents/Resources/dsh-runtime
+      - name: Open the window for 20 seconds
+        run: |
+          mkdir -p "$RUNNER_TEMP/gui" && HOME=$RUNNER_TEMP/gui /Applications/Bees.app/Contents/MacOS/bees-desktop & sleep 20
+          kill -0 $! && kill $!
