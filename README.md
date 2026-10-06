@@ -25,6 +25,10 @@ Bees runs a team of AI agents on your computer instead of one assistant in a sin
 
 It works with agents you may already run, such as Codex or Claude Code from the command line, a hosted model, or a local model. It reaches outside tools through MCP servers (a standard way to plug tools into an agent), the same way OpenClaw or n8n do. You can mark a stage to need your approval, and its agent then cannot send, post, delete or pay through an MCP tool until you approve.
 
+<p align="center">
+  <img src="docs/assets/bees-demo.gif" width="900" alt="Bees demo: start a task, follow its process run, and visit bees.bot">
+</p>
+
 ## Install
 
 Get the build for your computer from the [download page](https://bees.bot/download/) or the latest GitHub release.
@@ -107,7 +111,7 @@ When an agent runs, content you select can go straight from your computer to the
 
 **Settings → AI connections** offers four ways to add a model, and each sends your work differently:
 
-- **Bees AI** (a local model) runs on this device through the bundled `llama.cpp` server. Only the first model download uses the network. After that, prompts stay on the machine.
+- **Bees AI** (a local model) runs on this device through the bundled `llama.cpp` server. Downloading a model uses the network; prompts sent to that model stay on the machine.
 - **AI subscriptions** (Claude Code or Codex): Codex signs in with your OpenAI account and talks to OpenAI directly from this computer. Claude Code runs the command-line tool you already installed and signed into, so your prompts pass through it under your own subscription.
 - **General AI APIs** (your own API keys) send your prompt and key straight from this computer to the provider you picked, such as OpenRouter, Google, or Groq.
 - **Free LLM**, the built-in free-tier router, runs locally in the app. It then sends your prompt on to the free-tier provider you picked and added a key for.
@@ -146,7 +150,7 @@ The app bundles its own Node 24 runtime. Native modules built under an older Nod
 
 ```sh
 npm ci
-npm run check                 # typecheck, then build
+npm run check                 # typecheck, tests, project checks, then build
 npm run prepare:dsh           # stages the Node runtime, llama.cpp and uv for the Rust build
 cargo check --manifest-path src-tauri/Cargo.toml
 make bees                     # start the desktop app against https://app.bees.bot (also: make)
