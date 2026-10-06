@@ -21,6 +21,10 @@
   <a href="https://github.com/Bees-bot/bees-desktop/discussions">Discussions</a>
 </p>
 
+<p align="center">
+  <img src="docs/media/bees-demo.gif" width="800" alt="Bees asks which vendor to shortlist, then shows a contract summary ready to approve or reject with feedback">
+</p>
+
 Bees runs a team of AI agents on your computer instead of one assistant in a single chat window. Describe an outcome in plain language, and Bees turns it into stages. Agents work through them on a shared board, and a separate reviewer checks each result before it moves on.
 
 It works with agents you may already run, such as Codex or Claude Code from the command line, a hosted model, or a local model. It reaches outside tools through MCP servers (a standard way to plug tools into an agent), the same way OpenClaw or n8n do. You can mark a stage to need your approval, and its agent then cannot send, post, delete or pay through an MCP tool until you approve.
