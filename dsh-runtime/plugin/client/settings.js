@@ -8,6 +8,7 @@ import {
 } from "./shared.js";
 import { MemorySettings } from "./collaboration.js";
 import { SystemDefaultSettings } from "./agents.js";
+import { open } from "@tauri-apps/plugin-dialog";
 
 const AI_PAGE_CSS = `
   /* Consistent outer layout for every sub-section */
@@ -224,7 +225,7 @@ function AiSettings({ ctx, modelSettings, preferences, systemDefault, reload, pr
 
     h("h2", { className: "bees-main-heading" }, "Connection AI sources"),
 
-    h(SubscriptionSettings, { modelSettings, preferences, systemDefault, ask, openExternal, Button,
+    h(SubscriptionSettings, { modelSettings, preferences, systemDefault, ask, openExternal, pickFile: open, Button,
       productDefaults: preferences.productDefaults ? {
         claudeModels: productSettings.state.values["bees-subscriptions"].models,
         saveClaudeModels: (models) => productSettings.save("bees-subscriptions", "models", models, generation)
