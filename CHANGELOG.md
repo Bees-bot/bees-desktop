@@ -2,6 +2,14 @@
 
 Notable changes, newest first. Dates are release dates.
 
+## 0.2.2
+
+- You can point Bees at the Claude Code CLI yourself. In Settings, AI, type its path or pick
+  it with Browse when Bees cannot find it on its own.
+- A process with no approval stage saves its files to its own output folder without stopping
+  to ask first.
+- The default light theme is Corporate.
+
 ## 0.2.1
 
 - Linux builds run on Ubuntu 22.04 and newer. The 0.2.0 Linux downloads need Ubuntu 24.04.

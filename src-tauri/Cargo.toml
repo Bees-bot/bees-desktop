@@ -1,6 +1,6 @@
 [package]
 name = "bees-desktop"
-version = "0.2.1"
+version = "0.2.2"
 description = "DSH-powered work coordination"
 authors = ["Bees contributors"]
 license = "MIT OR Apache-2.0"
