@@ -10,6 +10,7 @@ window.__ModuleLoader__.load({
     const CODEX_ACCESS_REF = "BEES_CODEX_ACCESS_TOKEN";
     const CLAUDE_INSTALL_URL = "https://claude.com/product/claude-code";
     const css = `
+      .bees-subscription{flex-wrap:wrap}.bees-cli-path{flex-basis:100%;min-width:0}.bees-cli-path-controls{display:flex;gap:7px;flex-wrap:wrap;margin-top:6px}.bees-cli-path-controls input{flex:1 1 240px;min-width:0}.bees-cli-path p{margin:6px 0 0}
       .bees-subscriptions{display:grid;gap:10px}.bees-subscription{display:flex;align-items:center;justify-content:space-between;gap:16px}.bees-subscription-main{min-width:0}.bees-subscription-models{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px}.bees-subscription-models .bees-badge{gap:4px;text-transform:none}.bees-subscription-models .bees-badge .bees-btn{padding:0;border:0;background:transparent;font-size:14px;line-height:1}.bees-subscription-actions{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap}.bees-sub-toggle{display:inline-flex;align-items:center;gap:7px;cursor:pointer}.bees-sub-toggle input{appearance:none;width:34px;height:20px;margin:0;border:1px solid var(--dsw-alias-border-l1);border-radius:999px;background:var(--dsw-specific-sidebar-fill);position:relative}.bees-sub-toggle input:after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:var(--dsw-alias-label-secondary);transition:.15s}.bees-sub-toggle input:checked{border-color:#f2b84b;background:#f2b84b}.bees-sub-toggle input:checked:after{left:16px;background:#151515}
     `;
 
@@ -28,7 +29,7 @@ window.__ModuleLoader__.load({
       return value;
     }
 
-    function SubscriptionSettings({ modelSettings, preferences, systemDefault, ask, openExternal, Button, onChange, productDefaults }) {
+    function SubscriptionSettings({ modelSettings, preferences, systemDefault, ask, openExternal, pickFile, Button, onChange, productDefaults }) {
       const config = usePreference(modelSettings);
       const ui = usePreference(preferences);
       const [status, setStatus] = useState({ codex: false, codexModels: [],
@@ -36,6 +37,7 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = useState("");
       const [error, setError] = useState("");
       const [notice, setNotice] = useState("");
+      const [pathDraft, setPathDraft] = useState(null);
       const refresh = async () => {
         if (productDefaults) return;
         const response = await fetch("/bees-api/subscriptions", { cache: "no-store" });
@@ -55,6 +57,7 @@ window.__ModuleLoader__.load({
         finally { setBusy(""); }
       };
       const claude = productDefaults ? { configured: true, enabled: false, models: productDefaults.claudeModels } : status.claude;
+      const claudePath = pathDraft ?? claude.path ?? "";
       const codexModels = config.providers?.["openai-codex"]?.models
         ?? (ui.codexModels?.length ? ui.codexModels : status.codexModels) ?? [];
       const codexProfile = (models = codexModels) => {
@@ -101,8 +104,15 @@ window.__ModuleLoader__.load({
         await saveCodexModels([...codexModels, { id }]);
       });
       const removeCodexModel = (id) => perform("codex-model", () => saveCodexModels(codexModels.filter((model) => model.id !== id)));
-      const configureClaude = () => perform("claude", async () => {
-        await command("claude_configure");
+      const configureClaude = () => perform("claude-path", async () => {
+        const result = await command("claude_configure", { path: claudePath,
+          enabled: claude.configured ? claude.enabled : true });
+        setPathDraft(result.path);
+      });
+      const browseClaude = () => perform("claude-browse", async () => {
+        const path = await pickFile({ title: "Find Claude Code CLI", directory: false, multiple: false,
+          defaultPath: claudePath.trim() || undefined });
+        if (typeof path === "string") setPathDraft(path);
       });
       const testClaude = () => perform("claude", () => command("claude_test"), "Claude Code connection works.");
       const toggleClaude = (enabled) => perform("claude", () => command("claude_toggle", { enabled }));
@@ -114,7 +124,10 @@ window.__ModuleLoader__.load({
         if (productDefaults) await productDefaults.saveClaudeModels([...claude.models, id]);
         else await command("claude_models", { models: [...claude.models, id] });
       });
-      const disconnectClaude = () => perform("claude", () => command("claude_disconnect"));
+      const disconnectClaude = () => perform("claude", async () => {
+        await command("claude_disconnect");
+        setPathDraft(null);
+      });
       const codexEnabled = Boolean(config.providers?.["openai-codex"]);
       const protects = (provider, model) => systemDefault?.provider === provider && (!model || systemDefault.model === model);
       const defaultGuard = "Choose another System default above before removing or turning off this connection.";
@@ -131,7 +144,7 @@ window.__ModuleLoader__.load({
             h("div", { className: "bees-subscription-main" }, h("h3", null, "Codex"),
               h("p", { className: "bees-muted" }, busy === "codex" ? "Finish signing in in the browser window."
                 : status.codex ? "Available models refresh automatically. Models you remove stay hidden."
-                  : "Sign in with ChatGPT; no API key is required."),
+                  : "Sign in with ChatGPT; no CLI installation or API key is required."),
               status.codexModelError ? h("p", { className: "bees-muted", role: "status" }, status.codexModelError) : null,
               (status.codex || productDefaults) ? h("div", { className: "bees-subscription-models", style: { display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center", marginTop: "8px" } },
                 ...(codexModels.length ? codexModels.map((model) => h("span", { className: "bees-badge", key: model.id, style: { display: "inline-flex", alignItems: "center", gap: "4px" } }, model.id,
@@ -177,10 +190,21 @@ window.__ModuleLoader__.load({
               claude.configured
                 ? h(Button, { disabled: Boolean(busy) || Boolean(productDefaults), onClick: testClaude }, busy === "claude" ? "Testing…" : "Test")
                 : h(Button, { disabled: Boolean(busy), onClick: () => perform("claude-link", () => openExternal(CLAUDE_INSTALL_URL)) }, "Get Claude Code"),
-              !claude.configured ? h(Button, { className: "primary", disabled: Boolean(busy) || Boolean(productDefaults), onClick: configureClaude },
-                busy === "claude" ? "Looking…" : "Connect") : null,
               claude.configured ? h(Button, { className: "danger", title: protects("claude-code") ? defaultGuard : "",
-                disabled: Boolean(busy) || Boolean(productDefaults) || protects("claude-code"), onClick: disconnectClaude }, "Disconnect") : null))),
+                disabled: Boolean(busy) || Boolean(productDefaults) || protects("claude-code"), onClick: disconnectClaude }, "Disconnect") : null),
+            !productDefaults ? h("form", { className: "bees-cli-path", onSubmit: (event) => { event.preventDefault(); if (!busy) void configureClaude(); } },
+              h("label", { htmlFor: "bees-claude-path" }, "Claude Code CLI path"),
+              h("div", { className: "bees-cli-path-controls" },
+                h("input", { id: "bees-claude-path", className: "bees-input", type: "text", value: claudePath,
+                  placeholder: "Auto-detect or enter the full path to claude", spellCheck: false, autoComplete: "off",
+                  "aria-describedby": "bees-claude-path-help", disabled: Boolean(busy),
+                  onChange: (event) => setPathDraft(event.target.value) }),
+                pickFile ? h(Button, { disabled: Boolean(busy), onClick: browseClaude, "aria-label": "Browse for Claude Code CLI" },
+                  busy === "claude-browse" ? "Browsing…" : "Browse…") : null,
+                h(Button, { type: "submit", className: "primary", disabled: Boolean(busy) },
+                  busy === "claude-path" ? "Checking…" : claude.configured ? "Save path" : "Connect")),
+              h("p", { id: "bees-claude-path-help", className: "bees-muted" },
+                "Choose the claude executable file. Leave the path blank to find it automatically.")) : null)),
         notice ? h("div", { className: "bees-callout", role: "status" }, notice) : null,
         error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
     }

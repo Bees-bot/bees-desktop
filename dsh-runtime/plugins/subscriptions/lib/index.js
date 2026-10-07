@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { access } from "node:fs/promises";
+import { access, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { delimiter, join } from "node:path";
-import { spawn } from "node:child_process";
+import { delimiter, isAbsolute, join } from "node:path";
+import { execFile, spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
-import { isDeepStrictEqual } from "node:util";
+import { isDeepStrictEqual, promisify } from "node:util";
 import { LlmAdapter, LlmError, QUOTA_EXCEEDED_CODE } from "@deepseek-ai/dsh-llm";
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import { OPENAI_CODEX_MODELS } from "@earendil-works/pi-ai/providers/openai-codex.models";
@@ -432,25 +432,25 @@ class ClaudeCodeAdapter extends LlmAdapter {
 }
 
 async function executable(path) {
-  try { await access(path, constants.X_OK); return true; } catch { return false; }
+  try { await access(path, constants.X_OK); return (await stat(path)).isFile(); } catch { return false; }
 }
 
-function claudeStdout(path, args) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(path, args, { env: safeEnvironment(), stdio: ["ignore", "pipe", "ignore"] });
-    let output = "";
-    const timer = setTimeout(() => child.kill("SIGKILL"), 5_000);
-    child.stdout.on("data", (chunk) => { output += chunk.toString(); });
-    child.on("error", reject);
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      if (code !== 0) reject(new Error("That file is not a working Claude Code program"));
-      else resolve(output.trim());
-    });
-  });
+const execFileAsync = promisify(execFile);
+async function claudeStdout(path, args) {
+  try {
+    const { stdout } = await execFileAsync(path, args, { env: safeEnvironment(), timeout: 5_000,
+      killSignal: "SIGKILL", maxBuffer: 64 * 1024, windowsHide: true });
+    return stdout.trim();
+  } catch {
+    throw new Error("Could not run Claude Code at this path. Choose a working Claude Code executable.");
+  }
 }
 
-const claudeVersion = async (path) => (await claudeStdout(path, ["--version"])).split("\n")[0] || "Claude Code";
+async function claudeVersion(path) {
+  const version = (await claudeStdout(path, ["--version"])).split("\n")[0];
+  if (!/\bClaude Code\b/i.test(version)) throw new Error("That file is not a Claude Code CLI executable.");
+  return version;
+}
 
 async function findClaude(ctx) {
   const configured = (await ctx.credentials.resolve(CLAUDE_PATH_REF))?.value;
@@ -594,13 +594,19 @@ export async function apply(ctx, config) {
         return json(res, 200, { connected: false });
       }
       if (input.action === "claude_configure") {
-        const path = String(input.path ?? "").trim() || await findClaude(ctx);
-        if (!path) throw new Error("Claude Code was not found. Install it, then click Connect again.");
+        if (input.path != null && typeof input.path !== "string") throw new Error("Enter the full path to the Claude Code executable.");
+        let path = (input.path ?? "").trim();
+        if (path.startsWith("~/") || path.startsWith("~\\")) path = join(homedir(), path.slice(2));
+        if (!path) path = await findClaude(ctx);
+        if (!path) throw new Error("Claude Code was not found. Browse for its executable or enter its full path.");
+        if (!isAbsolute(path) || !await executable(path)) throw new Error("Choose an executable file using its full path, not a folder or command.");
         const version = await claudeVersion(path);
+        const enabled = input.enabled !== false;
         await ctx.credentials.set(CLAUDE_PATH_REF, path);
-        await ctx.credentials.set(CLAUDE_ENABLED_REF, "1");
+        if (enabled) await ctx.credentials.set(CLAUDE_ENABLED_REF, "1");
+        else await ctx.credentials.unset(CLAUDE_ENABLED_REF);
         await syncClaude();
-        return json(res, 200, { configured: true, enabled: true, path, version });
+        return json(res, 200, { configured: true, enabled, path, version });
       }
       if (input.action === "claude_test") {
         const path = (await ctx.credentials.resolve(CLAUDE_PATH_REF))?.value;
