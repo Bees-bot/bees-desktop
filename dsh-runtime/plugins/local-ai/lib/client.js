@@ -7,17 +7,23 @@ window.__ModuleLoader__.load({
     const h = React.createElement;
     const { useEffect, useRef, useState } = React;
 
-    // Conservative first-run choice from the shipped catalog, not an intelligence ranking.
-    function recommendedLocalModel(hardware, models, statuses) {
-      const running = models.find((model) => statuses[model.id]?.running);
-      if (running) return running;
-      if (!hardware) return null;
-      // let the per-model fit check below pick a smaller model instead of blocking every machine under 8 GB
-      const candidates = models.filter((model) => model.bytes > 0 &&
-        model.bytes + 2 * 1024 ** 3 <= hardware.totalMemory * 0.6);
-      return candidates.find((model) => statuses[model.id]?.running || statuses[model.id]?.state === "ready")
-        ?? candidates.find((model) => hardware.availableDisk != null &&
-          hardware.availableDisk >= model.bytes + 1024 ** 3) ?? null;
+    const installedModel = (status) => status?.running || ["ready", "starting"].includes(status?.state);
+    const localModelBytes = (model, status, sizes = {}) => model.bytes ||
+      (installedModel(status) ? status.totalBytes : 0) || sizes[model.id] || 0;
+
+    // File size is a fit estimate, not an intelligence ranking. Keep room for context and other apps.
+    function recommendedLocalModel(hardware, models, statuses, sizes = {}) {
+      const candidates = models.filter((model) => {
+        const status = statuses[model.id];
+        if (!hardware) return status?.running;
+        const size = localModelBytes(model, status, sizes);
+        return size > 0 && size + 2 * 1024 ** 3 <= hardware.totalMemory * 0.6 &&
+          (installedModel(status) || hardware.availableDisk != null &&
+            hardware.availableDisk >= size + 1024 ** 3);
+      });
+      return candidates.reduce((largest, model) => !largest ||
+        localModelBytes(model, statuses[model.id], sizes) > localModelBytes(largest, statuses[largest.id], sizes)
+          ? model : largest, null);
     }
 
 
@@ -128,6 +134,18 @@ window.__ModuleLoader__.load({
           providers["local-openai"]?.baseURL === providers[providerId(model)].baseURL;
       };
       const [statuses, setStatuses] = useState({});
+      const [sizes, setSizes] = useState({});
+      useEffect(() => {
+        if (productDefaults || !window.__TAURI__?.core?.invoke) return;
+        let active = true;
+        // Inspect each unknown size once per list change, rather than contacting hosts on every status poll.
+        for (const model of models.filter((model) => !model.bytes)) {
+          void invokeLocal("local_model_size", { spec: model }).then((size) => {
+            if (active && size > 0) setSizes((current) => ({ ...current, [model.id]: size }));
+          }).catch(() => {}); // Unknown sizes stay selectable; a failed lookup must not block setup.
+        }
+        return () => { active = false; };
+      }, [models.map(({ id, url, localPath, bytes }) => `${id}:${url}:${localPath}:${bytes}`).join("|"), productDefaults]);
       const [hardware, setHardware] = useState(null);
       const [hardwareError, setHardwareError] = useState("");
       useEffect(() => {
@@ -241,10 +259,11 @@ window.__ModuleLoader__.load({
         } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
       };
 
-      const recommended = recommendedLocalModel(hardware, models, statuses);
+      const recommended = recommendedLocalModel(hardware, models, statuses, sizes);
       const recommendedStatus = recommended && statuses[recommended.id];
+      const recommendedBytes = recommended && localModelBytes(recommended, recommendedStatus, sizes);
       const lowMemory = recommended && !recommendedStatus?.running && hardware &&
-        recommended.bytes + 2 * 1024 ** 3 > hardware.availableMemory;
+        recommendedBytes + 2 * 1024 ** 3 > hardware.availableMemory;
       return h("div", { className: "bees-stack" },
         productDefaults ? null : h("section", { className: "bees-callout", style: { marginBottom: "24px" } },
           h("h4", { style: { margin: "0 0 8px 0" } }, recommended ? `Suggested for this computer: ${recommended.name}` : "Bees AI setup"),
@@ -253,12 +272,12 @@ window.__ModuleLoader__.load({
             : `Bees could not read this computer's memory${hardwareError ? `: ${hardwareError}` : ""}. Choose an installed model or review the sizes below.`),
           h("p", null, recommended ? lowMemory
             ? "This model fits the installed memory estimate. Available memory is low right now; close other apps if it runs slowly or cannot start. You can still try it below."
-            : "A conservative choice based on installed memory and free disk space. Actual speed depends on your computer. Start it below, then select it as your system default."
+            : "The largest model by file size that fits our installed memory and free disk estimates. Actual memory use and speed depend on the model and context size. Start it below, then select it as your system default."
             : hardware ? "No automatic suggestion based on installed memory and free disk space. You can still try a model below; actual memory use depends on the model and context size."
             : "Pick a model yourself from the list below, or connect another AI provider."),
           recommended ? h(Button, { className: "primary", disabled: Boolean(recommendedStatus?.running) || busy.some((key) => key.endsWith(`:${recommended.id}`)),
             onClick: () => run(recommended) }, recommendedStatus?.running ? "Model running"
-              : recommendedStatus?.state === "ready" ? "Use installed model" : `Download and use · ${bytes(recommended.bytes)}`) : null),
+              : recommendedStatus?.state === "ready" ? "Use installed model" : `Download and use · ${bytes(recommendedBytes)}`) : null),
         h("div", { className: "bees-ai-head", style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "14px", marginBottom: "16px" } }, h("div", null,
           h("h3", { className: "bees-section-title", style: { marginBottom: "4px" } }, "Bees AI — local models"),
           h("p", { className: "bees-muted", style: { margin: 0 } }, productDefaults ? "Models listed here ship in the Bees catalog. Downloads and running models remain personal." : "Add your own models with a GGUF download link. Models stay private on this device. Run as many as this computer's memory can hold.")),
@@ -294,7 +313,7 @@ window.__ModuleLoader__.load({
                 h("div", { className: "bees-local-model-name" }, model.name,
                   personalModel(model) ? h("span", { className: "bees-badge" }, "Personal")
                     : h("span", { className: "bees-badge" }, "Default")),
-                h("div", { className: "bees-muted" }, `${model.bytes ? bytes(model.bytes) : "Size found when downloaded"} · private on this device`)),
+                h("div", { className: "bees-muted" }, `${localModelBytes(model, status, sizes) ? bytes(localModelBytes(model, status, sizes)) : "Size unavailable"} · private on this device`)),
               h("td", { className: "bees-local-model-status" },
                 h("span", { className: `bees-status ${running ? "bees-running" : ""}` }, productDefaults ? "Product catalog" : label),
                 downloading && !cancelling ? h("progress", { className: "bees-local-model-progress", max: total, value: downloaded }) : null),

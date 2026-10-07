@@ -630,6 +630,40 @@ pub async fn local_model_status(
         .map_err(|error| error.to_string())?
 }
 
+/// Inspect a personal model without downloading its weights. Local files take precedence.
+#[tauri::command]
+pub async fn local_model_size(app: AppHandle, spec: ModelSpec) -> Result<u64, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = model_path(&app, &spec)?;
+        if is_complete(&path, spec.bytes) {
+            return Ok(file_len(&path));
+        }
+        if spec.bytes > 0 {
+            return Ok(spec.bytes);
+        }
+        let url = spec.url.as_deref().ok_or("This model has no download link")?;
+        let response = Client::builder()
+            .user_agent("Bees local model manager")
+            .https_only(true)
+            .timeout(Duration::from_secs(15))
+            .build()
+            .map_err(|error| error.to_string())?
+            .head(url)
+            .send()
+            .and_then(|response| response.error_for_status())
+            .map_err(|error| error.to_string())?;
+        response
+            .headers()
+            .get(CONTENT_LENGTH)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<u64>().ok())
+            .filter(|size| *size > 0)
+            .ok_or_else(|| "The model host did not report a file size".into())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 fn emit_progress(
     app: &AppHandle,
     spec: &ModelSpec,

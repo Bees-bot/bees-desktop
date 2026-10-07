@@ -4,8 +4,8 @@ mod startup;
 
 use getrandom::fill;
 use local_models::{
-    cancel_local_model_download, delete_local_model, ensure_local_model, local_model_status, local_model_hardware,
-    start_local_model, stop_local_model, LocalModelManager,
+    cancel_local_model_download, delete_local_model, ensure_local_model, local_model_hardware,
+    local_model_size, local_model_status, start_local_model, stop_local_model, LocalModelManager,
 };
 use process::{
     available_loopback_port, reap_agent_browsers, reap_orphan_llama_servers,
@@ -1037,6 +1037,7 @@ pub fn run() {
             restart_app,
             local_model_status,
             local_model_hardware,
+            local_model_size,
             ensure_local_model,
             start_local_model,
             stop_local_model,

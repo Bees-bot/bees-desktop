@@ -26,6 +26,85 @@ test("hardware suggestions include Qwen 4B regardless of the process capability 
   assert.equal(recommendedLocalModel(hardware, [tooLarge, qwen], {}), qwen);
 });
 
+test("suggestions choose the largest fitting file across catalog and personal models", () => {
+  const sevenB = { id: "user-7b", bytes: 5 * GiB };
+  const largestFit = { id: "large-fit", bytes: hardware.totalMemory * 0.6 - 2 * GiB };
+  const tooLarge = { id: "too-large", bytes: largestFit.bytes + 1 };
+  const models = [qwen, sevenB, tooLarge, largestFit];
+  assert.equal(recommendedLocalModel(hardware, models, {}), largestFit);
+  assert.equal(recommendedLocalModel(hardware, [...models].reverse(), {}), largestFit);
+  // Being installed or running does not make a smaller model outrank a larger fitting model.
+  assert.equal(recommendedLocalModel(hardware, models, { [qwen.id]: { state: "ready", running: true } }), largestFit);
+  assert.equal(recommendedLocalModel(hardware, models, { [tooLarge.id]: { running: true } }), largestFit);
+  const lowDisk = { ...hardware, availableDisk: GiB };
+  assert.equal(recommendedLocalModel(lowDisk, models, {
+    [sevenB.id]: { state: "ready" }, [qwen.id]: { running: true }
+  }), sevenB);
+});
+
+test("personal model sizing uses complete files or inspected sizes, never partial download bytes", () => {
+  const personal = { id: "user-7b", bytes: 0 };
+  const models = [qwen, personal];
+  for (const status of [{ state: "ready" }, { state: "starting" }, { running: true }]) {
+    assert.equal(recommendedLocalModel(hardware, models, {
+      [personal.id]: { ...status, totalBytes: 5 * GiB }
+    }), personal);
+  }
+  assert.equal(recommendedLocalModel(hardware, models, {}, { [personal.id]: 5 * GiB }), personal);
+  assert.equal(recommendedLocalModel(hardware, models, {}, { [personal.id]: 30 * GiB }), qwen);
+  assert.equal(recommendedLocalModel(hardware, models, {
+    [personal.id]: { state: "downloading", totalBytes: 5 * GiB, downloadedBytes: 5 * GiB }
+  }), qwen);
+  assert.equal(recommendedLocalModel(hardware, models, {}), qwen);
+});
+
+test("Settings inspects unknown personal sizes and recommends the largest without downloading it", async () => {
+  let cursor = 0;
+  const state = [], effects = [], calls = [];
+  const React = {
+    createElement: (type, props, ...children) => ({ type, props, children }),
+    useEffect: (effect) => effects.push(effect),
+    useState(initial) {
+      const index = cursor++;
+      if (!(index in state)) state[index] = typeof initial === "function" ? initial() : initial;
+      return [state[index], (value) => { state[index] = typeof value === "function" ? value(state[index]) : value; }];
+    }
+  };
+  const personal = { id: "user-7b", name: "Personal 7B", bytes: 0 };
+  const unavailable = { id: "unknown", name: "Unknown", bytes: 0 };
+  const client = loadClient(React, {
+    setInterval: () => 0, clearInterval: () => {},
+    window: { __TAURI__: { core: { invoke: async (command, args) => {
+      calls.push([command, args]);
+      if (command === "local_model_size") {
+        if (args.spec.id === unavailable.id) throw new Error("Host offline");
+        return 5 * GiB;
+      }
+      if (command === "local_model_hardware") return { ...hardware, availableMemory: 6 * GiB };
+      assert.equal(command, "local_model_status");
+      return { state: "not-downloaded", running: false, totalBytes: 0 };
+    } }, event: { listen: async () => () => {} } } }
+  });
+  const preferences = { getSnapshot: () => ({ value: { localModels: [personal, unavailable] } }), subscribe: () => () => {} };
+  const modelSettings = { getSnapshot: () => ({ value: { providers: {} } }) };
+  const outer = client.LocalAiSettings({ preferences, modelSettings, catalog: [qwen], Button: "button" });
+  const models = outer.children.find((node) => typeof node?.type === "function");
+  const render = () => { cursor = 0; return models.type(models.props); };
+  const text = (node) => typeof node === "string" ? node : node?.children?.map(text).join(" ") ?? "";
+  render();
+  const cleanup = effects.splice(0).map((effect) => effect());
+  await new Promise(setImmediate);
+  try {
+    const content = text(render());
+    assert.match(content, /Suggested for this computer: Personal 7B/);
+    assert.match(content, /Download and use · 5\.0 GB/);
+    assert.match(content, /Available memory is low/);
+    assert.match(content, /Size unavailable/);
+    assert.deepEqual(calls.filter(([command]) => command === "local_model_size").map(([, args]) => args.spec.id), [personal.id, unavailable.id]);
+    assert.ok(calls.every(([command]) => !["ensure_local_model", "start_local_model"].includes(command)));
+  } finally { for (const dispose of cleanup) dispose?.(); }
+});
+
 test("temporary memory pressure does not reject a model that fits the installed RAM", () => {
   for (const availableMemory of [0, 3 * GiB, undefined])
     assert.equal(recommendedLocalModel({ ...hardware, availableMemory }, [qwen], {}), qwen);
