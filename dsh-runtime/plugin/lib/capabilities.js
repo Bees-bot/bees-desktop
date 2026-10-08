@@ -7,7 +7,7 @@ import * as mcpClient from "@deepseek-ai/dsh-mcp-client";
 import { scopeOf } from "@deepseek-ai/dsh-scope";
 import { assertFolderOutsideBees } from "./product-commands.js";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
-import { browserPort, browserStatePath, closeAgentBrowser, saveBrowserState, showAgentBrowser, startAgentBrowser } from "./agent-browser.js";
+import { browserPort, browserStatePath, closeAgentBrowser, pickBrowserPort, saveBrowserState, showAgentBrowser, startAgentBrowser } from "./agent-browser.js";
 import { dataDirectory, fenced } from "./data-folder.js";
 import { serverFolder, setServerFolder } from "./folder-roots.js";
 import { iso, message, required, transaction } from "./product-database.js";
@@ -134,6 +134,7 @@ export class Capabilities {
     const row = this.servers().find(({ enabled, catalogId, serverName }) => enabled && isBrowserCatalog(catalogId)
       && (!granted || granted.includes(serverName)));
     if (!row) return;
+    await pickBrowserPort(mode);
     await this.mountFor(agentCtx, row, mode);
     const tool = `mcp__${row.serverName}__`;
     // Chrome starts on the first browser call, not with the run, since most runs never browse.
@@ -168,8 +169,9 @@ export class Capabilities {
         }
       } catch (error) {
         synced = null;
-        // browsing on regardless would quietly sign the person out of every site
-        return { kind: "deny", reason: `The browser did not start: ${message(error)}. Tell the owner this exact error with ask_user_question.` };
+        this.ctx.logger.warn(`bees: the agent's browser did not start for run ${runId}: ${message(error)}`);
+        // browsing on regardless would quietly sign the person out of every site, and asking stalls a scheduled run with nobody there
+        return { kind: "deny", reason: `The browser did not start: ${message(error)}. Do not ask the owner. Finish this stage now with bees_submit_stage_result, outcome blocked where it is offered, and give this exact error as the reason.` };
       }
       return next();
     });
