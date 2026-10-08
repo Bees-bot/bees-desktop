@@ -773,18 +773,18 @@ function WorkspaceStep({ parts, done, busy, ensureTeam, update, go, navigate }) 
       ? h("div", { style: { display: "grid", gap: "12px" } },
         h("div", { className: "gs-ai-status gs-ready" },
           h("div", { className: "gs-status-dot" }),
-          h("span", null, `Ready · ${parts.organization?.name || "your organization"} › ${parts.team?.name}`)
+          h("span", null, `Ready · ${parts.organization?.name || "your organization"}`)
+        ),
+        h("p", { style: { margin: 0, fontSize: "13px", color: "var(--dsw-alias-label-secondary)", lineHeight: "1.55" } },
+          "I have created a Personal org for you. this does not support teams - you can create another org"
         ),
         h("div", { style: { display: "flex", gap: "8px", flexWrap: "wrap" } },
-          h("button", { type: "button", className: "gs-btn-primary", onClick: () => update({ step: 1 }) }, "Continue to AI setup →"),
           h("button", { type: "button", className: "gs-btn-secondary", onClick: () => go(0) }, "Create another work organization")
         )
       )
       : h("div", { style: { display: "grid", gap: "12px" } },
         h("p", { style: { margin: 0, fontSize: "13px", color: "var(--dsw-alias-label-secondary)", lineHeight: "1.55" } },
-          parts.team
-            ? `You're in ${parts.organization?.name || "a work organization"} › ${parts.team.name}. You can use this work organization or create a new one.`
-            : "Give your work organization a name and we'll create a Default team for your first task."
+          "Give your work organization a name and we'll create a Default team for your first task."
         ),
         h("div", { className: "gs-option-grid" },
           !parts.team && parts.organizationId
@@ -967,7 +967,7 @@ export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiSta
   const isComplete = done[3];
 
   // Footer nav visibility
-  const showSkip  = step < 3;
+  const showSkip  = step < 3 && (done[step] || step === 2);
   const showBack  = step > 0;
 
   return h("div", { className: "gs-page" },
@@ -985,9 +985,6 @@ export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiSta
         }, "Finish setup")
       )
     ),
-
-    // ── Step rail ──
-    h(StepRail, { step, done, onStep: (i) => update({ step: i, active: true }) }),
 
     // ── Main card ──
     h("div", { className: "gs-card" },
@@ -1089,7 +1086,9 @@ export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiSta
               !aiReady ? h("div", { className: "gs-ai-status gs-pending" },
                 h("div", { className: "gs-status-dot" }),
                 h("div", { style: { display: "grid", gap: "5px" } },
-                  h("span", { role: "status" }, "AI not yet set up. Choose and test your AI before starting."),
+                  h("span", { role: "status" }, data.systemDefaultModel?.provider
+                    ? "AI selected but not tested. Please test your AI connection before starting."
+                    : "AI not yet set up. Choose and test your AI before starting."),
                   h("button", { type: "button", className: "gs-link-btn", onClick: () => update({ step: 1 }) }, "Go to AI setup →")
                 )
               ) : null,
@@ -1111,11 +1110,16 @@ export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiSta
             ? h("button", { type: "button", className: "gs-btn-secondary", onClick: () => update({ step: step - 1 }) }, "← Back")
             : null
         ),
-        h("div", { className: "gs-foot-right" },
-          showSkip
-            ? h("button", { type: "button", className: "gs-btn-secondary", onClick: () => update({ step: step + 1 }) },
-              done[step] ? "Continue →" : "Skip for now")
-            : null
+        h("div", { className: "gs-foot-right", style: { display: "flex", gap: "8px" } },
+          step === 2
+            ? [
+                h("button", { key: "skip", type: "button", className: "gs-btn-secondary", onClick: () => update({ step: step + 1 }) }, "Skip for now"),
+                h("button", { key: "continue", type: "button", className: "gs-btn-primary", disabled: !done[step], onClick: () => update({ step: step + 1 }) }, "Continue →")
+              ]
+            : showSkip
+              ? h("button", { type: "button", className: "gs-btn-secondary", onClick: () => update({ step: step + 1 }) },
+                  done[step] ? "Continue →" : "Skip for now")
+              : null
         )
       )
     ),
