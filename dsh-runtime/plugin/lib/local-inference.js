@@ -1,4 +1,21 @@
+import { setTimeout as sleep } from "node:timers/promises";
 import { isAgentLoopRequest } from "@deepseek-ai/dsh-llm";
+
+const isLocal = (provider) => provider === "local-openai" || provider?.startsWith("local-openai-");
+
+const setting = (ctx, ns) => ctx.settings.describe().find((row) => row.ns === ns)?.value;
+const wanted = (ctx, provider) => (setting(ctx, "bees")?.localModelWantedIds ?? []).some((id) => provider === "local-openai" ||
+  provider === `local-openai-${id.replace(/[^a-z0-9-]/gi, "-").toLowerCase()}`);
+
+/** The desktop app restarts a wanted model that is down, so wait up to five minutes for it to answer. */
+async function localModelReady(ctx, provider, signal) {
+  for (const end = Date.now() + 300_000; Date.now() < end && wanted(ctx, provider);) {
+    const base = setting(ctx, "llm-pi-ai")?.providers?.[provider]?.baseURL;
+    if (base && await fetch(new URL("/health", base), { signal: AbortSignal.any([signal, AbortSignal.timeout(1000)]) })
+      .then((response) => response.ok, () => false)) return;
+    await sleep(1000, undefined, { signal });
+  }
+}
 
 /** llama-server has one slot. Queue before pi-ai starts its stream idle timer. */
 export class LocalInference {
@@ -61,11 +78,22 @@ export class LocalInference {
 export function mountLocalInference(ctx) {
   const inference = new LocalInference();
   ctx.on("dispose", () => inference.close());
+  const stopped = (signal) => AbortSignal.any([inference.stop.signal, ...(signal ? [signal] : [])]);
+  // an agent call binds its server address before llm/stream, so it has to wait here first
+  ctx.on("agent/created", ({ agent }) => {
+    agent.ctx.on("agent/request", async ({ signal }, next) => {
+      const config = await next();
+      if (isLocal(config.provider) && wanted(ctx, config.provider)) await localModelReady(ctx, config.provider, stopped(signal));
+      return config;
+    });
+  }, { global: true });
   ctx.on("llm/stream", async function* (options, next) {
     const provider = options.provider;
-    if (provider !== "local-openai" && !provider.startsWith("local-openai-")) {
+    if (!isLocal(provider)) {
       yield* next(); return;
     }
+    // skipping the await keeps queue order when no local model is wanted
+    if (wanted(ctx, provider)) await localModelReady(ctx, provider, stopped(options.signal));
     const base = ctx.settings.describe().find(({ ns }) => ns === "llm-pi-ai")?.value?.providers?.[provider]?.baseURL;
     if (!base) { yield* next(); return; }
     const foreground = isAgentLoopRequest(options);
