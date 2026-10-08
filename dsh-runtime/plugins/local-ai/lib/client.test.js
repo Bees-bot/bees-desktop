@@ -129,7 +129,7 @@ test("automatic startup waits for the product catalog and restores personal mode
   const effects = [], calls = [], started = { current: false };
   const React = { useRef: () => started, useState: (initial) => [initial(), () => {}],
     useEffect: (effect) => effects.push(effect) };
-  const client = loadClient(React, { window: { __TAURI__: { core: { invoke: async (command, args) => {
+  const client = loadClient(React, { setInterval: () => 0, clearInterval: () => {}, window: { __TAURI__: { core: { invoke: async (command, args) => {
     calls.push([command, args]);
     if (command === "local_model_status") return { running: true };
     if (command === "local_model_connection") return { baseUrl: "http://127.0.0.1:1234/v1", contextWindow: 8192 };

@@ -95,29 +95,51 @@ window.__ModuleLoader__.load({
       await syncLocalProviders(models, modelSettings);
     }
 
+    // Keep every wanted model running while the app is open, so a scheduled run never finds it gone.
     function LocalAiController({ modelSettings, preferences, catalog, onError }) {
-      const started = useRef(false);
-      const preference = usePreference(preferences);
+      const state = useRef(null);
+      usePreference(preferences);
+      const ready = Boolean(catalog) && preferences.getSnapshot().status === "ready" && Boolean(window.__TAURI__?.core?.invoke);
       useEffect(() => {
-        if (started.current || !catalog || preferences.getSnapshot().status !== "ready" || !window.__TAURI__?.core?.invoke) return;
-        started.current = true;
-        const config = settingValue(preferences);
-        const models = localModels(catalog, config);
-        const wanted = wantedModelIds(config);
-        void (async () => {
-          for (const id of wanted) {
-            const model = models.find(({ id: modelId }) => modelId === id);
-            if (!model) continue;
-            try { await activateLocalModel(model, models, modelSettings, preferences); }
-            catch (reason) {
-              const message = reason instanceof Error ? reason.message : String(reason);
-              await updateWantedModels(preferences, (ids) => ids.filter((candidate) => candidate !== model.id));
-              if (!["Model download cancelled", "Model start cancelled"].includes(message))
-                onError?.(`Bees AI could not start ${model.name}: ${message}`);
+        if (!ready) return;
+        state.current ||= { busy: false, booted: false, attempts: {}, errors: {} };
+        const tick = async () => {
+          if (state.current.busy) return;
+          state.current.busy = true;
+          try {
+            const config = settingValue(preferences);
+            const models = localModels(catalog, config);
+            for (const id of wantedModelIds(config)) {
+              const model = models.find(({ id: modelId }) => modelId === id);
+              if (!model) continue;
+              // the first pass always starts, which also rewrites a stale server address
+              const status = state.current.booted ? await invokeLocal("local_model_status", { spec: model }) : {};
+              if (status.running || ["starting", "downloading"].includes(status.state)) continue;
+              const now = Date.now();
+              const recent = (state.current.attempts[id] ?? []).filter((at) => now - at < 15 * 60_000);
+              if (recent.length >= 3) {
+                state.current.attempts[id] = [];
+                await updateWantedModels(preferences, (ids) => ids.filter((candidate) => candidate !== id));
+                onError?.(`Bees AI could not start ${model.name}: ${state.current.errors[id] ?? "it kept stopping"}`);
+                continue;
+              }
+              if (recent.length && now - recent.at(-1) < 30_000 * 4 ** (recent.length - 1)) continue;
+              state.current.attempts[id] = [...recent, now];
+              state.current.errors[id] = undefined;
+              try { await activateLocalModel(model, models, modelSettings, preferences); }
+              catch (reason) {
+                const message = reason instanceof Error ? reason.message : String(reason);
+                if (!["Model download cancelled", "Model start cancelled", "Bees is quitting"].includes(message))
+                  state.current.errors[id] = message;
+              }
             }
-          }
-        })().catch((reason) => onError?.(String(reason?.message ?? reason)));
-      }, [preference, preferences, catalog]);
+          } catch (reason) { onError?.(String(reason?.message ?? reason)); }
+          finally { state.current.busy = false; state.current.booted = true; }
+        };
+        void tick();
+        const timer = setInterval(() => void tick(), 5000);
+        return () => clearInterval(timer);
+      }, [ready, catalog, preferences, modelSettings]);
       return null;
     }
 
