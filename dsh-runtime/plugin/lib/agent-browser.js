@@ -51,6 +51,8 @@ const queued = new Map();
 /** run -> the browser it brought up to sign in on, so only its own answer puts that window away. */
 const signingIn = new Map();
 
+/** Bees' own browser port for this Bees session: 9333, or the next free one when another app holds it. */
+let ownPort = OWN.port;
 let looked = false;
 let found = null;
 /** The gate in front of the person's browser, and the port that browser answers on. */
@@ -146,7 +148,7 @@ export const browserPort = (mode = "own") => target(mode).gate ?? target(mode).p
 /** Bees' own browser for a team that turned yours off, or when Bees can't drive yours. */
 function target(mode) {
   const browser = mode === "personal" ? defaultBrowser() : null;
-  return browser ? { ...PERSONAL, ...browser, port: realPort } : { ...OWN, binary: CHROME };
+  return browser ? { ...PERSONAL, ...browser, port: realPort } : { ...OWN, port: ownPort, binary: CHROME };
 }
 
 /**
@@ -536,8 +538,21 @@ async function cookiesOf(spec) {
 /** Bring the browser up, or back after a crash or a quit. Cheap once it runs. */
 export const startAgentBrowser = (mode = "own") => serially(mode, () => launchIfAbsent(mode));
 
+/** Our browser left by an earlier Bees first, then the first free port, so another app on 9333 stops no run. */
+async function pickPort(mode) {
+  if (running(mode) || target(mode).gate) return;
+  // the port picked last goes first, so an add-on already pointed at it still finds the browser it starts
+  const ports = [ownPort, ...Array.from({ length: 10 }, (_, i) => OWN.port + i)].map((port) => ({ ...OWN, port }));
+  for (const spec of ports) if (await ours(spec)) return void (ownPort = spec.port);
+  for (const spec of ports) if (!(await browserPid(spec))) return void (ownPort = spec.port);
+}
+
+/** Settle the port before an add-on is pointed at it, so devtools never attaches to someone else's browser. */
+export const pickBrowserPort = (mode = "own") => serially(mode, () => pickPort(mode));
+
 async function launchIfAbsent(mode) {
   if (running(mode)) return;
+  await pickPort(mode);
   const spec = target(mode);
   if (spec.gate) return reachPersonal(spec);
   // a browser an earlier Bees left on this port is adopted as it stands
