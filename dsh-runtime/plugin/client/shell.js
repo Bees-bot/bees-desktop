@@ -370,6 +370,10 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
   }, [data, onboarding.version]);
   useEffect(() => { setAiTest(null); }, [JSON.stringify(modelConfig), JSON.stringify(data?.systemDefaultModel)]);
   const setScope = (next, nextConnectionId = connectionId, resetDashboard = true) => {
+    if (data && !data.rootFolder?.folder) {
+      setError("Please choose a root folder first to proceed.");
+      return;
+    }
     if (next.startsWith("team:") && next !== scope) {
       setRoute("home");
       if (resetDashboard) void preferences.set("activeDashboardId", dashboardsFrom(preference.dashboards)[0].id);
@@ -419,6 +423,10 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
     catch (reason) { onError(reason instanceof Error ? reason.message : String(reason)); return null; }
   };
   const navigate = (id) => {
+    if (data && !data.rootFolder?.folder) {
+      setError("Please choose a root folder first to proceed.");
+      return;
+    }
     if (id === "home") void preferences.set("activeDashboardId", "home");
     const section = NAVIGATION.find((row) => row.id === id);
     // an error belongs to the page it came from, so it must not follow you to the next one
@@ -450,9 +458,17 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
     await finishOrganization(result.id);
   };
   const createOrganizationFromSwitcher = () => {
+    if (data && !data.rootFolder?.folder) {
+      setError("Please choose a root folder first to proceed.");
+      return;
+    }
     setRoute("create-organization");
   };
   const createTeam = async () => {
+    if (data && !data.rootFolder?.folder) {
+      setError("Please choose a root folder first to proceed.");
+      return;
+    }
     const organization = data.organizations.find(({ id }) => id === parts.organizationId); if (!organization) return;
     const name = await ask("Team name", ""); if (!name) return;
     try {
@@ -463,10 +479,10 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
       if (result?.id) setScope(`team:${result.id}`, result.connectionId ?? connectionId);
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
-  const createWork = () => { setRoute("all-work"); setWorkItemId(""); setWorkProcessId(""); setCreating("work"); };
-  const createProcess = () => { setRoute("all-processes"); setProcessId(""); setProcessDraft(null); setCreating("process"); };
-  const createRun = () => { setRoute("all-work"); setWorkItemId(""); setWorkProcessId(""); setCreating("run"); };
-  const createAgent = () => { setRoute("all-agents"); setCreating("agent"); };
+  const createWork = () => { if (data && !data.rootFolder?.folder) { setError("Please choose a root folder first to proceed."); return; } setRoute("all-work"); setWorkItemId(""); setWorkProcessId(""); setCreating("work"); };
+  const createProcess = () => { if (data && !data.rootFolder?.folder) { setError("Please choose a root folder first to proceed."); return; } setRoute("all-processes"); setProcessId(""); setProcessDraft(null); setCreating("process"); };
+  const createRun = () => { if (data && !data.rootFolder?.folder) { setError("Please choose a root folder first to proceed."); return; } setRoute("all-work"); setWorkItemId(""); setWorkProcessId(""); setCreating("run"); };
+  const createAgent = () => { if (data && !data.rootFolder?.folder) { setError("Please choose a root folder first to proceed."); return; } setRoute("all-agents"); setCreating("agent"); };
   const capabilities = useCapabilities(route);
   const localAi = h(LocalAiController, { modelSettings: personalModelSettings, preferences: personalPreferences,
     catalog: data?.localModelCatalog, onError: setError });
@@ -507,8 +523,9 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
   const section = sectionFor(route);
   const routeLabel = route === "getting-started" ? "Getting started" : route === "basics" ? "Bees basics" : route === "guide" ? "Detailed guides" : route === "create-organization" ? "Create organization" : route === "home" ? activeDashboard.name : route === "accounts" ? "Accounts"
     : section.children.find(([id]) => id === route)?.[1] ?? section.label;
-  const openProcess = (id) => { setError(""); setRoute("all-processes"); setProcessId(id); setWorkItemId(""); setCreating(""); };
+  const openProcess = (id) => { if (data && !data.rootFolder?.folder) { setError("Please choose a root folder first to proceed."); return; } setError(""); setRoute("all-processes"); setProcessId(id); setWorkItemId(""); setCreating(""); };
   const openWorkItem = (id, processForWork = "") => {
+    if (data && !data.rootFolder?.folder) { setError("Please choose a root folder first to proceed."); return; }
     setError(id && unstarted.current.id === id ? unstarted.current.note : ""); setRoute("all-work"); setProcessId(""); setWorkItemId(id ?? "");
     setWorkProcessId(processForWork); setCreating(id ? "" : processForWork ? "run" : "work");
   };
@@ -625,7 +642,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
     rowsForRoute, preference, preferences, setPageActions, setPageHeader, createWork, createProcess, createRun, createAgent
   })
     : route === "getting-started" ? h(GettingStarted, { ctx, data, parts, state: onboarding, update: updateOnboarding, saveAgentModel: savePlanningAi,
-        aiReady, aiStatus: setupBusy ? aiStatus : aiReady ? (aiTest ? aiStatus : "Your selected AI passed its test. Ready for your first task.") : aiStatus.startsWith("Connection test failed") ? aiStatus : "Choose your AI and test the selected model before starting.", testAi, busy: setupBusy, ensureTeam: async () => {
+        aiReady, aiStatus: setupBusy ? aiStatus : aiReady ? (aiTest ? aiStatus : "Your selected AI passed its test. Ready for your first task.") : aiStatus.startsWith("Connection test failed") ? aiStatus : (data.systemDefaultModel?.provider ? "Test your selected AI connection before starting." : "Choose your AI and test the selected model before starting."), testAi, busy: setupBusy, ensureTeam: async () => {
           if (setupLock.current) return;
           setupLock.current = true; setSetupBusy(true);
           try { await finishOrganization(parts.organizationId, connectionId); }
@@ -687,7 +704,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
         onChange: setScope, onCreateOrganization: createOrganizationFromSwitcher, onCreateTeam: createTeam,
         onOpenTeamSettings: (team) => { setScope(`team:${team.id}`, connectionId); navigate("team-settings"); },
         onNavigate: (id) => { setVisit((value) => value + 1); navigate(id); }, route, sectionId: section.id, dashboards, activeDashboardId: activeDashboard.id,
-        onOpenDashboard: (dashboardId) => { setRoute("home"); void preferences.set("activeDashboardId", dashboardId); },
+        onOpenDashboard: (dashboardId) => { if (data && !data.rootFolder?.folder) { setError("Please choose a root folder first to proceed."); return; } setRoute("home"); void preferences.set("activeDashboardId", dashboardId); },
         onRenameDashboard: renameDashboard,
         onDeleteDashboard: deleteDashboard,
         organizationColors: preference.organizationColors ?? {} }),
@@ -721,7 +738,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
       platform.editing ? h("div", { className: "bees-callout", role: "status", "data-product-defaults": true },
         "Editing product defaults — saved changes apply here and ship in future builds. Personal settings take priority.") : null,
       h(UpdateBar),
-      data.rootFolder?.folder && onboarding.version && !onboarding.finished ? h(GettingStartedBar, { state: onboarding, update: updateOnboarding, navigate, aiReady, aiStatus: aiReady ? "AI ready" : "AI setup can continue while you explore.", data, openWorkItem: openStarter }) : null,
+      data.rootFolder?.folder && onboarding.version && !onboarding.finished && route !== "getting-started" ? h(GettingStartedBar, { state: onboarding, update: updateOnboarding, navigate, aiReady, aiStatus: aiReady ? "AI ready" : "AI setup can continue while you explore.", data, openWorkItem: openStarter }) : null,
       error ? h("div", { className: "bees-error", role: "alert", style: { display: "flex", alignItems: "center", gap: "12px" } },
         h("span", { style: { flex: 1, minWidth: 0, overflowWrap: "anywhere" } }, error),
         h(Button, { onClick: () => setError(""), "aria-label": "Dismiss error" }, "Dismiss")) : null,
