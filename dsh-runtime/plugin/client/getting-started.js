@@ -1111,15 +1111,19 @@ export function GettingStarted({ ctx, data, parts, state, update, aiReady, aiSta
             : null
         ),
         h("div", { className: "gs-foot-right", style: { display: "flex", gap: "8px" } },
-          step === 2
-            ? [
-                h("button", { key: "skip", type: "button", className: "gs-btn-secondary", onClick: () => update({ step: step + 1 }) }, "Skip for now"),
-                h("button", { key: "continue", type: "button", className: "gs-btn-primary", disabled: !done[step], onClick: () => update({ step: step + 1 }) }, "Continue →")
-              ]
-            : showSkip
-              ? h("button", { type: "button", className: "gs-btn-secondary", onClick: () => update({ step: step + 1 }) },
-                  done[step] ? "Continue →" : "Skip for now")
-              : null
+          step === 1
+            ? h("button", { type: "button", className: "gs-btn-primary", disabled: !done[step], onClick: () => update({ step: step + 1 }) }, "Continue →")
+            : step === 2
+              ? [
+                  h("button", { key: "skip", type: "button", className: "gs-btn-secondary", onClick: () => update({ step: step + 1 }) }, "Skip for now"),
+                  h("button", { key: "continue", type: "button", className: "gs-btn-primary", disabled: !done[step], onClick: () => update({ step: step + 1 }) }, "Continue →")
+                ]
+              : step === 3
+                ? h("button", { type: "button", className: "gs-btn-secondary", onClick: () => { update({ active: false, finished: true }); navigate("home"); } }, "Finish setup")
+                : showSkip
+                  ? h("button", { type: "button", className: "gs-btn-secondary", onClick: () => update({ step: step + 1 }) },
+                      done[step] ? "Continue →" : "Skip for now")
+                  : null
         )
       )
     ),

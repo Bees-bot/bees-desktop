@@ -738,7 +738,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
       platform.editing ? h("div", { className: "bees-callout", role: "status", "data-product-defaults": true },
         "Editing product defaults — saved changes apply here and ship in future builds. Personal settings take priority.") : null,
       h(UpdateBar),
-      data.rootFolder?.folder && onboarding.version && !onboarding.finished ? h(GettingStartedBar, { state: onboarding, update: updateOnboarding, navigate, aiReady, aiStatus: aiReady ? "AI ready" : "AI setup can continue while you explore.", data, openWorkItem: openStarter }) : null,
+      data.rootFolder?.folder && onboarding.version && !onboarding.finished && route !== "getting-started" ? h(GettingStartedBar, { state: onboarding, update: updateOnboarding, navigate, aiReady, aiStatus: aiReady ? "AI ready" : "AI setup can continue while you explore.", data, openWorkItem: openStarter }) : null,
       error ? h("div", { className: "bees-error", role: "alert", style: { display: "flex", alignItems: "center", gap: "12px" } },
         h("span", { style: { flex: 1, minWidth: 0, overflowWrap: "anywhere" } }, error),
         h(Button, { onClick: () => setError(""), "aria-label": "Dismiss error" }, "Dismiss")) : null,

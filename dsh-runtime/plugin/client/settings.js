@@ -8,6 +8,7 @@ import {
 } from "./shared.js";
 import { MemorySettings } from "./collaboration.js";
 import { SystemDefaultSettings } from "./agents.js";
+import { FilesIcon } from "./icons.js";
 import { open } from "@tauri-apps/plugin-dialog";
 
 const AI_PAGE_CSS = `
@@ -855,7 +856,18 @@ export function RootFolderSettings({ ctx, data, act }) {
   });
   return h("section", { className: "bees-box bees-stack" },
     h("h2", null, data.rootFolder?.folder ? "Root folder" : "Choose your Bees root folder"),
-    h("p", null, "Bees creates an organization folder inside this folder, then a team folder inside each organization folder. All workspaces in a team use its team folder."),
+    h("div", { style: { padding: "16px", background: "var(--dsw-alias-interactive-bg-hover)", borderRadius: "8px", margin: "12px 0" } },
+      h("div", { style: { display: "flex", alignItems: "center", gap: "8px", fontWeight: 600 } }, h("span", { style: { width: "16px", height: "16px", display: "inline-flex" } }, h(FilesIcon)), "Bees root"),
+      h("div", { style: { marginLeft: "7px", paddingLeft: "16px", borderLeft: "2px solid var(--dsw-alias-border-l1)", marginTop: "8px", display: "flex", flexDirection: "column", gap: "8px" } },
+        h("div", { style: { display: "flex", flexDirection: "column", gap: "4px" } },
+          h("div", { style: { display: "flex", alignItems: "center", gap: "8px", fontWeight: 600 } }, h("span", { style: { width: "16px", height: "16px", display: "inline-flex" } }, h(FilesIcon)), "org"),
+          h("div", { className: "bees-muted", style: { fontSize: "13px", lineHeight: "1.4" } }, "Bees creates a default org sub folder for every org. You can override and select a different folder.")
+        ),
+        h("div", { style: { marginLeft: "7px", paddingLeft: "16px", borderLeft: "2px solid var(--dsw-alias-border-l1)", marginTop: "4px", display: "flex", flexDirection: "column", gap: "8px" } },
+          h("div", { style: { display: "flex", alignItems: "center", gap: "8px", fontWeight: 600 } }, h("span", { style: { width: "16px", height: "16px", display: "inline-flex" } }, h(FilesIcon)), "team")
+        )
+      )
+    ),
     h("p", { className: "bees-muted" }, "You can override these locations in organization and team settings, including folders synced by Google Drive, SharePoint or Dropbox. Folder choices are saved on this computer."),
     data.rootFolder?.folder ? h("p", null, data.rootFolder.folder) : null,
     data.rootFolder?.missing ? h("p", { className: "bees-error", role: "alert" }, "Your root folder is unavailable. Reconnect it or choose another folder.") : null,
