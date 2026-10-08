@@ -443,6 +443,7 @@ pub struct LocalModelManager {
     // Starts queue behind one another. Concurrent first-launches of the ad-hoc binaries are what
     // pile up as unkillable dyld-stuck zombies under macOS Gatekeeper assessment.
     starting: Mutex<()>,
+    closed: AtomicBool,
 }
 
 #[derive(Clone, Serialize)]
@@ -846,21 +847,22 @@ fn download_model(app: &AppHandle, spec: &ModelSpec, cancelled: &AtomicBool) -> 
     Ok(())
 }
 
-/// Block until the download registered for `id` leaves the map. Errors when it was cancelled, so a
-/// Run waiting on a download the user stopped doesn't quietly start its own.
-fn wait_for_download(
-    downloads: &Mutex<HashMap<String, Arc<AtomicBool>>>,
+/// Block until the download or start registered for `id` leaves the map. Errors when it was
+/// cancelled, so a Run waiting on a download the user stopped doesn't quietly start its own.
+fn wait_for(
+    jobs: &Mutex<HashMap<String, Arc<AtomicBool>>>,
     id: &str,
     cancelled: &AtomicBool,
+    job: &str,
 ) -> Result<(), String> {
     // ponytail: polled, no condvar — what it waits on runs for minutes.
-    while downloads
+    while jobs
         .lock()
         .map_err(|error| error.to_string())?
         .contains_key(id)
     {
         if cancelled.load(Ordering::Relaxed) {
-            return Err("Model download cancelled".into());
+            return Err(format!("Model {job} cancelled"));
         }
         thread::sleep(Duration::from_millis(250));
     }
@@ -889,7 +891,7 @@ fn ensure_local_model_blocking(
         // means "start it when the bytes land", not "that's an error".
         if let Some(existing) = downloads.get(&spec.id).cloned() {
             drop(downloads);
-            wait_for_download(&manager.downloads, &spec.id, &existing)?;
+            wait_for(&manager.downloads, &spec.id, &existing, "download")?;
             if !is_complete(&target, spec.bytes) {
                 return Err("The model download did not finish".into());
             }
@@ -1222,8 +1224,15 @@ fn start_local_model_blocking(
     let cancelled = Arc::new(AtomicBool::new(false));
     {
         let mut starts = manager.starts.lock().map_err(|error| error.to_string())?;
-        if starts.contains_key(&spec.id) {
-            return Err("Model is already starting".into());
+        if manager.closed.load(Ordering::SeqCst) {
+            return Err("Bees is quitting".into());
+        }
+        // the keep-alive and the Run toggle can both ask at once, so the second waits on the first
+        if let Some(existing) = starts.get(&spec.id).cloned() {
+            drop(starts);
+            wait_for(&manager.starts, &spec.id, &existing, "start")?;
+            let status = local_model_status_inner(app, spec)?;
+            return if status.running { Ok(status) } else { Err("The local model did not start".into()) };
         }
         starts.insert(spec.id.clone(), cancelled.clone());
     }
@@ -1249,6 +1258,7 @@ pub async fn start_local_model(
 impl LocalModelManager {
     /// Quitting exits the process outright, so every llama-server is dropped here first.
     pub fn shutdown(&self) {
+        self.closed.store(true, Ordering::SeqCst);
         if let Ok(starts) = self.starts.lock() {
             for cancelled in starts.values() {
                 cancelled.store(true, Ordering::Relaxed);
