@@ -122,7 +122,8 @@ export class ConnectedAccount {
     try {
       response = await fetch(`${this.baseUrl}${path}`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        // node fetch sends sec-fetch-mode, so better-auth demands an origin
+        headers: { "content-type": "application/json", origin: new URL(this.baseUrl).origin },
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(20_000)
       });

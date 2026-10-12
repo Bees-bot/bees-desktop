@@ -1133,8 +1133,12 @@ export class BeesProduct {
     const handoffFiles = (digest) => {
       const files = runFiles(directory, 1001);
       if (files.length > 1000) throw new Error('A handoff supports at most 1000 run files');
+      // mac and windows keep only one of two names that differ by case, so the next computer would wait for ever
+      if (new Set(files.map((path) => path.toLowerCase())).size < files.length) throw new Error('Two run files differ only in capital letters, rename one before handing this run over');
       let bytes = 0;
       return files.map((path) => {
+        // the next computer may be windows, which can't hold this name, so the run would wait for this file for ever
+        if (path.split(sep).some((part) => /[<>:"|?*\\\x00-\x1f]|[. ]$|^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i.test(part))) throw new Error(`Rename ${path} to a name Windows allows before handing this run over`);
         const source = resolve(directory, path);
         if (!realpathSync(source).startsWith(realpathSync(directory) + sep)) throw new Error('Run file escaped its folder');
         const size = lstatSync(source).size;
