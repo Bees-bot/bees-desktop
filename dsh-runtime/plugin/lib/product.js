@@ -1133,6 +1133,8 @@ export class BeesProduct {
     const handoffFiles = (digest) => {
       const files = runFiles(directory, 1001);
       if (files.length > 1000) throw new Error('A handoff supports at most 1000 run files');
+      // mac and windows keep only one of two names that differ by case, so the next computer would wait for ever
+      if (new Set(files.map((path) => path.toLowerCase())).size < files.length) throw new Error('Two run files differ only in capital letters, rename one before handing this run over');
       let bytes = 0;
       return files.map((path) => {
         // the next computer may be windows, which can't hold this name, so the run would wait for this file for ever

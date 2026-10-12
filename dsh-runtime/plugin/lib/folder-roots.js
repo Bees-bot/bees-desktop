@@ -32,6 +32,7 @@ const rootsFile = () => join(appDirectory(), "roots.json");
 const defaultRoot = () => process.env.BEES_DEFAULT_WORKSPACE;
 
 /** A name safe to be a folder, the same way the folders under a root were always named. */
+const reservedName = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/;
 const folderName = (name, id) => String(name).trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || String(id);
 
 /** A file this computer cannot read is worth less than a Bees that starts, so it reads as nothing set. */
@@ -53,7 +54,7 @@ function levelsFor(workspace, picks = chosen) {
     else if (path && !picks.root) {
       const name = folderName(workspace[nameKey], workspace[idKey]);
       // windows cannot make a folder called con or aux, other systems keep the folder they already have
-      path = join(path, process.platform === "win32" && /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/.test(name) ? `${name}-${workspace[idKey]}` : name);
+      path = join(path, process.platform === "win32" && reservedName.test(name) ? `${name}-${workspace[idKey]}` : name);
     }
     else if (path && !(picks.root && level === "workspace" && workspace.name === "Default workspace" && !picks[`name:workspace:${workspace.teamId}:${workspace.id}`])) {
       const parent = level === "team" ? workspace.organizationId : level === "workspace" ? workspace.teamId : "";
@@ -62,7 +63,7 @@ function levelsFor(workspace, picks = chosen) {
       if (!picks[key]) {
         const name = folderName(workspace[nameKey], workspace[idKey]);
         const taken = Object.entries(picks).some(([key, value]) => key.startsWith(prefix) && value === name);
-        picks[key] = taken || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/.test(name) ? `${name}-${workspace[idKey]}` : name;
+        picks[key] = taken || reservedName.test(name) ? `${name}-${workspace[idKey]}` : name;
       }
       path = join(path, picks[key]);
     }
