@@ -1135,6 +1135,8 @@ export class BeesProduct {
       if (files.length > 1000) throw new Error('A handoff supports at most 1000 run files');
       let bytes = 0;
       return files.map((path) => {
+        // the next computer reads a backslash as a folder, so the run would wait for this file for ever
+        if (sep === '/' && path.includes('\\')) throw new Error(`Rename ${path} without the backslash before handing this run over`);
         const source = resolve(directory, path);
         if (!realpathSync(source).startsWith(realpathSync(directory) + sep)) throw new Error('Run file escaped its folder');
         const size = lstatSync(source).size;
