@@ -50,7 +50,11 @@ function levelsFor(workspace, picks = chosen) {
     (level !== "workspace" || !picks[`team-layout:${workspace.teamId}`])).map(([level, idKey, nameKey]) => {
     const picked = picks[`${level}:${workspace[idKey]}`] ?? "";
     if (picked) { path = picked; anchor = picked; }
-    else if (path && !picks.root) path = join(path, folderName(workspace[nameKey], workspace[idKey]));
+    else if (path && !picks.root) {
+      const name = folderName(workspace[nameKey], workspace[idKey]);
+      // windows cannot make a folder called con or aux, other systems keep the folder they already have
+      path = join(path, process.platform === "win32" && /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/.test(name) ? `${name}-${workspace[idKey]}` : name);
+    }
     else if (path && !(picks.root && level === "workspace" && workspace.name === "Default workspace" && !picks[`name:workspace:${workspace.teamId}:${workspace.id}`])) {
       const parent = level === "team" ? workspace.organizationId : level === "workspace" ? workspace.teamId : "";
       const prefix = `name:${level}:${parent}:`;

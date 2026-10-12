@@ -175,7 +175,8 @@ function capture(exec, result, database) {
   const requestId = String(payload.request_id ?? "");
   // The generated tool name is the only name this layer knows. Recording it beats guessing a path.
   const endpoint = exec.name.replace(/^mcp__[^_]+__/, "");
-  const name = `${endpoint}${requestId ? `-${requestId}` : ""}.json`;
+  // the id comes from the api, so a slash or a colon could leave the folder or break on windows
+  const name = `${endpoint}${requestId ? `-${requestId.replace(/[^\w.-]/g, "_")}` : ""}.json`;
   const where = join(EVIDENCE, "calls", name);
   save(join(directory, where), payload);
   const rows = listOf(payload);
