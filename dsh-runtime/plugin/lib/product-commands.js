@@ -634,7 +634,8 @@ export async function executeProductCommand(action, input) {
       `).get(id);
       if (!current) throw new Error("Recurring work not found");
       workspaceContext(this.database, current.workspaceId, ["admin", "member"]);
-      const schedule = recurringSchedule(input);
+      // a teammate in another timezone editing the hour keeps the schedule's own zone
+      const schedule = recurringSchedule({ ...input, timezone: input.timezone || current.timezone });
       const name = scheduleName(this.database, current.workspaceId, input.name, id);
       transaction(this.database, () => {
         this.database.prepare(`
