@@ -74,7 +74,7 @@ Select **Run**. Bees starts the work with your team's agents and opens it. A rev
 ## Features
 
 - Describe an outcome in the **What would you like to achieve?** box, and Bees runs it with your team's agents. Choose **Configure** to set the Process, Add-ons, and Input & Output tabs first.
-- Multi-agent processes: agents work through stages on a shared board, and a separate reviewer checks each result before it moves on.
+- Multi-agent processes: agents work through stages on a shared board, and a separate reviewer checks each result before it moves on. The reviewer starts fresh and does not see the worker's reasoning, so it judges the work rather than the story. It runs read-only: it can read the files and run checks, but it cannot edit the work, only pass it or send it back with notes. After 3 send-backs it stops and asks you.
 - Bring your own AI: connect Codex, Claude Code, a hosted provider, or a local model, per agent or as the system default.
 - MCP servers and skills, scoped per agent: give one agent every tool, none, or a named few.
 - Local knowledge search (Company Brain) over folders and Google Drive locations you map yourself.
