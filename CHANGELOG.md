@@ -2,6 +2,22 @@
 
 Notable changes, newest first. Dates are release dates.
 
+## 0.2.3
+
+- Email sign-in works again. Some sign-ins were refused because a request header was missing.
+- A local model that stops on its own is started again, and runs wait for it instead of
+  failing with a connection error. A second model start waits for the first one to finish.
+- Bees recommends the largest local model that fits your computer.
+- If another app already uses port 9333, Bees' browser moves to the next free port instead
+  of stalling every browser run.
+- Handing a run to a teammate asks you to rename files a Windows or Mac computer cannot hold,
+  such as names with a backslash or a colon, or two names that differ only by case. Before,
+  the teammate's copy got stuck.
+- A schedule keeps its time zone when a teammate edits it.
+- The getting started guide has clearer steps, and Settings lets you pick the root folder
+  where Bees keeps each organization's files. Bees asks for that folder before you create
+  work, a process, a run or an agent.
+
 ## 0.2.2
 
 - You can point Bees at the Claude Code CLI yourself. In Settings, AI, type its path or pick
