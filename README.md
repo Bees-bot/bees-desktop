@@ -26,16 +26,13 @@
 </p>
 
 <p align="center">
+  <a href="https://youtu.be/PNyZpxs6nsU">Watch the demo</a> ·
   <a href="https://bees.bot/assets/bees-intro-female.mp4">Watch the intro film</a>
 </p>
 
 Bees runs a team of AI agents on your computer instead of one assistant in a single chat window. Describe an outcome in plain language, and Bees turns it into stages. Agents work through them on a shared board, and a separate reviewer checks each result before it moves on.
 
 It works with agents you may already run, such as Codex or Claude Code from the command line, a hosted model, or a local model. It reaches outside tools through MCP servers (a standard way to plug tools into an agent), the same way OpenClaw or n8n do. You can mark a stage to need your approval, and its agent then cannot send, post, delete or pay through an MCP tool until you approve.
-
-<p align="center">
-  <img src="docs/assets/bees-demo.gif" width="900" alt="Bees demo: start a task, follow its process run, and visit bees.bot">
-</p>
 
 ## Install
 
@@ -167,7 +164,7 @@ make bees                     # start the desktop app against https://app.bees.b
 Other commands, run from this repository:
 
 ```sh
-make server   # start the local API and PostgreSQL from ../bees-server
+make server   # team only: start the local API and PostgreSQL from the private ../bees-server
 make dev      # in another terminal, start the desktop app against http://localhost:3000
 make build    # build the desktop release installer
 ```
