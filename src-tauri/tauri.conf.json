@@ -43,7 +43,6 @@
       "../dsh-runtime": "dsh-runtime",
       "../llama-runtime": "llama-runtime",
       "../NOTICE": "licenses/NOTICE",
-      "../LICENSE": "licenses/LICENSE",
       "../LICENSE-APACHE": "licenses/LICENSE-APACHE",
       "../LICENSE-MIT": "licenses/LICENSE-MIT",
       "../licenses/LICENSE-LGPL-3.0": "licenses/LICENSE-LGPL-3.0",
