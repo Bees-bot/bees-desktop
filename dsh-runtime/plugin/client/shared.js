@@ -1,4 +1,4 @@
-import { h, React, useEffect, useRef, useState } from "./runtime.js";
+import { h, hostedRequest, React, useEffect, useRef, useState } from "./runtime.js";
 import cronstrue from "cronstrue";
 import { modelLabel } from "../lib/model-label.js";
 
@@ -1196,6 +1196,7 @@ label>.bees-select{min-width:0}
 
 /** `binary` hands back the response itself once it is ok, for a body that is not JSON. */
 export async function request(path, options) {
+  if (hostedRequest) return hostedRequest(path, options);
   let response, value;
   try {
     response = await fetch(path, {

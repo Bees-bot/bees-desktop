@@ -1,0 +1,13 @@
+{
+  "name": "@bees/stage1-cloudflare-proof",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --test worker.test.mjs machines.test.mjs",
+    "validate": "wrangler deploy --dry-run --outdir /tmp/bees-stage1-worker",
+    "validate:machines": "wrangler deploy --config wrangler.machines.jsonc --dry-run --outdir /tmp/bees-machines-worker"
+  },
+  "devDependencies": {
+    "wrangler": "4.118.0"
+  }
+}

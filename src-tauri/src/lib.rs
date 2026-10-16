@@ -11,7 +11,7 @@ use process::{
     available_loopback_port, reap_agent_browsers, reap_orphan_llama_servers,
     reap_orphaned_sidecars, Sidecar,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     fmt::Write as _,
@@ -476,6 +476,9 @@ fn inherit_environment(command: &mut Command, keys: &[&str]) {
 }
 
 fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo, String> {
+    if !execution_preferences(app.clone())?.allow_local_execution {
+        return Err("Local execution is disabled on this computer.".to_string());
+    }
     let _startup = startup::start("runtime.ensure");
     let (node, temporal_binary, runtime) = startup::step("runtime.paths", || runtime_paths(app))?;
     let manager = app.state::<DshManager>();
@@ -716,6 +719,81 @@ async fn ensure_dsh_runtime(
     Ok(())
 }
 
+#[derive(Serialize, Deserialize)]
+struct ExecutionPreferences {
+    mode: String,
+    cloud_url: String,
+    allow_local_execution: bool,
+}
+
+#[tauri::command]
+fn execution_preferences(app: tauri::AppHandle) -> Result<ExecutionPreferences, String> {
+    let path = state_dir(&app)?.join("execution.json");
+    match fs::read_to_string(path) {
+        Ok(value) => serde_json::from_str(&value).map_err(|e| e.to_string()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(ExecutionPreferences {
+            mode: "choose".to_string(), cloud_url: "https://app.bees.bot/app".to_string(), allow_local_execution: false,
+        }),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+fn cloud_url(value: &str) -> Result<tauri::Url, String> {
+    let url: tauri::Url = value.parse().map_err(|_| "Enter a valid Bees Cloud URL".to_string())?;
+    let loopback = matches!(url.host_str(), Some("localhost" | "127.0.0.1"));
+    if !(url.scheme() == "https" || (url.scheme() == "http" && loopback)) ||
+        !url.username().is_empty() || url.password().is_some() || url.fragment().is_some() {
+        return Err("Use an HTTPS Bees Cloud URL, or a loopback development server".to_string());
+    }
+    Ok(url)
+}
+
+#[tauri::command]
+fn set_execution_preferences(app: tauri::AppHandle, preferences: ExecutionPreferences) -> Result<(), String> {
+    if !matches!(preferences.mode.as_str(), "local" | "cloud" | "choose") {
+        return Err("Choose local or cloud execution".to_string());
+    }
+    cloud_url(&preferences.cloud_url)?;
+    if preferences.mode == "local" && !preferences.allow_local_execution {
+        return Err("Enable this computer to use private local mode".to_string());
+    }
+    if !preferences.allow_local_execution && app.state::<DshManager>().0.lock().map_err(|e| e.to_string())?.is_some() {
+        return Err("Quit Bees before disabling a running local engine".to_string());
+    }
+    let path = state_dir(&app)?.join("execution.json");
+    fs::write(path, serde_json::to_vec(&preferences).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn open_cloud(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<(), String> {
+    let preferences = execution_preferences(app.clone())?;
+    if preferences.mode != "cloud" { return Err("Select cloud mode first".to_string()); }
+    let url = cloud_url(&preferences.cloud_url)?;
+    app.add_capability(tauri::ipc::CapabilityBuilder::new("cloud-notifications")
+        .window("main").local(false).remote(format!("{}/app*", url.origin().ascii_serialization()))
+        .permission("allow-cloud-notification")).map_err(|e| e.to_string())?;
+    window.navigate(url).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn fleet_notification(app: tauri::AppHandle, message: String) -> Result<(), String> {
+    use tauri_plugin_notification::NotificationExt;
+    if message.len() > 512 { return Err("Notification is too long".to_string()); }
+    app.notification().request_permission().map_err(|e| e.to_string())?;
+    app.notification().builder().title("Bees").body(message).show().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn fleet_open_connections(app: tauri::AppHandle, organization: String, team: String) -> Result<(), String> {
+    let preferences = execution_preferences(app)?;
+    if preferences.mode != "cloud" { return Err("Select cloud mode first".to_string()); }
+    let mut url = cloud_url(&preferences.cloud_url)?;
+    url.set_path("/app");
+    url.set_query(None);
+    url.query_pairs_mut().append_pair("organization", &organization).append_pair("team", &team);
+    open_external_url(url.to_string())
+}
+
 #[tauri::command]
 fn local_model_connection(
     app: tauri::AppHandle,
@@ -878,8 +956,9 @@ fn show_main_window(app: &tauri::AppHandle) {
 /// sidecars down with it.
 fn build_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let open = MenuItem::with_id(app, "open", "Open Bees", true, None::<&str>)?;
+    let execution = MenuItem::with_id(app, "execution", "Execution settings…", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Bees", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &execution, &quit])?;
     TrayIconBuilder::with_id("bees")
         .icon(
             app.default_window_icon()
@@ -890,6 +969,14 @@ fn build_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> 
         .menu(&menu)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "open" => show_main_window(app),
+            "execution" => {
+                if quit_allowed(app, "change execution settings") {
+                    if let Ok(mut preferences) = execution_preferences(app.clone()) {
+                        preferences.mode = "choose".to_string();
+                        if set_execution_preferences(app.clone(), preferences).is_ok() { app.restart(); }
+                    }
+                }
+            },
             "quit" => app.exit(0),
             _ => {}
         })
@@ -996,6 +1083,7 @@ pub fn run() {
     }
     builder = builder
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build());
     builder
         .setup(|app| {
@@ -1033,6 +1121,11 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            execution_preferences,
+            fleet_notification,
+            set_execution_preferences,
+            open_cloud,
+            fleet_open_connections,
             ensure_dsh_runtime,
             restart_app,
             local_model_status,

@@ -37,7 +37,11 @@ if (!existsSync(dshEntry)) {
   throw new Error("DeepSeek Harness is missing. Run npm install first.");
 }
 
-const hostTarget = execFileSync("rustc", ["--print", "host-tuple"], { encoding: "utf8" }).trim();
+const headless = process.argv.includes("--headless");
+if (headless && process.platform !== "linux") throw new Error("--headless packaging runs inside the Linux container build");
+const hostTarget = headless
+  ? `${process.arch === "arm64" ? "aarch64" : "x86_64"}-unknown-linux-gnu`
+  : execFileSync("rustc", ["--print", "host-tuple"], { encoding: "utf8" }).trim();
 const target = process.env.CARGO_BUILD_TARGET || hostTarget;
 const extension = target.includes("windows") ? ".exe" : "";
 const macTarget = target.endsWith("-apple-darwin");
@@ -482,7 +486,7 @@ async function prepareLlamaRuntime() {
 
 await prepareFreeLlmRuntime();
 await prepareTemporalRuntime();
-await prepareLlamaRuntime();
+if (!headless) await prepareLlamaRuntime();
 
 // Ship the small installer, not a developer-machine Python environment. uv provisions
 // pinned Hindsight and managed Python into the writable app-data directory on first run.
@@ -519,7 +523,7 @@ async function prepareMemoryInstaller() {
   } finally { rmSync(staging, { recursive: true, force: true }); }
 }
 
-await prepareMemoryInstaller();
+if (!headless) await prepareMemoryInstaller();
 
 // Pruning is in place, so a local cross-build would delete this machine's own native builds and
 // break its dev runs. Each runner builds its own target, so nothing ships unpruned.

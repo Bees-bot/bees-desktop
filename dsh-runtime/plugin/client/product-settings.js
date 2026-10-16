@@ -74,6 +74,14 @@ export class ProductSettings {
         const unsubscribeDefaults = owner.subscribe(listener);
         return () => { unsubscribe(); unsubscribeDefaults(); };
       },
+      async mutate(operations) {
+        if (generation !== owner.generation && (editing || owner.state.editing))
+          throw new Error("The settings scope changed. Repeat the action in the current mode");
+        // Nested personal state (viewed files and machine choices) stays personal in either mode.
+        if (editing && (namespace !== "bees" || operations.some(({ path }) => Object.hasOwn(owner.state.values[namespace] ?? {}, path[0]))))
+          throw new Error("Change product defaults using their individual settings controls");
+        return personal.mutate(operations);
+      },
       set(key, value) {
         // An OAuth dialog or delayed drag callback must never change its target
         // because the user switched modes while it was pending.

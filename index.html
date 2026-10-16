@@ -24,6 +24,16 @@
     <script type="module" src="/src/entry.ts"></script>
   </head>
   <body data-tauri-drag-region>
-    <main><img class="mark" src="/src/brand-mark.png" alt=""><p id="status" aria-live="polite">Starting Bees...</p><button id="retry" type="button" hidden>Try again</button></main>
+    <main><img class="mark" src="/src/brand-mark.png" alt=""><p id="status" aria-live="polite">Starting Bees...</p><button id="retry" type="button" hidden>Try again</button>
+      <form id="execution" hidden style="text-align:left;margin-top:24px">
+        <h1 style="font-size:20px">Where should Bees work?</h1>
+        <label><input type="radio" name="mode" value="cloud" checked> Bees Cloud</label>
+        <label style="display:block;margin:12px 0"><input type="radio" name="mode" value="local"> Private local mode</label>
+        <label>Bees Cloud address <input id="cloud-url" type="url" required value="https://app.bees.bot/app" style="display:block;width:95%;padding:8px;margin:8px 0"></label>
+        <label><input id="allow-local" type="checkbox"> Allow this computer to run work</label>
+        <p>Cloud mode works with local execution off. Machines are enabled separately in your workspace.</p>
+        <button type="submit">Open Bees</button>
+      </form>
+    </main>
   </body>
 </html>

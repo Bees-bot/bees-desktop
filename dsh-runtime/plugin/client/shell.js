@@ -1,5 +1,5 @@
 import {
-  FreeAiController, h, LocalAiController, React, useEffect, useRef, useState
+  FreeAiController, h, hosted, LocalAiController, React, useEffect, useRef, useState
 } from "./runtime.js";
 import {
   artifactRuns, ask, collaboration, confirmAction, connectionIdForScope, defaultOrgColor, headerEmitter, NAVIGATION, request, scopeParts, runTitle, sectionFor, Button, openExternal,
@@ -206,6 +206,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
   const interactionSessions = useRef(new Map());
   const reportedSessions = useRef(new Set());
   useEffect(() => {
+    if (hosted) return;
     const runs = new Map((data?.runs ?? []).filter((run) => !run.ranElsewhere && run.sessionId &&
       ["running", "waiting_for_input", "waiting_for_approval"].includes(run.status)).map((run) => [run.sessionId, run]));
     const wanted = new Set(runs.keys());
@@ -239,10 +240,10 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
   }, [ctx]);
   const startupRendered = useRef(false);
   useEffect(() => {
-    void globalThis.fetch?.("/bees-api/startup?phase=ui.shell-mounted", { method: "POST" }).catch(() => {});
+    if (!hosted) void globalThis.fetch?.("/bees-api/startup?phase=ui.shell-mounted", { method: "POST" }).catch(() => {});
   }, []);
   useEffect(() => {
-    if (!data || startupRendered.current) return;
+    if (hosted || !data || startupRendered.current) return;
     startupRendered.current = true;
     // Report after the populated UI has had a frame to paint, not merely after fetching data.
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -252,7 +253,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [requestedRoute, setRoute] = useState("home");
-  const route = data && !data.rootFolder?.folder ? "root-folder" : requestedRoute;
+  const route = !hosted && data && !data.rootFolder?.folder ? "root-folder" : requestedRoute;
   const [scope, setScopeState] = useState("");
   const [connectionId, setConnectionId] = useState("");
   const [processId, setProcessId] = useState("");
@@ -288,7 +289,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
     const timer = setTimeout(() => setStillStarting(true), 45_000);
     return () => clearTimeout(timer);
   }, [data]);
-  useEffect(() => ctx.slots.inject("conversation.composer", () => ctx.slots.register({
+  useEffect(() => hosted ? undefined : ctx.slots.inject("conversation.composer", () => ctx.slots.register({
     name: "conversation.composer", id: "bees-managed-continuation", priority: 20,
     select: ({ sessionId, pendingInteraction }) => {
       const cwd = ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd;
@@ -301,12 +302,18 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
     }
   }, () => h("p", { className: "bees-muted", role: "status", style: { padding: "16px" } },
     "To continue this work, message the agent from the work item's Conversation panel."))), [ctx, data]);
-  useEffect(() => { void load(); const timer = setInterval(() => void load(), 30_000); return () => clearInterval(timer); }, []);
+  useEffect(() => { void load(); const timer = setInterval(() => void load(), hosted ? 5000 : 30_000); return () => clearInterval(timer); }, []);
+  useEffect(() => {
+    if (!hosted) return;
+    const refresh = () => void load();
+    window.addEventListener("bees-change", refresh);
+    return () => { ++loadSeq.current; window.removeEventListener("bees-change", refresh); };
+  }, []);
   const content = useRef(null);
   // a new page starts at the top, not where the last page was scrolled to
   useEffect(() => { content.current?.scrollTo(0, 0); }, [route, processId, workItemId]);
   useEffect(() => {
-    if (typeof window.EventSource !== "function") return undefined;
+    if (hosted || typeof window.EventSource !== "function") return undefined;
     const source = new window.EventSource("/bees-api/events");
     let refreshTimer;
     const changed = (event) => {
@@ -337,7 +344,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
     const connections = data.connections ?? [];
     const selectedConnectionId = connectionIdForScope(
       data, scope, connectionId, preference.lastConnectionId
-    );
+    ) || (hosted ? connections[0]?.id ?? "" : "");
     if (selectedConnectionId !== connectionId) setConnectionId(selectedConnectionId);
     const selected = scopeParts(data, scope, selectedConnectionId);
     if (selected.organizationId) {
@@ -362,6 +369,11 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
   useEffect(() => {
     if (!data || initializedOnboarding.current) return;
     initializedOnboarding.current = true;
+    const destination = ctx.hosted?.initialSelection(data);
+    if (destination) {
+      setScopeState(destination.scope); setConnectionId(destination.connectionId); setRoute("mcp");
+      return;
+    }
     if (!onboarding.version) {
       const active = data.items.length === 0;
       void updateOnboarding({ version: 1, active });
@@ -381,6 +393,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
   };
   const parts = data ? scopeParts(data, scope, connectionId)
     : { workspaceId: "", teamId: "", organizationId: "", accountUserId: null };
+  useEffect(() => { ctx.hosted?.selectScope(parts); }, [ctx, parts.teamId, parts.organizationId]);
   const viewData = data ? {
     ...data,
     organizations: data.organizations.map((organization) =>
@@ -395,6 +408,10 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
   // a pop-up passes its own onError, the page banner sits under its backdrop
   const act = async (command, context = parts, onError = setError) => {
     unstarted.current = {};
+    if (hosted && command.action === "retry_item") {
+      if (!await confirmAction("Check the previous attempt’s external actions (such as drafts and labels) before retrying. Have you reconciled those results?")) return null;
+      command = { ...command, reconciled: true };
+    }
     try {
       const result = await request("/bees-api/command", {
         method: "POST",
@@ -468,9 +485,9 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
   const createRun = () => { setRoute("all-work"); setWorkItemId(""); setWorkProcessId(""); setCreating("run"); };
   const createAgent = () => { setRoute("all-agents"); setCreating("agent"); };
   const capabilities = useCapabilities(route);
-  const localAi = h(LocalAiController, { modelSettings: personalModelSettings, preferences: personalPreferences,
+  const localAi = hosted ? null : h(LocalAiController, { modelSettings: personalModelSettings, preferences: personalPreferences,
     catalog: data?.localModelCatalog, onError: setError });
-  const freeAi = h(FreeAiController, { modelSettings: personalModelSettings, onError: setError });
+  const freeAi = hosted ? null : h(FreeAiController, { modelSettings: personalModelSettings, onError: setError });
   if (!data) return h(React.Fragment, null, localAi, freeAi,
     h("div", { className: "bees-app bees-loading", style: { display: "flex", flexDirection: "column", gap: "16px", background: "#111315" } }, 
       error || h(React.Fragment, null,
@@ -619,7 +636,8 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
       openWorkItem(result.id);
     } finally { setupLock.current = false; setSetupBusy(false); }
   };
-  const page = route === "home" ? h(Home, {
+  const hostedPage = ctx.hosted?.renderPage(route, { data: viewData, parts, act, reload: load, navigate, setScope, preferences, section: section.id });
+  const page = hostedPage || (route === "home" ? h(Home, {
     key: parts.workspaceId, capabilities,
     ctx, data: viewData, workspaceId: parts.workspaceId, act, openWorkItem, navigate,
     rowsForRoute, preference, preferences, setPageActions, setPageHeader, createWork, createProcess, createRun, createAgent
@@ -655,7 +673,7 @@ export function BeesApp({ ctx, preferences: personalPreferences, modelSettings: 
                       await load();
                       setScope(`organization:${organization.id}`, organization.connectionId);
                       navigate("organization-settings");
-                    } });
+                    } }));
   return h(React.Fragment, null, localAi, freeAi, h("div", {
     className: "bees-app", "data-bees-theme": activeTheme.id,
     style: {

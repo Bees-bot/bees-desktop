@@ -1,4 +1,4 @@
-import { h, MarkdownText, React, useEffect, useState } from "./runtime.js";
+import { h, hosted, MarkdownText, React, useEffect, useState } from "./runtime.js";
 import { ask, Button, confirmAction, oneLine, request, useBeesChangeRevision, when } from "./shared.js";
 
 const command = (action, input) => request("/bees-api/command", {
@@ -71,7 +71,7 @@ export function SharedWorkContext({ item, executionId }) {
           h("summary", null, `Lessons from past work (${context.memories.length})`),
           h("p", { className: "bees-muted" }, "Background experience to help the agents. These lessons do not replace this run’s instructions."),
           ...context.memories.map((memory, index) => h("article", { key: memory.id ?? index, className: "bees-context-assignment" }, readableText(memory.text)))) : null),
-      h("p", { className: "bees-muted" }, "These instructions were saved for this run. To use different requirements, edit the item in Details and start a new execution.")) : null,
+      h("p", { className: "bees-muted" }, hosted ? "These instructions were saved for this run. Use New Process Run for different requirements." : "These instructions were saved for this run. To use different requirements, edit the item in Details and start a new execution.")) : null,
     view?.humanReview?.entries?.length ? h("details", { className: "bees-context-section" },
       h("summary", null, `Review history (${view.humanReview.entries.length})`),
       ...view.humanReview.entries.map((review) => h("article", { key: review.id, className: "bees-context-assignment" },
@@ -183,7 +183,7 @@ export function ProcessMemoryPanel({ process, act, onOpenWork }) {
   return h("section", { className: "bees-stack bees-collaboration", "aria-label": "Process memory" },
     h("header", { className: "bees-collaboration-heading" }, h("h3", null, `${process.name || "Process"} memory`),
       h("p", { className: "bees-muted" }, "Saved answers, feedback and useful information across this process’s runs. Only entries marked ‘Use in future runs’ guide new runs."),
-      h("p", { className: "bees-muted" }, "Stored in Bees on this device. Context shows what a run used; Discussion keeps the conversation.")),
+      h("p", { className: "bees-muted" }, hosted ? "Stored in your team’s Bees workspace. Context shows what a run used; Discussion keeps the conversation." : "Stored in Bees on this device. Context shows what a run used; Discussion keeps the conversation.")),
     error ? h("p", { role: "alert", className: "bees-error" }, error) : null,
     !view && !error ? h("p", { role: "status", className: "bees-muted" }, "Loading process memory…") : null,
     view && !view.canManage ? h("p", { className: "bees-muted" }, "Only the process owner can change these memories.") : null,
@@ -203,7 +203,7 @@ export function ProcessMemoryPanel({ process, act, onOpenWork }) {
       h("div", { className: "bees-row" }, h(Button, { type: "submit", className: "primary", disabled: busy }, busy ? "Saving…" : "Save memory"),
         h(Button, { type: "button", disabled: busy, onClick: () => setEditor(false) }, "Cancel"))) : null,
     view && !view.entries.length ? h("div", { className: "bees-box" }, h("h4", null, query ? "No matching memory" : "No saved memory yet"),
-      h("p", { className: "bees-muted" }, query ? "Try another search." : "User answers, review feedback, results and agent lessons will appear here. The owner can also add information directly.")) : null,
+      h("p", { className: "bees-muted" }, query ? "Try another search." : hosted ? "Add information your team wants this process to remember for future runs." : "User answers, review feedback, results and agent lessons will appear here. The owner can also add information directly.")) : null,
     ...(view?.entries ?? []).map((memory) => h("article", { key: memory.id, className: "bees-box bees-stack" },
       h("header", { className: "bees-collaboration-meta" }, h("strong", null, memoryKinds[memory.kind] ?? "Saved information"),
         h("span", { className: "bees-collaboration-badge" }, memory.active ? "Used in future runs" : "Saved for review"),

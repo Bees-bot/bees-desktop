@@ -927,6 +927,9 @@ pub async fn ensure_local_model(
     app: AppHandle,
     spec: ModelSpec,
 ) -> Result<LocalModelStatus, String> {
+    if !super::execution_preferences(app.clone())?.allow_local_execution {
+        return Err("Local execution is disabled on this computer.".to_string());
+    }
     tauri::async_runtime::spawn_blocking(move || ensure_local_model_blocking(&app, &spec))
         .await
         .map_err(|error| error.to_string())?
@@ -1241,6 +1244,9 @@ pub async fn start_local_model(
     app: AppHandle,
     spec: ModelSpec,
 ) -> Result<LocalModelStatus, String> {
+    if !super::execution_preferences(app.clone())?.allow_local_execution {
+        return Err("Local execution is disabled on this computer.".to_string());
+    }
     tauri::async_runtime::spawn_blocking(move || start_local_model_blocking(&app, &spec))
         .await
         .map_err(|error| error.to_string())?

@@ -264,6 +264,23 @@ test("a late remote response cannot re-enable the menu after the account signs o
   assert.equal(store.state.editing, false);
 });
 
+test("scoped forms forward nested personal updates without allowing product-default or stale-scope writes", async () => {
+  const writes = [];
+  const personal = { mutate: async operations => writes.push(operations) };
+  const store = new ProductSettings(async () => ({}), () => {});
+  const old = store.scope("bees", personal);
+  const seen = [{ op: "set", path: ["seenFiles", "run"], value: ["report.md"] }];
+  await old.mutate(seen);
+  assert.deepEqual(writes, [seen]);
+  store.generation++;
+  store.state = { ...store.state, editing: true, values: { bees: { themePreset: "forest" } } };
+  await assert.rejects(old.mutate(seen), /scope changed/);
+  const editing = store.scope("bees", personal);
+  await editing.mutate(seen);
+  await assert.rejects(editing.mutate([{ op: "set", path: ["themePreset"], value: "dark" }]), /individual settings/);
+  assert.equal(writes.length, 2);
+});
+
 test("a model dialog opened before switching modes cannot write after re-enabling product editing", async (t) => {
   const { service } = await fixture(t);
   const store = new ProductSettings((_path, options) => options ? service.update(JSON.parse(options.body)) : service.status(), () => {});

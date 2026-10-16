@@ -1,4 +1,4 @@
-import { h, useEffect, useRef, useState, React } from "./runtime.js";
+import { h, hosted, useEffect, useRef, useState, React } from "./runtime.js";
 import { accountLabel, ask, Button, confirmAction, Empty, useSubmit, PageHead, when } from "./shared.js";
 import { GridStackPage } from "./flexible-grid.js";
 import { AgentCreateForm, AgentEditForm, McpAccess, needsNote } from "./agents.js";
@@ -43,7 +43,7 @@ function StageAgentRoute({ stage, agents, servers = [], act, onOpenAgent, onCrea
     selected[0] ? needsNote(selected[0], servers) : h("p", { className: "bees-muted", style: { margin: 0 } }, fallback
         ? (stage.driver === "review" ? `${fallback.name} is selected as the independent reviewer.` : `${fallback.name} is the automatic lead. Bees may add specialists when useful.`)
         : (stage.driver === "review" ? "Bees chooses an eligible independent reviewer automatically." : "Bees chooses the best available agent when work reaches this stage.")),
-    stage.driver === "review" || !ids.length ? null : h("div", { className: "bees-route-field" },
+    hosted || stage.driver === "review" || !ids.length ? null : h("div", { className: "bees-route-field" },
       h("strong", null, "Participants"),
       ...selected.slice(1).map((agent) => h("div", { className: "bees-route-agent", key: agent.id },
         h("button", { type: "button", className: "bees-route-agent-link", onClick: () => onOpenAgent(agent.id) }, agent.name),
@@ -97,7 +97,7 @@ function ProcessForm({ ctx, data, servers, tools, catalog, onServerAction, kind,
       mcpAccess: String(form.get("mcpAccess") ?? "none"), mcpServers: form.getAll("mcpServers").map(String)
     });
     // Bees works out the add-ons in the background; a planner that cannot start must not undo the create
-    if (created?.id && !template) void act({ action: "ask_bees", workspaceId, addonsFor: created.id }, undefined, () => {});
+    if (created?.id && !template && !hosted) void act({ action: "ask_bees", workspaceId, addonsFor: created.id }, undefined, () => {});
     if (created?.id) onCreated(created.id);
   });
 
@@ -132,14 +132,14 @@ function AddonsCheck({ process, runs, act }) {
   const busy = runs.some((run) => run.addonsFor === process.id && ["queued", "running"].includes(run.status));
   const check = () => act({ action: "ask_bees", workspaceId: process.workspaceId, addonsFor: process.id }, undefined, () => {});
   useEffect(() => {
-    if (process.kind !== "standard" || runs.some((run) => run.addonsFor === process.id)) return;
+    if (hosted || process.kind !== "standard" || runs.some((run) => run.addonsFor === process.id)) return;
     let seen = [];
     try { seen = JSON.parse(localStorage.getItem(CHECKED_ADDONS) ?? "[]"); } catch {}
     if (!Array.isArray(seen) || seen.includes(process.id)) return;
     try { localStorage.setItem(CHECKED_ADDONS, JSON.stringify([...seen, process.id].slice(-200))); } catch {}
     void check();
   }, [process.id]);
-  if (process.kind !== "standard") return null;
+  if (hosted || process.kind !== "standard") return null;
   return h(Button, { disabled: busy, onClick: check }, busy ? "Picking add-ons…" : "Pick the add-ons it needs");
 }
 
@@ -270,7 +270,7 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
       if (creatingStage) return h("div", { className: "bees-flex-page bees-stack" }, h(AgentCreateForm, { ctx, data, servers, tools, catalog, onServerAction, workspaceId: process.workspaceId, act, dialog: false, setPageHeader, processId: process.id,
             onCancel: () => setCreatingStageId(""), onCreated: async (id) => {
               await act({ action: "set_stage_route", stageId: creatingStage.id,
-                agentIds: [...(creatingStage.agentIds ?? []), id], requiredCapabilities: creatingStage.requiredCapabilities });
+                agentIds: hosted ? [id] : [...(creatingStage.agentIds ?? []), id], requiredCapabilities: creatingStage.requiredCapabilities });
               setCreatingStageId(""); setSelectedAgentId(id);
             } }));
 
@@ -369,7 +369,7 @@ export function ProcessesPage({ ctx, data, servers = [], tools = [], catalog = [
             event.currentTarget.closest("details")?.removeAttribute("open");
             setPlanning(false); setProcessDraft(null); setCreating("process");
           } }, h("strong", null, "Create manually"), h("span", null, "Choose the stages, agents, files, and add-ons yourself.")),
-          h("button", { type: "button", onClick: (event) => {
+          hosted ? null : h("button", { type: "button", onClick: (event) => {
             event.currentTarget.closest("details")?.removeAttribute("open"); setPlanning(true);
           } }, h("strong", null, "Let Bees build it for you"), h("span", null, "Describe the outcome and let Bees propose the process.")))
       ) : h(Button, { className: "primary", disabled: true }, "New Process Template")

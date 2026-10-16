@@ -87,6 +87,8 @@ export class LocalMemory {
   }
 
   ensure() {
+    // shortcut: headless images omit local memory installers; add a managed memory service before enabling cloud memory.
+    if (process.env.BEES_HEADLESS === "1") { this.status = "Local memory is disabled in headless mode"; return; }
     if (this.stop.signal.aborted || this.pending || Date.now() < this.retryAt) return;
     this.pending = (this.ready ? this.launch() : step("background.hindsight.launch", () => this.launch())).catch(async (error) => {
       if (!this.stop.signal.aborted) {

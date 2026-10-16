@@ -17,3 +17,5 @@ src-tauri/gen/schemas/
 *.db-wal
 .DS_Store
 CLAUDE.md
+.wrangler/
+.dev.vars

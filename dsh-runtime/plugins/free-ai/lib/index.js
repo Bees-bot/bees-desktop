@@ -115,6 +115,7 @@ async function runCommand(runtime, input) {
 }
 
 export async function apply(ctx) {
+  if (process.env.BEES_FLEET_JOB) return;
   const time = globalThis.__beesStartup?.step ?? ((_phase, run) => run());
   let runtime;
   let startupError;

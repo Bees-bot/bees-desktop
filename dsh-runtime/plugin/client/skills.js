@@ -43,7 +43,8 @@ export function useCapabilities(route) {
     // a Google sign-in finishes in the browser, so look again when the person comes back
     const back = () => void load({ quiet: true });
     window.addEventListener("focus", back);
-    return () => { clearInterval(timer); window.removeEventListener("focus", back); };
+    window.addEventListener("bees-scope-changed", back);
+    return () => { clearInterval(timer); window.removeEventListener("focus", back); window.removeEventListener("bees-scope-changed", back); };
   }, []);
   const act = async (command) => {
     try {

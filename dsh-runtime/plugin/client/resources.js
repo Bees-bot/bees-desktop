@@ -1,4 +1,4 @@
-import { h, useEffect, useState } from "./runtime.js";
+import { h, hosted, useEffect, useState } from "./runtime.js";
 import { FilePreview } from "./work.js";
 import {
   artifactRuns, ask, AuditEvent, Button, confirmAction, Empty, request, runTitle, useBeesChangeRevision, when
@@ -6,6 +6,7 @@ import {
 import { addLocationFromDevice } from "./location-fields.js";
 
 export function FilesPage({ ctx, data, teamId, act }) {
+  const [error, setError] = useState(""), [viewer, setViewer] = useState(null);
   const team = data.teams.find(({ id }) => id === teamId);
   const locations = data.locations.filter((row) => row.teamId === teamId && !row.archivedAt);
   const pickFolder = async () => ctx.uiWorkspace.pickDirectory();
@@ -14,8 +15,10 @@ export function FilesPage({ ctx, data, teamId, act }) {
     : ask(`Absolute path for ${location.name} on this device`, location.localPath ?? "");
   return h("div", null,
     h("div", { style: { display: "flex", justifyContent: "flex-end", gap: "8px", marginBottom: "16px", marginTop: "4px" } },
-      h(Button, { disabled: !teamId || !["admin", "member"].includes(team?.role), onClick: () => addLocationFromDevice(ctx, act, teamId, "file", data.locations) }, "Choose file"),
-      h(Button, { className: "primary", disabled: !teamId || !["admin", "member"].includes(team?.role), onClick: () => addLocationFromDevice(ctx, act, teamId, "folder", data.locations) }, "Choose folder")),
+      h(Button, { disabled: !teamId || !["admin", "member"].includes(team?.role), onClick: async () => { setError(""); try { await addLocationFromDevice(ctx, act, teamId, "file", data.locations); } catch (e) { setError(e.message); } } }, hosted ? "Upload file" : "Choose file"),
+      hosted ? null : h(Button, { className: "primary", disabled: !teamId || !["admin", "member"].includes(team?.role), onClick: () => addLocationFromDevice(ctx, act, teamId, "folder", data.locations) }, "Choose folder")),
+    error ? h("p", { className: "bees-error", role: "alert" }, error) : null,
+    viewer ? h(FilePreview, { target: viewer, onClose: () => setViewer(null) }) : null,
     h("div", { className: "bees-grid" },
       ...(locations.length ? locations.map((location) => h("div", { className: "bees-box", key: location.id, style: { display: "flex", flexDirection: "column", gap: "10px", padding: "12px 14px" } },
         h("div", { style: { display: "flex", alignItems: "center", gap: "10px" } },
@@ -32,9 +35,9 @@ export function FilesPage({ ctx, data, teamId, act }) {
           )
         ),
         h("div", { className: "bees-card-actions", style: { marginTop: "auto", borderTop: "1px solid var(--dsw-alias-border-l1)", paddingTop: "10px" } },
-          h(Button, { onClick: async () => { const path = await pickMapping(location); if (path) await act({ action: "map_location", locationId: location.id, path }); } }, location.mapped ? "Change mapping" : "Map"),
-          location.mapped ? h(Button, { onClick: () => act({ action: "unmap_location", locationId: location.id }) }, "Remove mapping") : null,
-          h(Button, { className: "danger", disabled: !["admin", "member"].includes(team?.role), onClick: async () => (await confirmAction(`Archive “${location.name}”? This will not delete the ${location.kind} on your device.`)) && act({ action: "archive_location", locationId: location.id }) }, "Archive")
+          hosted ? h(Button, { onClick: () => setViewer({ locationId: location.id, name: location.name, path: "" }) }, "View / download") : h(Button, { onClick: async () => { const path = await pickMapping(location); if (path) await act({ action: "map_location", locationId: location.id, path }); } }, location.mapped ? "Change mapping" : "Map"),
+          !hosted && location.mapped ? h(Button, { onClick: () => act({ action: "unmap_location", locationId: location.id }) }, "Remove mapping") : null,
+          h(Button, { className: "danger", disabled: !["admin", "member"].includes(team?.role), onClick: async () => (await confirmAction(hosted ? `Archive “${location.name}”? Existing runs keep their inputs.` : `Archive “${location.name}”? This will not delete the ${location.kind} on your device.`)) && act({ action: "archive_location", locationId: location.id }) }, "Archive")
         )
       )) : [h(Empty, { key: "empty" }, "No files or folders shared with this team yet")])
     )
@@ -97,7 +100,7 @@ export function KnowledgePage({ data, route, workspaceId, teamId, openWorkItem }
     try { setResults((await request(`/bees-api/search?q=${encodeURIComponent(query)}&workspaceId=${encodeURIComponent(workspaceId)}`)).results ?? []); }
     catch (error) { setResults(null); setSearchError(error instanceof Error ? error.message : String(error)); }
   } },
-    h("input", { className: "bees-input bees-grow", value: query, onChange: (event) => setQuery(event.target.value), disabled: !workspaceId, placeholder: "Search work and approved files", "aria-label": "Search" }), h("button", { className: "bees-btn", disabled: !workspaceId }, "Search")),
+    h("input", { className: "bees-input bees-grow", value: query, onChange: (event) => setQuery(event.target.value), disabled: !workspaceId, placeholder: hosted ? "Search shared work" : "Search work and approved files", "aria-label": "Search" }), h("button", { className: "bees-btn", disabled: !workspaceId }, "Search")),
     searchError ? h("p", { className: "bees-error" }, searchError) : null,
     results?.length === 0 ? h(Empty, null, "Nothing matched that search") : null,
     ...(results ?? []).map((result) => {
@@ -121,9 +124,9 @@ export function KnowledgePage({ data, route, workspaceId, teamId, openWorkItem }
           ),
           h("div", { className: "bees-row-main" },
             h("div", { className: "bees-row-title" }, row.name),
-            h("div", { className: "bees-muted" }, row.mapped ? "Available for bounded on-demand indexing" : "Map on this device to search")
+            h("div", { className: "bees-muted" }, hosted ? "Available as an input for cloud runs" : row.mapped ? "Available for bounded on-demand indexing" : "Map on this device to search")
           )
         )
-      ) : [h(Empty, { key: "empty" }, "No approved sources in this team. Add a folder in Files & folders to search it here.")])
+      ) : [h(Empty, { key: "empty" }, hosted ? "No inputs in this team. Upload files in Files & folders to use them in a run." : "No approved sources in this team. Add a folder in Files & folders to search it here.")])
     ));
 }

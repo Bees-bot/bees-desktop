@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { FleetBridge } from './fleet-bridge.js';
 import { createReadStream } from "node:fs";
 import { LOCAL_MEMORY_URL, LocalMemory } from "./local-memory.js";
 import { mountLocalInference } from "./local-inference.js";
@@ -183,11 +184,11 @@ function replyLocked(res) {
 const unauthorized = (req, res) => String(req.headers.accept ?? "").includes("text/html")
   ? replyLocked(res) : reply(res, 401, { error: "unauthorized" });
 
-async function body(req) {
+async function body(req,limit=1_000_000) {
   let value = "";
   for await (const chunk of req) {
     value += chunk;
-    if (value.length > 1_000_000) throw new Error("Request body is too large");
+    if (value.length > limit) throw new Error("Request body is too large");
   }
   return value ? JSON.parse(value) : {};
 }
@@ -211,8 +212,9 @@ function liveSettings(ctx, config, logger) {
 export async function apply(ctx, config = {}, internals = {}) {
   const databasePath = process.env.BEES_DATABASE_PATH;
   const token = process.env.BEES_DSH_TOKEN;
+  if (process.env.BEES_FLEET_JOB) delete process.env.BEES_DSH_TOKEN;
   const workspace = process.env.BEES_DEFAULT_WORKSPACE;
-  if (!databasePath || !token || !workspace) throw new Error("bees: missing desktop launch configuration");
+  if (!databasePath || !token || !workspace) throw new Error("bees: missing runtime launch configuration");
 
   const database = step("bees.database.open", () => new DatabaseSync(databasePath));
   // a sync service carries WAL sidecars apart from the database and splices two computers' work
@@ -308,6 +310,15 @@ export async function apply(ctx, config = {}, internals = {}) {
   void step("background.team-sync.initial", syncTick).catch((error) => ctx.logger.warn?.(`bees: initial team sync failed: ${userMessage(error)}`));
 
   const server = ctx.webServer.server;
+  if (process.env.BEES_FLEET_JOB) {
+    const bridge = new FleetBridge(ctx,product);
+    for (const action of ['create','input','start','questions','answer','prompt']) register(ctx,{kind:'exact',path:`/bees-api/fleet/${action}`,handler:async(req,res)=>{
+      try {
+        if (req.method !== (action === 'questions' ? 'GET' : 'POST')) return reply(res,405,{error:'method not allowed'});
+        reply(res,200,await bridge[action](action === 'questions' ? undefined : await body(req,15_000_000)));
+      } catch(error) { reply(res,409,{error:shown(error)}); }
+    }});
+  }
   const productDefaults = new ProductDefaults(connected, undefined, async (text) => {
     await refreshProductDefaults(ctx, text);
     notify({ type: "product-defaults" });

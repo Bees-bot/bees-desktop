@@ -674,6 +674,9 @@ export class AgentRuntime {
       return { kind: "ask", reason: `Send an email to ${to}${cc ? `, cc ${cc}` : ""}${bcc ? `, bcc ${bcc}` : ""}, subject "${subject ?? ""}"?\n\n${text.slice(0, 4000)}${text.length > 4000 ? ` ... and ${text.length - 4000} more characters` : ""}` };
     });
     ctx.tools?.guard?.((exec) => {
+      if (process.env.BEES_FLEET_JOB && (exec.arguments?.sandbox_permissions === "danger-full-access" ||
+          (process.platform === "win32" && exec.name === "bash")))
+        return "This shared run cannot widen machine access. Attach the required files to the run or choose a supported sandboxed machine.";
       // the sandbox confines writes only; an mcp tool's path argument is an api route, not a file
       const targets = exec.name.startsWith("mcp__") ? [] : [
         ...["file_path", "source_path", "path", "cwd"].map((key) => exec.arguments?.[key]),

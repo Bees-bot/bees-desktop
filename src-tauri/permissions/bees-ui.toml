@@ -2,6 +2,9 @@
 identifier = "allow-bees-ui"
 description = "Allows the Bees interface to manage its bundled local runtimes."
 commands.allow = [
+  "execution_preferences",
+  "set_execution_preferences",
+  "open_cloud",
   "ensure_dsh_runtime",
   "restart_app",
   "local_model_status",
@@ -18,3 +21,8 @@ commands.allow = [
   "check_for_update",
   "install_update"
 ]
+
+[[permission]]
+identifier = "allow-cloud-notification"
+description = "Allows the selected Bees Cloud page to show notifications and open its connection settings in the system browser."
+commands.allow = ["fleet_notification", "fleet_open_connections"]

@@ -1,4 +1,4 @@
-import { h, React, useEffect, useRef, useState } from "./runtime.js";
+import { h, hosted, React, useEffect, useRef, useState } from "./runtime.js";
 import { ask, confirmAction, Button, Empty, McpCard, request, useSubmit, PageHead, usePreference } from "./shared.js";
 import { GridStackPage } from "./flexible-grid.js";
 import { inheritedInputs, ResourceFields } from "./location-fields.js";
@@ -143,6 +143,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Which MCP servers this agent may use. Shared by the create and edit forms. */
 export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access, chosen, onServerAction, onChange, scope = "agent" }) {
+  const [connectionError, setConnectionError] = useState("");
   // "all" stays "all" until a server is unpicked, or saving turns it into this computer's list for the whole team
   const [mode, setMode] = useState(access ?? "all");
   const [picked, setPicked] = useState(chosen ?? []);
@@ -199,6 +200,7 @@ export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access,
             item ? h(Button, { className: "primary", disabled: !onServerAction, onClick: () => setReviewing(item.id) }, "Add") : null,
             h(Button, { onClick: () => change(picked.filter((one) => one !== name)) }, "Remove")));
       })) : null,
+      connectionError ? h("p", { role: "alert", className: "bees-error" }, connectionError) : null,
       h("h3", null, "Connected add-ons"),
       h("div", { className: "bees-mcp-grid" },
         ...matching.map((server) => {
@@ -209,10 +211,15 @@ export function McpAccess({ ctx, servers = [], tools = [], catalog = [], access,
             icon: catEntry?.icon,
             meta: server.perRun ? "starts in each run" : `${server.toolCount ?? serverTools.length} tool${(server.toolCount ?? serverTools.length) === 1 ? "" : "s"}`,
             tone: added ? "added" : server.enabled ? "" : "warning", key: server.id,
-            actionLabel: added ? `Unselect ${server.label}` : server.enabled ? `Select ${server.label}` : `Turn on and select ${server.label}`,
+            actionLabel: added ? `Unselect ${server.label}` : server.enabled ? `Select ${server.label}` : hosted ? `Connect ${server.label}` : `Turn on and select ${server.label}`,
             actionIcon: added ? "✓" : "+",
             onOpen: async () => {
               if (!server.enabled) {
+                if (ctx.hosted) {
+                  setConnectionError("");
+                  try { await ctx.hosted.connectGoogle(); } catch (e) { setConnectionError(e.message); }
+                  return;
+                }
                 if (!onServerAction) return;
                 await onServerAction({ action: "set_mcp_server_enabled", serverId: server.id, enabled: true });
               }
@@ -346,7 +353,7 @@ export function AgentCreateForm({ ctx, data, servers, tools, catalog, onServerAc
         defaultValue: presets.find(({ id }) => id === "standard")?.id ?? presets[0]?.id },
         ...presets.map((preset) => h("option", { value: preset.id, key: preset.id }, preset.name)))),
     h(AgentModelSelect, { ctx, systemDefault: data.systemDefaultModel }),
-    h("label", { className: "bees-process-name" }, "Runs at once (0 means no limit)", h("input", { className: "bees-input", name: "maxConcurrency", type: "number", min: 0, max: 1000, defaultValue: 0 })),
+    hosted ? h("p", { className: "bees-muted" }, "Cloud concurrency is controlled by your execution machines.") : h("label", { className: "bees-process-name" }, "Runs at once (0 means no limit)", h("input", { className: "bees-input", name: "maxConcurrency", type: "number", min: 0, max: 1000, defaultValue: 0 })),
     h("label", { className: "bees-process-name" }, "Capabilities", h("input", { className: "bees-input", name: "capabilities", placeholder: "research, writing" })),
     h("label", { className: "bees-process-name bees-agent-toggle", style: { display: "flex", alignItems: "center", gap: "10px" } }, h("input", { name: "enabled", type: "checkbox", defaultChecked: true }), "Available for routing"),
     h("div", { className: "bees-process-name" }, h(McpAccess, { ctx, servers, tools, catalog, onServerAction })),
@@ -395,7 +402,7 @@ export function AgentEditForm({ ctx, data, servers, tools, catalog, onServerActi
       h("select", { className: "bees-select", name: "presetId", defaultValue: selected.presetId },
         ...data.presets.filter(({ broken }) => !broken).map((preset) => h("option", { value: preset.id, key: preset.id }, preset.name)))),
     h(AgentModelSelect, { ctx, value: selected.model ?? "", effort: selected.reasoningEffort ?? "", systemDefault: data.systemDefaultModel }),
-    h("label", { className: "bees-process-name" }, "Runs at once (0 means no limit)", h("input", { className: "bees-input", name: "maxConcurrency", type: "number", min: 0, max: 1000, defaultValue: selected.maxConcurrency })),
+    hosted ? h("p", { className: "bees-muted" }, "Cloud concurrency is controlled by your execution machines.") : h("label", { className: "bees-process-name" }, "Runs at once (0 means no limit)", h("input", { className: "bees-input", name: "maxConcurrency", type: "number", min: 0, max: 1000, defaultValue: selected.maxConcurrency })),
     h("label", { className: "bees-process-name" }, "Capabilities", h("input", { className: "bees-input", name: "capabilities", defaultValue: (selected.capabilities ?? []).join(", "), placeholder: "research, writing" })),
     h("label", { className: "bees-process-name bees-agent-toggle", style: { display: "flex", alignItems: "center", gap: "10px" } }, h("input", { name: "enabled", type: "checkbox", defaultChecked: selected.enabled }), "Available for routing"),
     h("div", { className: "bees-process-name" }, h(McpAccess, { ctx, servers, tools, catalog, onServerAction, access: selected.mcpAccess, chosen: selected.mcpServers,

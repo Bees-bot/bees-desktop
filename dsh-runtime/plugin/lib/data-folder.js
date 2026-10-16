@@ -16,14 +16,14 @@ const under = (path, root) => path === root || path.startsWith(root.endsWith(sep
 
 /** What agents may never read: Bees' own files, keys, logins and browser profiles. Runs, uploads and skills stay open. */
 export function readFence() {
-  const home = homedir(), dsh = process.env.DSH_HOME, db = process.env.BEES_DATABASE_PATH;
+  const home = process.env.BEES_HOST_HOME || homedir(), dsh = process.env.DSH_HOME, db = process.env.BEES_DATABASE_PATH;
   const list = (paths) => [...new Set(paths.filter(Boolean).map((path) => real(resolve(path))))];
   return {
-    closed: list([appDirectory(), ...["", "-wal", "-shm"].map((end) => db && db + end), dataDirectory() && join(dataDirectory(), "api-specs"),
+    closed: list([appDirectory(), process.env.BEES_RUNNER_PRIVATE_ROOT, process.env.BEES_RUNNER_CONFIG, process.env.BEES_RUNNER_PROFILE, ...["", "-wal", "-shm"].map((end) => db && db + end), dataDirectory() && join(dataDirectory(), "api-specs"),
       ...[".ssh", ".aws", ".gnupg", ".config/gh", ".config/gcloud", ".netrc", ".docker/config.json", ".kube", ".npmrc", ".git-credentials",
         "Library/Keychains", "Library/Safari", "Library/Cookies", "Library/Mail", "Library/Messages"].map((name) => join(home, name)),
       ...["Google", "BraveSoftware", "Firefox", "Microsoft Edge", "Arc"].map((name) => join(home, "Library/Application Support", name))]),
-    open: list([process.env.BEES_DEFAULT_WORKSPACE, dsh && join(dsh, "attachments"), dsh && join(dsh, "skills")])
+    open: list([process.env.BEES_FLEET_JOB && process.env.TMPDIR, process.env.BEES_DEFAULT_WORKSPACE, dsh && join(dsh, "attachments"), dsh && join(dsh, "skills")])
   };
 }
 

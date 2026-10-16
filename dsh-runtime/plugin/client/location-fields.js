@@ -1,6 +1,6 @@
 import { NativeRunFilePreview } from "./native-conversation.js";
 import { open } from "@tauri-apps/plugin-dialog";
-import { CodeBlock, h, MarkdownText, React, useEffect, useRef, useState } from "./runtime.js";
+import { CodeBlock, h, hosted, MarkdownText, React, useEffect, useRef, useState } from "./runtime.js";
 import { ask, Button, request, when } from "./shared.js";
 import { FilesIcon, FileIcon, ExpandIcon, CollapseIcon, CloseIcon, FolderOpenIcon } from "./icons.js";
 
@@ -12,6 +12,7 @@ export function availableLocationName(fallback, locations, teamId) {
 }
 
 export async function addLocationFromDevice(ctx, act, teamId, kind, locations = []) {
+  if (ctx.hosted) return ctx.hosted.pickFile(teamId);
   const path = await open({ directory: kind === "folder", multiple: false });
   if (!path) return null;
   const fallback = path.split(/[\\/]/).filter(Boolean).pop() ?? (kind === "folder" ? "Files" : "File");
@@ -109,9 +110,9 @@ export function ResourceFields({
         } }, h("option", { value: "" }, "Select file or folder…"),
         ...available.map((location) => h("option", { value: location.id, key: location.id },
           `${location.name} · ${location.kind} · ${location.localPath}`))),
-      h(Button, { disabled: locked, onClick: () => change(() => add("file")) }, "Choose file"),
-      h(Button, { disabled: locked, onClick: () => change(() => add("folder")) }, "Choose folder"))),
-    allowOutput ? h("div", { className: "bees-resource-output", style: { display: "grid", gap: "5px" } },
+      h(Button, { disabled: locked, onClick: () => change(() => add("file")) }, hosted ? "Upload file" : "Choose file"),
+      hosted ? null : h(Button, { disabled: locked, onClick: () => change(() => add("folder")) }, "Choose folder"))),
+    allowOutput && !hosted ? h("div", { className: "bees-resource-output", style: { display: "grid", gap: "5px" } },
       h("div", { style: { fontWeight: 500 } }, "Output folder"),
       h("p", { className: "bees-muted", style: { margin: 0 } }, compact ? "Optional destination for approved results." : "Results stay in Bees. Choose a folder for an approved copy."),
       h("div", { className: "bees-resource-controls" },
@@ -176,7 +177,7 @@ export function WorkLocations({ data, references, inherited = [], outputId, defa
     const location = data.locations.find(({ id }) => id === locationId);
     const label = `${location?.name || fallback}${relativePath ? `/${relativePath}` : ""}`;
     const path = location?.localPath ? `${location.localPath}${relativePath ? `/${relativePath}` : ""}` : "Not mapped on this device";
-    const openButton = act && location?.localPath && location?.mapped && !location?.archivedAt ? h(Button, {
+    const openButton = !hosted && act && location?.localPath && location?.mapped && !location?.archivedAt ? h(Button, {
       className: "bees-open-explorer",
       title: `Open in Explorer: ${location.localPath}`,
       "aria-label": `Open ${label} in file explorer`,
@@ -319,7 +320,7 @@ function OutputDirectory({ files, executionId, viewer, onOpen, act, outputsPath,
             onClick: () => onOpen?.(selected ? null : { executionId, path })
           }, h(FileIcon), truncateFileName(displayName)),
           h("div", { className: "bees-file-row-actions" },
-            act ? h(Button, {
+            act && !hosted ? h(Button, {
               className: "bees-file-action-btn",
               title: "Open the file",
               "aria-label": `Open ${displayName}`,
@@ -398,6 +399,7 @@ function FileContents({ target, onClose, inline, loadFile, Document }) {
               : file.content.length > HIGHLIGHT_LIMIT ? h("pre", null, file.content)
               : h(CodeBlock, { code: file.content, lang: languageOf(file.name), copyLabel: "Copy", copiedLabel: "Copied" }));
   const header = (fullScreen) => h("div", { className: "bees-file-preview-head" }, h(FileIcon), h("strong", { title }, title),
+    hosted && file?.url ? h("a", { className: "bees-btn", href: file.url, download: file.name }, "Download") : null,
     target.locationId && path !== target.path ? h(Button, {
       onClick: () => setPath(path.split("/").slice(0, -1).join("/"))
     }, "Back") : null,

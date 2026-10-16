@@ -1,0 +1,6 @@
+{
+  "stateDir": "/var/lib/bees",
+  "host": "0.0.0.0",
+  "port": 8080,
+  "temporalBinary": "/usr/local/bin/temporal"
+}

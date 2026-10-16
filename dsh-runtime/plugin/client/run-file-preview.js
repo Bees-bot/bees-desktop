@@ -1,4 +1,5 @@
 import { request } from "./shared.js";
+import { hosted } from "./runtime.js";
 
 const MEDIA_TYPES = {
   png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
@@ -14,6 +15,7 @@ export const documentPreview = (path) => /\.(docx?|xlsx?|pptx?|csv|tsv)$/i.test(
 
 export async function loadRunFile(ctx, target, signal) {
   const query = new URLSearchParams({ executionId: target.executionId, path: target.path });
+  if (ctx.hosted) return loadHostedFile("run-file", query, signal);
   const type = previewType(target.path);
   // Keep the bounded, formatted text reader for code, Markdown, and large logs.
   if (typeof type !== "string" && !documentPreview(target.path)) return request(`/bees-api/run-file?${query}`, { signal });
@@ -33,6 +35,7 @@ export async function loadRunFile(ctx, target, signal) {
 }
 
 export async function loadLocationFile(target, signal) {
+  if (hosted) return loadHostedFile("location-file", new URLSearchParams({ locationId: target.locationId, path: target.path || "" }), signal);
   let type = previewType(target.path || target.name);
   const query = new URLSearchParams({ locationId: target.locationId, path: target.path });
   if (!type) {
@@ -50,4 +53,12 @@ export async function loadLocationFile(target, signal) {
     name: encodedName ? decodeURIComponent(encodedName) : target.name ?? target.path.split("/").pop(),
     size: blob.size, format: previewFormat(type), blob
   };
+}
+
+async function loadHostedFile(endpoint, query, signal) {
+  const file = await request(`/bees-api/${endpoint}?${query}`, { signal });
+  query.set("native", "1");
+  const response = await request(`/bees-api/${endpoint}?${query}`, { signal, binary: true });
+  const type = previewType(file.name);
+  return { ...file, ...(type ? { format: previewFormat(type) } : {}), blob: new Blob([await response.arrayBuffer()], { type: type || "application/octet-stream" }) };
 }

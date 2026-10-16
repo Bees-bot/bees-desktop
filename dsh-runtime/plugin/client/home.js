@@ -1,4 +1,4 @@
-import { h, React, useEffect, useState } from "./runtime.js";
+import { h, hosted, React, useEffect, useState } from "./runtime.js";
 import { accountLabel, Button, confirmAction, Empty, openExternal, ProposalCard, useSubmit } from "./shared.js";
 import { addDashboardWidget, applyDashboardLayout, dashboardsFrom, DEFAULT_WIDGETS } from "./dashboard-model.js";
 import { FlexibleGrid } from "./flexible-grid.js";
@@ -76,7 +76,7 @@ function TemplatesWidget({ ctx, data, workspaceId, act, openWorkItem }) {
           if (card.isTemplate) {
             const p = await act({ action: "create_process", workspaceId, name: `New from ${card.name}`, templateId: card.id });
             // a team with no model only loses the add-on check, never the new process
-            if (p?.id) void act({ action: "ask_bees", workspaceId, addonsFor: p.id }, undefined, () => {});
+            if (p?.id && !hosted) void act({ action: "ask_bees", workspaceId, addonsFor: p.id }, undefined, () => {});
             if (p?.id) openWorkItem(null, p.id);
           } else {
             openWorkItem(null, card.id);

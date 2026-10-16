@@ -5,7 +5,7 @@ import { mark, step, observePlugins } from "./plugin/lib/startup.js";
 
 mark("node.entry");
 // opened from the Dock, Bees got launchd's bare PATH with no npx, uvx or node, so no add-on could start
-if (process.platform !== "win32") {
+if (process.platform !== "win32" && process.env.BEES_HEADLESS !== "1") {
   const login = await step("shell.path", () => new Promise((resolve) => {
     // detached with no stdin, so the shell can't take over a dev terminal or sit on a prompt
     const shell = spawn(process.env.SHELL || "/bin/zsh", ["-ilc", 'printf "__BEES_PATH__%s__BEES_PATH__" "$PATH"'],

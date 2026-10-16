@@ -54,6 +54,21 @@ await writeFile(sandboxEntry, timeDshStartup(await readFile(sandboxEntry, "utf8"
   '\tconst fence = globalThis.__beesReadFence?.();\n\tfor (const [rule, roots] of [["deny", fence?.closed], ["allow", fence?.open]]) if (roots?.length) forms.push(`(${rule} file-read-data ${roots.map((root) => `(subpath ${sbplString(root)})`).join(" ")})`);\n\treturn ["-p", forms.join(" ")];',
 ]]));
 
+// Fleet shell commands must not read runner credentials, other attempts, or the host's logins.
+await writeFile(sandboxEntry, timeDshStartup(await readFile(sandboxEntry, "utf8"), [[
+  'import { existsSync, mkdtempSync, rmSync } from "node:fs";',
+  'import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";',
+], [
+  '\treturn args;\n}\n/**\n* Build the Landlock',
+  '\tif (process.env.BEES_FLEET_JOB) {\n\t\tconst fence = globalThis.__beesReadFence?.();\n\t\tfor (const root of fence?.closed ?? []) if (existsSync(root)) args.push(...(statSync(root).isDirectory() ? ["--tmpfs", root] : ["--ro-bind", "/dev/null", root]));\n\t\tfor (const root of fence?.open ?? []) if (existsSync(root)) args.push("--ro-bind", root, root);\n\t\tif (policy.mode === "workspace-write") args.push("--bind", policy.workspaceRoot, policy.workspaceRoot);\n\t}\n\treturn args;\n}\n/**\n* Build the Landlock',
+], [
+  '\t\treadOnly: ["/"],',
+  '\t\treadOnly: process.env.BEES_FLEET_JOB ? ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc/ssl", "/etc/hosts", "/etc/resolv.conf", "/etc/nsswitch.conf", process.env.BEES_RUNTIME_ROOT, policy.workspaceRoot].filter((p) => p && existsSync(p)) : ["/"],',
+], [
+  '\tif (policy.mode === "workspace-write") readWrite.push("/tmp", policy.workspaceRoot);',
+  '\tif (policy.mode === "workspace-write") readWrite.push(process.env.BEES_FLEET_JOB ? tmpdir() : "/tmp", policy.workspaceRoot);',
+]]));
+
 // RC2 owns failed batch recovery and bounded response history. Retain only the
 // measured startup batching optimization; do not accumulate retired bundles.
 const hmrEntry = path.join(
