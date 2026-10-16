@@ -622,10 +622,21 @@ function RunTraces({ run }) {
     : h(Empty, null, "No audit events for this execution yet.");
 }
 
-function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onScheduleCreated, preference, preferences, setPageActions, setPageHeader, capabilities }) {
-  const opened = data.items.find(({ id }) => id === rootId);
-  const processRunId = opened?.processRunId ?? rootId;
-  const root = data.items.find(({ id }) => id === processRunId);
+const cockpitRoot = (data, rootId) => {
+  const processRunId = data.items.find(({ id }) => id === rootId)?.processRunId ?? rootId;
+  return [processRunId, data.items.find(({ id }) => id === processRunId)];
+};
+
+// a new run opens here before its row arrives, so the not-found return must sit outside the hooks
+function WorkItemCockpit(props) {
+  const [, root] = cockpitRoot(props.data, props.rootId);
+  if (!root || root.archivedAt || !props.data.processes.some(({ id, archivedAt }) => id === root.processId && !archivedAt))
+    return h(Empty, null, "Work item not found");
+  return h(WorkItemCockpitView, props);
+}
+
+function WorkItemCockpitView({ ctx, data, rootId, teamId, act, onBack, onScheduleCreated, preference, preferences, setPageActions, setPageHeader, capabilities }) {
+  const [processRunId, root] = cockpitRoot(data, rootId);
   const [selectedId, setSelectedId] = useState(rootId);
   const [editing, setEditing] = useState(false);
   const [scheduleEditor, setScheduleEditor] = useState(false);
@@ -640,8 +651,6 @@ function WorkItemCockpit({ ctx, data, rootId, teamId, act, onBack, onScheduleCre
     }
   }
   const items = data.items.filter(({ id, archivedAt }) => visibleIds.has(id) && !archivedAt);
-  if (!root || root.archivedAt || !data.processes.some(({ id, archivedAt }) => id === root.processId && !archivedAt))
-    return h(Empty, null, "Work item not found");
   const process = data.processes.find(({ id }) => id === root.processId);
   const stages = data.stages.filter(({ processId }) => processId === root.processId);
   const schedulable = stages.length >= 2 && stages.at(-1)?.driver === "terminal" &&
