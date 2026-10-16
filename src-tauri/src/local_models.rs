@@ -1116,6 +1116,8 @@ fn start_local_model_blocking_inner(
         // Without --jinja llama.cpp falls back to its legacy template handling and parses tool calls
         // by guesswork, which is most of why a local model answers in prose instead of calling a tool.
         .arg("--jinja")
+        // Qwen3.5 thinks unasked under --jinja, and that alone filled a 16k window before any answer.
+        .args(["--reasoning", "off"])
         // llama.cpp keeps every layer on the CPU unless asked. On this Mac that halves generation
         // speed for nothing: the GPU shares the same memory the layers were already costing.
         .args(["--n-gpu-layers", "99"]);
