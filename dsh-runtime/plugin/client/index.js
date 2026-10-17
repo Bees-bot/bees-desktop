@@ -1,13 +1,8 @@
-import { configureRuntime, h, NativeUi, React } from "./runtime.js";
-import gridstackCss from "gridstack/dist/gridstack.min.css";
-import cronGeneratorCss from "react-cron-generator/build/cron-builder.css";
-import { css } from "./shared.js";
-import { BeesApp } from "./shell.js";
-import { NativeContentHost } from "./native-conversation.js";
+import { configureRuntime, h, React } from "./runtime.js";
+import { css } from "./common.js";
+import { ThreadApp as BeesApp } from "./thread-app.js";
 import { installScrollbars } from "./scrollbars.js";
 import brandMark from "../../../src/brand-mark.png";
-
-void globalThis.fetch?.("/bees-api/startup?phase=ui.module-loaded", { method: "POST" }).catch(() => {});
 
 // A form answers with nothing until the host has described its namespace. Components persist what
 // they read on mount, so without this a first render saves those defaults over the stored settings.
@@ -23,10 +18,6 @@ window.__ModuleLoader__.load({
   id: "@bees/dsh-plugin",
   factory: (require) => {
     configureRuntime(require);
-    function BeesSurface(props) {
-      const value = React.useMemo(() => ({ ctx: props.ctx }), [props.ctx]);
-      return h(NativeUi.Provider, { value }, h(BeesApp, props));
-    }
     class BeesErrorBoundary extends React.Component {
       state = { error: null, attempt: 0 };
       static getDerivedStateFromError() {
@@ -38,7 +29,7 @@ window.__ModuleLoader__.load({
       }
       retry = () => this.setState(({ attempt }) => ({ error: null, attempt: attempt + 1 }));
       render() {
-        if (this.state.error === null) return h(BeesSurface, { ...this.props, key: this.state.attempt });
+        if (this.state.error === null) return h(BeesApp, { ...this.props, key: this.state.attempt });
         return h("div", { className: "bees-app bees-loading", role: "alert" },
           h("div", { className: "bees-stack" },
             h("img", { className: "bees-mark", src: brandMark, alt: "" }),
@@ -51,19 +42,14 @@ window.__ModuleLoader__.load({
     }
     const module = { exports: {} };
     const exports = module.exports;
-    exports.inject = ["slots", "uiWorkspace", "configForms", "connection", "theme", "sessions", "uiSession", "remote", "remote.credentials", "remote.workspaceFiles", "conversation", "sidebarRight"];
+    exports.inject = ["slots", "configForms", "connection", "theme", "remote", "remote.credentials"];
     exports.apply = (ctx) => {
       const style = document.createElement("style");
       style.dataset.plugin = "@bees/dsh-plugin";
-      style.textContent = `${gridstackCss}\n${cronGeneratorCss}\n${css}`;
+      style.textContent = css;
       document.head.append(style);
       ctx.effect(() => () => style.remove(), "bees: styles");
       ctx.effect(() => installScrollbars(document), "bees: scrollbars");
-      ctx.slots.inject("shell.content", function* () {
-        for (const kind of ["main", "rightbar"]) yield ctx.slots.register({
-          name: "shell.content", key: kind, inject: () => ({ kind })
-        }, NativeContentHost);
-      });
       // Entry ids of the profile plugins that own these settings: the Bees plugin and DSH's provider transport.
       const preferences = blockWritesUntilServed(ctx.configForms.get("bees"));
       const modelSettings = blockWritesUntilServed(ctx.configForms.get("llm-pi-ai"));

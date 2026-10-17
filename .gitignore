@@ -19,3 +19,5 @@ src-tauri/gen/schemas/
 CLAUDE.md
 .wrangler/
 .dev.vars
+
+output/playwright/

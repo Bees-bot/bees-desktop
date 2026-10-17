@@ -1,0 +1,17 @@
+[Unit]
+Description=Bees hosted Client gateway
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+User=bees-gateway
+SupplementaryGroups=docker
+WorkingDirectory=/opt/bees-client
+EnvironmentFile=/etc/bees-client-gateway.env
+ExecStart=/usr/bin/node dsh-runtime/hosted-clients.mjs
+Restart=on-failure
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

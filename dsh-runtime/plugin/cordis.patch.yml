@@ -266,13 +266,29 @@
           - sonnet
           - opus
           - haiku
-    - id: bees-free-ai
-      name: '@bees/dsh-free-ai'
     - id: bees-custom-ai
       name: '@bees/dsh-custom-ai'
     - id: bees
       name: '@bees/dsh-plugin'
-      inject: [ webServer, agents, agentPresets, sessionPersistence, approval, workspaceRegistry, settings, credentials, agentDefaultModel, llm, skills, tools, agentTeams, tokenMeter, sessions, attachments, jobs, fs ]
+      inject:
+        - webServer
+        - connection
+        - agents
+        - agentPresets
+        - sessionPersistence
+        - approval
+        - settings
+        - credentials
+        - agentDefaultModel
+        - llm
+        - skills
+        - tools
+        - userQuestions
+        - sessions
+        - web
+        - attachments
+        - jobs
+        - fs
       config:
         localModelCatalog:
           - id: qwen3-4b-instruct-2507-q4-k-m
@@ -282,62 +298,10 @@
             bytes: 2497281120
             sha256: 3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597
             runsProcesses: false
-        themePreset: halloween
-        colorMode: dark
+        themePreset: corporate
+        colorMode: light
         darkThemePreset: business
         lightThemePreset: corporate
-        dashboards:
-          - id: home
-            name: Home
-            widgets:
-              - kind: outcome
-                x: 0
-                y: 0
-                w: 10
-                h: 4
-              - kind: quick-actions
-                x: 10
-                y: 0
-                w: 2
-                h: 4
-              - kind: waiting
-                x: 0
-                y: 4
-                w: 5
-                h: 7
-              - kind: recent-work
-                x: 5
-                y: 4
-                w: 7
-                h: 7
-              - kind: completed
-                x: 0
-                y: 11
-                w: 12
-                h: 6
-        workItemLayout:
-          - kind: kanban
-            x: 0
-            y: 0
-            w: 12
-            h: 4
-          - kind: run-status
-            x: 0
-            y: 4
-            w: 12
-            h: 1
-          - kind: conversation
-            x: 0
-            y: 5
-            w: 6
-            h: 8
-          - kind: details
-            x: 6
-            y: 5
-            w: 6
-            h: 8
-        pageLayouts: {}
-        systemInstructions: ""
         codexModels: []
         generalAiModels: {}
         generalAiProviders: []

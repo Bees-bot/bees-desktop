@@ -1,217 +1,58 @@
-<p align="center">
-  <img src="src-tauri/icons/icon.png" width="128" alt="Bees app icon">
-</p>
+# Bees Client
 
-<h1 align="center">Bees</h1>
+`main-3` is a fresh thread-based architecture, replacing Bees Desktop. The desktop app and hosted browser use the same thread screen: threads on the left, discussion and AI work in the middle, results/files on the right. On narrow screens files open in a drawer.
 
-<p align="center">
-  Run agentic teams from your own computer while your agents, files, browser sessions, cookies, and passwords stay local.
-</p>
+Install/open the desktop Client, connect an AI in Settings, and start a thread. No account, organization, team, workspace, root folder, or Drive provider is required for local work. The desktop app defaults to local execution. Accounts are needed only to share work or connect machines.
 
-<p align="center">
-  <a href="https://github.com/Bees-bot/bees-desktop/releases/latest"><img src="https://img.shields.io/github/v/release/Bees-bot/bees-desktop" alt="Latest release"></a>
-  <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20or%20Apache%202.0-blue" alt="License: MIT or Apache 2.0"></a>
-  <img src="https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey" alt="Platforms: macOS, Windows, Linux">
-</p>
+## How work lives and moves
 
-<p align="center">
-  <a href="https://bees.bot">Website</a> ·
-  <a href="https://bees.bot/download/">Download</a> ·
-  <a href="https://bees.bot/help/">Help</a> ·
-  <a href="https://github.com/Bees-bot/bees-desktop/discussions">Discussions</a>
-</p>
+Each thread has exactly one owning Client. Its SQLite document and content-addressed files live in that Client's managed private storage. Workflows execute there. Shared participants keep local copies of the thread and its files; Clients refresh these copies automatically while connected. Editors send changes to the owner, which orders and deduplicates them. A viewer cannot mutate or start work. Thread owners control access and approvals.
 
-<p align="center">
-  <img src="docs/media/bees-demo.gif" width="900" alt="Bees runs a Hacker News request from Home, works it on the process board, and shows the finished table in the run">
-</p>
+Workflows have Work, Independent review, and Your approval stages. Thread settings hold instructions, memory notes, and timezone-aware schedules. Schedules run while the owning Client is running; missed occurrences coalesce into one catch-up. Interrupted execution is marked uncertain and requires explicit review/retry, because an external action might already have occurred.
 
-<p align="center">
-  <a href="https://bees.bot/assets/bees-intro-female.mp4">Watch the intro film</a>
-</p>
+**Share** creates an email-addressed invitation, including for vendors outside your organization. Send the generated link to the person invited. The invited account must verify its email. The link alone does not grant access. Everyone on a shared thread uses the same configured Bees Server; private-server guests need an account and network access there. Organizations provide a colleague/client directory and SSO administration; membership never shares a thread automatically.
 
-Bees runs a team of AI agents on your computer instead of one assistant in a single chat window. Describe an outcome in plain language, and Bees turns it into stages. Agents work through them on a shared board, and a separate reviewer checks each result before it moves on.
+**Transfer** moves a stopped thread to another enrolled Client, including another Client belonging to your own account. The source freezes the checkpoint. The recipient verifies the checkpoint and file hashes and accepts it. Execution responsibility then moves to that Client. Keep the source online until acceptance. Active OS/model processes are not migrated. Failed delivery can be retried or cancelled.
 
-It works with agents you may already run, such as Codex or Claude Code from the command line, a hosted model, or a local model. It reaches outside tools through MCP servers (a standard way to plug tools into an agent), the same way OpenClaw or n8n do. You can mark a stage to need your approval, and its agent then cannot send, post, delete or pay through an MCP tool until you approve.
+| Setup | Supported behavior |
+| --- | --- |
+| One local user, no Server | Private threads, files, AI work and local schedules |
+| Same account on several machines | Sign in through one Server; share/transfer individual threads |
+| Many accounts/organizations in SaaS | One persistent isolated hosted Client per account; shared directory/relay API |
+| Enterprise on a disconnected network | Desktop Clients plus a reachable private Bees Server |
+| Free offline organization without a Server | Not supported; no LAN discovery or pairing |
+| Vendor/external guest | Verified email invitation to an individual thread, without org membership |
 
-<p align="center">
-  <img src="docs/assets/bees-demo.gif" width="900" alt="Bees demo: start a task, follow its process run, and visit bees.bot">
-</p>
-
-## Install
-
-Get the build for your computer from the [download page](https://bees.bot/download/) or the latest GitHub release.
-
-| Computer | File | Get it |
-| --- | --- | --- |
-| Mac with Apple Silicon | DMG | [Latest release](https://github.com/Bees-bot/bees-desktop/releases/latest) |
-| Mac with Intel | DMG | [Latest release](https://github.com/Bees-bot/bees-desktop/releases/latest) |
-| Windows x64 | Setup EXE | [Latest release](https://github.com/Bees-bot/bees-desktop/releases/latest) |
-| Linux x64 | AppImage | [Latest release](https://github.com/Bees-bot/bees-desktop/releases/latest) |
-| Linux x64 | DEB | [Latest release](https://github.com/Bees-bot/bees-desktop/releases/latest) |
-
-- **macOS:** open the DMG and drag Bees to Applications. It is signed and notarized by Apple, so Gatekeeper lets it open.
-- **Windows:** run the installer. It is not code-signed yet, so SmartScreen warns. Click "More info", check the name reads Bees, then click "Run anyway".
-- **Linux:** install the DEB, or run the AppImage directly. Linux packages are not signed. The 0.2.0 Linux downloads need Ubuntu 24.04 or newer (glibc 2.39), later releases run on 22.04 too.
-
-You need 8 GB of memory for a cloud model, or 16 GB for a local model, plus 15 GB of free disk space. A local model is 2 to 5 GB, and the data folder can grow to about 10 GB.
-
-Bees updates itself. When a new version is out, it offers to install it and restart. It asks first if work is still running.
-
-Open Bees. It creates a private workspace on this computer with no sign-in, so you can try it right away.
-
-### Try it in about a minute
-
-Open **Settings → AI connections** and connect one AI: Codex or Claude Code (Bees uses the subscription you already have), a hosted provider, or a local model.
-
-Then, on **Home**, type this into the **What would you like to achieve?** box:
-
-```
-Browse Hacker News and give me a table of the current stories, grouped by category: news, Show HN, and Ask HN.
-```
-
-Select **Run**. Bees starts the work with your team's agents and opens it. A reviewer checks the table, and the result lands in that run. You can find it again under **Process Runs**.
-
-## Features
-
-- Describe an outcome in the **What would you like to achieve?** box, and Bees runs it with your team's agents. Choose **Configure** to set the Process, Add-ons, and Input & Output tabs first.
-- Multi-agent processes: agents work through stages on a shared board, and a separate reviewer checks each result before it moves on.
-- Bring your own AI: connect Codex, Claude Code, a hosted provider, or a local model, per agent or as the system default.
-- MCP servers and skills, scoped per agent: give one agent every tool, none, or a named few.
-- Local knowledge search (Company Brain) over folders and Google Drive locations you map yourself.
-- Long-term memory: Bees runs its own local memory service, so agents recall past work without a cloud memory provider.
-- Scheduling: turn a request into a recurring process, like a weekly report.
-- Human in the loop: questions, approvals, and failures show up under **Needs your attention**. Approval is off by default and set per stage.
-
-## Architecture
-
-Bees is a [Tauri](https://tauri.app) app. Tauri owns the native lifecycle (the window and the installer). It launches DSH, plus a bundled `llama.cpp` server for local model inference.
-
-DSH is [DeepSeek Harness](https://github.com/deepseek-ai/DeepSeek-Harness), the open-source agent runtime Bees is built on. It supplies models and providers, credentials, sessions, agents, tools, skills, the MCP client, and approvals as an internal runtime. Bees owns the visible UI and product settings on top of it.
-
-- `dsh-runtime/plugin` is the Bees product plugin: the board, schedules, run and recovery links, file boundaries, local document search, audit receipts, and the shared UI shell.
-- `dsh-runtime/plugins/*` holds smaller, optional plugins: Bees AI, FreeLLMAPI's free-tier routing, and direct custom OpenAI-compatible connections. Each is its own DSH host and web client package.
-- Bees decides which MCP servers exist and who can use them. Their rows live in `bees-stage1.db`. Each enabled server runs as its own process, and every agent carries a policy of all, none, or a named few. Add servers and skills under Agents. Secrets go into DSH's credential store.
-- Product data lives in the app's own `bees-stage1.db`. Older Bees installs are not migrated into it.
-
-## Privacy
-
-Bees keeps two kinds of data separate, and the line between them does not move.
-
-Stays on your computer, always:
-
-- Document files and their contents
-- Credentials, model connections, and installed models
-- The local search index over your documents
-- Run folders, session details, and other execution files
-
-Can sync, only if you turn on team coordination:
-
-- Organizations, teams, and memberships
-- Process templates, runs, work items, schedules, and agent definitions
-- A folder's logical ID and relative path, never the absolute path or its contents
-- Titles and descriptions you type in
-
-Storage access (Google Drive, OneDrive, a NAS, and so on) is controlled by that provider, separately from your Bees team membership. Neither one replaces the other.
-
-When an agent runs, content you select can go straight from your computer to the AI provider or tool you picked for that agent. That can be a hosted model, an MCP server, or a command-line agent, and those services have their own privacy terms. Choose a local model and local tools to keep that content on the machine too.
-
-### What leaves your computer
-
-**Settings → AI connections** offers four ways to add a model, and each sends your work differently:
-
-- **Bees AI** (a local model) runs on this device through the bundled `llama.cpp` server. Downloading a model uses the network; prompts sent to that model stay on the machine.
-- **AI subscriptions** (Claude Code or Codex): Codex signs in with your OpenAI account and talks to OpenAI directly from this computer. Claude Code runs the command-line tool you already installed and signed into, so your prompts pass through it under your own subscription.
-- **General AI APIs** (your own API keys) send your prompt and key straight from this computer to the provider you picked, such as OpenRouter, Google, or Groq.
-- **Free LLM**, the built-in free-tier router, runs locally in the app. It then sends your prompt on to the free-tier provider you picked and added a key for.
-
-To add a personal local model, open the Bees AI local models section of **Settings → AI connections** and use **Add a model** with a direct HTTPS `.gguf` download link. Turn **Run** on to download and start it, then choose it as your **System default**. **Delete** removes a personal model and its downloaded copy. If it is your default, choose another one first. Platform administrators manage the shipped catalog separately through **Edit product defaults**.
-
-A Private organization never syncs with Bees Cloud. When it starts, the app asks `app.bees.bot` for its sign-in settings, with no account token or usage data. The desktop app is fully open source and works on its own. Only the optional team sync server, Bees Cloud, is closed source. Regular organizations use it to sync members, tasks, and progress, and it never receives file contents.
-
-### Workspace memory
-
-Bees runs its own local memory service (Hindsight) so agents can recall earlier work. The app installs it into its own data folder on first use and serves it on `http://127.0.0.1:8898`. You can point it at an authenticated HTTPS Hindsight instead.
-
-Memory extraction always runs on a local model, never a hosted one, so what gets remembered does not leave the machine during that step. Turning memory off stops new saves but does not erase what is already stored. Use Forget to erase stored memories while still connected.
-
-## Supported systems
-
-Every release covers macOS on Apple Silicon and Intel, Windows x64 (EXE installer) and Linux x64 (DEB and AppImage).
-
-macOS builds are signed with a Developer ID and notarized by Apple. Windows and Linux installers are not signed yet, so Windows shows a SmartScreen warning. The Mac build has had far more real use so far than Linux and Windows.
-
-Read [Known limitations](docs/limitations.md) before you install. It lists what does not work yet, including why upgrading from version 0.1.1 does not bring your data across.
-
-## Roadmap
-
-There is no separate roadmap document, only work the team has already flagged:
-
-- Signed Windows installers, once the Azure signing account behind them is set up.
-
-[Known limitations](docs/limitations.md) lists everything else that is deliberately not built yet.
+Clients obtain peer addresses and per-thread grants from Bees Server. Direct HTTPS with TLS certificate trust is attempted first. If it cannot connect, an encrypted live relay is used. No server-side work sync database or offline store exists. Fresh content and accepted changes need a reachable owner and Server. Existing local copies remain readable offline. Logging into a different Client does not transfer work automatically.
 
 ## Development
 
-You need Node 24 (pinned in `.nvmrc`), npm 10+, Rust 1.88+, and a native desktop toolchain. On macOS the first build compiles `llama-server`, so it also needs CMake (`brew install cmake`).
-
-The app bundles its own Node 24 runtime. Native modules built under an older Node break the free AI option on a fresh install. Codespaces and dev containers work for the API and the website, but not for this app, because Tauri needs a real machine.
+Node 24.7 and the native platform build prerequisites are required.
 
 ```sh
 npm ci
-npm run check                 # typecheck, tests, project checks, then build
-npm run prepare:dsh           # stages the Node runtime, llama.cpp and uv for the Rust build
+npm run tauri:dev
+npm run check
 cargo check --manifest-path src-tauri/Cargo.toml
-make bees                     # start the desktop app against https://app.bees.bot (also: make)
+npm run check:headless
 ```
 
-Other commands, run from this repository:
+`npm run check` covers account isolation, storage/transfer validation, tool path fences, schedules, hosted routing, local model admission, subscription adapters, file locking, page fetching, and both UI builds. `check:headless` boots the actual Client, runs an actual agent loop against a synthetic local model, verifies independent work/review, execution deduplication, shutdown, and restart persistence. Peer transport tests live in the sibling `bees-server` repository and use these Client modules directly.
 
-```sh
-make server   # start the local API and PostgreSQL from ../bees-server
-make dev      # in another terminal, start the desktop app against http://localhost:3000
-make build    # build the desktop release installer
-```
+Account profiles separate threads, certificates and device credentials. AI connections remain machine-scoped, so a personal desktop user can reuse a local model/subscription across their own accounts. Hosted users always get separate containers and persistent volumes. No team/workspace data is imported from previous versions.
 
-`make server` needs Docker and the sibling server's dependencies (`npm --prefix ../bees-server ci`). It runs the server's own development command, which starts PostgreSQL, applies migrations, and starts the API. `Ctrl-C` stops the API. PostgreSQL keeps running until `npm --prefix ../bees-server run db:dev:stop`.
+## Hosted Clients
 
-`make bees` and `make dev` both launch the app in development mode, against the deployed API and a local API. Fully quit Bees before switching between them, since the URL is read at startup. The `127.0.0.1` redirect inside a browser sign-in URL is the expected local callback.
+Build the Client image with `docker build -f deploy/headless/Dockerfile -t bees-client:main-3 .`. Run `npm run build:hosted` for browser assets. On a dedicated Docker host, run `node dsh-runtime/hosted-clients.mjs` behind HTTPS using the environment template and service in `deploy/hosted`.
 
-`npm run tauri:dev` uses the deployed API unless `BEES_ACCOUNT_API_URL` is set, and builds no installer. Development commands use `src-tauri/tauri.dev.conf.json`. The debug app reads DSH and llama.cpp straight from this checkout, so Cargo does not copy their resource trees on each build. Preparation keeps the timestamps of unchanged Node and Temporal executables, so Cargo can reuse the native build on repeat launches. Source and configuration changes still rebuild normally.
+The gateway binds loopback behind your HTTPS reverse proxy. It verifies the account session on every request and proxies only the thread and file APIs. It starts one container and named durable volume per `(Server origin, account ID)`. Containers have read-only roots, private loopback HTTP ports, bounded CPU/memory/processes, no extra capabilities and no Docker socket. Only the trusted gateway can control Docker. Set `BEES_CLIENT_IMAGE` to a reviewed registry digest (or immutable local `sha256:` image ID).
 
-Production builds connect to `https://app.bees.bot` unless `BEES_ACCOUNT_API_URL` is set when launching the app. Build a release installer with `make build` (or `npm run tauri:build`). [Releasing Bees](docs/releases.md) covers signing and publishing.
+The hosted model profile is operator-supplied, stored privately in each worker, and never sent to the browser. `BEES_HOSTED_RUNS_PER_DAY=1` is the default allowance. Change the limit/model in a separately provisioned paid pool; billing and automatic paid-plan provisioning are not included. Browser sign-out ends its session while owned work can continue in the hosted Client. Persistent volumes must be backed up independently; the Server cannot restore lost thread contents.
 
-DSH releases are upgraded as one pinned set through the [DSH upgrade checklist](docs/dsh-upgrade-checklist.md).
-
-### Editing product defaults
-
-In a development build, sign in with a platform admin account. **Global Settings → Platform Admin** appears only after the server confirms the role. Turn on **Edit product defaults**, then use the existing model, appearance, and layout controls. Turning it off returns those controls to your personal settings.
-
-Changes save directly to `dsh-runtime/plugin/cordis.patch.yml` in this checkout and refresh the development runtime's bundled defaults immediately. Personal overrides take priority when editing is turned off. The next build includes the saved defaults, and installed copies on other computers need that updated build.
-
-Credentials, downloads, and running models are device settings and are never written into the shipped configuration. There is no publish step or remote configuration store. Admin verification needs a connection, while ordinary installations use the bundled defaults offline. Release builds cannot edit the source checkout.
-
-### The Apps catalog
-
-The Apps screen is hidden from the sidebar for now. It loads a hosted catalog when you open it or select Refresh. Users inspect a package's name, description, publisher, access, and sources, then Install, finish setup, and Open. Packages live in `bees-apps`, and installing one needs no JSON upload or GitHub credentials of your own.
-
-Installed versions are pinned. Updating one needs a separate approval, keeps existing results, and requires stopping any schedule or active work on it first. An offline catalog is browse-only, while installs you already have keep working.
-
-The catalog URL is `https://bees-bot.github.io/bees-apps/catalog.json`. Hosting it is a separate step, and this repository's code does not publish it. Set `BEES_APP_CATALOG_URL` at launch to point at another credential-free HTTPS host. Only a future package schema or runtime capability needs a desktop upgrade.
-
-Local apps use SQLite. Connected apps use the selected account and revisioned server storage for configuration, source receipts, records, drafts, decisions, and shared limits. They need a matching Bees Server update and a connection, and failed writes never become offline approvals. See `bees-apps/README.md` for catalog publishing and the current 16 MB shared-state limit.
-
-## Contributing
-
-We take feature requests and bug reports, not code. Only the Bees team can open pull requests here. [Ask for a feature](https://github.com/Bees-bot/bees-desktop/issues/new?template=feature_request.yml) or [report a bug](https://github.com/Bees-bot/bees-desktop/issues/new?template=bug_report.yml) instead, and read [CONTRIBUTING.md](CONTRIBUTING.md) for why. Everyone taking part is covered by the [Code of Conduct](CODE_OF_CONDUCT.md).
-
-## Security
-
-Do not open a public issue for a vulnerability. Report it privately through GitHub's security advisory form for this repository, or by email to security@bees.bot. [SECURITY.md](SECURITY.md) says what to include and what happens next.
+Limits in this initial implementation: 10 MB per file, 250 MB of files and 8 MB of structured state per thread; HTTP address attempts followed by relay (no ICE); one relay process in the initial Server deployment. Revocation prevents further sync and execution requests; it cannot erase files someone already downloaded. There is no automatic owner takeover if its machine is lost.
 
 ## License
 
-Bees Desktop is open source under your choice of the [Apache License, Version 2.0](LICENSE-APACHE) or the [MIT License](LICENSE-MIT).
+MIT OR Apache-2.0. See LICENSE files in this repository.
 
-Bees Cloud, the optional coordination server that Regular organizations use to sync across teammates, lives in a separate repository, `bees-server`. It is not part of this repository or its license.
-
-Bees Desktop also ships third-party software under its own terms, including LGPL-3 libraries inside libvips (an image-processing library it uses). [NOTICE](NOTICE) lists every component and its license.
+The installed runtime still reports upstream DSH/MCP and source-map security advisories. Resolve those before public release.

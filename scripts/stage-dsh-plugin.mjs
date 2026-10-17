@@ -8,7 +8,6 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const plugins = [
   ["plugin", "dsh-plugin"],
   ["plugins/local-ai", "dsh-local-ai"],
-  ["plugins/free-ai", "dsh-free-ai"],
   ["plugins/custom-ai", "dsh-custom-ai"],
   ["plugins/subscriptions", "dsh-subscriptions"]
 ];

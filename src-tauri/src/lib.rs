@@ -145,7 +145,6 @@ fn runtime_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf, PathBuf), 
             .join("lib")
             .join("index.js")
             .is_file()
-        || !runtime.join("freellmapi").join("server.mjs").is_file()
         || BEES_PLUGINS.iter().any(|package| {
             !runtime
                 .join("node_modules")
@@ -259,10 +258,9 @@ fn prepare_profile(runtime: &Path, home: &Path) -> Result<(), String> {
 
 /// Every plugin Bees ships. The launch check and the profile links both read this, so a new
 /// plugin cannot be staged without also being verified and linked.
-const BEES_PLUGINS: [&str; 5] = [
+const BEES_PLUGINS: [&str; 4] = [
     "dsh-plugin",
     "dsh-local-ai",
-    "dsh-free-ai",
     "dsh-custom-ai",
     "dsh-subscriptions",
 ];
@@ -588,7 +586,7 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
         .env("DSH_TELEMETRY_DISABLED", "1")
         .env("BEES_DSH_TOKEN", &secret)
         .env("BEES_DSH_QUERY_PATH", home.join("session-query.sqlite"))
-        .env("BEES_DATABASE_PATH", data.join("bees-stage1.db"))
+        .env("BEES_FLEET_JOB", "client")
         .env("BEES_DATA_DIR", &data)
         .env("BEES_APP_DATA", &app_data)
         .env("BEES_DEFAULT_WORKSPACE", &workspace)
@@ -732,7 +730,7 @@ fn execution_preferences(app: tauri::AppHandle) -> Result<ExecutionPreferences, 
     match fs::read_to_string(path) {
         Ok(value) => serde_json::from_str(&value).map_err(|e| e.to_string()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(ExecutionPreferences {
-            mode: "choose".to_string(), cloud_url: "https://app.bees.bot/app".to_string(), allow_local_execution: false,
+            mode: "local".to_string(), cloud_url: "https://app.bees.bot/app".to_string(), allow_local_execution: true,
         }),
         Err(e) => Err(e.to_string()),
     }

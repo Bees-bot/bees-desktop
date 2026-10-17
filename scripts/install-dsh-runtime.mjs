@@ -49,9 +49,10 @@ await writeFile(teamEntry, teamSource.replace(teamNeedle, teamPatch));
 
 // seatbelt only fences writes; the bees plugin names the folders a shell may never read (readFence in data-folder.js)
 const sandboxEntry = path.join(runtimeRoot, "node_modules", "@deepseek-ai", "dsh-sandbox-local", "lib", "index.js");
+await writeFile(sandboxEntry, (await readFile(sandboxEntry,"utf8")).replaceAll("globalThis.__beesReadFence?.()", "globalThis.__beesReadFence?.(policy.workspaceRoot)"));
 await writeFile(sandboxEntry, timeDshStartup(await readFile(sandboxEntry, "utf8"), [[
   '\treturn ["-p", forms.join(" ")];',
-  '\tconst fence = globalThis.__beesReadFence?.();\n\tfor (const [rule, roots] of [["deny", fence?.closed], ["allow", fence?.open]]) if (roots?.length) forms.push(`(${rule} file-read-data ${roots.map((root) => `(subpath ${sbplString(root)})`).join(" ")})`);\n\treturn ["-p", forms.join(" ")];',
+  '\tconst fence = globalThis.__beesReadFence?.(policy.workspaceRoot);\n\tfor (const [rule, roots] of [["deny", fence?.closed], ["allow", fence?.open]]) if (roots?.length) forms.push(`(${rule} file-read-data ${roots.map((root) => `(subpath ${sbplString(root)})`).join(" ")})`);\n\treturn ["-p", forms.join(" ")];',
 ]]));
 
 // Fleet shell commands must not read runner credentials, other attempts, or the host's logins.
@@ -60,7 +61,7 @@ await writeFile(sandboxEntry, timeDshStartup(await readFile(sandboxEntry, "utf8"
   'import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";',
 ], [
   '\treturn args;\n}\n/**\n* Build the Landlock',
-  '\tif (process.env.BEES_FLEET_JOB) {\n\t\tconst fence = globalThis.__beesReadFence?.();\n\t\tfor (const root of fence?.closed ?? []) if (existsSync(root)) args.push(...(statSync(root).isDirectory() ? ["--tmpfs", root] : ["--ro-bind", "/dev/null", root]));\n\t\tfor (const root of fence?.open ?? []) if (existsSync(root)) args.push("--ro-bind", root, root);\n\t\tif (policy.mode === "workspace-write") args.push("--bind", policy.workspaceRoot, policy.workspaceRoot);\n\t}\n\treturn args;\n}\n/**\n* Build the Landlock',
+  '\tif (process.env.BEES_FLEET_JOB) {\n\t\tconst fence = globalThis.__beesReadFence?.(policy.workspaceRoot);\n\t\tfor (const root of fence?.closed ?? []) if (existsSync(root)) args.push(...(statSync(root).isDirectory() ? ["--tmpfs", root] : ["--ro-bind", "/dev/null", root]));\n\t\tfor (const root of fence?.open ?? []) if (existsSync(root)) args.push("--ro-bind", root, root);\n\t\tif (policy.mode === "workspace-write") args.push("--bind", policy.workspaceRoot, policy.workspaceRoot);\n\t}\n\treturn args;\n}\n/**\n* Build the Landlock',
 ], [
   '\t\treadOnly: ["/"],',
   '\t\treadOnly: process.env.BEES_FLEET_JOB ? ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc/ssl", "/etc/hosts", "/etc/resolv.conf", "/etc/nsswitch.conf", process.env.BEES_RUNTIME_ROOT, policy.workspaceRoot].filter((p) => p && existsSync(p)) : ["/"],',

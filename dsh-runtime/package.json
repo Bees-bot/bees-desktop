@@ -8,7 +8,6 @@
   },
   "dependencies": {
     "@bees/dsh-custom-ai": "file:plugins/custom-ai",
-    "@bees/dsh-free-ai": "file:plugins/free-ai",
     "@bees/dsh-local-ai": "file:plugins/local-ai",
     "@bees/dsh-plugin": "file:plugin",
     "@bees/dsh-subscriptions": "file:plugins/subscriptions",
@@ -260,8 +259,8 @@
     "@temporalio/client": "1.22.0",
     "@temporalio/worker": "1.22.0",
     "@temporalio/workflow": "1.22.0",
-    "@tobilu/qmd": "2.5.3",
     "better-sqlite3": "12.10.0",
+    "cron-parser": "5.4.0",
     "cronstrue": "3.24.0",
     "google-auth-library": "10.5.0",
     "gridstack": "13.2.0",
@@ -269,7 +268,8 @@
     "react": "18.3.1",
     "react-cron-generator": "2.6.0",
     "react-dom": "18.3.1",
-    "ws": "8.21.3",
+    "selfsigned": "5.5.0",
+    "ws": "8.21.1",
     "yaml": "2.9.0",
     "zod": "4.6.2"
   },
@@ -559,6 +559,7 @@
     "pdfjs-dist": "6.2.108",
     "@deepseek-ai/libreoffice-kit": {
       "fflate": "0.8.3"
-    }
+    },
+    "ws": "8.21.1"
   }
 }

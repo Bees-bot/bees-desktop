@@ -11,9 +11,8 @@
 !dsh-runtime/package-lock.json
 !dsh-runtime/start.mjs
 !dsh-runtime/headless.mjs
-!dsh-runtime/runner.mjs
-!dsh-runtime/runner-cloud.mjs
-!dsh-runtime/hosted-mcp.mjs
+!dsh-runtime/client-cloud.mjs
+!dsh-runtime/hosted-clients.mjs
 !dsh-runtime/profile/
 !dsh-runtime/profile/**
 !dsh-runtime/plugin/

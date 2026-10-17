@@ -17,7 +17,6 @@
       "platform": "web",
       "inject": [
         "@bees/dsh-local-ai",
-        "@bees/dsh-free-ai",
         "@bees/dsh-custom-ai",
         "@bees/dsh-subscriptions",
         "@deepseek-ai/dsh-client-runtime",
@@ -31,7 +30,6 @@
       ],
       "external": [
         "@bees/dsh-local-ai",
-        "@bees/dsh-free-ai",
         "@bees/dsh-custom-ai",
         "@bees/dsh-subscriptions"
       ]
@@ -39,7 +37,6 @@
   },
   "peerDependencies": {
     "@bees/dsh-custom-ai": "0.1.0",
-    "@bees/dsh-free-ai": "0.1.0",
     "@bees/dsh-local-ai": "0.1.0",
     "@bees/dsh-subscriptions": "0.1.0",
     "@deepseek-ai/cordis": "^4.0.3",

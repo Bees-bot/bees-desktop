@@ -81,15 +81,15 @@ jobs:
         run: |
           gh release download "$TAG" -p "*_${{ matrix.arch }}.dmg"
           MNT=$(hdiutil attach -nobrowse Bees_*.dmg | grep -o '/Volumes/.*' | head -1)
-          cp -R "$MNT/Bees.app" /Applications/ && hdiutil detach "$MNT"
+          cp -R "$MNT/Bees Client.app" /Applications/ && hdiutil detach "$MNT"
       - name: Check signature and notarization
         run: |
-          codesign --verify --deep --strict -vv /Applications/Bees.app
-          spctl -a -vv -t exec /Applications/Bees.app
-          xcrun stapler validate /Applications/Bees.app
+          codesign --verify --deep --strict -vv "/Applications/Bees Client.app"
+          spctl -a -vv -t exec "/Applications/Bees Client.app"
+          xcrun stapler validate "/Applications/Bees Client.app"
       - name: Start the engine
-        run: bash scripts/install-check-boot.sh /Applications/Bees.app/Contents/MacOS /Applications/Bees.app/Contents/Resources/dsh-runtime
+        run: bash scripts/install-check-boot.sh "/Applications/Bees Client.app/Contents/MacOS" "/Applications/Bees Client.app/Contents/Resources/dsh-runtime"
       - name: Open the window for 20 seconds
         run: |
-          mkdir -p "$RUNNER_TEMP/gui" && HOME=$RUNNER_TEMP/gui /Applications/Bees.app/Contents/MacOS/bees-desktop & sleep 20
+          mkdir -p "$RUNNER_TEMP/gui" && HOME=$RUNNER_TEMP/gui "/Applications/Bees Client.app/Contents/MacOS/bees-desktop" & sleep 20
           kill -0 $! && kill $!

@@ -10,7 +10,7 @@ RUN npm ci --omit=dev --prefix dsh-runtime --ignore-scripts --legacy-peer-deps &
 COPY scripts ./scripts
 COPY src/brand-mark.png ./src/brand-mark.png
 COPY dsh-runtime/start.mjs dsh-runtime/headless.mjs ./dsh-runtime/
-COPY dsh-runtime/runner.mjs dsh-runtime/runner-cloud.mjs dsh-runtime/hosted-mcp.mjs ./dsh-runtime/
+COPY dsh-runtime/client-cloud.mjs ./dsh-runtime/
 COPY dsh-runtime/profile ./dsh-runtime/profile
 RUN node scripts/install-dsh-runtime.mjs && node scripts/stage-dsh-plugin.mjs && node scripts/prepare-dsh-runtime.mjs --headless
 
@@ -20,8 +20,6 @@ WORKDIR /opt/bees
 COPY --from=build /opt/bees/dsh-runtime ./dsh-runtime
 COPY --from=build /opt/bees/src-tauri/binaries/temporal-*-unknown-linux-gnu /usr/local/bin/temporal
 COPY --from=build /opt/bees/scripts/check-headless.mjs ./scripts/check-headless.mjs
-COPY --from=build /opt/bees/scripts/check-fleet-sandbox.mjs ./scripts/check-fleet-sandbox.mjs
-COPY --from=build /opt/bees/scripts/fixtures/headless-mcp.mjs ./scripts/fixtures/headless-mcp.mjs
 COPY deploy/headless/config.json /etc/bees/config.json
 RUN mkdir -m 700 /var/lib/bees && chown node:node /var/lib/bees
 USER node

@@ -18,7 +18,6 @@ import {
 import { availableParallelism, tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { build } from "esbuild";
 import { publishArtifact } from "./publish-artifact.mjs";
 import "./check-node.mjs";
 
@@ -101,9 +100,6 @@ const temporalAssets = {
     "c845948aa4ab3b1a3643f9fea6d1cd691188bc31513de5f2dc5f7eceea25f22a"
   ]
 };
-const freeLlmVersion = "0.8.4";
-const freeLlmCommit = "6c4233b6847623328cdb8652d68e4d70d81f16e6";
-const freeLlmArchiveSha256 = "05cbaf60792f5183f74a238ca7938de93b0246e98a90ff571d243ea646e14469";
 
 /**
  * A cached artifact counts as prepared only if the marker names both the revision and the size we
@@ -176,64 +172,6 @@ async function prepareTemporalRuntime() {
     if (!licence) throw new Error(`${fileName} did not contain the Temporal licence.`);
     copyFileSync(licence, resolve(desktopRoot, "dsh-runtime", "LICENSE-temporal"));
     markPrepared(marker, temporalDestination, temporalRelease);
-  } finally {
-    rmSync(temporaryRoot, { recursive: true, force: true });
-  }
-}
-
-async function prepareFreeLlmRuntime() {
-  const revision = `${freeLlmVersion}-${freeLlmCommit}`;
-  const runtimeRoot = resolve(desktopRoot, "dsh-runtime", "freellmapi");
-  const server = join(runtimeRoot, "server.mjs");
-  const marker = join(runtimeRoot, ".freellmapi-version");
-  if (preparedAlready(marker, server, revision)) return;
-
-  const temporaryRoot = mkdtempSync(join(tmpdir(), "bees-freellmapi-"));
-  try {
-    console.log(`Preparing embedded FreeLLMAPI v${freeLlmVersion}...`);
-    const archive = await downloadVerified(
-      `https://github.com/tashfeenahmed/freellmapi/archive/refs/tags/v${freeLlmVersion}.tar.gz`,
-      freeLlmArchiveSha256
-    );
-    const archivePath = join(temporaryRoot, `freellmapi-v${freeLlmVersion}.tar.gz`);
-    const sourceParent = join(temporaryRoot, "source");
-    const sourceRoot = join(sourceParent, `freellmapi-${freeLlmVersion}`);
-    writeFileSync(archivePath, archive);
-    mkdirSync(sourceParent);
-    execFileSync("tar", ["-xf", archivePath, "-C", sourceParent]);
-    if (!existsSync(join(sourceRoot, "desktop", "src", "server-host.ts"))) {
-      throw new Error("The FreeLLMAPI archive did not contain its embedded server.");
-    }
-    execFileSync(
-      "npm",
-      ["ci", "--omit=dev", "--omit=optional", "--workspace", "server", "--workspace", "shared", "--ignore-scripts"],
-      // npm is npm.cmd on windows, which node only starts through a shell
-      { cwd: sourceRoot, stdio: "inherit", shell: process.platform === "win32" }
-    );
-
-    rmSync(runtimeRoot, { recursive: true, force: true });
-    mkdirSync(runtimeRoot, { recursive: true });
-    await build({
-      entryPoints: [join(sourceRoot, "desktop", "src", "server-host.ts")],
-      absWorkingDir: sourceRoot,
-      bundle: true,
-      platform: "node",
-      format: "esm",
-      target: "node20",
-      outfile: server,
-      external: ["better-sqlite3"],
-      define: {
-        "process.env.FREELLMAPI_COMMIT_SHA": JSON.stringify(freeLlmCommit),
-        "process.env.FREELLMAPI_INSTALL_METHOD": JSON.stringify("desktop")
-      },
-      banner: {
-        js: "import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);"
-      },
-      logLevel: "info"
-    });
-    copyFileSync(join(sourceRoot, "LICENSE"), join(runtimeRoot, "LICENSE"));
-    markPrepared(marker, server, revision);
-    writeFileSync(join(runtimeRoot, ".gitkeep"), "");
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
   }
@@ -484,49 +422,12 @@ async function prepareLlamaRuntime() {
   }
 }
 
-await prepareFreeLlmRuntime();
 await prepareTemporalRuntime();
 if (!headless) await prepareLlamaRuntime();
 
-// Ship the small installer, not a developer-machine Python environment. uv provisions
-// pinned Hindsight and managed Python into the writable app-data directory on first run.
-async function prepareMemoryInstaller() {
-  const release = "0.10.0";
-  const windows = target.includes("windows");
-  const archiveName = `uv-${target}.${windows ? "zip" : "tar.gz"}`;
-  const base = `https://github.com/astral-sh/uv/releases/download/${release}`;
-  const directory = resolve(desktopRoot, "dsh-runtime", "memory-runtime");
-  const binary = join(directory, `uv${extension}`);
-  const marker = join(directory, ".prepared");
-  if (preparedAlready(marker, binary, `${release}-${target}`)) return;
-  const checksum = await get(`${base}/${archiveName}.sha256`);
-  if (!checksum.ok) throw new Error(`uv does not provide the memory installer for ${target}`);
-  const hash = (await checksum.text()).trim().split(/\s+/)[0];
-  if (!/^[a-f0-9]{64}$/.test(hash)) throw new Error("Invalid uv release checksum");
-  const archive = await downloadVerified(`${base}/${archiveName}`, hash);
-  const staging = mkdtempSync(join(tmpdir(), "bees-memory-installer-"));
-  try {
-    const path = join(staging, archiveName);
-    writeFileSync(path, archive);
-    if (windows) execFileSync("powershell", ["-NoProfile", "-Command", `Expand-Archive -LiteralPath '${path.replaceAll("'", "''")}' -DestinationPath '${staging.replaceAll("'", "''")}'`]);
-    else execFileSync("tar", ["-xzf", path, "-C", staging]);
-    const executable = findFile(staging, `uv${extension}`);
-    if (!executable) throw new Error("uv release is missing its executable");
-    mkdirSync(directory, { recursive: true });
-    copyFileSync(executable, binary);
-    chmodSync(binary, 0o755);
-    const license = await get(`https://raw.githubusercontent.com/astral-sh/uv/${release}/LICENSE-MIT`);
-    if (!license.ok) throw new Error("uv license download failed");
-    writeFileSync(join(directory, "LICENSE-MIT"), await license.text());
-    signMacRuntime(directory);
-    markPrepared(marker, binary, `${release}-${target}`);
-  } finally { rmSync(staging, { recursive: true, force: true }); }
-}
-
-if (!headless) await prepareMemoryInstaller();
-
 // Pruning is in place, so a local cross-build would delete this machine's own native builds and
 // break its dev runs. Each runner builds its own target, so nothing ships unpruned.
+for (const name of ['freellmapi','memory-runtime']) rmSync(resolve(desktopRoot,'dsh-runtime',name),{recursive:true,force:true});
 if (target === hostTarget) pruneRuntime(resolve(desktopRoot, "dsh-runtime"));
 
 signMacBundledRuntime(resolve(desktopRoot, "dsh-runtime"));

@@ -11,7 +11,7 @@ import { withFileLock } from "@deepseek-ai/dsh-atomic-write";
 
 const runtime = dirname(fileURLToPath(import.meta.url));
 const profilePackages = [
-  ...["dsh-plugin", "dsh-local-ai", "dsh-free-ai", "dsh-custom-ai", "dsh-subscriptions"].map((name) => `@bees/${name}`),
+  ...["dsh-plugin", "dsh-local-ai", "dsh-custom-ai", "dsh-subscriptions"].map((name) => `@bees/${name}`),
   ...["agent-team", "tool-agent-team", "client-ui-agent-team"].map((name) => `@deepseek-ai/dsh-experimental-${name}`)
 ];
 
@@ -123,9 +123,9 @@ export async function launch(config, signal, runtimeEnvironment = {}) {
         "--profile", "bees", "--host", config.host, "--port", String(config.port), "--no-open"], {
         cwd: workspace,
         env: { ...process.env, ...runtimeEnvironment, BEES_HOST_HOME: process.env.BEES_HOST_HOME || homedir(), HOME: config.stateDir, USERPROFILE: config.stateDir,
-          BEES_HEADLESS: "1", DSH_HOME: home, DSH_TELEMETRY_DISABLED: "1",
+          BEES_HEADLESS: "1", BEES_FLEET_JOB: "client", DSH_HOME: home, DSH_TELEMETRY_DISABLED: "1",
           BEES_DSH_TOKEN: config.token, BEES_DSH_QUERY_PATH: join(home, "session-query.sqlite"),
-          BEES_DATABASE_PATH: join(config.stateDir, "bees-stage1.db"), BEES_DATA_DIR: config.stateDir,
+          BEES_DATA_DIR: config.stateDir,
           BEES_APP_DATA: config.stateDir, BEES_DEFAULT_WORKSPACE: workspace,
           BEES_STATE_DIR: join(config.stateDir, "state"), BEES_STARTUP_LOG: join(config.stateDir, "state", "startup.log"),
           BEES_RUNTIME_ROOT: runtime, BEES_TEMPORAL_ADDRESS: `127.0.0.1:${temporalPort}`, BEES_PRODUCT_SOURCE: "" }

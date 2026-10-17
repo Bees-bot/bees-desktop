@@ -1,9 +1,0 @@
-{
-  "$schema":"./node_modules/wrangler/config-schema.json",
-  "name":"bees-cloud-machines",
-  "main":"machines.mjs",
-  "compatibility_date":"2026-10-15",
-  "containers":[{"class_name":"BeesMachine","image":"../Dockerfile","image_build_context":"../../..","instance_type":"standard-2","max_instances":10}],
-  "durable_objects":{"bindings":[{"name":"MACHINES","class_name":"BeesMachine"}]},
-  "exports":{"BeesMachine":{"type":"durable-object","storage":"sqlite"}}
-}

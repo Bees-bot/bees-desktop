@@ -24,7 +24,7 @@ mac() {
   ditto -c -k --keepParent "$app" "$out/$name.zip"
   notarize "$out/$name.zip"
   xcrun stapler staple "$app"
-  COPYFILE_DISABLE=1 tar -czf "$out/$name.app.tar.gz" -C "$(dirname "$app")" Bees.app
+  COPYFILE_DISABLE=1 tar -czf "$out/$name.app.tar.gz" -C "$(dirname "$app")" "$(basename "$app")"
   rm -rf "$out/dmg" && mkdir "$out/dmg"
   cp -R "$app" "$out/dmg/"
   ln -s /Applications "$out/dmg/Applications"
@@ -82,7 +82,7 @@ publish)
   run=$(gh workflow run build.yml --repo $repo --ref main -f sha="$sha" | grep -o 'runs/[0-9]*' | cut -d/ -f2) || die "github did not start the build."
   npm ci
   APPLE_SIGNING_IDENTITY=$identity npx tauri build --bundles app
-  mac src-tauri/target/release/bundle/macos/Bees.app aarch64
+  mac "src-tauri/target/release/bundle/macos/Bees Client.app" aarch64
 
   try gh run watch "$run" --repo $repo --interval 60 --exit-status >/dev/null
   # curl resumes each zip after a drop, and set -e is off inside try, hence the returns
@@ -97,8 +97,15 @@ publish)
   try ci
   mkdir "$out/intel"
   tar -xzf "$out/ci/macos-15-intel/Bees.app.tar.gz" -C "$out/intel"
-  mac "$out/intel/Bees.app" x64
-  find "$out/ci" \( -name "*-setup.exe" -o -name "*.AppImage" -o -name "*.deb" \) -exec mv {} "$out" \;
+  mac "$out/intel/Bees Client.app" x64
+  while IFS= read -r -d '' file; do
+    case "$file" in
+      *-setup.exe) destination="Bees_${version}_x64-setup.exe" ;;
+      *.AppImage) destination="Bees_${version}_amd64.AppImage" ;;
+      *.deb) destination="Bees_${version}_amd64.deb" ;;
+    esac
+    mv "$file" "$out/$destination"
+  done < <(find "$out/ci" \( -name "*-setup.exe" -o -name "*.AppImage" -o -name "*.deb" \) -print0)
 
   updates=("Bees_${version}_aarch64.app.tar.gz" "Bees_${version}_x64.app.tar.gz" "Bees_${version}_x64-setup.exe" "Bees_${version}_amd64.AppImage" "Bees_${version}_amd64.deb")
   # 2.12 binds each signature to the version, which requireSignedVersion in tauri.conf.json checks

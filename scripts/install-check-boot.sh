@@ -15,7 +15,7 @@ fs.copyFileSync(path.join(rt, 'profile', 'package.json'), path.join(prof, 'packa
 fs.writeFileSync(path.join(prof, 'cordis.patch.yml'), '[]\n');
 fs.writeFileSync(path.join(home, 'settings.yaml'), 'ui-onboarding:\n  welcomeNoticeVersion: 2026-08-13.1\n');
 for (const p of ['@deepseek-ai/dsh-experimental-client-ui-agent-team', '@deepseek-ai/dsh-experimental-agent-team',
-  '@deepseek-ai/dsh-experimental-tool-agent-team', '@bees/dsh-plugin', '@bees/dsh-local-ai', '@bees/dsh-free-ai',
+  '@deepseek-ai/dsh-experimental-tool-agent-team', '@bees/dsh-plugin', '@bees/dsh-local-ai',
   '@bees/dsh-custom-ai', '@bees/dsh-subscriptions']) {
   const d = path.join(prof, 'node_modules', p);
   fs.mkdirSync(path.dirname(d), { recursive: true });
@@ -38,7 +38,7 @@ BEES_STARTUP_LOG="$C/dsh-state/startup.log" BEES_RUNTIME_ROOT="$RT" BEES_TEMPORA
   --port 4317 --no-open > "$C/dsh.log" 2>&1 &
 
 for _ in $(seq 180); do
-  if curl -s http://127.0.0.1:4317/healthz | grep -q '"product":"bees"'; then
+  if curl -s http://127.0.0.1:4317/healthz | grep -q '"service":"bees-client"'; then
     echo "healthz ok: $(curl -s http://127.0.0.1:4317/healthz)"; exit 0
   fi
   sleep 1

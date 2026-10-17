@@ -55,7 +55,7 @@ await writeFile(
   resolve(outdir, "source.json"),
   JSON.stringify({
     package: "@bees/desktop",
-    entry: "dsh-runtime/plugin/client/shell.js",
+    entry: "dsh-runtime/plugin/client/thread-app.js",
     revision: execFileSync("git", ["rev-parse", "HEAD"], {
       cwd: root,
       encoding: "utf8",

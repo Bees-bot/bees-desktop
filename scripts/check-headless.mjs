@@ -16,28 +16,20 @@ const root = await mkdtemp(join(tmpdir(), "bees-headless-proof-"));
 const bundledTemporal = join(desktop, "src-tauri/binaries", `temporal-${process.arch === "arm64" ? "aarch64" : "x86_64"}-apple-darwin`);
 const temporalBinary = process.env.BEES_PROOF_TEMPORAL || (process.platform === "darwin" && existsSync(bundledTemporal) ? bundledTemporal : "temporal");
 const port = await freePort(), modelPort = await freePort();
-let modelCalls = 0, toolResults = 0, child, exited, logs = "", trace = [];
+let modelCalls = 0, deniedReads = 0, child, exited, logs = "", trace = [];
 const model = createServer(async (req, res) => {
   try {
     const chunks = []; for await (const chunk of req) chunks.push(chunk);
     const body = JSON.parse(Buffer.concat(chunks));
     assert.equal(req.url, "/v1/chat/completions");
     modelCalls++;
-    const tool = body.tools?.find(({ function: fn }) => fn.name === "mcp__stage1__calendar_summary");
-    const used = body.messages.some((message) => message.role === "tool" && JSON.stringify(message.content).includes("STAGE1_CALENDAR"));
-    trace = [...trace, { tools: body.tools?.map(({ function: fn }) => fn.name), used,
-      results: body.messages.filter(({ role }) => role === "tool").slice(-2) }].slice(-8);
-    if (used) toolResults++;
-    const submit = body.tools?.find(({ function: fn }) => fn.name === "bees_submit_stage_result");
-    const discover = body.tools?.find(({ function: fn }) => fn.name === "bees_find_tools");
-    const submitted = body.messages.some((message) => message.tool_calls?.some(({ function: fn }) => fn.name === "bees_submit_stage_result"));
-    const call = (name, args) => ({ role: "assistant", tool_calls: [{ index: 0, id: `proof-${modelCalls}`,
-      type: "function", function: { name, arguments: JSON.stringify(args) } }] });
-    const delta = !tool && !used && discover ? call(discover.function.name, { query: "mcp__stage1__calendar_summary" })
-      : tool && !used ? call(tool.function.name, {})
-      : used && submit && !submitted ? call(submit.function.name, { outcome: "candidate", acceptance_criteria_met: true,
-        summary: "The calendar has one sales meeting with Acme at 09:00. STAGE1_COMPLETE." })
-      : { role: "assistant", content: "STAGE1_COMPLETE." };
+    const read = body.tools?.find(({function:fn})=>fn.name==='read');
+    const attempted = body.messages.some(m=>m.tool_calls?.some(({function:fn})=>fn.name==='read'));
+    const results=body.messages.filter(m=>m.role==='tool');
+    assert(!JSON.stringify(results).includes('DO_NOT_LEAK_FROM_OTHER_THREAD'));
+    if(results.some(m=>JSON.stringify(m.content).includes('Attach this file')))deniedReads++;
+    trace=[...trace,{attempted,results:results.slice(-2)}].slice(-8);
+    const delta=read&&!attempted?{role:'assistant',tool_calls:[{index:0,id:'proof-'+modelCalls,type:'function',function:{name:'read',arguments:JSON.stringify({file_path:join(root,'private-other-thread.txt')})}}]}:{role:'assistant',content:'STAGE1_COMPLETE.'};
     res.writeHead(200, { "content-type": "text/event-stream" });
     const chunk = (delta, finish_reason = null) => ({ id: `proof-${modelCalls}`, object: "chat.completion.chunk",
       created: Math.floor(Date.now() / 1000), model: "proof", choices: [{ index: 0, delta, finish_reason }] });
@@ -89,6 +81,7 @@ const stop = async () => {
   finally { clearTimeout(timer); }
 };
 try {
+  await writeFile(join(root,'private-other-thread.txt'),'DO_NOT_LEAK_FROM_OTHER_THREAD');
   const config = { stateDir: join(root, "state"), port, temporalBinary };
   assert.throws(() => launchConfig(config, {}), /BEES_DSH_TOKEN/);
   for (const invalid of [{ stateDir: "/" }, { stateDir: "relative" }, { port: 0 }, { host: "example.com" }, { typo: true }])
@@ -113,41 +106,41 @@ try {
     { env: { ...process.env, BEES_DSH_TOKEN: token }, stdio: "ignore" });
   assert.equal(await new Promise((done) => duplicate.once("exit", done)), 1, "Reject two launchers using one state folder");
   const snapshot = await api("/bees-api/snapshot");
-  const workspaceId = snapshot.workspaces[0].id;
-  await api("/bees-api/capabilities", { action: "add_mcp_server", serverName: "stage1", transport: "stdio",
-    command: process.execPath, args: [join(desktop, "scripts/fixtures/headless-mcp.mjs")] });
-  const agent = await api("/bees-api/command", { action: "add_agent_assignment", workspaceId, presetId: "standard",
-    name: "Stage 1 verifier", instructions: "Read the synthetic calendar MCP tool and report its sales meeting. Do no other work.",
-    model: "stage1/proof", mcpAccess: "listed", mcpServers: ["stage1"] });
-  const processRow = await api("/bees-api/command", { action: "create_process", workspaceId,
-    name: "Stage 1 proof", description: "Summarize the synthetic sales calendar", stages: [
-      { name: "Summarize", driver: "agent" }, { name: "Done", driver: "terminal" } ], mcpAccess: "listed", mcpServers: ["stage1"] });
-  const item = await api("/bees-api/command", { action: "create_item", processId: processRow.id,
-    agentAssignmentId: agent.id, title: "Synthetic daily summary", description: "Call the calendar MCP tool and summarize the sales meeting." });
-  assert(!item.error, item.error);
+  assert.equal(snapshot.product, "Bees Client");
+  assert.equal(snapshot.threads.length, 0);
+  assert(!Object.hasOwn(snapshot, "teams") && !Object.hasOwn(snapshot, "workspaces"));
+  const command = input => api("/bees-api/threads", {operationId: crypto.randomUUID(), ...input});
+  const thread = await command({action: "create", title: "Synthetic thread"});
+  await command({action: "message", threadId: thread.id, text: "Describe the fictional repair cafe."});
+  const operationId = crypto.randomUUID();
+  await command({action: "run", threadId: thread.id, operationId, text: "Reply STAGE1_COMPLETE after inspecting the supplied files."});
   await until(async () => {
-    const current = await api("/bees-api/snapshot");
-    const row = current.items.find(({ id }) => id === item.id);
-    assert(row?.runtimePhase !== "failed", JSON.stringify({ row, modelCalls, toolResults, trace }));
-    return row?.runtimePhase === "completed";
+    const current = await command({action: "read", threadId: thread.id});
+    const run = current.runs.find(r => r.id === operationId);
+    assert(run.status !== "failed", JSON.stringify({run, trace, logs: logs.slice(-3000)}));
+    return run.status === "completed";
   });
-  assert(modelCalls >= 2 && toolResults > 0, "Real model transport must receive the MCP result");
-  const device = await readFile(join(config.stateDir, "device-id"), "utf8");
-  const savedOverlay = await readFile(join(profile, "cordis.patch.yml"), "utf8");
+  const completed = await command({action: "read", threadId: thread.id});
+  assert.match(completed.messages.at(-1).text, /STAGE1_COMPLETE/);
+  assert.equal(completed.runs[0].stages.length, 2);
+  assert(deniedReads>=2,"Work and review must both enforce the thread file boundary");
+  const callsBeforeRetry = modelCalls;
+  await command({action: "run", threadId: thread.id, operationId, text: "Do not duplicate"});
+  await delay(100);
+  assert.equal(modelCalls, callsBeforeRetry);
+  await command({action:'configure',threadId:thread.id,workflow:[{name:'Work',kind:'work'},{name:'Approve result',kind:'approval'}]});
+  const approvalRun=crypto.randomUUID();await command({action:'run',threadId:thread.id,operationId:approvalRun,text:'Prepare a fictional result for my approval.'});
+  const pending=await until(async()=>{const current=await command({action:'read',threadId:thread.id});const run=current.runs.find(r=>r.id===approvalRun);assert.notEqual(run.status,'failed',run.error);return run.pending;});
+  assert.equal(pending.kind,'approval');await command({action:'answer',threadId:thread.id,questionId:pending.id,approved:true});
+  await until(async()=>{const current=await command({action:'read',threadId:thread.id});const run=current.runs.find(r=>r.id===approvalRun);assert.notEqual(run.status,'failed',run.error);return run.status==='completed';});
+  const approved=await command({action:'read',threadId:thread.id});assert.equal(approved.runs.at(-1).decisions[0].actorId,'local');assert.equal(approved.runs.at(-1).decisions[0].approved,true);
+  assert(!existsSync(join(config.stateDir, "bees-stage1.db")), "No team/workspace database is created");
   await stop(); await start();
-  const restarted = await api("/bees-api/snapshot");
-  assert.equal(restarted.items.find(({ id }) => id === item.id).runtimePhase, "completed");
-  assert.equal(await readFile(join(config.stateDir, "device-id"), "utf8"), device);
-  assert.equal(await readFile(join(profile, "cordis.patch.yml"), "utf8"), savedOverlay);
-  assert(!existsSync(join(config.stateDir, "memory")), "Headless startup must not install desktop memory dependencies");
+  const restarted = await command({action: "read", threadId: thread.id});
+  assert.equal(restarted.runs[0].status, "completed");
+  assert.match(restarted.messages.at(-1).text, /STAGE1_COMPLETE/);
   await stop();
-  const brokenConfig = join(root, "broken.json");
-  await writeFile(brokenConfig, JSON.stringify({ ...config, temporalBinary: join(root, "missing-temporal") }));
-  const broken = spawn(process.execPath, [join(desktop, "dsh-runtime/headless.mjs"), brokenConfig],
-    { env: { PATH: process.env.PATH, BEES_DSH_TOKEN: token }, stdio: "ignore" });
-  assert.equal(await new Promise((done) => broken.once("exit", done)), 1, "Missing Temporal must fail startup");
-  assert(!existsSync(join(config.stateDir, "headless.lock")), "Failed startup must release its state lock");
-  console.log(JSON.stringify({ ok: true, checks: ["headless boot", "authentication", "exclusive state", "model + MCP process", "restart persistence", "startup failure cleanup"], modelCalls, toolResults }));
+  console.log(JSON.stringify({ok: true, checks: ["client boot", "authentication", "exclusive state", "real agent work and review", "actual tool file denial", "run deduplication", "human approval and attribution", "restart persistence", "no team/workspace database"], modelCalls}));
 } finally {
   await stop();
   model.closeAllConnections(); await new Promise((done) => model.close(done));

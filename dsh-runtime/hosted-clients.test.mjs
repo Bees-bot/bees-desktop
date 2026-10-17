@@ -1,0 +1,23 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {createServer} from 'node:http';
+import {createHostedGateway} from './hosted-clients.mjs';
+const listen=server=>new Promise((resolve,reject)=>{server.once('error',reject).listen(0,'127.0.0.1',()=>resolve('http://127.0.0.1:'+server.address().port));});
+const close=server=>new Promise(r=>{server.closeAllConnections();server.close(r);});
+test('hosted gateway authenticates each request and routes only to the matching account client',async()=>{
+ const servers=[];const directory=createServer(async(req,res)=>{res.setHeader('content-type','application/json');if(req.url==='/api/me'){const user=String(req.headers.authorization??'').slice(7);if(!['alice','bob'].includes(user)){res.statusCode=401;return res.end('{}');}return res.end(JSON.stringify({user:{id:user,email:user+'@example.com'}}));}if(req.url==='/api/auth/sign-in/email'){const chunks=[];for await(const c of req)chunks.push(c);return res.end(JSON.stringify({token:JSON.parse(Buffer.concat(chunks)).email.split('@')[0]}));}res.statusCode=404;res.end('{}');});servers.push(directory);
+ try{
+  const directoryUrl=await listen(directory),clients={};
+  for(const user of ['alice','bob']){const server=createServer((req,res)=>{res.setHeader('content-type','application/json');assert.equal(req.headers.authorization,'Bearer private-'+user);res.end(JSON.stringify({account:user,path:req.url}));});servers.push(server);clients[user]={url:await listen(server),token:'private-'+user};}
+  const calls=[];const gateway=createHostedGateway({directoryUrl,assets:'/unused',provision:async(user,session)=>{calls.push([user.id,session]);return clients[user.id];}});servers.push(gateway);const url=await listen(gateway);
+  assert.equal((await fetch(url+'/bees-api/threads')).status,401);
+  assert.equal((await fetch(url+'/api/credentials',{headers:{cookie:'bees_hosted_session=alice'}})).status,404);
+  assert.equal((await fetch(url+'/bees-api/threads',{method:'POST',headers:{origin:'https://attacker.example','content-type':'application/json'},body:'{}'})).status,403);
+  for(const user of ['alice','bob']){
+   const login=await fetch(url+'/bees-api/threads',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'login',url:'https://attacker.example',email:user+'@example.com',password:'fixture'})});assert.equal(login.status,200);assert.match(login.headers.get('set-cookie'),/HttpOnly/);
+   const r=await fetch(url+'/bees-api/threads',{headers:{cookie:login.headers.get('set-cookie').split(';')[0]}});assert.equal((await r.json()).account,user);
+  }
+  assert.deepEqual(calls.map(([u,s])=>[u,s]),[['alice','alice'],['alice','alice'],['bob','bob'],['bob','bob']]);
+  assert.equal((await fetch(url+'/bees-api/threads',{headers:{cookie:'bees_hosted_session=revoked'}})).status,401);
+ }finally{await Promise.all(servers.map(close));}
+});
