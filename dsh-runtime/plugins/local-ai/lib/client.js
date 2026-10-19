@@ -38,48 +38,41 @@ window.__ModuleLoader__.load({
         await preferences.set("externalLocalAiProfile", profile);
         if (enabled) await modelSettings.set("providers", { ...config.providers, "external-local-ai": authorized(profile) });
       };
-      const configure = async () => {
+      const run = (action) => async (...args) => {
         setError("");
-        try {
-          const answer = await ask("Other local AI server URL", typed || local.baseURL || "http://127.0.0.1:1234/v1");
-          if (!answer) return;
-          setTyped(answer);
-          if (!/^https?:\/\/[^/\s]/i.test(answer)) throw new Error("Use an http:// or https:// address");
-          const baseURL = new URL(answer).toString().replace(/\/+$/, "");
-          let models = local.models ?? [];
-          if (!models.length) {
-            const listed = await fetch("/bees-api/general-ai/models", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ baseURL }) })
-              .then((res) => res.json()).then((body) => body?.id).catch(() => "");
-            const id = (await ask("Model ID", listed || ""))?.trim(); if (!id) return;
-            models = [await modelEntry(id, baseURL)];
-          }
-          // test a real call before saving, so a wrong URL or model fails here and not at the first message
-          const check = await fetch("/bees-api/general-ai/test", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ baseURL, model: models[0].id, key: "local" }), signal: AbortSignal.timeout(130_000) });
-          if (!check.ok) throw new Error((await check.json().catch(() => ({}))).error || "Connection test failed");
-          const profile = {
-            ...local, displayName: "Another local AI server", api: local.api ?? "openai-completions", baseURL,
-            models
-          };
-          await preferences.set("externalLocalAiProfile", profile);
-          await modelSettings.set("providers", { ...config.providers, "external-local-ai": authorized(profile) });
-          setError("");
-        } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+        try { setError(""); await action(...args); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
       };
-      const addModel = async () => {
-        setError("");
-        try {
-          const id = (await ask("Model ID", ""))?.trim(); if (!id) return;
-          if (local.models?.some((entry) => entry.id === id)) throw new Error(`${id} is already connected`);
-          await saveProfile({ ...local, models: [...(local.models ?? []), await modelEntry(id, local.baseURL ?? "")] });
-          setError("");
-        } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
-      };
-      const removeModel = async (id) => {
+      const configure = run(async () => {
+        const answer = await ask("Local AI server URL", typed || local.baseURL || "http://127.0.0.1:1234/v1");
+        if (!answer) return;
+        setTyped(answer);
+        if (!/^https?:\/\/[^/\s]/i.test(answer)) throw new Error("Use an http:// or https:// address");
+        const baseURL = new URL(answer).toString().replace(/\/+$/, "");
+        // another server has other models, so a new address asks for its model again
+        let models = baseURL === local.baseURL ? local.models ?? [] : [];
+        if (!models.length) {
+          const listed = await fetch("/bees-api/general-ai/models", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ baseURL }) })
+            .then((res) => res.json()).then((body) => body?.id).catch(() => "");
+          const id = (await ask("Model ID", listed || ""))?.trim(); if (!id) return;
+          models = [await modelEntry(id, baseURL)];
+        }
+        // test a real call before saving, so a wrong URL or model fails here and not at the first message
+        const check = await fetch("/bees-api/general-ai/test", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ baseURL, model: models[0].id, key: "local" }), signal: AbortSignal.timeout(130_000) });
+        if (!check.ok) throw new Error((await check.json().catch(() => ({}))).error || "Connection test failed");
+        const profile = { ...local, displayName: "Local AI server", api: local.api ?? "openai-completions", baseURL, models };
+        await preferences.set("externalLocalAiProfile", profile);
+        await modelSettings.set("providers", { ...config.providers, "external-local-ai": authorized(profile) });
+      });
+      const addModel = run(async () => {
+        const id = (await ask("Model ID", ""))?.trim(); if (!id) return;
+        if (local.models?.some((entry) => entry.id === id)) throw new Error(`${id} is already connected`);
+        await saveProfile({ ...local, models: [...(local.models ?? []), await modelEntry(id, local.baseURL ?? "")] });
+      });
+      const removeModel = run(async (id) => {
         if ((local.models?.length ?? 0) <= 1) return;
         await saveProfile({ ...local, models: local.models.filter((entry) => entry.id !== id) });
-      };
-      const toggle = async (enabled) => {
-        setError("");
+      });
+      const toggle = run(async (enabled) => {
         const providers = { ...(config.providers ?? {}) };
         if (enabled) {
           if (!local.baseURL) return configure();
@@ -89,10 +82,10 @@ window.__ModuleLoader__.load({
           delete providers["external-local-ai"];
         }
         await modelSettings.set("providers", providers);
-      };
+      });
       return h("section", { "data-bees-plugin": "@bees/dsh-local-ai-external" },
         h("div", { className: "bees-ai-head", style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "14px", marginBottom: "16px" } }, h("div", null,
-          h("h3", { className: "bees-section-title", style: { marginBottom: "4px" } }, "Another local AI server"),
+          h("h3", { className: "bees-section-title", style: { marginBottom: "4px" } }, "Local AI server"),
           h("p", { className: "bees-muted", style: { margin: 0 } }, "Connect LM Studio, Ollama, llama.cpp, or another OpenAI-compatible server that you run separately."))),
         h("section", { className: "bees-box bees-subscription" }, h("div", null, h("h3", null, local.baseURL ?? "OpenAI-compatible local server"),
           local.baseURL ? h("p", { className: "bees-muted" }, `${local.models?.length ?? 0} model${local.models?.length === 1 ? "" : "s"}`) : null,
@@ -106,7 +99,7 @@ window.__ModuleLoader__.load({
             h("span", { className: `bees-status ${enabled ? "bees-running" : ""}` }, enabled ? "Connected" : local.baseURL ? "Off" : "Not connected"),
             local.baseURL ? h("label", { className: "bees-local-toggle" }, h("input", {
               type: "checkbox", role: "switch", checked: enabled,
-              "aria-label": "Enable another local AI server", onChange: (event) => toggle(event.target.checked) }), h("span", null, enabled ? "On" : "Off")) : null,
+              "aria-label": "Enable the local AI server", onChange: (event) => toggle(event.target.checked) }), h("span", null, enabled ? "On" : "Off")) : null,
             h(Button, { className: local.baseURL ? "" : "primary", onClick: configure }, local.baseURL ? "Edit endpoint" : "Connect"))),
         error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
     }

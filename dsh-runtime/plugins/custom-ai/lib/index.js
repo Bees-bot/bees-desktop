@@ -19,7 +19,6 @@ const PROVIDERS = {
   "opencode-go": { url: "https://opencode.ai/zen/go/v1/chat/completions", headers: { "x-opencode-session": "bees-app" } }
 };
 
-// Preserve credentials saved by the earlier combined AI APIs screen.
 const refFor = (provider) => `BEES_FREE_${provider.replace(/[^a-z0-9]/gi, "_").toUpperCase()}_API_KEY`;
 const CUSTOM_KEY_REF = "BEES_CUSTOM_OPENAI_API_KEY";
 

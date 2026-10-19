@@ -35,7 +35,6 @@ window.__ModuleLoader__.load({
       const { api, ...rest } = route;
       return rest;
     };
-    // Preserve credentials saved by the earlier combined AI APIs screen.
     const refFor = (provider) => `BEES_FREE_${provider.replace(/[^a-z0-9]/gi, "_").toUpperCase()}_API_KEY`;
     const CUSTOM_KEY_REF = "BEES_CUSTOM_OPENAI_API_KEY";
     const css = `
@@ -182,13 +181,14 @@ window.__ModuleLoader__.load({
         const baseURL = (await ask("Custom OpenAI-compatible API base URL", custom.baseURL ?? "", "text", "https://api.example.com/v1"))?.replace(/\/+$/, "");
         if (!baseURL) return;
         if (!/^https?:\/\/[^/\s]/i.test(baseURL)) throw new Error("Use an http:// or https:// address");
-        let models = custom.models ?? [];
+        // the stored key and models belong to the saved address, so a new address starts fresh
+        const same = baseURL === custom.baseURL?.replace(/\/+$/, "");
+        let models = same ? custom.models ?? [] : [];
         if (!models.length) {
           const id = (await ask("Model ID", "", "text", "Model ID the provider lists"))?.trim(); if (!id) return;
           models = [{ id, name: id, contextWindow: 131072, maxTokens: 8192 }];
         }
-        // the stored key belongs to the saved address, so a new address must not get it
-        const hasKey = baseURL === custom.baseURL?.replace(/\/+$/, "") && unwrap(await credentials.describe([CUSTOM_KEY_REF]))[CUSTOM_KEY_REF]?.configured;
+        const hasKey = same && unwrap(await credentials.describe([CUSTOM_KEY_REF]))[CUSTOM_KEY_REF]?.configured;
         const value = await ask(hasKey ? "API key (leave blank to keep the stored key)" : "API key", "", "password");
         // Registering the provider without a stored key only fails later, at the first call.
         if (!value && !hasKey)
