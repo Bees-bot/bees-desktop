@@ -21,6 +21,7 @@ const PROVIDERS = {
 
 // Preserve credentials saved by the earlier combined AI APIs screen.
 const refFor = (provider) => `BEES_FREE_${provider.replace(/[^a-z0-9]/gi, "_").toUpperCase()}_API_KEY`;
+const CUSTOM_KEY_REF = "BEES_CUSTOM_OPENAI_API_KEY";
 
 function json(res, status, value) {
   const body = JSON.stringify(value);
@@ -45,8 +46,10 @@ async function requestBody(req) {
 // A dead socket reaches the person as "fetch failed" or a bare status, neither of which says what
 // to do about it. The host is safe to name: the person typed it. A queued model reads as a timeout.
 const unreachable = (url, error) => new Error(error.name === "TimeoutError"
-  ? `${url.host} did not answer in 30 seconds. Try again, or test a smaller model.`
-  : `Could not reach ${url.host}. Check this computer's internet connection, then test again.`);
+  ? `${url.host} did not answer in 2 minutes. Try again, or test a smaller model.`
+  : /^(localhost|127\.|0\.0\.0\.0|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[::1?\]|\[f[cd]|.*\.local$)/i.test(url.hostname)
+    ? `Nothing answered at ${url.host}. Check the server is running and the address is right, then test again.`
+    : `Could not reach ${url.host}. Check this computer's internet connection, then test again.`);
 
 // A bad key is 400 from Google and xAI but 401 from the other nine, so the provider's own sentence
 // is the only signal covering both. Capped: it goes straight into the settings screen.
@@ -91,10 +94,10 @@ async function probe(definition, model, key) {
   } else headers.authorization = `Bearer ${key}`;
   const body = definition.gemini
     ? { contents: [{ parts: [{ text: "hi" }] }], generationConfig: { maxOutputTokens: 16 } }
-    : { model, max_tokens: 16, messages: [{ role: "user", content: "hi" }] };
+    : { model, max_tokens: 16, stream: false, messages: [{ role: "user", content: "hi" }] };
   try {
-    const response = await fetch(url, { method: "POST", headers, body: JSON.stringify(body), signal: AbortSignal.timeout(30_000) });
-    // read in here so the same 30 seconds covers the body, and a host that dies mid-answer reads as unreachable
+    const response = await fetch(url, { method: "POST", headers, body: JSON.stringify(body), signal: AbortSignal.timeout(120_000) });
+    // a local model can take a minute to load cold; read in here so the same 2 minutes covers the body, and a host that dies mid-answer reads as unreachable
     return { response, text: await response.text() };
   } catch (error) {
     console.warn("custom ai test could not connect:", error);
@@ -109,12 +112,14 @@ export function apply(ctx) {
     handler: async (req, res) => {
       if (req.method !== "POST") return json(res, 405, { error: "method not allowed" });
       try {
-        const { provider, model, key: pasted } = await requestBody(req);
-        const definition = Object.hasOwn(PROVIDERS, provider) ? PROVIDERS[provider] : null;
+        const { provider, model, key: pasted, baseURL } = await requestBody(req);
+        // a custom or local server is tested the same way, through its own chat endpoint
+        const definition = baseURL ? { url: `${String(baseURL).replace(/\/+$/, "")}/chat/completions` }
+          : Object.hasOwn(PROVIDERS, provider) ? PROVIDERS[provider] : null;
         if (!definition) throw new Error("Choose a supported provider");
         if (typeof model !== "string" || !model.trim()) throw new Error("Add a model ID for this provider, then test again.");
         // a key being added is tested before it is saved
-        const key = String(pasted ?? "").trim() || (await ctx.credentials.resolve(refFor(provider)))?.value;
+        const key = String(pasted ?? "").trim() || (await ctx.credentials.resolve(baseURL ? CUSTOM_KEY_REF : refFor(provider)))?.value;
         if (!key) throw new Error("Add the API key first");
         const { response, text } = await probe(definition, model.trim(), key);
         if (!response.ok) throw new Error(providerFailure(response.status, text));
@@ -126,4 +131,12 @@ export function apply(ctx) {
       }
     }
   }), "bees general AI: test route");
+  // listed here, not in the page, because LM Studio and most local servers send no CORS headers
+  ctx.effect(() => ctx.webServer.register({ kind: "exact", path: "/bees-api/general-ai/models", handler: async (req, res) => {
+    if (req.method !== "POST") return json(res, 405, { error: "method not allowed" });
+    const { baseURL } = await requestBody(req).catch(() => ({}));
+    const id = typeof baseURL === "string" && /^https?:\/\/[^/\s]/i.test(baseURL) ? await fetch(`${baseURL.replace(/\/+$/, "")}/models`, { signal: AbortSignal.timeout(3000) })
+      .then((r) => r.json()).then((body) => body?.data?.[0]?.id).catch(() => "") : "";
+    json(res, 200, { id: typeof id === "string" ? id : "" });
+  } }), "bees general AI: model list route");
 }
