@@ -1,0 +1,106 @@
+- generic [ref=e1]:
+  - navigation "Main navigation" [ref=e2]:
+    - button "✳" [ref=e3] [cursor=pointer]
+    - button "Threads" [ref=e4] [cursor=pointer]
+    - button "Organization settings" [ref=e7] [cursor=pointer]
+    - button "Switch to dark theme" [ref=e11] [cursor=pointer]: ☾
+    - button "Global settings" [ref=e12] [cursor=pointer]
+    - button "Your account" [ref=e17] [cursor=pointer]: "Y"
+  - complementary [ref=e18]:
+    - generic [ref=e19]:
+      - heading "Threads" [level=1] [ref=e20]
+      - button "New thread" [ref=e21] [cursor=pointer]
+    - textbox "Search threads" [ref=e28]:
+      - /placeholder: Find a thread…
+    - generic [ref=e29]:
+      - button "All" [pressed] [ref=e30] [cursor=pointer]
+      - button "Mine" [ref=e31] [cursor=pointer]
+      - button "Shared" [ref=e32] [cursor=pointer]
+    - generic [ref=e33]:
+      - generic [ref=e61]:
+        - button "Layout test thread Open shared work" [ref=e62] [cursor=pointer]:
+          - generic [ref=e66]:
+            - strong [ref=e67]: Layout test thread
+            - generic [ref=e68]: Open shared work
+        - generic [ref=e69]:
+          - code [ref=e70]: first
+          - group [ref=e71]:
+            - generic "Settings for Layout test thread" [ref=e72] [cursor=pointer]
+      - generic [ref=e77]:
+        - button "Another thread Open shared work" [ref=e78] [cursor=pointer]:
+          - generic [ref=e82]:
+            - strong [ref=e83]: Another thread
+            - generic [ref=e84]: Open shared work
+        - generic [ref=e85]:
+          - code [ref=e86]: second
+          - group [ref=e87]:
+            - generic "Settings for Another thread" [ref=e88] [cursor=pointer]
+    - generic [ref=e35]: Private on this machine
+  - main [ref=e37]:
+    - generic [ref=e38]:
+      - generic [ref=e39]:
+        - heading "Layout test thread" [level=2] [ref=e93]
+        - paragraph [ref=e41]: This machine
+      - generic [ref=e94]:
+        - button "Thread settings" [ref=e95] [cursor=pointer]
+        - button "Share" [ref=e100] [cursor=pointer]
+        - button "Done customizing" [pressed] [ref=e135] [cursor=pointer]
+    - region "Customize layout" [ref=e136]:
+      - paragraph [ref=e137]: Drag tabs onto a panel edge to split, or onto another tab to group. Drag dividers to resize. Your layout applies to all threads on this client.
+      - generic [ref=e138]:
+        - combobox "Widget to move" [ref=e139]:
+          - option "Conversation"
+          - option "Kanban"
+          - option "Discussion"
+          - option "Files" [selected]
+          - option "Details"
+          - option "Context"
+          - option "Schedules"
+          - option "Memory"
+          - option "Add-ons"
+          - option "Executions"
+          - option "Traces"
+        - combobox "Widget position" [ref=e140]:
+          - option "As tabs with"
+          - option "Tab before"
+          - option "Left of"
+          - option "Right of" [selected]
+          - option "Above"
+          - option "Below"
+        - combobox "Destination widget" [ref=e141]:
+          - option "Conversation" [selected]
+          - option "Kanban"
+          - option "Discussion"
+          - option "Files"
+          - option "Details"
+          - option "Context"
+          - option "Schedules"
+          - option "Memory"
+          - option "Add-ons"
+          - option "Executions"
+          - option "Traces"
+        - button "Move widget" [ref=e142] [cursor=pointer]
+        - button "Reset to tabs" [ref=e143] [cursor=pointer]
+    - region "Conversation panel" [ref=e107]:
+      - tablist "Panel views" [ref=e108]:
+        - tab "Conversation" [selected] [ref=e109]
+        - tab "Kanban" [ref=e110]
+        - tab "Discussion" [ref=e111]
+        - tab "Files" [ref=e112]
+        - tab "Details" [ref=e113]
+        - tab "Context" [ref=e114]
+        - tab "Schedules" [ref=e115]
+        - tab "Memory" [ref=e116]
+        - tab "Add-ons" [ref=e117]
+        - tab "Executions" [ref=e118]
+        - tab "Traces" [ref=e119]
+      - tabpanel "Conversation" [ref=e122]:
+        - generic [ref=e123]:
+          - region "Conversation messages" [ref=e124]
+          - generic [ref=e125]:
+            - textbox "Message" [ref=e126]:
+              - /placeholder: Ask Bees to get something done…
+            - generic [ref=e127]:
+              - button "Add files and folders" [ref=e128] [cursor=pointer]
+              - generic [ref=e131]: Ask Bees
+              - button "Send message" [disabled] [ref=e132]

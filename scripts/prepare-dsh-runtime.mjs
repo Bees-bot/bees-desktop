@@ -105,7 +105,7 @@ function markPrepared(marker, artifact, revision) {
   writeFileSync(marker, `${revision} ${statSync(artifact).size}\n`);
 }
 
-// check a folder's own files before its subfolders
+// Check a folder before its subfolders.
 function findFile(root, name) {
   const entries = readdirSync(root, { withFileTypes: true });
   if (entries.some((entry) => entry.isFile() && entry.name === name)) return join(root, name);

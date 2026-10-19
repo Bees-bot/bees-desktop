@@ -16,7 +16,6 @@
     "client": {
       "platform": "web",
       "inject": [
-        "@bees/dsh-local-ai",
         "@bees/dsh-custom-ai",
         "@bees/dsh-subscriptions",
         "@deepseek-ai/dsh-client-runtime",
@@ -29,7 +28,6 @@
         "@deepseek-ai/dsh-client-ui-sidebar-documentpreview"
       ],
       "external": [
-        "@bees/dsh-local-ai",
         "@bees/dsh-custom-ai",
         "@bees/dsh-subscriptions"
       ]
@@ -37,7 +35,6 @@
   },
   "peerDependencies": {
     "@bees/dsh-custom-ai": "0.1.0",
-    "@bees/dsh-local-ai": "0.1.0",
     "@bees/dsh-subscriptions": "0.1.0",
     "@deepseek-ai/cordis": "^4.0.3",
     "@deepseek-ai/dsh-agent": "0.1.7-rc.2",

@@ -5,6 +5,52 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {ThreadClient} from './thread-client.js';
+import {DEFAULT_WORKFLOW,CHAT_WORKFLOW,WORKFLOW_TEMPLATES,processName} from './thread-workflow.js';
+
+test('explicit Goal and Chat processes survive team defaults, repeated replies and restart',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'bees-chat-loop-'));let client;const seen=[];
+ try{
+  client=new ThreadClient(root,{execute:async options=>{seen.push(options);return 'Reply '+seen.length;}});
+  const team=(await client.snapshot()).defaultTeamId;
+  await client.command({action:'configure',threadId:team,operationId:randomUUID(),workflow:[{name:'Team approval',kind:'approval'}]});
+  const chat=await client.command({action:'create',templateId:'chat',title:'New chat'});
+  const goal=await client.command({action:'create',templateId:'goals',title:'New goal'});
+  for(const message of ['Hello','Tell me more']){
+   await client.command({action:'message',threadId:chat.id,operationId:randomUUID(),text:message});
+   await client.command({action:'run',threadId:chat.id,operationId:randomUUID(),text:message});await Promise.all([...client.finishing]);
+   assert.deepEqual(seen.at(-1).run.workflow,CHAT_WORKFLOW);
+  }
+  assert.deepEqual(seen[1].thread.messages.map(m=>m.text),['Hello','Reply 1','Tell me more']);
+  assert.equal(client.store.get(chat.id).title,'Hello');assert.equal(client.store.get(chat.id).runs.length,2);
+  await client.command({action:'run',threadId:goal.id,operationId:randomUUID(),text:'Make a plan'});await Promise.all([...client.finishing]);assert.deepEqual(seen.at(-1).run.workflow,DEFAULT_WORKFLOW);
+  client.store.close();client=new ThreadClient(root);
+  assert.equal(client.store.get(chat.id).processId,'chat');assert.deepEqual(client.store.get(chat.id).workflow,CHAT_WORKFLOW);
+  await assert.rejects(client.command({action:'configure',threadId:chat.id,operationId:randomUUID(),workflow:[...CHAT_WORKFLOW,...DEFAULT_WORKFLOW]}),/Invalid workflow/);
+ }finally{client?.store.close();await rm(root,{recursive:true,force:true});}
+});
+
+test('new threads default to Goals and retain the chosen starter workflow through execution and restart',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'bees-template-client-'));let client,executed;
+ try{
+  client=await new ThreadClient(root,{execute:async({run})=>{executed=run.workflow;return 'Result';}}).start();
+  assert.deepEqual((await client.command({action:'create'})).workflow,DEFAULT_WORKFLOW);
+  const count=client.store.list().length;
+  await assert.rejects(client.command({action:'create',templateId:'unknown'}),/valid thread template/);
+  assert.equal(client.store.list().length,count);
+  for(const template of WORKFLOW_TEMPLATES){
+    const doc=await client.command({action:'create',templateId:template.id});
+    assert.deepEqual(doc.workflow,template.workflow);
+    assert.equal(processName(doc.workflow),template.name);
+  }
+  const doc=await client.command({action:'create',templateId:'research-and-report'});
+  await client.command({action:'run',threadId:doc.id,operationId:randomUUID(),text:'Research this topic'});
+  await Promise.all([...client.finishing]);
+  assert.deepEqual(executed,WORKFLOW_TEMPLATES.find(t=>t.id==='research-and-report').workflow);
+  await client.close();client=null;client=await new ThreadClient(root,{}).start();
+  assert.deepEqual(client.store.document(doc.id).workflow,executed);
+  assert.deepEqual(client.store.document(doc.id).runs[0].workflow,executed);
+ }finally{await client?.close();await rm(root,{recursive:true,force:true});}
+});
 
 test('scheduled occurrences execute once, retain quota across restart, and never replay interrupted work',async()=>{
  const root=await mkdtemp(join(tmpdir(),'bees-schedule-client-')),prior=process.env.BEES_HOSTED_RUNS_PER_DAY;process.env.BEES_HOSTED_RUNS_PER_DAY='1';let client,calls=0;

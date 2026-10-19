@@ -1,0 +1,86 @@
+- generic [ref=e1]:
+  - navigation "Main navigation" [ref=e2]:
+    - button "✳" [ref=e3] [cursor=pointer]
+    - button "Threads" [ref=e4] [cursor=pointer]
+    - button "Organization settings" [ref=e7] [cursor=pointer]
+    - button "Switch to dark theme" [ref=e11] [cursor=pointer]: ☾
+    - button "Global settings" [ref=e12] [cursor=pointer]
+    - button "Your account" [ref=e17] [cursor=pointer]: "Y"
+  - complementary [ref=e18]:
+    - generic [ref=e19]:
+      - heading "Threads" [level=1] [ref=e20]
+      - button "New thread" [ref=e21] [cursor=pointer]
+    - textbox "Search threads" [ref=e28]:
+      - /placeholder: Find a thread…
+    - generic [ref=e29]:
+      - button "All" [pressed] [ref=e30] [cursor=pointer]
+      - button "Mine" [ref=e31] [cursor=pointer]
+      - button "Shared" [ref=e32] [cursor=pointer]
+    - generic [ref=e33]:
+      - generic [ref=e61]:
+        - button "Launch research Open shared work Running" [ref=e62] [cursor=pointer]:
+          - generic [ref=e66]:
+            - strong [ref=e67]: Launch research
+            - generic [ref=e68]: Open shared work
+          - generic "Running" [ref=e69]
+        - generic [ref=e70]:
+          - code [ref=e71]: populate
+          - group [ref=e72]:
+            - generic "Settings for Launch research" [ref=e73] [cursor=pointer]
+      - generic [ref=e78]:
+        - button "New project Open shared work" [ref=e79] [cursor=pointer]:
+          - generic [ref=e83]:
+            - strong [ref=e84]: New project
+            - generic [ref=e85]: Open shared work
+        - generic [ref=e86]:
+          - code [ref=e87]: empty
+          - group [ref=e88]:
+            - generic "Settings for New project" [ref=e89] [cursor=pointer]
+    - generic [ref=e35]: Private on this machine
+  - main [ref=e37]:
+    - generic [ref=e38]:
+      - generic [ref=e39]:
+        - heading "New project" [level=2] [ref=e194]
+        - paragraph [ref=e41]: This machine
+      - generic [ref=e95]:
+        - button "Thread settings" [ref=e96] [cursor=pointer]
+        - button "Share" [ref=e101] [cursor=pointer]
+    - navigation "Thread views" [ref=e105]:
+      - button "Conversation" [ref=e106] [cursor=pointer]
+      - button "Kanban" [active] [ref=e107] [cursor=pointer]
+      - button "Discussion" [ref=e108] [cursor=pointer]
+      - button "Files" [ref=e109] [cursor=pointer]
+      - button "Details" [ref=e110] [cursor=pointer]
+      - button "Context" [ref=e111] [cursor=pointer]
+      - button "Schedules" [ref=e112] [cursor=pointer]
+      - button "Memory" [ref=e113] [cursor=pointer]
+      - button "Add-ons" [ref=e114] [cursor=pointer]
+      - button "Executions" [ref=e115] [cursor=pointer]
+      - button "Traces" [ref=e116] [cursor=pointer]
+    - region "Kanban" [ref=e207]:
+      - generic [ref=e208]:
+        - generic [ref=e209]:
+          - generic [ref=e210]:
+            - heading "Kanban" [level=3] [ref=e211]
+            - paragraph [ref=e212]: Your workflow, agents, and subagents appear here when work starts.
+          - button "Workflow settings" [ref=e213] [cursor=pointer]
+        - region "Workflow board" [ref=e214]:
+          - region "Research · Planned" [ref=e215]:
+            - generic [ref=e216]:
+              - heading "Research" [level=3] [ref=e217]
+              - generic [ref=e218]: 0 agents
+            - generic [ref=e219]: Planned
+            - paragraph [ref=e220]: No execution yet.
+          - region "Review · Planned" [ref=e221]:
+            - generic [ref=e222]:
+              - heading "Review" [level=3] [ref=e223]
+              - generic [ref=e224]: 0 agents
+            - generic [ref=e225]: Planned
+            - paragraph [ref=e226]: No execution yet.
+          - region "Approval · Planned" [ref=e227]:
+            - generic [ref=e228]:
+              - heading "Approval" [level=3] [ref=e229]
+              - generic [ref=e230]: 0 agents
+            - generic [ref=e231]: Planned
+            - paragraph [ref=e232]: Human approval
+        - button "Start work in Conversation" [ref=e233] [cursor=pointer]

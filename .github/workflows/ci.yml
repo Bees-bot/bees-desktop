@@ -47,7 +47,7 @@ jobs:
 
       # Tauri's build script resolves externalBin, so cargo check fails with
       # "resource path binaries/bees-node-... doesn't exist" until prepare:dsh
-      # has staged the Node sidecar and built the pinned local-model runtime.
+      # has staged the Node and Temporal sidecars.
       - run: npm run prepare:dsh
 
       # Rust only. A full tauri build also bundles and signs, which a PR does

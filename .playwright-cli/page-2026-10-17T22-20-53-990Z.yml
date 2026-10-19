@@ -1,0 +1,67 @@
+- generic [ref=e1]:
+  - navigation "Main navigation" [ref=e2]:
+    - button "✳" [ref=e3] [cursor=pointer]
+    - button "Threads" [ref=e4] [cursor=pointer]:
+      - img [ref=e5]
+    - button "Organization settings" [ref=e7] [cursor=pointer]:
+      - img [ref=e8]
+    - button "Switch to dark theme" [ref=e11] [cursor=pointer]: ☾
+    - button "Global settings" [ref=e12] [cursor=pointer]:
+      - img [ref=e13]
+    - button "Your account" [ref=e17] [cursor=pointer]: "Y"
+  - complementary [ref=e18]:
+    - generic [ref=e19]:
+      - heading "Threads" [level=1] [ref=e20]
+      - button "New thread" [ref=e21] [cursor=pointer]:
+        - img [ref=e22]
+    - generic [ref=e24]:
+      - img [ref=e25]
+      - textbox "Search threads" [ref=e28]:
+        - /placeholder: Find a thread…
+    - generic [ref=e29]:
+      - button "All" [pressed] [ref=e30] [cursor=pointer]
+      - button "Mine" [ref=e31] [cursor=pointer]
+      - button "Shared" [ref=e32] [cursor=pointer]
+    - generic [ref=e33]:
+      - generic [ref=e34]:
+        - button "Files layout check" [ref=e35] [cursor=pointer]:
+          - img [ref=e37]
+          - strong [ref=e40]: Files layout check
+        - generic [ref=e41]:
+          - code [ref=e42]: adb8410d
+          - group [ref=e43]:
+            - generic "Settings for Files layout check" [ref=e44] [cursor=pointer]:
+              - img [ref=e45]
+      - generic [ref=e49]:
+        - button "Empty thread" [ref=e50] [cursor=pointer]:
+          - img [ref=e52]
+          - strong [ref=e55]: Empty thread
+        - generic [ref=e56]:
+          - code [ref=e57]: ab2d2daf
+          - group [ref=e58]:
+            - generic "Settings for Empty thread" [ref=e59] [cursor=pointer]:
+              - img [ref=e60]
+    - generic [ref=e64]: Private on this machine
+  - main [ref=e66]:
+    - generic [ref=e68]:
+      - heading "A little help. A lot done." [level=2] [ref=e69]
+      - paragraph [ref=e70]: Your people, AI, and work in one conversation.
+    - region "Conversation" [ref=e71]:
+      - generic [ref=e72]:
+        - text: ✳
+        - heading "What would you like to get done?" [level=2] [ref=e73]
+        - paragraph [ref=e74]: Start with an idea. Add files and people as you go.
+        - generic [ref=e75]:
+          - button "Research a topic" [ref=e76] [cursor=pointer]
+          - button "Make sense of my files" [ref=e77] [cursor=pointer]
+          - button "Prepare a weekly update" [ref=e78] [cursor=pointer]
+    - generic [ref=e79]:
+      - textbox "Message" [ref=e80]:
+        - /placeholder: Ask Bees to get something done…
+      - generic [ref=e81]:
+        - button "Add files and folders" [disabled] [ref=e82]:
+          - img [ref=e83]
+        - generic [ref=e85]: Ask Bees
+        - generic [ref=e86]: ⌘ Enter to send
+        - button "Send message" [disabled] [ref=e87]:
+          - img [ref=e88]

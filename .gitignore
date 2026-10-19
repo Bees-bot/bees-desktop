@@ -17,3 +17,6 @@ CLAUDE.md
 .dev.vars
 
 output/playwright/
+
+# Generated runtime caches from earlier installs.
+llama-runtime/

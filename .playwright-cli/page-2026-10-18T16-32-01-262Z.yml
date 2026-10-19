@@ -1,0 +1,123 @@
+- generic [ref=e1]:
+  - navigation "Main navigation" [ref=e2]:
+    - button "✳" [ref=e3] [cursor=pointer]
+    - button "Threads" [ref=e4] [cursor=pointer]
+    - button "Organization settings" [ref=e7] [cursor=pointer]
+    - button "Switch to dark theme" [ref=e11] [cursor=pointer]: ☾
+    - button "Global settings" [ref=e12] [cursor=pointer]
+    - button "Your account" [ref=e17] [cursor=pointer]: "Y"
+  - complementary [ref=e18]:
+    - generic [ref=e19]:
+      - heading "Threads" [level=1] [ref=e20]
+      - button "New thread" [ref=e21] [cursor=pointer]
+    - textbox "Search threads" [ref=e28]:
+      - /placeholder: Find a thread…
+    - generic [ref=e29]:
+      - button "All" [pressed] [ref=e30] [cursor=pointer]
+      - button "Mine" [ref=e31] [cursor=pointer]
+      - button "Shared" [ref=e32] [cursor=pointer]
+    - generic [ref=e33]:
+      - generic [ref=e34]:
+        - button "Layout test thread Open shared work" [ref=e35] [cursor=pointer]:
+          - generic [ref=e39]:
+            - strong [ref=e40]: Layout test thread
+            - generic [ref=e41]: Open shared work
+        - generic [ref=e42]:
+          - code [ref=e43]: first
+          - group [ref=e44]:
+            - generic "Settings for Layout test thread" [ref=e45] [cursor=pointer]
+      - generic [ref=e50]:
+        - button "Another thread Open shared work" [ref=e51] [cursor=pointer]:
+          - generic [ref=e55]:
+            - strong [ref=e56]: Another thread
+            - generic [ref=e57]: Open shared work
+        - generic [ref=e58]:
+          - code [ref=e59]: second
+          - group [ref=e60]:
+            - generic "Settings for Another thread" [ref=e61] [cursor=pointer]
+    - generic [ref=e66]: Private on this machine
+  - main [ref=e68]:
+    - generic [ref=e69]:
+      - generic [ref=e70]:
+        - heading "Layout test thread" [level=2] [ref=e108]
+        - paragraph [ref=e72]: This machine
+      - generic [ref=e109]:
+        - button "Thread settings" [ref=e110] [cursor=pointer]
+        - button "Share" [ref=e115] [cursor=pointer]
+        - button "Done customizing" [pressed] [ref=e150] [cursor=pointer]
+    - region "Customize layout" [ref=e151]:
+      - paragraph [ref=e152]: Drag tabs onto a panel edge to split, or onto another tab to group. Drag dividers to resize. Your layout applies to all threads on this client.
+      - generic [ref=e153]:
+        - combobox "Widget to move" [ref=e154]:
+          - option "Conversation"
+          - option "Kanban"
+          - option "Discussion" [selected]
+          - option "Files"
+          - option "Details"
+          - option "Context"
+          - option "Schedules"
+          - option "Memory"
+          - option "Add-ons"
+          - option "Executions"
+          - option "Traces"
+        - combobox "Widget position" [ref=e155]:
+          - option "As tabs with"
+          - option "Tab before"
+          - option "Left of"
+          - option "Right of" [selected]
+          - option "Above"
+          - option "Below"
+        - combobox "Destination widget" [ref=e156]:
+          - option "Conversation" [selected]
+          - option "Kanban"
+          - option "Discussion"
+          - option "Files"
+          - option "Details"
+          - option "Context"
+          - option "Schedules"
+          - option "Memory"
+          - option "Add-ons"
+          - option "Executions"
+          - option "Traces"
+        - button "Move widget" [ref=e157] [cursor=pointer]
+        - button "Reset to tabs" [ref=e158] [cursor=pointer]
+    - generic [ref=e159]:
+      - region "Conversation panel" [ref=e161]:
+        - tablist "Panel views" [ref=e162]:
+          - tab "Conversation" [selected] [ref=e163]
+          - tab "Kanban" [ref=e164]
+          - tab "Details" [ref=e166]
+          - tab "Context" [ref=e167]
+          - tab "Schedules" [ref=e168]
+          - tab "Memory" [ref=e169]
+          - tab "Add-ons" [ref=e170]
+          - tab "Executions" [ref=e171]
+          - tab "Traces" [ref=e172]
+        - tabpanel "Conversation" [ref=e137]:
+          - generic [ref=e138]:
+            - region "Conversation messages" [ref=e139]
+            - generic [ref=e140]:
+              - textbox "Message" [ref=e141]:
+                - /placeholder: Ask Bees to get something done…
+                - text: Keep this conversation draft
+              - generic [ref=e142]:
+                - button "Add files and folders" [ref=e143] [cursor=pointer]
+                - generic [ref=e146]: Ask Bees
+                - button "Send message" [ref=e147] [cursor=pointer]
+      - separator "Resize panels" [ref=e174]
+      - region "Discussion panel" [ref=e208]:
+        - tablist "Panel views" [ref=e177]:
+          - tab "Discussion" [active] [selected] [ref=e209]
+          - tab "Files" [ref=e178]
+        - tabpanel "Discussion" [ref=e211]:
+          - generic [ref=e212]:
+            - region "Discussion messages" [ref=e213]:
+              - paragraph [ref=e214]: Discuss this work with the people in your thread. Messages here do not start an AI run.
+            - generic [ref=e215]:
+              - textbox "Discussion message" [ref=e216]:
+                - /placeholder: Message the people in this thread…
+                - text: Independent discussion draft
+              - generic [ref=e217]:
+                - button "Add files and folders" [ref=e218] [cursor=pointer]
+                - generic [ref=e221]: Discussion
+                - button "Send discussion message" [ref=e222] [cursor=pointer]

@@ -251,8 +251,6 @@
         forkProvider: fork
     - id: ui-agent-team
       name: '@deepseek-ai/dsh-experimental-client-ui-agent-team'
-    - id: bees-local-ai
-      name: '@bees/dsh-local-ai'
     - id: bees-subscriptions
       name: '@bees/dsh-subscriptions'
       config:
@@ -284,6 +282,10 @@
         - jobs
         - fs
       config:
+        themePreset: corporate
+        colorMode: light
+        darkThemePreset: business
+        lightThemePreset: corporate
         codexModels: []
         generalAiModels: {}
         generalAiProviders: []

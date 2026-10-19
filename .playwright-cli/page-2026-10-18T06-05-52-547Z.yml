@@ -1,0 +1,69 @@
+- generic [ref=e1]:
+  - navigation "Main navigation" [ref=e2]:
+    - button "✳" [ref=e3] [cursor=pointer]
+    - button "Threads" [ref=e4] [cursor=pointer]
+    - button "Organization settings" [ref=e7] [cursor=pointer]
+    - button "Switch to dark theme" [ref=e11] [cursor=pointer]: ☾
+    - button "Global settings" [ref=e12] [cursor=pointer]
+    - button "Your account" [ref=e17] [cursor=pointer]: "Y"
+  - complementary [ref=e18]:
+    - generic [ref=e19]:
+      - heading "Threads" [level=1] [ref=e20]
+      - button "New thread" [ref=e21] [cursor=pointer]
+    - textbox "Search threads" [ref=e28]:
+      - /placeholder: Find a thread…
+    - generic [ref=e29]:
+      - button "All" [pressed] [ref=e30] [cursor=pointer]
+      - button "Mine" [ref=e31] [cursor=pointer]
+      - button "Shared" [ref=e32] [cursor=pointer]
+    - generic [ref=e33]:
+      - generic [ref=e34]:
+        - 'button "Set NUMBER_OF_AGENTS=5 and test subagent functionality: Counter file: counter-< Open shared work" [ref=e35] [cursor=pointer]':
+          - generic [ref=e39]:
+            - strong [ref=e40]: "Set NUMBER_OF_AGENTS=5 and test subagent functionality: Counter file: counter-<"
+            - generic [ref=e41]: Open shared work
+        - generic [ref=e42]:
+          - code [ref=e43]: f1793d3d
+          - group [ref=e44]:
+            - 'generic "Settings for Set NUMBER_OF_AGENTS=5 and test subagent functionality: Counter file: counter-<" [ref=e45] [cursor=pointer]'
+      - generic [ref=e50]:
+        - button "Counter in progress Open shared work Running" [ref=e51] [cursor=pointer]:
+          - generic [ref=e55]:
+            - strong [ref=e56]: Counter in progress
+            - generic [ref=e57]: Open shared work
+          - generic "Running" [ref=e58]
+        - generic [ref=e59]:
+          - code [ref=e60]: active-p
+          - group [ref=e61]:
+            - generic "Settings for Counter in progress" [ref=e62] [cursor=pointer]
+      - generic [ref=e67]:
+        - button "New thread Open shared work" [ref=e68] [cursor=pointer]:
+          - generic [ref=e72]:
+            - strong [ref=e73]: New thread
+            - generic [ref=e74]: Open shared work
+        - generic [ref=e75]:
+          - code [ref=e76]: empty-pr
+          - group [ref=e77]:
+            - generic "Settings for New thread" [ref=e78] [cursor=pointer]
+    - generic [ref=e83]: Private on this machine
+  - main [ref=e85]:
+    - generic [ref=e87]:
+      - heading "A little help. A lot done." [level=2] [ref=e88]
+      - paragraph [ref=e89]: Your people, AI, and work in one conversation.
+    - region "Conversation" [ref=e90]:
+      - generic [ref=e91]:
+        - text: ✳
+        - heading "What would you like to get done?" [level=2] [ref=e92]
+        - paragraph [ref=e93]: Start with an idea. Add files and people as you go.
+        - generic [ref=e94]:
+          - button "Research a topic" [ref=e95] [cursor=pointer]
+          - button "Make sense of my files" [ref=e96] [cursor=pointer]
+          - button "Prepare a weekly update" [ref=e97] [cursor=pointer]
+    - generic [ref=e98]:
+      - textbox "Message" [ref=e99]:
+        - /placeholder: Ask Bees to get something done…
+      - generic [ref=e100]:
+        - button "Add files and folders" [disabled] [ref=e101]
+        - generic [ref=e104]: Ask Bees
+        - generic [ref=e105]: ⌘ Enter to send
+        - button "Send message" [disabled] [ref=e106]

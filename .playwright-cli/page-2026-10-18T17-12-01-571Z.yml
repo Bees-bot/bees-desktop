@@ -1,0 +1,25 @@
+- main [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e5]:
+      - region "Input files" [ref=e6]:
+        - generic [ref=e7]:
+          - heading "Input files" [level=3] [ref=e8]
+          - navigation "Folder path" [ref=e9]:
+            - button "All files" [ref=e10] [cursor=pointer]
+          - button "Add files" [ref=e11] [cursor=pointer]
+          - button "Add folder" [ref=e12] [cursor=pointer]
+        - button "brief.txt 0.0 KB" [ref=e13] [cursor=pointer]:
+          - generic [ref=e14]:
+            - strong [ref=e15]: brief.txt
+            - generic [ref=e16]: 0.0 KB
+      - region "Output files" [ref=e17]:
+        - heading "Output files" [level=3] [ref=e18]
+        - button "counter.txt 0.0 KB results/run/counter.txt" [ref=e19] [cursor=pointer]:
+          - generic [ref=e20]:
+            - strong [ref=e21]: counter.txt
+            - generic [ref=e22]: 0.0 KB
+            - generic [ref=e23]: results/run/counter.txt
+    - region "File preview" [ref=e24]:
+      - heading "File preview" [level=3] [ref=e26]
+      - generic "File contents" [ref=e27]:
+        - paragraph [ref=e28]: Select a file above to preview it here.
