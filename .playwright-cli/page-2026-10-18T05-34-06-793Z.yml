@@ -1,0 +1,133 @@
+- generic [ref=e1]:
+  - navigation [ref=e2]
+  - complementary [ref=e3]
+  - main [ref=e4]:
+    - heading "Preview test" [level=2] [ref=e6]
+    - navigation [ref=e7]:
+      - button "Files" [ref=e8] [cursor=pointer]
+    - generic [ref=e10]:
+      - generic [ref=e11]:
+        - heading "Files" [level=3] [ref=e12]
+        - generic [ref=e13]:
+          - region "Input files" [ref=e14]:
+            - heading "Input files" [level=3] [ref=e15]
+            - paragraph [ref=e16]: Files you and your collaborators add to this thread.
+            - navigation "Folder path" [ref=e17]:
+              - button "All files" [ref=e18] [cursor=pointer]
+            - generic [ref=e19]:
+              - button "Add files" [ref=e20] [cursor=pointer]
+              - button "Add folder" [ref=e21] [cursor=pointer]
+            - generic [ref=e22]:
+              - textbox "New folder name" [ref=e23]
+              - button "Create folder" [disabled] [ref=e24]
+            - button "brief.txt 1.0 KB" [ref=e25] [cursor=pointer]:
+              - generic [ref=e26]:
+                - strong [ref=e27]: brief.txt
+                - generic [ref=e28]: 1.0 KB
+            - button "page.html 1.0 KB" [ref=e29] [cursor=pointer]:
+              - generic [ref=e30]:
+                - strong [ref=e31]: page.html
+                - generic [ref=e32]: 1.0 KB
+            - button "image.svg 1.0 KB" [ref=e33] [cursor=pointer]:
+              - generic [ref=e34]:
+                - strong [ref=e35]: image.svg
+                - generic [ref=e36]: 1.0 KB
+            - button "unknown.bin 1.0 KB" [ref=e37] [cursor=pointer]:
+              - generic [ref=e38]:
+                - strong [ref=e39]: unknown.bin
+                - generic [ref=e40]: 1.0 KB
+            - button "missing.txt 1.0 KB" [ref=e41] [cursor=pointer]:
+              - generic [ref=e42]:
+                - strong [ref=e43]: missing.txt
+                - generic [ref=e44]: 1.0 KB
+            - button "extra-0.txt 1.0 KB" [ref=e45] [cursor=pointer]:
+              - generic [ref=e46]:
+                - strong [ref=e47]: extra-0.txt
+                - generic [ref=e48]: 1.0 KB
+            - button "extra-1.txt 1.0 KB" [ref=e49] [cursor=pointer]:
+              - generic [ref=e50]:
+                - strong [ref=e51]: extra-1.txt
+                - generic [ref=e52]: 1.0 KB
+            - button "extra-2.txt 1.0 KB" [ref=e53] [cursor=pointer]:
+              - generic [ref=e54]:
+                - strong [ref=e55]: extra-2.txt
+                - generic [ref=e56]: 1.0 KB
+            - button "extra-3.txt 1.0 KB" [ref=e57] [cursor=pointer]:
+              - generic [ref=e58]:
+                - strong [ref=e59]: extra-3.txt
+                - generic [ref=e60]: 1.0 KB
+            - button "extra-4.txt 1.0 KB" [ref=e61] [cursor=pointer]:
+              - generic [ref=e62]:
+                - strong [ref=e63]: extra-4.txt
+                - generic [ref=e64]: 1.0 KB
+            - button "extra-5.txt 1.0 KB" [ref=e65] [cursor=pointer]:
+              - generic [ref=e66]:
+                - strong [ref=e67]: extra-5.txt
+                - generic [ref=e68]: 1.0 KB
+            - button "extra-6.txt 1.0 KB" [ref=e69] [cursor=pointer]:
+              - generic [ref=e70]:
+                - strong [ref=e71]: extra-6.txt
+                - generic [ref=e72]: 1.0 KB
+            - button "extra-7.txt 1.0 KB" [ref=e73] [cursor=pointer]:
+              - generic [ref=e74]:
+                - strong [ref=e75]: extra-7.txt
+                - generic [ref=e76]: 1.0 KB
+            - button "extra-8.txt 1.0 KB" [ref=e77] [cursor=pointer]:
+              - generic [ref=e78]:
+                - strong [ref=e79]: extra-8.txt
+                - generic [ref=e80]: 1.0 KB
+            - button "extra-9.txt 1.0 KB" [ref=e81] [cursor=pointer]:
+              - generic [ref=e82]:
+                - strong [ref=e83]: extra-9.txt
+                - generic [ref=e84]: 1.0 KB
+            - button "extra-10.txt 1.0 KB" [ref=e85] [cursor=pointer]:
+              - generic [ref=e86]:
+                - strong [ref=e87]: extra-10.txt
+                - generic [ref=e88]: 1.0 KB
+            - button "extra-11.txt 1.0 KB" [ref=e89] [cursor=pointer]:
+              - generic [ref=e90]:
+                - strong [ref=e91]: extra-11.txt
+                - generic [ref=e92]: 1.0 KB
+            - button "extra-12.txt 1.0 KB" [ref=e93] [cursor=pointer]:
+              - generic [ref=e94]:
+                - strong [ref=e95]: extra-12.txt
+                - generic [ref=e96]: 1.0 KB
+            - button "extra-13.txt 1.0 KB" [ref=e97] [cursor=pointer]:
+              - generic [ref=e98]:
+                - strong [ref=e99]: extra-13.txt
+                - generic [ref=e100]: 1.0 KB
+            - button "extra-14.txt 1.0 KB" [ref=e101] [cursor=pointer]:
+              - generic [ref=e102]:
+                - strong [ref=e103]: extra-14.txt
+                - generic [ref=e104]: 1.0 KB
+            - button "extra-15.txt 1.0 KB" [ref=e105] [cursor=pointer]:
+              - generic [ref=e106]:
+                - strong [ref=e107]: extra-15.txt
+                - generic [ref=e108]: 1.0 KB
+            - button "extra-16.txt 1.0 KB" [ref=e109] [cursor=pointer]:
+              - generic [ref=e110]:
+                - strong [ref=e111]: extra-16.txt
+                - generic [ref=e112]: 1.0 KB
+            - button "extra-17.txt 1.0 KB" [ref=e113] [cursor=pointer]:
+              - generic [ref=e114]:
+                - strong [ref=e115]: extra-17.txt
+                - generic [ref=e116]: 1.0 KB
+            - button "extra-18.txt 1.0 KB" [ref=e117] [cursor=pointer]:
+              - generic [ref=e118]:
+                - strong [ref=e119]: extra-18.txt
+                - generic [ref=e120]: 1.0 KB
+            - button "extra-19.txt 1.0 KB" [ref=e121] [cursor=pointer]:
+              - generic [ref=e122]:
+                - strong [ref=e123]: extra-19.txt
+                - generic [ref=e124]: 1.0 KB
+          - region "Output files" [ref=e125]:
+            - heading "Output files" [level=3] [ref=e126]
+            - paragraph [ref=e127]: Results Bees creates while working on this thread.
+            - button "report.md 1.0 KB" [ref=e128] [cursor=pointer]:
+              - generic [ref=e129]:
+                - strong [ref=e130]: report.md
+                - generic [ref=e131]: 1.0 KB
+      - region "File preview" [ref=e132]:
+        - heading "File preview" [level=3] [ref=e134]
+        - generic "File contents" [ref=e135]:
+          - paragraph [ref=e136]: Select a file above to preview it here.

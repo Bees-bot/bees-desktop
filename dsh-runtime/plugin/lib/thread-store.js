@@ -11,6 +11,10 @@ export const threadError = (text,status=400) => Object.assign(new Error(text),{s
 const idPattern=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 export const validId = value => {if(typeof value!=='string'||!idPattern.test(value)) throw threadError('Invalid identity');return value;};
 export const text = (value,max=20000) => {if(typeof value!=='string'||!value.trim()||value.length>max)throw threadError('Enter valid text');return value.trim();};
+export const threadPath = value => {
+  if(typeof value!=='string'||!value||value.length>500||value.split('/').some(part=>!part||part==='.'||part==='..'||/[\x00-\x1f\\:*?"<>|]/.test(part)||/[. ]$/.test(part)||/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part)))throw threadError('Use a relative file or folder path inside this thread');
+  return value;
+};
 const now=()=>new Date().toISOString();
 
 export class ThreadStore {
@@ -39,6 +43,15 @@ export class ThreadStore {
     if(!Number.isSafeInteger(doc.revision)||doc.revision<1||!Number.isSafeInteger(doc.epoch)||doc.epoch<1)throw threadError('Invalid thread revision');
     if(!Array.isArray(doc.messages)||doc.messages.length>10000||!Array.isArray(doc.artifacts)||doc.artifacts.length>1000||!Array.isArray(doc.runs)||doc.runs.length>1000||Buffer.byteLength(canonical(doc))>8_000_000)throw threadError('Thread exceeds its storage limit');
     const known=new Set();
+    if(doc.folders!==undefined&&(!Array.isArray(doc.folders)||doc.folders.length>1000))throw threadError('Invalid thread folders');
+    const paths=new Set();
+    for(const a of doc.artifacts)if(a.path!==undefined){threadPath(a.path);if(paths.has(a.path.toLowerCase()))throw threadError('A file already exists at this path');paths.add(a.path.toLowerCase());}
+    const folders=(doc.folders??[]).map(value=>threadPath(value).toLowerCase());
+    for(const folder of folders)if(paths.has(folder))throw threadError('A file occupies this folder');
+    for(const path of [...paths,...folders]){
+      const parts=path.split('/');
+      for(let i=1;i<parts.length;i++)if(paths.has(parts.slice(0,i).join('/')))throw threadError('A file occupies a parent folder');
+    }
     if(doc.operations!==undefined){if(!Array.isArray(doc.operations)||doc.operations.length>50000||new Set(doc.operations).size!==doc.operations.length)throw threadError('Invalid operation ledger');for(const operation of doc.operations)validId(operation);}
     for(const a of doc.artifacts){validId(a.id);text(a.name,200);if(known.has(a.id)||/[\x00-\x1f/\\]/.test(a.name)||['.','..'].includes(a.name)||!/^[a-f0-9]{64}$/.test(a.digest)||!Number.isSafeInteger(a.size)||a.size<0||a.size>10_000_000)throw threadError('Invalid attachment');known.add(a.id);}
     if(doc.artifacts.reduce((n,a)=>n+a.size,0)>250_000_000)throw threadError('Thread file limit reached');
@@ -52,11 +65,15 @@ export class ThreadStore {
     this.db.exec('BEGIN IMMEDIATE');
     try{fn(doc);doc.operations.push(operation);doc.revision++;doc.updatedAt=now();this.save(doc);this.db.exec('COMMIT');return doc;}catch(e){this.db.exec('ROLLBACK');throw e;}
   }
-  message(id,operation,body,authorId,kind='user'){return this.mutate(id,operation,doc=>{doc.messages.push({id:operation,authorId,text:text(body,100000),kind,createdAt:now()});});}
+  message(id,operation,body,authorId,kind='user'){return this.mutate(id,operation,doc=>{
+    const messageText=text(body,100000);
+    if(doc.title==='New thread'&&!doc.messages.length&&(kind==='user'||kind==='discussion'))doc.title=messageText.slice(0,80).trim();
+    doc.messages.push({id:operation,authorId,text:messageText,kind,createdAt:now()});
+  });}
   objectPath(hash){if(!/^[a-f0-9]{64}$/.test(hash))throw threadError('Invalid file digest');return join(this.root,'objects',hash);}
   putObject(bytes,expected){if(!Buffer.isBuffer(bytes)||bytes.length>10_000_000)throw threadError('Files must be 10 MB or smaller');const hash=digest(bytes);if(expected&&expected!==hash)throw threadError('File integrity check failed');const path=this.objectPath(hash);if(existsSync(path)){if(lstatSync(path).isSymbolicLink()||digest(readFileSync(path))!==hash)throw threadError('Stored file failed verification');}else writeFileSync(path,bytes,{flag:'wx',mode:0o600});return hash;}
   object(doc,id){const artifact=doc.artifacts.find(a=>a.id===validId(id));if(!artifact)throw threadError('File is not part of this thread',404);const path=this.objectPath(artifact.digest);if(!existsSync(path)||lstatSync(path).isSymbolicLink())throw threadError('File has not arrived on this client',404);const bytes=readFileSync(path);if(bytes.length!==artifact.size||digest(bytes)!==artifact.digest)throw threadError('File integrity check failed');return {artifact,bytes};}
-  attach(id,operation,name,bytes,authorId){name=text(name,200);if(/[\x00-\x1f/\\]/.test(name)||['.','..'].includes(name))throw threadError('Invalid attachment name');const doc=this.get(id);this.writable(doc);validId(operation);if(doc.operations?.includes(operation))return this.document(id);if(doc.artifacts.length>=1000||doc.artifacts.reduce((n,a)=>n+a.size,0)+bytes.length>250_000_000)throw threadError('Thread file limit reached');const hash=this.putObject(bytes);return this.mutate(id,operation,doc=>{doc.artifacts.push({id:operation,name,digest:hash,size:bytes.length,authorId,createdAt:now()});});}
+  attach(id,operation,name,bytes,authorId,path){name=text(name,200);if(/[\x00-\x1f/\\]/.test(name)||['.','..'].includes(name))throw threadError('Invalid attachment name');if(path!==undefined)threadPath(path);const doc=this.get(id);this.writable(doc);validId(operation);if(doc.operations?.includes(operation))return this.document(id);if(doc.artifacts.length>=1000||doc.artifacts.reduce((n,a)=>n+a.size,0)+bytes.length>250_000_000)throw threadError('Thread file limit reached');const hash=this.putObject(bytes);return this.mutate(id,operation,doc=>{doc.artifacts.push({id:operation,name,...(path!==undefined?{path}:{}),digest:hash,size:bytes.length,authorId,createdAt:now()});});}
   import(doc,authority,{staged=false}={}) {
     this.validate(doc);
     if(doc.shared!==true)throw threadError('A shared snapshot must retain its directory authority');

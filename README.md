@@ -37,7 +37,7 @@ cargo check --manifest-path src-tauri/Cargo.toml
 npm run check:headless
 ```
 
-`npm run check` covers account isolation, storage/transfer validation, tool path fences, schedules, hosted routing, local model admission, subscription adapters, file locking, page fetching, and both UI builds. `check:headless` boots the actual Client, runs an actual agent loop against a synthetic local model, verifies independent work/review, execution deduplication, shutdown, and restart persistence. Peer transport tests live in the sibling `bees-server` repository and use these Client modules directly.
+`npm run check` covers account isolation, storage/transfer validation, tool path fences, schedules, hosted routing, OpenAI-compatible connections, subscription adapters, file locking, page fetching, and both UI builds. `check:headless` boots the actual Client, runs an actual agent loop against a synthetic local model, verifies independent work/review, execution deduplication, shutdown, and restart persistence. Peer transport tests live in the sibling `bees-server` repository and use these Client modules directly.
 
 Account profiles separate threads, certificates and device credentials. AI connections remain machine-scoped, so a personal desktop user can reuse a local model/subscription across their own accounts. Hosted users always get separate containers and persistent volumes. No team/workspace data is imported from previous versions.
 

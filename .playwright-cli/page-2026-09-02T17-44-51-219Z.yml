@@ -1,0 +1,7 @@
+- generic [ref=f1e2]:
+  - button "› Team menu" [ref=f1e4]:
+    - generic [ref=f1e5]: ›
+    - generic [ref=f1e6]: Team menu
+  - button "Nested menu ›" [ref=f1e8]:
+    - generic [ref=f1e9]: Nested menu
+    - generic [ref=f1e10]: ›

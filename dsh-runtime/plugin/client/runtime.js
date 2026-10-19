@@ -7,10 +7,8 @@ export let useRef;
 export let useState;
 export let MarkdownText;
 export let CodeBlock;
-export let LocalAiController;
-export let LocalAiSettings;
-export let ExternalLocalAiSettings;
 export let CustomAiSettings;
+export let OpenAiServersSettings;
 export let SubscriptionSettings;
 export let hosted = false;
 export let hostedRequest;
@@ -29,8 +27,7 @@ export function configureRuntime(require, options = {}) {
   CodeBlock = primitives.CodeBlock;
   MarkdownText = (props) => h(primitives.MarkdownText, { labels: markdownLabels, ...props });
   if (!hosted) {
-    ({ LocalAiController, LocalAiSettings, ExternalLocalAiSettings } = require("@bees/dsh-local-ai"));
-    ({ CustomAiSettings } = require("@bees/dsh-custom-ai"));
+    ({ CustomAiSettings, OpenAiServersSettings } = require("@bees/dsh-custom-ai"));
     ({ SubscriptionSettings } = require("@bees/dsh-subscriptions"));
   }
 }

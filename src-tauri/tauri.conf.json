@@ -13,6 +13,7 @@
     "macOSPrivateApi": true,
     "windows": [{
       "title": "Bees Client",
+      "dragDropEnabled": false,
       "width": 1180,
       "height": 760,
       "maximized": true,
@@ -41,7 +42,6 @@
     },
     "resources": {
       "../dsh-runtime": "dsh-runtime",
-      "../llama-runtime": "llama-runtime",
       "../NOTICE": "licenses/NOTICE",
       "../LICENSE": "licenses/LICENSE",
       "../LICENSE-APACHE": "licenses/LICENSE-APACHE",

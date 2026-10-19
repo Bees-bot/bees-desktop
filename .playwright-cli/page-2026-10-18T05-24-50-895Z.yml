@@ -1,0 +1,56 @@
+- generic [ref=e1]:
+  - navigation "Main navigation" [ref=e2]:
+    - button "✳" [ref=e3] [cursor=pointer]
+    - button "Threads" [ref=e4] [cursor=pointer]
+    - button "Organization settings" [ref=e7] [cursor=pointer]
+    - button "Switch to dark theme" [ref=e11] [cursor=pointer]: ☾
+    - button "Global settings" [ref=e12] [cursor=pointer]
+    - button "Your account" [ref=e17] [cursor=pointer]: "Y"
+  - complementary [ref=e18]:
+    - generic [ref=e19]:
+      - heading "Threads" [level=1] [ref=e20]
+      - button "New thread" [ref=e21] [cursor=pointer]
+    - textbox "Search threads" [ref=e28]:
+      - /placeholder: Find a thread…
+    - generic [ref=e29]:
+      - button "All" [pressed] [ref=e30] [cursor=pointer]
+      - button "Mine" [ref=e31] [cursor=pointer]
+      - button "Shared" [ref=e32] [cursor=pointer]
+    - generic [ref=e61]:
+      - button "New thread Open shared work" [ref=e62] [cursor=pointer]:
+        - generic [ref=e66]:
+          - strong [ref=e67]: New thread
+          - generic [ref=e68]: Open shared work
+      - generic [ref=e69]:
+        - code [ref=e70]: 9163271a
+        - group [ref=e71]:
+          - generic "Settings for New thread" [ref=e72] [cursor=pointer]
+    - generic [ref=e35]: Private on this machine
+  - main [ref=e37]:
+    - generic [ref=e38]:
+      - generic [ref=e39]:
+        - heading "New thread" [level=2] [ref=e77]
+        - paragraph [ref=e41]: This machine
+      - generic [ref=e78]:
+        - button "Thread settings" [ref=e79] [cursor=pointer]
+        - button "Share" [ref=e84] [cursor=pointer]
+    - navigation "Thread views" [ref=e88]:
+      - button "Conversation" [ref=e89] [cursor=pointer]
+      - button "Discussion" [ref=e90] [cursor=pointer]
+      - button "Files" [ref=e91] [cursor=pointer]
+      - button "Details" [ref=e92] [cursor=pointer]
+      - button "Context" [ref=e93] [cursor=pointer]
+      - button "Schedules" [ref=e94] [cursor=pointer]
+      - button "Memory" [ref=e95] [cursor=pointer]
+      - button "Add-ons" [ref=e96] [cursor=pointer]
+      - button "Executions" [ref=e97] [cursor=pointer]
+      - button "Traces" [ref=e98] [cursor=pointer]
+    - region "Conversation" [ref=e42]
+    - generic [ref=e50]:
+      - textbox "Message" [ref=e51]:
+        - /placeholder: Ask Bees to get something done…
+      - generic [ref=e52]:
+        - button "Add files and folders" [ref=e53] [cursor=pointer]
+        - generic [ref=e56]: Ask Bees
+        - generic [ref=e57]: ⌘ Enter to send
+        - button "Send message" [disabled] [ref=e58]

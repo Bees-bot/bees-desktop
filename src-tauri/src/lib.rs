@@ -1,15 +1,9 @@
-mod local_models;
 mod process;
 mod startup;
 
 use getrandom::fill;
-use local_models::{
-    cancel_local_model_download, delete_local_model, ensure_local_model, local_model_hardware,
-    local_model_size, local_model_status, start_local_model, stop_local_model, LocalModelManager,
-};
 use process::{
-    available_loopback_port, reap_agent_browsers, reap_orphan_llama_servers,
-    reap_orphaned_sidecars, Sidecar,
+    available_loopback_port, reap_agent_browsers, reap_orphaned_sidecars, Sidecar,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -48,13 +42,6 @@ static UPDATING: AtomicBool = AtomicBool::new(false);
 struct DshRuntimeInfo {
     base_url: String,
     token: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct LocalModelConnection {
-    base_url: String,
-    context_window: u32,
 }
 
 fn token() -> Result<String, String> {
@@ -258,9 +245,8 @@ fn prepare_profile(runtime: &Path, home: &Path) -> Result<(), String> {
 
 /// Every plugin Bees ships. The launch check and the profile links both read this, so a new
 /// plugin cannot be staged without also being verified and linked.
-const BEES_PLUGINS: [&str; 4] = [
+const BEES_PLUGINS: [&str; 3] = [
     "dsh-plugin",
-    "dsh-local-ai",
     "dsh-custom-ai",
     "dsh-subscriptions",
 ];
@@ -792,24 +778,6 @@ fn fleet_open_connections(app: tauri::AppHandle, organization: String, team: Str
     open_external_url(url.to_string())
 }
 
-#[tauri::command]
-fn local_model_connection(
-    app: tauri::AppHandle,
-    model_id: Option<String>,
-) -> Result<LocalModelConnection, String> {
-    let route = model_id.as_deref().unwrap_or("active");
-    local_models::local_model_routes(&app)?
-        .get(route)
-        .map(|route| LocalModelConnection {
-            base_url: route.url.clone(),
-            context_window: route.context_size,
-        })
-        .ok_or_else(|| match model_id {
-            Some(id) => format!("Local model {id} is not running."),
-            None => "No local model is running.".to_string(),
-        })
-}
-
 fn validated_external_url(url: &str) -> Result<&str, String> {
     let url = url.trim();
     let secure_host = url
@@ -1089,7 +1057,6 @@ pub fn run() {
                 startup::open(&state.join("startup.log"));
             }
             let _setup = startup::start("native.setup");
-            startup::step("native.reap-llama", reap_orphan_llama_servers);
             if let Ok((node, temporal, _)) =
                 startup::step("native.runtime-paths", || runtime_paths(app.handle()))
             {
@@ -1099,7 +1066,6 @@ pub fn run() {
             if let Ok(state) = state_dir(app.handle()) {
                 startup::step("native.reap-browser", || reap_agent_browsers(&state));
             }
-            app.manage(LocalModelManager::default());
             app.manage(DshManager(Mutex::new(None)));
             // a linux desktop without a tray library used to stop Bees from opening at all
             if startup::step("native.tray", || build_tray(app.handle())).is_err() {
@@ -1126,15 +1092,6 @@ pub fn run() {
             fleet_open_connections,
             ensure_dsh_runtime,
             restart_app,
-            local_model_status,
-            local_model_hardware,
-            local_model_size,
-            ensure_local_model,
-            start_local_model,
-            stop_local_model,
-            cancel_local_model_download,
-            delete_local_model,
-            local_model_connection,
             open_external_url,
             bees_data_size,
             uninstall_bees,
@@ -1191,9 +1148,6 @@ fn shutdown(handle: &tauri::AppHandle) {
                 Err(std::sync::TryLockError::WouldBlock) => thread::sleep(Duration::from_millis(100)),
             }
         }
-    }
-    if let Some(models) = handle.try_state::<LocalModelManager>() {
-        models.shutdown();
     }
     if let Ok(state) = state_dir(handle) {
         reap_agent_browsers(&state);

@@ -5,6 +5,10 @@ import { hostname } from 'node:os';
 import { ThreadStore, checkpointDigest, threadError, text, validId } from './thread-store.js';
 import { ThreadPeer, peerCertificate } from './thread-peer.js';
 import { schedule, nextOccurrence } from './thread-schedule.js';
+import { THEME_PRESETS } from './themes.js';
+import { DEFAULT_WORKFLOW } from './thread-workflow.js';
+import { normalizeThreadLayout } from './thread-layout.js';
+import { authConfig, serverOrigin } from './thread-auth.js';
 
 export class DirectoryConnection {
   constructor(root,clientId){this.path=join(root,'directory.json');this.clientId=clientId;this.stop=new AbortController();if(existsSync(this.path))Object.assign(this,JSON.parse(readFileSync(this.path,'utf8')));this.url??=process.env.BEES_ACCOUNT_API_URL??'https://app.bees.bot';}
@@ -13,9 +17,10 @@ export class DirectoryConnection {
     const result=await fetch(this.url+'/api/directory'+(path==='/'?'':path),{method,headers:{authorization:`Bearer ${this.token}`,'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.any([this.stop.signal,AbortSignal.timeout(20000)])});
     const value=await result.json();if(!result.ok)throw threadError(value.error?.message??'Bees Server could not complete the request',result.status);return value;
   }
-  async signIn({url,email,password,name}){
-    const server=new URL(url??this.url);
-    if(server.username||server.password||server.pathname!=='/'||server.search||server.hash||!(server.protocol==='https:'||server.protocol==='http:'&&['localhost','127.0.0.1'].includes(server.hostname)))throw threadError('Use an HTTPS Bees Server');
+  async signIn({url,email,password,name,session}){
+    const server=new URL(serverOrigin(url??this.url));
+    await authConfig(server.origin);
+    if(session)return {url:server.origin,session:text(session,8192)};
     const response=await fetch(server.origin+'/api/auth/'+(name?'sign-up/email':'sign-in/email'),{method:'POST',headers:{'content-type':'application/json',origin:server.origin},body:JSON.stringify({email,password,...(name?{name}:{})}),signal:AbortSignal.timeout(20000)});
     const value=await response.json();if(!response.ok)throw threadError(value.message??'Sign in failed',response.status);
     return {url:server.origin,session:response.headers.get('set-auth-token')??value.token};
@@ -48,7 +53,7 @@ export class ThreadClient {
   }
   async authority(id){await this.refresh();const t=this.roster.threads.find(t=>t.id===id);if(!t)throw threadError('Thread access is unavailable',403);return t;}
   async fence(id){const doc=this.store.get(id);this.store.writable(doc);if(doc.shared){const t=await this.authority(id);if(t.owner_client_id!==this.store.clientId||Number(t.epoch)!==doc.epoch)throw threadError('This client no longer owns the thread',409);}return doc;}
-  async snapshot(){return {product:'Bees Client',clientId:this.store.clientId,user:this.directory.user??null,serverUrl:this.directory.url,connectionError:this.connectionError??null,threads:this.store.list(),directory:this.roster,models:await this.options.models?.()??[],defaultModel:this.store.preference('model')};}
+  async snapshot(){return {product:'Bees Client',clientId:this.store.clientId,user:this.directory.user??null,serverUrl:this.directory.url,connectionError:this.connectionError??null,threads:this.store.list(),directory:this.roster,models:await this.options.models?.()??[],defaultModel:this.store.preference('model'),settings:this.store.preference('settings')??{}};}
   async registerThread(id,input={}){await this.fence(id);let doc=this.store.document(id);if(!this.directory.token)throw threadError('Sign in to share or transfer a thread',401);
     if(!doc.shared){const authority=await this.directory.request('/threads',{id:doc.id,clientId:this.store.clientId,...(input.organizationId?{organizationId:input.organizationId}:{})});doc=this.store.mutate(id,randomUUID(),d=>{d.ownerUserId=this.directory.user.id;d.epoch=Number(authority.epoch);d.shared=true;});}
     return doc;
@@ -91,6 +96,23 @@ export class ThreadClient {
     if(input.action==='login'){const result=await this.directory.login(input,this.identity.cert,this.peer.endpoints);await this.refresh();return result;}
     if(input.action==='logout'){this.directory.token=null;this.directory.save();this.roster={threads:[],participants:[],clients:[],invitations:[]};return {ok:true};}
     if(input.action==='model'){this.store.preference('model',input.model);return {ok:true};}
+    if(input.action==='preferences'){
+      const values=input.values;
+      if(!values||typeof values!=='object'||Array.isArray(values))throw threadError('Invalid preferences');
+      for(const [key,value] of Object.entries(values)){
+        if(key==='systemInstructions'){if(typeof value!=='string'||value.length>20000)throw threadError('Keep system instructions under 20,000 characters');}
+        else if(key==='colorMode'){if(!['dark','light'].includes(value))throw threadError('Invalid color mode');}
+        else if(['themePreset','darkThemePreset','lightThemePreset'].includes(key)){
+          const theme=THEME_PRESETS.find(t=>t.id===value);
+          if(!theme||key==='darkThemePreset'&&!theme.dark||key==='lightThemePreset'&&theme.dark)throw threadError('Invalid theme');
+        }else if(key==='threadLayout'){
+          const layout=normalizeThreadLayout(value);
+          if(!layout)throw threadError('Invalid thread layout');
+          values[key]=layout;
+        }else throw threadError('Unknown preference');
+      }
+      return this.store.preference('settings',{...this.store.preference('settings'),...values});
+    }
     if(input.action==='organizations')return this.directory.request('/organizations');
     if(input.action==='createOrganization')return this.directory.request('/organizations',{name:input.name});
     if(input.action==='organizationMembers')return this.directory.request(`/organizations/${validId(input.organizationId)}/members`);
@@ -100,7 +122,18 @@ export class ThreadClient {
     if(input.action==='verifyEmail'){const r=await fetch(this.directory.url+'/api/auth/send-verification-email',{method:'POST',headers:{'content-type':'application/json',origin:this.directory.url},body:JSON.stringify({email:this.directory.user.email,callbackURL:this.directory.url+'/app'}),signal:AbortSignal.timeout(20000)});if(!r.ok)throw threadError('Could not send verification email');return {ok:true};}
     if(input.action==='acceptInvitation'){const result=await this.directory.request('/invitations/'+validId(input.invitationId)+'/accept',{});await this.refresh();return result;}
     const id=validId(input.threadId);
-    if(input.action==='read'){try{const doc=await this.sync(id);return {...doc,frozen:doc.ownerClientId===this.store.clientId&&!!this.store.preference(`frozen:${id}`)};}catch(e){const doc=this.store.get(id);if(doc.ownerClientId===this.store.clientId&&!doc.shared)return doc;return {...doc,unavailable:e.message};}}
+    if(['integrations','saveIntegration','toggleIntegration','removeIntegration','setBrowser','openBrowser','connectGoogle'].includes(input.action)){
+      const doc=await this.fence(id);
+      if(doc.shared&&doc.ownerUserId!==this.directory.user?.id)throw threadError('Only the thread owner may manage integrations',403);
+      if(!this.options.integrations)throw threadError('Integrations are unavailable on this client');
+      return this.options.integrations.command(this.store,id,input);
+    }
+    if(input.action==='read'){
+      let doc;
+      try{doc=await this.sync(id);}catch(e){doc=this.store.get(id);if(doc.ownerClientId!==this.store.clientId||doc.shared)doc.unavailable=e.message;}
+      await this.options.recoverActivity?.(this.store,doc);
+      return {...this.store.get(id),...(doc.unavailable?{unavailable:doc.unavailable}:{}),frozen:doc.ownerClientId===this.store.clientId&&!!this.store.preference(`frozen:${id}`)};
+    }
     if(['share','remove'].includes(input.action)){const authority=await this.authority(id).catch(e=>{if(this.store.get(id).shared)throw e;return null;});if(authority&&authority.owner_client_id!==this.store.clientId)return this.peer.send(id,authority.owner_client_id,{kind:'command',command:input});}
     if(input.action==='share')return this.share(id,input);
     if(input.action==='remove'){await this.fence(id);await this.directory.request(`/threads/${id}/participants/${encodeURIComponent(input.userId)}`,{},'DELETE');const authority=await this.authority(id);this.store.mutate(id,randomUUID(),d=>{d.epoch=Number(authority.epoch);});return this.store.document(id);}
@@ -129,10 +162,11 @@ export class ThreadClient {
     await this.fence(id);validId(input.operationId);
     let result;
     if(input.action==='message'||input.action==='discussion')result=this.store.message(id,input.operationId,input.text,actor,input.action==='discussion'?'discussion':'user');
-    else if(input.action==='attach'){if(typeof input.content!=='string'||input.content.length>13_333_336||!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(input.content))throw threadError('Invalid attachment');result=this.store.attach(id,input.operationId,input.name,Buffer.from(input.content,'base64'),actor);}
+    else if(input.action==='attach'){if(typeof input.content!=='string'||input.content.length>13_333_336||!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(input.content))throw threadError('Invalid attachment');result=this.store.attach(id,input.operationId,input.name,Buffer.from(input.content,'base64'),actor,input.path);}
+    else if(input.action==='folder')result=this.store.mutate(id,input.operationId,d=>{d.folders??=[];if(!d.folders.includes(input.path))d.folders.push(input.path);});
     else if(input.action==='configure'){
       const doc=this.store.document(id);if(doc.shared&&actor!==doc.ownerUserId)throw threadError('Only the thread owner may configure execution',403);
-      const workflow=input.workflow??doc.workflow??[{name:'Work',kind:'work'},{name:'Review',kind:'review'}];
+      const workflow=input.workflow??doc.workflow??DEFAULT_WORKFLOW;
       if(!Array.isArray(workflow)||!workflow.length||workflow.length>12||workflow.some(s=>!s||!['work','review','approval'].includes(s.kind)||typeof s.name!=='string'||!s.name.trim()||s.name.length>80||s.model&&(typeof s.model!=='string'||s.model.length>200||!s.model.includes('/'))))throw threadError('Invalid workflow stages');
       if(input.memory!==undefined&&(!Array.isArray(input.memory)||input.memory.length>100||input.memory.some(m=>typeof m!=='string'||m.length>10000)))throw threadError('Invalid thread memory');
       const recurrence=input.schedule===undefined?doc.schedule:schedule(input.schedule);
@@ -151,7 +185,7 @@ export class ThreadClient {
       const quota=Number(process.env.BEES_HOSTED_RUNS_PER_DAY??0),day=new Date().toISOString().slice(0,10);
       const admissions=this.store.preference('admissions:'+day)??[];if(quota&&admissions.length>=quota)throw threadError('Daily hosted workflow allowance reached. Use a local client or try again tomorrow.',429);
       const configuration=this.store.document(id);
-      const prompt=text(input.text);const run={id:input.operationId,prompt,status:'running',createdAt:new Date().toISOString(),model:this.store.preference('model'),instructions:configuration.instructions??'',workflow:configuration.workflow};
+      const prompt=text(input.text);const run={id:input.operationId,prompt,status:'running',createdAt:new Date().toISOString(),model:this.store.preference('model'),instructions:[this.store.preference('settings')?.systemInstructions,configuration.instructions].filter(Boolean).join('\n\n'),workflow:configuration.workflow??DEFAULT_WORKFLOW};
       result=this.store.mutate(id,input.operationId,doc=>{doc.runs.push(run);});
       if(!result.runs.some(r=>r.id===run.id))throw threadError('This operation identity was already used',409);
       if(quota)this.store.preference('admissions:'+day,[...admissions,run.id]);

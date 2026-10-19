@@ -30,7 +30,7 @@ async function openBees(): Promise<void> {
   } catch (error) {
     window.clearTimeout(slowTimer);
     console.error("Bees runtime failed to start:", error instanceof Error ? error.message : String(error));
-    show("Bees didn't start. Try again, or restart your Mac if it keeps happening.", true);
+    show(`Bees didn't start. ${error instanceof Error ? error.message : String(error)}`, true);
   } finally {
     starting = false;
   }

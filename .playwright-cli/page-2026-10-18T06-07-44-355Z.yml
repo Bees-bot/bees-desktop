@@ -1,0 +1,165 @@
+- generic [ref=e1]:
+  - navigation "Main navigation" [ref=e2]:
+    - button "✳" [ref=e3] [cursor=pointer]
+    - button "Threads" [ref=e4] [cursor=pointer]
+    - button "Organization settings" [ref=e7] [cursor=pointer]
+    - button "Switch to dark theme" [ref=e11] [cursor=pointer]: ☾
+    - button "Global settings" [ref=e12] [cursor=pointer]
+    - button "Your account" [ref=e17] [cursor=pointer]: "Y"
+  - complementary [ref=e18]:
+    - generic [ref=e19]:
+      - heading "Threads" [level=1] [ref=e20]
+      - button "New thread" [ref=e21] [cursor=pointer]
+    - textbox "Search threads" [ref=e28]:
+      - /placeholder: Find a thread…
+    - generic [ref=e29]:
+      - button "All" [pressed] [ref=e30] [cursor=pointer]
+      - button "Mine" [ref=e31] [cursor=pointer]
+      - button "Shared" [ref=e32] [cursor=pointer]
+    - generic [ref=e33]:
+      - generic [ref=e34]:
+        - 'button "Set NUMBER_OF_AGENTS=5 and test subagent functionality: Counter file: counter-< Open shared work" [ref=e35] [cursor=pointer]':
+          - generic [ref=e39]:
+            - strong [ref=e40]: "Set NUMBER_OF_AGENTS=5 and test subagent functionality: Counter file: counter-<"
+            - generic [ref=e41]: Open shared work
+        - generic [ref=e42]:
+          - code [ref=e43]: f1793d3d
+          - group [ref=e44]:
+            - 'generic "Settings for Set NUMBER_OF_AGENTS=5 and test subagent functionality: Counter file: counter-<" [ref=e45] [cursor=pointer]'
+      - generic [ref=e50]:
+        - button "Counter in progress Open shared work Running" [ref=e51] [cursor=pointer]:
+          - generic [ref=e55]:
+            - strong [ref=e56]: Counter in progress
+            - generic [ref=e57]: Open shared work
+          - generic "Running" [ref=e58]
+        - generic [ref=e59]:
+          - code [ref=e60]: active-p
+          - group [ref=e61]:
+            - generic "Settings for Counter in progress" [ref=e62] [cursor=pointer]
+      - generic [ref=e67]:
+        - button "New thread Open shared work" [ref=e68] [cursor=pointer]:
+          - generic [ref=e72]:
+            - strong [ref=e73]: New thread
+            - generic [ref=e74]: Open shared work
+        - generic [ref=e75]:
+          - code [ref=e76]: empty-pr
+          - group [ref=e77]:
+            - generic "Settings for New thread" [ref=e78] [cursor=pointer]
+    - generic [ref=e83]: Private on this machine
+  - main [ref=e85]:
+    - generic [ref=e86]:
+      - generic [ref=e87]:
+        - heading "Counter in progress" [level=2] [ref=e279]
+        - paragraph [ref=e89]: This machine
+      - generic [ref=e110]:
+        - button "Thread settings" [ref=e111] [cursor=pointer]
+        - button "Share" [ref=e116] [cursor=pointer]
+    - navigation "Thread views" [ref=e120]:
+      - button "Conversation" [ref=e121] [cursor=pointer]
+      - button "Kanban" [active] [ref=e122] [cursor=pointer]
+      - button "Discussion" [ref=e123] [cursor=pointer]
+      - button "Files" [ref=e124] [cursor=pointer]
+      - button "Details" [ref=e125] [cursor=pointer]
+      - button "Context" [ref=e126] [cursor=pointer]
+      - button "Schedules" [ref=e127] [cursor=pointer]
+      - button "Memory" [ref=e128] [cursor=pointer]
+      - button "Add-ons" [ref=e129] [cursor=pointer]
+      - button "Executions" [ref=e130] [cursor=pointer]
+      - button "Traces" [ref=e131] [cursor=pointer]
+    - region "Kanban" [ref=e309]:
+      - generic [ref=e310]:
+        - generic [ref=e311]:
+          - generic [ref=e312]:
+            - heading "Goals" [level=3] [ref=e313]
+            - paragraph [ref=e314]: Work → Review → Done
+          - generic [ref=e315]:
+            - generic [ref=e316]: Execution
+            - combobox "Execution" [ref=e317]:
+              - option "Latest execution" [selected]
+              - 'option "10/17/2026, 10:29:33 PM · Set NUMBER_OF_AGENTS=5 and test subagent functionality: Cou"'
+          - button "Process settings" [ref=e318] [cursor=pointer]
+        - status [ref=e319]: "Execution: In progress · 1 agents · 5 subagents"
+        - region "Workflow board" [ref=e320]:
+          - region "Work" [ref=e321]:
+            - generic [ref=e322]:
+              - heading "Work" [level=3] [ref=e323]
+              - generic [ref=e324]: 3 work items
+            - list "Work work items" [ref=e325]:
+              - listitem [ref=e326]:
+                - button "Root work item In progress Counter in progress gpt-6-luna Started 10/17/2026, 10:29:33 PM" [pressed] [ref=e327] [cursor=pointer]:
+                  - generic [ref=e328]:
+                    - generic [ref=e329]: Root work item
+                    - generic [ref=e330]: In progress
+                  - strong [ref=e331]: Counter in progress
+                  - generic [ref=e332]: gpt-6-luna
+                  - generic [ref=e333]: Started 10/17/2026, 10:29:33 PM
+              - listitem [ref=e334]:
+                - 'button "Subagent In progress Append first entry Parent: Counter in progress gpt-6-luna Started 10/17/2026, 10:29:36 PM" [ref=e335] [cursor=pointer]':
+                  - generic [ref=e336]:
+                    - generic [ref=e337]: Subagent
+                    - generic [ref=e338]: In progress
+                  - strong [ref=e339]: Append first entry
+                  - generic "Counter in progress" [ref=e340]: "Parent: Counter in progress"
+                  - generic [ref=e341]: gpt-6-luna
+                  - generic [ref=e342]: Started 10/17/2026, 10:29:36 PM
+              - listitem [ref=e343]:
+                - 'button "Subagent In progress Append second entry Parent: Counter in progress gpt-6-luna Started 10/17/2026, 10:29:38 PM" [ref=e344] [cursor=pointer]':
+                  - generic [ref=e345]:
+                    - generic [ref=e346]: Subagent
+                    - generic [ref=e347]: In progress
+                  - strong [ref=e348]: Append second entry
+                  - generic "Counter in progress" [ref=e349]: "Parent: Counter in progress"
+                  - generic [ref=e350]: gpt-6-luna
+                  - generic [ref=e351]: Started 10/17/2026, 10:29:38 PM
+          - region "Review" [ref=e352]:
+            - generic [ref=e353]:
+              - heading "Review" [level=3] [ref=e354]
+              - generic [ref=e355]: 0 work items
+            - paragraph [ref=e356]: No work
+          - region "Done" [ref=e357]:
+            - generic [ref=e358]:
+              - heading "Done" [level=3] [ref=e359]
+              - generic [ref=e360]: 3 work items
+            - list "Done work items" [ref=e361]:
+              - listitem [ref=e362]:
+                - 'button "Subagent Done Append third entry Parent: Counter in progress gpt-6-luna Started 10/17/2026, 10:29:39 PM" [ref=e363] [cursor=pointer]':
+                  - generic [ref=e364]:
+                    - generic [ref=e365]: Subagent
+                    - generic [ref=e366]: Done
+                  - strong [ref=e367]: Append third entry
+                  - generic "Counter in progress" [ref=e368]: "Parent: Counter in progress"
+                  - generic [ref=e369]: gpt-6-luna
+                  - generic [ref=e370]: Started 10/17/2026, 10:29:39 PM
+              - listitem [ref=e371]:
+                - 'button "Subagent Done Append fourth entry Parent: Counter in progress gpt-6-luna Started 10/17/2026, 10:29:41 PM" [ref=e372] [cursor=pointer]':
+                  - generic [ref=e373]:
+                    - generic [ref=e374]: Subagent
+                    - generic [ref=e375]: Done
+                  - strong [ref=e376]: Append fourth entry
+                  - generic "Counter in progress" [ref=e377]: "Parent: Counter in progress"
+                  - generic [ref=e378]: gpt-6-luna
+                  - generic [ref=e379]: Started 10/17/2026, 10:29:41 PM
+              - listitem [ref=e380]:
+                - 'button "Subagent Done Append fifth entry Parent: Counter in progress gpt-6-luna Started 10/17/2026, 10:29:42 PM" [ref=e381] [cursor=pointer]':
+                  - generic [ref=e382]:
+                    - generic [ref=e383]: Subagent
+                    - generic [ref=e384]: Done
+                  - strong [ref=e385]: Append fifth entry
+                  - generic "Counter in progress" [ref=e386]: "Parent: Counter in progress"
+                  - generic [ref=e387]: gpt-6-luna
+                  - generic [ref=e388]: Started 10/17/2026, 10:29:42 PM
+        - region "Work item details" [ref=e389]:
+          - generic [ref=e390]:
+            - heading "Counter in progress" [level=3] [ref=e391]
+            - generic [ref=e392]: In progress
+          - paragraph [ref=e393]: "Set NUMBER_OF_AGENTS=5 and test subagent functionality: Counter file: counter-<yyyy-mm-dd-hh-ss>.txt 1. Create a counter file 2. The parent task launches the parallel subagents to add numbers in english to counter file e.g. \"first\" “second” 4. Continue until all NUMBER_OF_AGENTS subagents have completed. 5. Only the parent may launch subtasks. Acceptance criteria: - file exists and contains entries from all NUMBER_OF_AGENTS. - a subagent was launched for each number and completed."
+          - article [ref=e395]:
+            - generic [ref=e396]:
+              - strong [ref=e397]: Work agent
+              - generic [ref=e398]: In progress
+            - code [ref=e399]: a4965b2f-eea1-4852-86f4-41a6e5313425-0
+            - generic [ref=e400]: gpt-6-luna
+          - group [ref=e401]:
+            - generic "Work result" [ref=e402] [cursor=pointer]
+          - group [ref=e403]:
+            - generic "Review result" [ref=e404] [cursor=pointer]

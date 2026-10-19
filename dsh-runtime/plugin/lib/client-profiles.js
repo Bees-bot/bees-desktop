@@ -3,6 +3,7 @@ import { mkdirSync, existsSync, readFileSync, writeFileSync,renameSync } from 'n
 import { join } from 'node:path';
 import { ThreadClient } from './thread-client.js';
 import { threadError } from './thread-store.js';
+import { authConfig, desktopSignIn, serverOrigin } from './thread-auth.js';
 
 /** Account content and peer credentials never share a client database. AI connections belong to this machine. */
 export class ClientProfiles {
@@ -20,6 +21,26 @@ export class ClientProfiles {
     this.state.accounts[key]=slot;this.state.active=slot;this.active=client;this.save();return user;
   }
   async logout(){if(Object.values(this.state.accounts).includes(this.state.anonymous))this.state.anonymous='personal-'+randomUUID();this.state.active=this.state.anonymous;this.active=await this.open(this.state.active);this.save();return {ok:true};}
-  async command(input){if(input.action==='resumeSession'){const user=await this.active.directory.resume(input.session,this.active.identity.cert,this.active.peer.endpoints);await this.active.refresh();return user;}if(input.action==='login')return this.login(input);if(input.action==='logout')return this.logout();return this.active.command(input);}
-  async close(){await Promise.all([...this.clients.values()].map(c=>c.close()));}
+  async command(input){
+    if(input.action==='authConfig')return authConfig(input.url??this.active.directory.url);
+    if(input.action==='startLogin'){
+      if(process.env.BEES_HOSTED_CLIENT)throw threadError('Sign in through Bees Cloud');
+      this.pendingLogin?.close();
+      const url=serverOrigin(input.url??this.active.directory.url);
+      await authConfig(url);
+      this.pendingLogin=await desktopSignIn(url,input,session=>this.login({url,session}));
+      return {id:this.pendingLogin.id,url:this.pendingLogin.url};
+    }
+    if(input.action==='cancelLogin'){if(this.pendingLogin?.id===input.id){this.pendingLogin.close();this.pendingLogin=null;}return {ok:true};}
+    if(input.action==='finishLogin'){
+      const pending=this.pendingLogin;if(!pending||pending.id!==input.id)throw threadError('Sign-in attempt expired');
+      const result=pending.result;
+      if(!result)return {pending:true};
+      this.pendingLogin=null;if(result.error)throw threadError(result.error);
+      return result.user;
+    }
+    if(input.action==='resumeSession'){const user=await this.active.directory.resume(input.session,this.active.identity.cert,this.active.peer.endpoints);await this.active.refresh();return user;}
+    if(input.action==='login')return this.login(input);if(input.action==='logout')return this.logout();return this.active.command(input);
+  }
+  async close(){this.pendingLogin?.close();await Promise.all([...this.clients.values()].map(c=>c.close()));}
 }

@@ -1,0 +1,100 @@
+- generic [ref=e1]:
+  - navigation "Main navigation" [ref=e2]:
+    - button "✳" [ref=e3] [cursor=pointer]
+    - button "Threads" [ref=e4] [cursor=pointer]:
+      - img [ref=e5]
+    - button "Organization settings" [ref=e7] [cursor=pointer]:
+      - img [ref=e8]
+    - button "Switch to dark theme" [ref=e11] [cursor=pointer]: ☾
+    - button "Global settings" [ref=e12] [cursor=pointer]:
+      - img [ref=e13]
+    - button "Your account" [ref=e17] [cursor=pointer]: "Y"
+  - complementary [ref=e18]:
+    - generic [ref=e19]:
+      - heading "Threads" [level=1] [ref=e20]
+      - button "New thread" [ref=e21] [cursor=pointer]:
+        - img [ref=e22]
+    - generic [ref=e24]:
+      - img [ref=e25]
+      - textbox "Search threads" [ref=e28]:
+        - /placeholder: Find a thread…
+    - generic [ref=e29]:
+      - button "All" [pressed] [ref=e30] [cursor=pointer]
+      - button "Mine" [ref=e31] [cursor=pointer]
+      - button "Shared" [ref=e32] [cursor=pointer]
+    - generic [ref=e33]:
+      - generic [ref=e34]:
+        - button "Files layout check" [ref=e35] [cursor=pointer]:
+          - img [ref=e37]
+          - strong [ref=e40]: Files layout check
+        - generic [ref=e41]:
+          - code [ref=e42]: adb8410d
+          - group [ref=e43]:
+            - generic "Settings for Files layout check" [ref=e44] [cursor=pointer]:
+              - img [ref=e45]
+      - generic [ref=e49]:
+        - button "Empty thread" [ref=e50] [cursor=pointer]:
+          - img [ref=e52]
+          - strong [ref=e55]: Empty thread
+        - generic [ref=e56]:
+          - code [ref=e57]: ab2d2daf
+          - group [ref=e58]:
+            - generic "Settings for Empty thread" [ref=e59] [cursor=pointer]:
+              - img [ref=e60]
+    - generic [ref=e64]: Private on this machine
+  - main [ref=e66]:
+    - generic [ref=e67]:
+      - generic [ref=e68]:
+        - heading "Files layout check" [level=2] [ref=e90]
+        - paragraph [ref=e70]: This machine
+      - generic [ref=e91]:
+        - button "Thread settings" [ref=e92] [cursor=pointer]:
+          - img [ref=e93]
+        - button "Share" [ref=e97] [cursor=pointer]:
+          - img [ref=e98]
+          - text: Share
+    - navigation "Thread views" [ref=e101]:
+      - button "Conversation" [ref=e102] [cursor=pointer]
+      - button "Discussion" [ref=e103] [cursor=pointer]
+      - button "Files" [active] [ref=e104] [cursor=pointer]
+      - button "Details" [ref=e105] [cursor=pointer]
+      - button "Context" [ref=e106] [cursor=pointer]
+      - button "Schedules" [ref=e107] [cursor=pointer]
+      - button "Memory" [ref=e108] [cursor=pointer]
+      - button "Add-ons" [ref=e109] [cursor=pointer]
+      - button "Executions" [ref=e110] [cursor=pointer]
+      - button "Traces" [ref=e111] [cursor=pointer]
+    - region "Files" [ref=e112]:
+      - generic [ref=e113]:
+        - heading "Files" [level=3] [ref=e114]
+        - generic [ref=e115]:
+          - region "Input files" [ref=e116]:
+            - heading "Input files" [level=3] [ref=e117]
+            - paragraph [ref=e118]: Files you and your collaborators add to this thread.
+            - navigation "Folder path" [ref=e119]:
+              - button "All files" [ref=e120] [cursor=pointer]
+            - generic [ref=e121]:
+              - button "Add files" [ref=e122] [cursor=pointer]
+              - button "Add folder" [ref=e123] [cursor=pointer]
+            - generic [ref=e124]:
+              - textbox "New folder name" [ref=e125]
+              - button "Create folder" [disabled] [ref=e126]
+            - button "▱ Research" [ref=e127] [cursor=pointer]:
+              - text: ▱
+              - strong [ref=e128]: Research
+            - button "brief.txt 0.0 KB" [ref=e129] [cursor=pointer]:
+              - generic [ref=e130]:
+                - strong [ref=e131]: brief.txt
+                - generic [ref=e132]: 0.0 KB
+          - region "Output files" [ref=e133]:
+            - heading "Output files" [level=3] [ref=e134]
+            - paragraph [ref=e135]: Results Bees creates while working on this thread.
+            - button "summary.md 0.1 KB results/proof/summary.md" [ref=e136] [cursor=pointer]:
+              - generic [ref=e137]:
+                - strong [ref=e138]: summary.md
+                - generic [ref=e139]: 0.1 KB
+                - generic [ref=e140]: results/proof/summary.md
+            - button "report.pdf 0.0 KB" [ref=e141] [cursor=pointer]:
+              - generic [ref=e142]:
+                - strong [ref=e143]: report.pdf
+                - generic [ref=e144]: 0.0 KB

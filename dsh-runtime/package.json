@@ -8,7 +8,6 @@
   },
   "dependencies": {
     "@bees/dsh-custom-ai": "file:plugins/custom-ai",
-    "@bees/dsh-local-ai": "file:plugins/local-ai",
     "@bees/dsh-plugin": "file:plugin",
     "@bees/dsh-subscriptions": "file:plugins/subscriptions",
     "@deepseek-ai/cordis": "4.0.4",

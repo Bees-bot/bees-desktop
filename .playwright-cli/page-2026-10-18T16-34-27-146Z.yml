@@ -1,0 +1,114 @@
+- generic [ref=f2e1]:
+  - navigation "Main navigation" [ref=f2e2]:
+    - button "✳" [ref=f2e3] [cursor=pointer]
+    - button "Threads" [ref=f2e4] [cursor=pointer]
+    - button "Organization settings" [ref=f2e7] [cursor=pointer]
+    - button "Switch to dark theme" [ref=f2e11] [cursor=pointer]: ☾
+    - button "Global settings" [ref=f2e12] [cursor=pointer]
+    - button "Your account" [ref=f2e17] [cursor=pointer]: "Y"
+  - complementary [ref=f2e18]:
+    - generic [ref=f2e19]:
+      - heading "Threads" [level=1] [ref=f2e20]
+      - button "New thread" [ref=f2e21] [cursor=pointer]
+    - textbox "Search threads" [ref=f2e28]:
+      - /placeholder: Find a thread…
+    - generic [ref=f2e29]:
+      - button "All" [pressed] [ref=f2e30] [cursor=pointer]
+      - button "Mine" [ref=f2e31] [cursor=pointer]
+      - button "Shared" [ref=f2e32] [cursor=pointer]
+    - generic [ref=f2e33]:
+      - generic [ref=f2e34]:
+        - button "Layout test thread Open shared work" [active] [ref=f2e35] [cursor=pointer]:
+          - generic [ref=f2e39]:
+            - strong [ref=f2e40]: Layout test thread
+            - generic [ref=f2e41]: Open shared work
+        - generic [ref=f2e42]:
+          - code [ref=f2e43]: first
+          - group [ref=f2e44]:
+            - generic "Settings for Layout test thread" [ref=f2e45] [cursor=pointer]
+      - generic [ref=f2e50]:
+        - button "Another thread Open shared work" [ref=f2e51] [cursor=pointer]:
+          - generic [ref=f2e55]:
+            - strong [ref=f2e56]: Another thread
+            - generic [ref=f2e57]: Open shared work
+        - generic [ref=f2e58]:
+          - code [ref=f2e59]: second
+          - group [ref=f2e60]:
+            - generic "Settings for Another thread" [ref=f2e61] [cursor=pointer]
+    - generic [ref=f2e66]: Private on this machine
+  - main [ref=f2e68]:
+    - generic [ref=f2e69]:
+      - generic [ref=f2e70]:
+        - heading "Layout test thread" [level=2] [ref=f2e92]
+        - paragraph [ref=f2e72]: This machine
+      - generic [ref=f2e93]:
+        - button "Thread settings" [ref=f2e94] [cursor=pointer]
+        - button "Share" [ref=f2e99] [cursor=pointer]
+        - button "Customize layout" [ref=f2e104] [cursor=pointer]
+    - generic [ref=f2e106]:
+      - generic [ref=f2e108]:
+        - region "Conversation panel" [ref=f2e110]:
+          - tablist "Panel views" [ref=f2e111]:
+            - tab "Conversation" [selected] [ref=f2e112] [cursor=pointer]
+            - tab "Kanban" [ref=f2e113] [cursor=pointer]
+            - tab "Details" [ref=f2e114] [cursor=pointer]
+            - tab "Context" [ref=f2e115] [cursor=pointer]
+            - tab "Schedules" [ref=f2e116] [cursor=pointer]
+            - tab "Memory" [ref=f2e117] [cursor=pointer]
+            - tab "Add-ons" [ref=f2e118] [cursor=pointer]
+            - tab "Executions" [ref=f2e119] [cursor=pointer]
+            - tab "Traces" [ref=f2e120] [cursor=pointer]
+          - tabpanel "Conversation" [ref=f2e123]:
+            - generic [ref=f2e124]:
+              - region "Conversation messages" [ref=f2e125]
+              - generic [ref=f2e126]:
+                - textbox "Message" [ref=f2e127]:
+                  - /placeholder: Ask Bees to get something done…
+                - generic [ref=f2e128]:
+                  - button "Add files and folders" [ref=f2e129] [cursor=pointer]
+                  - generic [ref=f2e132]: Ask Bees
+                  - button "Send message" [disabled] [ref=f2e133]
+        - separator "Resize panels" [ref=f2e136]
+        - region "Discussion panel" [ref=f2e138]:
+          - tablist "Panel views" [ref=f2e139]:
+            - tab "Discussion" [selected] [ref=f2e140] [cursor=pointer]
+          - tabpanel "Discussion" [ref=f2e143]:
+            - generic [ref=f2e144]:
+              - region "Discussion messages" [ref=f2e145]:
+                - paragraph [ref=f2e146]: Discuss this work with the people in your thread. Messages here do not start an AI run.
+              - generic [ref=f2e147]:
+                - textbox "Discussion message" [ref=f2e148]:
+                  - /placeholder: Message the people in this thread…
+                - generic [ref=f2e149]:
+                  - button "Add files and folders" [ref=f2e150] [cursor=pointer]
+                  - generic [ref=f2e153]: Discussion
+                  - button "Send discussion message" [disabled] [ref=f2e154]
+      - separator "Resize panels" [ref=f2e157]
+      - region "Files panel" [ref=f2e159]:
+        - tablist "Panel views" [ref=f2e160]:
+          - tab "Files" [selected] [ref=f2e161] [cursor=pointer]
+        - tabpanel "Files" [ref=f2e164]:
+          - generic [ref=f2e166]:
+            - generic [ref=f2e167]:
+              - heading "Files" [level=3] [ref=f2e168]
+              - generic [ref=f2e169]:
+                - region "Input files" [ref=f2e170]:
+                  - heading "Input files" [level=3] [ref=f2e171]
+                  - paragraph [ref=f2e172]: Files you and your collaborators add to this thread.
+                  - navigation "Folder path" [ref=f2e173]:
+                    - button "All files" [ref=f2e174] [cursor=pointer]
+                  - generic [ref=f2e175]:
+                    - button "Add files" [ref=f2e176] [cursor=pointer]
+                    - button "Add folder" [ref=f2e177] [cursor=pointer]
+                  - generic [ref=f2e178]:
+                    - textbox "New folder name" [ref=f2e179]
+                    - button "Create folder" [disabled] [ref=f2e180]
+                  - paragraph [ref=f2e181]: This folder is empty. Add files or a folder to give Bees context.
+                - region "Output files" [ref=f2e182]:
+                  - heading "Output files" [level=3] [ref=f2e183]
+                  - paragraph [ref=f2e184]: Results Bees creates while working on this thread.
+                  - paragraph [ref=f2e185]: No output files yet. Files Bees creates will appear here.
+            - region "File preview" [ref=f2e186]:
+              - heading "File preview" [level=3] [ref=f2e188]
+              - generic "File contents" [ref=f2e189]:
+                - paragraph [ref=f2e190]: Select a file above to preview it here.

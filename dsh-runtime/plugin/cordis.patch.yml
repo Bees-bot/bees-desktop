@@ -195,8 +195,8 @@
 
 - id: agent-default-model
   config:
-    provider: local-openai
-    model: active
+    provider: ""
+    model: ""
 
 # DSH Agent Teams replaces the old parent/child control surface with a
 # durable peer mailbox and shared task board. One-shot delegation remains mounted
@@ -226,20 +226,6 @@
 - id: llm-deepseek
   disabled: true
 
-- id: llm-pi-ai
-  config:
-    providers:
-      local-openai:
-        displayName: Bees AI
-        api: openai-completions
-        baseURL: http://127.0.0.1:1234/v1
-        # llama-server wants no auth, but pi-ai refuses a provider with neither key nor header.
-        headers: { authorization: "Bearer local" }
-        models:
-          - id: active
-            name: Bees AI model
-            contextWindow: 8192
-            maxTokens: 4096
 - insert:
     - id: agent-team
       name: '@deepseek-ai/dsh-experimental-agent-team'
@@ -256,8 +242,6 @@
         forkProvider: fork
     - id: ui-agent-team
       name: '@deepseek-ai/dsh-experimental-client-ui-agent-team'
-    - id: bees-local-ai
-      name: '@bees/dsh-local-ai'
     - id: bees-subscriptions
       name: '@bees/dsh-subscriptions'
       config:
@@ -290,14 +274,6 @@
         - jobs
         - fs
       config:
-        localModelCatalog:
-          - id: qwen3-4b-instruct-2507-q4-k-m
-            name: Qwen3 4B Instruct (Q4_K_M)
-            fileName: Qwen3-4B-Instruct-2507-Q4_K_M.gguf
-            url: https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf?download=true
-            bytes: 2497281120
-            sha256: 3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597
-            runsProcesses: false
         themePreset: corporate
         colorMode: light
         darkThemePreset: business

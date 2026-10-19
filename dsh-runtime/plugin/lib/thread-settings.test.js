@@ -1,0 +1,82 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { ThreadClient } from './thread-client.js';
+import { ThreadIntegrations } from './thread-integrations.js';
+import { ThreadStore } from './thread-store.js';
+import { schedule } from './thread-schedule.js';
+import { scheduleDraft } from '../client/thread-schedule-form.js';
+import { THEME_PRESETS, nextThemePreset } from './themes.js';
+
+test('folder attachments retain nested paths and reject escapes, collisions and invalid imported folders', () => {
+  const root=mkdtempSync(join(tmpdir(),'bees-folders-')), store=new ThreadStore(root);
+  try {
+    const thread=store.create('Files');
+    store.mutate(thread.id,randomUUID(),doc=>{doc.folders=['Project/empty'];});
+    store.attach(thread.id,randomUUID(),'notes.txt',Buffer.from('notes'),'local','Project/research/notes.txt');
+    assert.equal(store.document(thread.id).artifacts[0].path,'Project/research/notes.txt');
+    for(const path of ['../secret','/tmp/secret','a/../../b','a\\b','a/./b','a//b','C:/secret','a/NUL']) {
+      assert.throws(()=>store.attach(thread.id,randomUUID(),'bad',Buffer.from('bad'),'local',path),/relative/);
+      assert.throws(()=>store.validate({...store.document(thread.id),folders:[path]}),/relative/);
+    }
+    assert.throws(()=>store.attach(thread.id,randomUUID(),'copy',Buffer.from('x'),'local','project/Research/notes.txt'),/already exists/);
+    assert.throws(()=>store.attach(thread.id,randomUUID(),'parent',Buffer.from('x'),'local','Project'),/parent folder/);
+    assert.throws(()=>store.validate({...store.document(thread.id),folders:['PROJECT/research/NOTES.txt']}),/occupies/);
+    assert.equal(store.document(thread.id).artifacts.length,1);
+  } finally {store.close();rmSync(root,{recursive:true,force:true});}
+});
+
+test('themes, defaults and instructions persist; partial thread settings preserve the schedule',async()=>{
+  const root=mkdtempSync(join(tmpdir(),'bees-settings-'));let client=new ThreadClient(root);
+  try {
+    assert.equal(THEME_PRESETS.length,35);
+    assert.equal(nextThemePreset({themePreset:'corporate',darkThemePreset:'night'}).id,'night');
+    assert.equal(nextThemePreset({themePreset:'night',lightThemePreset:'winter'}).id,'winter');
+    assert.equal(nextThemePreset({themePreset:'corporate',darkThemePreset:'winter'}).dark,true);
+    await client.command({action:'preferences',values:{themePreset:'night',colorMode:'dark',lightThemePreset:'winter',systemInstructions:'Keep answers concise.'}});
+    await assert.rejects(client.command({action:'preferences',values:{darkThemePreset:'corporate'}}),/Invalid theme/);
+    await assert.rejects(client.command({action:'preferences',values:{token:'never-store-this'}}),/Unknown/);
+    const doc=await client.command({action:'create',title:'Weekly'});
+    await client.command({action:'configure',threadId:doc.id,operationId:randomUUID(),schedule:{frequency:'weekly',hour:17,minute:42,dayOfWeek:4,timezone:'UTC',prompt:'Summary'}});
+    const before=client.store.document(doc.id).schedule;
+    const draft=scheduleDraft(before);assert.equal(draft.hour,17);assert.equal(draft.minute,42);assert.equal(draft.dayOfWeek,4);
+    assert.equal(schedule(draft).expression,before.expression);
+    await client.command({action:'configure',threadId:doc.id,operationId:randomUUID(),memory:['A note']});
+    assert.deepEqual(client.store.document(doc.id).schedule,before);
+    client.store.close();client=new ThreadClient(root);
+    assert.equal((await client.snapshot()).settings.themePreset,'night');
+    assert.equal((await client.snapshot()).settings.systemInstructions,'Keep answers concise.');
+  } finally {client.store.close();rmSync(root,{recursive:true,force:true});}
+});
+
+test('MCP connections are per thread, credentials never enter thread documents, and replicas cannot install commands',async()=>{
+  const root=mkdtempSync(join(tmpdir(),'bees-integrations-')), secrets=new Map();
+  const integrations=new ThreadIntegrations({credentials:{set:async(k,v)=>secrets.set(JSON.stringify(k),v),resolve:async k=>({value:secrets.get(JSON.stringify(k))}),unset:async k=>secrets.delete(JSON.stringify(k))}});
+  const client=new ThreadClient(root,{integrations}), store=client.store;
+  try {
+    const first=store.create('First'),second=store.create('Second');
+    await integrations.save(store,first.id,{serverName:'docs',transport:'streamable-http',url:'https://example.com/mcp',secrets:{Authorization:'private-token'}});
+    const server=store.preference(`integrations:${first.id}`)[0];
+    assert(!JSON.stringify(server).includes('private-token'));assert(!JSON.stringify(store.document(first.id)).includes('private-token'));
+    assert.equal(store.preference(`integrations:${second.id}`),null);
+    assert.equal((await integrations.config(store,first.id,server,root)).headers.Authorization,'private-token');
+    await assert.rejects(integrations.config(store,second.id,server,root),/Reconnect/);
+    await integrations.save(store,second.id,{catalogId:'filesystem'});
+    const folder=store.preference(`integrations:${second.id}`)[0];
+    assert.equal((await integrations.config(store,second.id,folder,join(root,'run'))).args.at(-1),join(root,'run'));
+    for(const catalogId of ['playwright','chrome-devtools']){
+      await integrations.save(store,first.id,{catalogId});
+      const browser=store.preference(`integrations:${first.id}`).at(-1);
+      const config=await integrations.config(store,first.id,browser,join(root,'run'));
+      assert(config.args.includes('--isolated')&&config.args.includes('--headless'));
+      assert(!config.args.includes('--browserUrl')&&!config.args.includes('--cdp-endpoint'));
+    }
+    await assert.rejects(integrations.save(store,first.id,{serverName:'bad',transport:'stdio',command:'node',args:{},secrets:{}}),/arguments/);
+    await assert.rejects(client.localCommand(first.id,{action:'saveIntegration',operationId:randomUUID()},'remote-user'),/Unknown thread command/);
+    store.save({...store.document(second.id),ownerClientId:randomUUID()});
+    await assert.rejects(client.command({action:'saveIntegration',threadId:second.id,serverName:'evil',command:'node',transport:'stdio'}),/owning client/);
+  } finally {store.close();rmSync(root,{recursive:true,force:true});}
+});

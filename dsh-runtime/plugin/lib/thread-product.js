@@ -3,8 +3,8 @@ import { timingSafeEqual } from 'node:crypto';
 import { homedir, tmpdir } from 'node:os';
 import { ClientProfiles } from './client-profiles.js';
 import { ThreadRunner } from './thread-runner.js';
-import { mountLocalInference } from './local-inference.js';
-import { shippedModelCatalog } from './product-models.js';
+import { ThreadIntegrations } from './thread-integrations.js';
+import { recoverThreadActivity } from './thread-activity.js';
 
 const equal=(a,b)=>{const x=Buffer.from(String(a??'')),y=Buffer.from(String(b??''));return x.length===y.length&&x.length>0&&timingSafeEqual(x,y);};
 const tokenOf=req=>String(req.headers.authorization??'').replace(/^Bearer\s+/i,'')||String(req.headers.cookie??'').split(';').map(x=>x.trim().split('=')).find(([k])=>k==='bees_dsh')?.[1];
@@ -15,12 +15,14 @@ export async function applyThreadProduct(ctx,config){
   const token=process.env.BEES_DSH_TOKEN;const root=process.env.BEES_STATE_DIR;if(!token||!root)throw Error('Bees Client launch configuration is missing');
   process.env.BEES_FLEET_JOB='client';
   globalThis.__beesReadFence=workspaceRoot=>({closed:[homedir(),process.env.BEES_HOST_HOME,root,process.env.DSH_HOME].filter(Boolean),open:[workspaceRoot,tmpdir(),process.env.BEES_RUNTIME_ROOT].filter(Boolean)});
-  mountLocalInference(ctx);ctx.effect(()=>ctx.settings.configure({auto:false},ctx.fiber),'Bees Client settings');
-  const runner=new ThreadRunner(ctx);
+  ctx.effect(()=>ctx.settings.configure({auto:false},ctx.fiber),'Bees Client settings');
+  const integrations=new ThreadIntegrations(ctx);
+  const runner=new ThreadRunner(ctx,integrations);
   const models=async()=>{const rows=[];for(const provider of ctx.llm.listProviders())for(const model of await ctx.llm.listModels(provider.id).catch(()=>[]))rows.push({id:provider.id+'/'+model.id,name:model.name??model.id});return rows;};
-  const profiles=await new ClientProfiles(join(root,'client-v3'),{models,execute:options=>runner.execute(options),pending:id=>runner.pending.get(id),answer:(id,input)=>runner.answer(id,input)}).start();
+  const profiles=await new ClientProfiles(join(root,'client-v3'),{models,integrations,recoverActivity:(store,thread)=>recoverThreadActivity(ctx,store,thread),execute:options=>runner.execute(options),pending:id=>runner.pending.get(id),answer:(id,input)=>runner.answer(id,input)}).start();
   const client=()=>profiles.active;
   ctx.effect(()=>()=>profiles.close(),'Bees Client shutdown');
+  ctx.effect(()=>()=>integrations.close(),'Bees integrations shutdown');
   const register=(path,handler)=>ctx.effect(()=>ctx.webServer.register({kind:'exact',path,handler}),'Bees Client '+path);
   const allowed=req=>(!req.headers.origin||req.headers.origin===`http://${req.headers.host}`)&&equal(tokenOf(req),token);
   const guard=req=>{const path=new URL(req.url??'/','http://client').pathname;if(!['/bees-auth','/healthz'].includes(path)&&!allowed(req))req.url='/_bees_unauthorized';};
@@ -28,9 +30,9 @@ export async function applyThreadProduct(ctx,config){
   ctx.webServer.server.prependListener('request',guard);ctx.webServer.server.prependListener('upgrade',guardUpgrade);
   ctx.effect(()=>()=>{ctx.webServer.server.off('request',guard);ctx.webServer.server.off('upgrade',guardUpgrade);},'Bees Client local authentication');
   register('/_bees_unauthorized',(_req,res)=>reply(res,401,{error:'Open Bees Client again to reconnect.'}));
-  register('/healthz',(_req,res)=>reply(res,200,{status:'ok',service:'bees-client',clientId:client().store.clientId}));
+  register('/healthz',(_req,res)=>reply(res,200,{status:'ok',product:'bees',service:'bees-client',clientId:client().store.clientId}));
   register('/bees-api/snapshot',apiSnapshot);
-  async function apiSnapshot(_req,res){try{reply(res,200,{...await client().snapshot(),localModelCatalog:shippedModelCatalog});}catch(e){reply(res,400,{error:e.message});}}
+  async function apiSnapshot(_req,res){try{reply(res,200,await client().snapshot());}catch(e){reply(res,400,{error:e.message});}}
   register('/bees-api/active-runs',(_req,res)=>{const count=[...profiles.clients.values()].reduce((n,c)=>n+c.jobs.size,0);reply(res,200,count);});
   register('/bees-auth',async(req,res)=>{
     const offered=new URL(req.url,'http://client').searchParams.get('token');if(!equal(offered,token))return reply(res,401,{error:'Unauthorized'});
@@ -40,7 +42,7 @@ export async function applyThreadProduct(ctx,config){
   });
   const api=handler=>async(req,res)=>{try{reply(res,200,await handler(req));}catch(e){reply(res,e.status??400,{error:e.message});}};
   register('/bees-api/threads',api(async req=>{
-    if(req.method==='GET')return {...await client().snapshot(),localModelCatalog:shippedModelCatalog};if(req.method!=='POST')throw Error('Method not allowed');
+    if(req.method==='GET')return await client().snapshot();if(req.method!=='POST')throw Error('Method not allowed');
     const input=await body(req);
     return profiles.command(input);
   }));

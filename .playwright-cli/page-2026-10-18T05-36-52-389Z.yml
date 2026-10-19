@@ -1,0 +1,41 @@
+- generic [ref=e1]:
+  - navigation "Main navigation" [ref=e2]:
+    - button "✳" [ref=e3] [cursor=pointer]
+    - button "Threads" [ref=e4] [cursor=pointer]
+    - button "Organization settings" [ref=e7] [cursor=pointer]
+    - button "Switch to dark theme" [ref=e11] [cursor=pointer]: ☾
+    - button "Global settings" [ref=e12] [cursor=pointer]
+    - button "Your account" [ref=e17] [cursor=pointer]: "Y"
+  - complementary [ref=e18]:
+    - generic [ref=e19]:
+      - heading "Threads" [level=1] [ref=e20]
+      - button "New thread" [ref=e21] [cursor=pointer]
+    - textbox "Search threads" [ref=e28]:
+      - /placeholder: Find a thread…
+    - generic [ref=e29]:
+      - button "All" [pressed] [ref=e30] [cursor=pointer]
+      - button "Mine" [ref=e31] [cursor=pointer]
+      - button "Shared" [ref=e32] [cursor=pointer]
+    - paragraph [ref=e34]: Your work starts with a thread.
+    - generic [ref=e35]: Private on this machine
+  - main [ref=e37]:
+    - generic [ref=e39]:
+      - heading "A little help. A lot done." [level=2] [ref=e40]
+      - paragraph [ref=e41]: Your people, AI, and work in one conversation.
+    - region "Conversation" [ref=e42]:
+      - generic [ref=e43]:
+        - text: ✳
+        - heading "What would you like to get done?" [level=2] [ref=e44]
+        - paragraph [ref=e45]: Start with an idea. Add files and people as you go.
+        - generic [ref=e46]:
+          - button "Research a topic" [ref=e47] [cursor=pointer]
+          - button "Make sense of my files" [ref=e48] [cursor=pointer]
+          - button "Prepare a weekly update" [ref=e49] [cursor=pointer]
+    - generic [ref=e50]:
+      - textbox "Message" [ref=e51]:
+        - /placeholder: Ask Bees to get something done…
+      - generic [ref=e52]:
+        - button "Add files and folders" [disabled] [ref=e53]
+        - generic [ref=e56]: Ask Bees
+        - generic [ref=e57]: ⌘ Enter to send
+        - button "Send message" [disabled] [ref=e58]
