@@ -4,7 +4,6 @@ import {configureRuntime,h} from './runtime.js';
 import {ThreadApp} from './thread-app.js';
 configureRuntime(name=>{
   if(name==='react')return React;
-  if(name==='react-dom')return {};
   if(name==='@deepseek-ai/dsh-client-ui-primitives')return {MarkdownText:({text})=>h('div',null,text)};
   throw Error('Unavailable browser module: '+name);
 },{hosted:true});

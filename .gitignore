@@ -3,10 +3,6 @@ dist/
 graphify-out/
 src-tauri/target/
 src-tauri/binaries/
-llama-runtime/*
-!llama-runtime/.gitkeep
-dsh-runtime/freellmapi/*
-!dsh-runtime/freellmapi/.gitkeep
 dsh-runtime/plugin/lib/client.js
 dsh-runtime/memory-runtime/*
 src-tauri/gen/schemas/

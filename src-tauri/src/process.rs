@@ -51,27 +51,6 @@ pub fn reap_orphaned_sidecars(executable: &Path) {
     });
 }
 
-/// Remove a llama-server left behind by a previous app instance. The model manager tracks its
-/// child only in memory, so a crash orphans the server and the next launch reports "not running"
-/// and spawns a duplicate. Matched on the `--alias active` we always pass and on the parent being
-/// gone, so another app's llama-server, or one a person is running themselves, is left alone.
-pub fn reap_orphan_llama_servers() {
-    reap(|system, process| {
-        let orphaned = process
-            .parent()
-            .is_none_or(|parent| parent.as_u32() == 1 || system.process(parent).is_none());
-        orphaned
-            && process
-                .exe()
-                .and_then(Path::file_stem)
-                .is_some_and(|name| name == "llama-server")
-            && process
-                .cmd()
-                .windows(2)
-                .any(|a| a[0] == "--alias" && a[1] == "active")
-    });
-}
-
 /// End the browsers the agent browses in: Bees' own, and the one a team asked to browse with the
 /// person's sign-ins. DSH starts them, but DSH is hard-killed on quit so its own cleanup never runs, and
 /// a browser left behind sits in the Dock and holds the profile lock. Matched on the exact profile
