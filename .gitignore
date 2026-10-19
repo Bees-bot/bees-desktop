@@ -4,7 +4,6 @@ graphify-out/
 src-tauri/target/
 src-tauri/binaries/
 dsh-runtime/plugin/lib/client.js
-dsh-runtime/memory-runtime/*
 src-tauri/gen/schemas/
 .env
 .env.*

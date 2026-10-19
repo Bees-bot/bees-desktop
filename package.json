@@ -8,7 +8,7 @@
   "license": "MIT OR Apache-2.0",
   "type": "module",
   "scripts": {
-    "postinstall": "node scripts/check-node.mjs && npm ci --omit=dev --prefix dsh-runtime --ignore-scripts --legacy-peer-deps && node scripts/install-dsh-runtime.mjs && npm rebuild --prefix dsh-runtime better-sqlite3 && node scripts/stage-dsh-plugin.mjs",
+    "postinstall": "node scripts/check-node.mjs && npm ci --omit=dev --prefix dsh-runtime --ignore-scripts --legacy-peer-deps && node scripts/install-dsh-runtime.mjs && node scripts/stage-dsh-plugin.mjs",
     "prepare:dsh": "node scripts/install-dsh-runtime.mjs && node scripts/stage-dsh-plugin.mjs && node scripts/prepare-dsh-runtime.mjs",
     "build": "vite build",
     "start:headless": "node dsh-runtime/headless.mjs",
@@ -21,7 +21,6 @@
     "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "tauri:build": "tauri build",
     "build:hosted": "node scripts/build-hosted-ui.mjs",
-    "check:hosted": "node --test dsh-runtime/hosted-clients.test.mjs",
     "check:client": "node --test dsh-runtime/headless.test.mjs dsh-runtime/hosted-clients.test.mjs dsh-runtime/plugin/lib/thread-*.test.js dsh-runtime/plugin/lib/client-profiles.test.js"
   },
   "dependencies": {

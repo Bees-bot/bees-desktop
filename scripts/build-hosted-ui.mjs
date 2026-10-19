@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,18 +35,6 @@ await build({
         build.onResolve({ filter: /^(react|react-dom)(\/.*)?$/ }, (args) => ({
           path: runtimeRequire.resolve(args.path),
         }));
-      },
-    },
-    {
-      name: "desktop-style-text",
-      setup(build) {
-        build.onLoad(
-          { filter: /(?:gridstack\.min|cron-builder)\.css$/ },
-          async (args) => ({
-            contents: await readFile(args.path, "utf8"),
-            loader: "text",
-          }),
-        );
       },
     },
   ],

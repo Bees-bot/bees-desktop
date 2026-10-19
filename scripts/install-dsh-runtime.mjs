@@ -47,7 +47,7 @@ if (!teamSource.includes(teamNeedle) && !teamSource.includes(teamPatch)) {
 }
 await writeFile(teamEntry, teamSource.replace(teamNeedle, teamPatch));
 
-// seatbelt only fences writes; the bees plugin names the folders a shell may never read (readFence in data-folder.js)
+// seatbelt only fences writes; the bees plugin names the folders a shell may never read (readFence in dsh-runtime/plugin/lib/thread-product.js)
 const sandboxEntry = path.join(runtimeRoot, "node_modules", "@deepseek-ai", "dsh-sandbox-local", "lib", "index.js");
 await writeFile(sandboxEntry, (await readFile(sandboxEntry,"utf8")).replaceAll("globalThis.__beesReadFence?.()", "globalThis.__beesReadFence?.(policy.workspaceRoot)"));
 await writeFile(sandboxEntry, timeDshStartup(await readFile(sandboxEntry, "utf8"), [[
