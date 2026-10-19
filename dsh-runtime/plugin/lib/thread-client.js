@@ -20,7 +20,6 @@ export class DirectoryConnection {
     const value=await response.json();if(!response.ok)throw threadError(value.message??'Sign in failed',response.status);
     return {url:server.origin,session:response.headers.get('set-auth-token')??value.token};
   }
-  async login(input,certificate,endpoints){const signed=await this.signIn(input);const prior=this.url;this.url=signed.url;try{return await this.resume(signed.session,certificate,endpoints);}catch(e){this.url=prior;throw e;}}
   async resume(session,certificate,endpoints){
     const headers={authorization:`Bearer ${session}`,'content-type':'application/json'};
     const me=await fetch(this.url+'/api/me',{headers,signal:AbortSignal.timeout(20000)});if(!me.ok)throw threadError('Sign in again',401);
@@ -46,7 +45,6 @@ export class ThreadClient {
     const sharedBefore=new Set(this.store.list().filter(t=>t.shared).map(t=>t.id));this.roster=await this.directory.request('/');if(this.closing)return;this.connectionError=null;
     for(const local of this.store.list())if(sharedBefore.has(local.id)&&!this.roster.threads.some(t=>t.id===local.id)){this.store.preference(`frozen:${local.id}`,true);this.jobs.get(local.id)?.abort();}
     for(const authority of this.roster.threads){const local=this.store.list().find(t=>t.id===authority.id);if(local?.ownerClientId===this.store.clientId&&authority.owner_client_id!==this.store.clientId){this.store.preference(`frozen:${authority.id}`,true);this.jobs.get(authority.id)?.abort();}if(local?.staged&&authority.owner_client_id===this.store.clientId){const doc=this.store.document(local.id);this.store.activateTransfer(local.id,authority,checkpointDigest(doc));this.store.preference(`frozen:${local.id}`,false);}}
-    this.options.notify?.();
   }
   async authority(id){await this.refresh();const t=this.roster.threads.find(t=>t.id===id);if(!t)throw threadError('Thread access is unavailable',403);return t;}
   async fence(id){const doc=this.store.get(id);this.store.writable(doc);if(doc.shared){const t=await this.authority(id);if(t.owner_client_id!==this.store.clientId||Number(t.epoch)!==doc.epoch)throw threadError('This client no longer owns the thread',409);}return doc;}
@@ -89,9 +87,7 @@ export class ThreadClient {
   async replicate(){if(this.replicating||!this.directory.token||this.closing)return;this.replicating=true;try{for(const t of this.roster.threads){if(this.closing)break;if(t.owner_client_id===this.store.clientId)continue;try{await this.syncAuthority(t);}catch{/* An offline owner keeps the last authorized copy available. */}}}finally{this.replicating=false;}}
   async files(doc,source){for(const a of doc.artifacts){try{this.store.object(doc,a.id);continue;}catch{}const object=await this.peer.send(doc.id,source,{kind:'object',artifactId:a.id});if(object.artifact.digest!==a.digest||object.artifact.size!==a.size)throw threadError('File manifest changed');const bytes=Buffer.from(object.content,'base64');if(bytes.length!==a.size)throw threadError('Incomplete file transfer');this.store.putObject(bytes,a.digest);}}
   async command(input){
-    if(input.action==='create'){const doc=this.store.create(input.title??'New thread',this.directory.user?.id??'local');this.options.notify?.();return doc;}
-    if(input.action==='login'){const result=await this.directory.login(input,this.identity.cert,this.peer.endpoints);await this.refresh();return result;}
-    if(input.action==='logout'){this.directory.token=null;this.directory.save();this.roster={threads:[],participants:[],clients:[],invitations:[]};return {ok:true};}
+    if(input.action==='create'){const doc=this.store.create(input.title??'New thread',this.directory.user?.id??'local');return doc;}
     if(input.action==='model'){this.store.preference('model',input.model);return {ok:true};}
     if(input.action==='organizations')return this.directory.request('/organizations');
     if(input.action==='createOrganization')return this.directory.request('/organizations',{name:input.name});
@@ -160,11 +156,11 @@ export class ThreadClient {
       if(!result.runs.some(r=>r.id===run.id))throw threadError('This operation identity was already used',409);
       if(quota)this.store.preference('admissions:'+day,[...admissions,run.id]);
       const abort=new AbortController();this.jobs.set(id,abort);
-      const finished=(async()=>{try{const output=await this.options.execute({thread:this.store.document(id),run,signal:abort.signal,store:this.store});await this.fence(id);this.store.mutate(id,randomUUID(),doc=>{const r=doc.runs.find(r=>r.id===run.id);r.status='completed';r.completedAt=new Date().toISOString();doc.messages.push({id:randomUUID(),authorId:'bees',kind:'assistant',text:output||'Work completed.',createdAt:r.completedAt});});}catch(e){try{this.store.mutate(id,randomUUID(),doc=>{const r=doc.runs.find(r=>r.id===run.id);r.status=abort.signal.aborted?'cancelled':'failed';r.error=e.message;});}catch(write){console.error(`Bees Client could not record the end of run ${run.id}: ${write.message}`);}}finally{this.jobs.delete(id);this.options.notify?.();}})();
+      const finished=(async()=>{try{const output=await this.options.execute({thread:this.store.document(id),run,signal:abort.signal,store:this.store});await this.fence(id);this.store.mutate(id,randomUUID(),doc=>{const r=doc.runs.find(r=>r.id===run.id);r.status='completed';r.completedAt=new Date().toISOString();doc.messages.push({id:randomUUID(),authorId:'bees',kind:'assistant',text:output||'Work completed.',createdAt:r.completedAt});});}catch(e){try{this.store.mutate(id,randomUUID(),doc=>{const r=doc.runs.find(r=>r.id===run.id);r.status=abort.signal.aborted?'cancelled':'failed';r.error=abort.signal.aborted?'Stopped before it finished.':e.message;});}catch(write){console.error(`Bees Client could not record the end of run ${run.id}: ${write.message}`);}}finally{this.jobs.delete(id);}})();
       this.finishing.add(finished);void finished.finally(()=>this.finishing.delete(finished));
     } else if(input.action==='stop'){this.jobs.get(id)?.abort();result=this.store.document(id);}
     else throw threadError('Unknown thread command');
-    this.options.notify?.();return result;
+    return result;
   }
   async scheduled(){
     if(this.scheduling||this.closing)return;this.scheduling=true;
