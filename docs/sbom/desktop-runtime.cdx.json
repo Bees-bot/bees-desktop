@@ -2,10 +2,10 @@
   "$schema": "http://cyclonedx.org/schema/bom-1.5.schema.json",
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
-  "serialNumber": "urn:uuid:a8b593d0-f271-4de8-bb7d-270025c19a44",
+  "serialNumber": "urn:uuid:d54185e9-ab45-4bca-854d-d8cb297e70fe",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-10-05T14:22:59.577Z",
+    "timestamp": "2026-10-19T12:02:56.105Z",
     "lifecycles": [
       {
         "phase": "pre-build"
@@ -19,12 +19,12 @@
       }
     ],
     "component": {
-      "bom-ref": "@bees/desktop@0.2.0",
+      "bom-ref": "@bees/desktop@0.2.2",
       "type": "library",
       "name": "bees-desktop",
-      "version": "0.2.0",
+      "version": "0.2.2",
       "scope": "required",
-      "purl": "pkg:npm/%40bees/desktop@0.2.0",
+      "purl": "pkg:npm/%40bees/desktop@0.2.2",
       "properties": [
         {
           "name": "cdx:npm:package:private",
@@ -65,51 +65,18 @@
           "expression": "Apache-2.0 OR MIT"
         }
       ]
-    },
-    {
-      "bom-ref": "@tauri-apps/plugin-dialog@2.7.3",
-      "type": "library",
-      "name": "@tauri-apps/plugin-dialog",
-      "version": "2.7.3",
-      "scope": "required",
-      "purl": "pkg:npm/%40tauri-apps/plugin-dialog@2.7.3",
-      "properties": [],
-      "externalReferences": [
-        {
-          "type": "distribution",
-          "url": "https://registry.npmjs.org/@tauri-apps/plugin-dialog/-/plugin-dialog-2.7.3.tgz"
-        }
-      ],
-      "hashes": [
-        {
-          "alg": "SHA-512",
-          "content": "091804fbb4cfe2dbeaf4c8c153a7f4e0d2d3148a9530b287937840aa5862974d2780af40093ad73c7de81e928c3eba3120ba1d77762306829b330488e0811c7c"
-        }
-      ],
-      "licenses": [
-        {
-          "expression": "MIT OR Apache-2.0"
-        }
-      ]
     }
   ],
   "dependencies": [
     {
-      "ref": "@bees/desktop@0.2.0",
+      "ref": "@bees/desktop@0.2.2",
       "dependsOn": [
-        "@tauri-apps/api@2.11.1",
-        "@tauri-apps/plugin-dialog@2.7.3"
+        "@tauri-apps/api@2.11.1"
       ]
     },
     {
       "ref": "@tauri-apps/api@2.11.1",
       "dependsOn": []
-    },
-    {
-      "ref": "@tauri-apps/plugin-dialog@2.7.3",
-      "dependsOn": [
-        "@tauri-apps/api@2.11.1"
-      ]
     }
   ]
 }

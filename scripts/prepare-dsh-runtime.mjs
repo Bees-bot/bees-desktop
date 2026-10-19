@@ -15,7 +15,7 @@ import {
   statSync,
   writeFileSync
 } from "node:fs";
-import { availableParallelism, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { publishArtifact } from "./publish-artifact.mjs";
@@ -63,16 +63,6 @@ const temporalDestination = resolve(
 mkdirSync(dirname(destination), { recursive: true });
 stageExecutable(process.execPath, destination, "Node");
 
-// Upstream does not support K2 Horizon yet. Pin the model author's fork, which also
-// supports the seeded Nanbeige model, and build the same runtime on every platform.
-const llamaCommit = "42adf019f76013dac873b5b43950d54d5ab27216";
-const llamaRuntimeRevision = macTarget
-  ? `${llamaCommit}-macos13-static-1-${target}`
-  : `${llamaCommit}-static-1-${target}`;
-const llamaSource = [
-  `llama.cpp-${llamaCommit}.tar.gz`,
-  "c58cab48ce95510c65ed7f7abe20a3c70c5a0874908dd48268daa552d348aabb"
-];
 const temporalRelease = "1.8.2";
 const temporalAssets = {
   "aarch64-apple-darwin": [
@@ -115,7 +105,7 @@ function markPrepared(marker, artifact, revision) {
   writeFileSync(marker, `${revision} ${statSync(artifact).size}\n`);
 }
 
-// check a folder's own files before its subfolders, since windows lists llama.cpp's app/ ahead of its CMakeLists.txt
+// check a folder's own files before its subfolders
 function findFile(root, name) {
   const entries = readdirSync(root, { withFileTypes: true });
   if (entries.some((entry) => entry.isFile() && entry.name === name)) return join(root, name);
@@ -167,7 +157,7 @@ async function prepareTemporalRuntime() {
     if (!temporal) throw new Error(`${fileName} did not contain the Temporal executable.`);
     stageExecutable(temporal, temporalDestination, "Temporal");
     // externalBin ships the binary on its own, so the licence rides along in the dsh-runtime
-    // resource instead, the way llama.cpp and FreeLLMAPI carry theirs.
+    // resource instead.
     const licence = findFile(extracted, "LICENSE");
     if (!licence) throw new Error(`${fileName} did not contain the Temporal licence.`);
     copyFileSync(licence, resolve(desktopRoot, "dsh-runtime", "LICENSE-temporal"));
@@ -212,81 +202,6 @@ function stageExecutable(source, destination, label) {
   }
 }
 
-async function buildLlamaRuntime(temporaryRoot, runtimeRoot, serverName) {
-  const [fileName, expectedSha256] = llamaSource;
-  const url = `https://github.com/ifm-ai/llama.cpp/archive/${llamaCommit}.tar.gz`;
-  console.log(`Building llama-server ${llamaCommit.slice(0, 8)} for ${target}...`);
-  const archive = await downloadVerified(url, expectedSha256);
-  const archivePath = join(temporaryRoot, fileName);
-  const sourceParent = join(temporaryRoot, "source");
-  const build = join(temporaryRoot, "build");
-  writeFileSync(archivePath, archive);
-  mkdirSync(sourceParent);
-  execFileSync("tar", ["-xf", archivePath, "-C", sourceParent]);
-  const cmakeFile = findFile(sourceParent, "CMakeLists.txt");
-  if (!cmakeFile) throw new Error(`${fileName} did not contain CMakeLists.txt.`);
-
-  try {
-    execFileSync("cmake", ["--version"], { stdio: "ignore" });
-  } catch {
-    throw new Error("Building the local-model runtime requires CMake and a C++ compiler.");
-  }
-
-  const architecture = target.startsWith("aarch64-") ? "arm64" : "x86_64";
-  execFileSync(
-    "cmake",
-    [
-      "-S",
-      dirname(cmakeFile),
-      "-B",
-      build,
-      "-DCMAKE_BUILD_TYPE=Release",
-      ...(macTarget ? [
-        `-DCMAKE_OSX_ARCHITECTURES=${architecture}`,
-        "-DCMAKE_OSX_DEPLOYMENT_TARGET=13.3"
-      ] : []),
-      ...(target.includes("windows") ? ["-A", target.startsWith("aarch64-") ? "ARM64" : "x64"] : []),
-      "-DBUILD_SHARED_LIBS=OFF",
-      "-DGGML_NATIVE=OFF",
-      "-DGGML_CCACHE=OFF",
-      `-DGGML_METAL=${macTarget && architecture === "arm64" ? "ON" : "OFF"}`,
-      "-DGGML_METAL_EMBED_LIBRARY=ON",
-      "-DLLAMA_BUILD_NUMBER=0",
-      `-DLLAMA_BUILD_COMMIT=${llamaCommit.slice(0, 8)}`,
-      "-DLLAMA_BUILD_EXAMPLES=OFF",
-      "-DLLAMA_BUILD_TESTS=OFF",
-      "-DLLAMA_BUILD_TOOLS=ON",
-      "-DLLAMA_BUILD_SERVER=ON",
-      "-DLLAMA_BUILD_UI=OFF",
-      "-DLLAMA_USE_PREBUILT_UI=OFF",
-      "-DLLAMA_OPENSSL=OFF",
-      "-DGGML_RPC=OFF"
-    ],
-    { stdio: "inherit" }
-  );
-  execFileSync(
-    "cmake",
-    [
-      "--build",
-      build,
-      "--config",
-      "Release",
-      "--target",
-      "llama-server",
-      "-j",
-      String(availableParallelism())
-    ],
-    { stdio: "inherit" }
-  );
-  const server = findFile(build, serverName);
-  if (!server) throw new Error(`The ${llamaCommit} build did not produce ${serverName}.`);
-
-  rmSync(runtimeRoot, { recursive: true, force: true });
-  mkdirSync(runtimeRoot);
-  copyFileSync(server, join(runtimeRoot, serverName));
-  copyFileSync(join(dirname(cmakeFile), "LICENSE"), join(runtimeRoot, "LICENSE"));
-}
-
 // linker signatures (flags 0x20002) fail once copied, and this runs every build because a
 // runtime cached after signing at fetch time shipped ad-hoc and apple refused the bundle
 function signMac(paths, label) {
@@ -310,19 +225,6 @@ function signMac(paths, label) {
 }
 
 const officeEntitlements = resolve(desktopRoot, "src-tauri", "libreoffice-entitlements.plist");
-
-function signMacRuntime(runtimeRoot) {
-  if (!macTarget) return;
-  // Strip com.apple.provenance/quarantine first: those xattrs make macOS run a first-launch
-  // Gatekeeper/XProtect assessment that can wedge the process uninterruptibly at dyld start.
-  execFileSync("xattr", ["-cr", runtimeRoot]);
-  signMac(
-    readdirSync(runtimeRoot)
-      .filter((entry) => !entry.startsWith(".") && entry !== "LICENSE")
-      .map((entry) => join(runtimeRoot, entry)),
-    "local-model runtime"
-  );
-}
 
 // Thin, fat and both byte orders, read as one big-endian word.
 const MACH_O_MAGIC = new Set([0xcffaedfe, 0xcefaedfe, 0xfeedfacf, 0xfeedface, 0xcafebabe, 0xbebafeca]);
@@ -360,9 +262,6 @@ function pruneRuntime(runtimeRoot) {
   for (const entry of readdirSync(nodeModules).filter((entry) => entry.startsWith("tree-sitter")))
     for (const file of readdirSync(join(nodeModules, entry)))
       if (!/^(package\.json|LICENSE)$|\.wasm$/.test(file)) rmSync(join(nodeModules, entry, file), { recursive: true, force: true });
-  // keep metal on apple silicon and the cpu build elsewhere, so cuda and vulkan cards run qmd on the cpu
-  const llama = nodePlatform.replace("darwin", "mac").replace("win32", "win") + (nodePlatform === "darwin-arm64" ? "-metal" : "");
-  keepOnly(join(nodeModules, "@node-llama-cpp"), llama);
   // the sources the native addons were compiled from
   for (const dir of ["better-sqlite3/deps", "@temporalio/core-bridge/sdk-core"])
     rmSync(join(nodeModules, dir), { recursive: true, force: true });
@@ -396,38 +295,10 @@ function signMacBundledRuntime(runtimeRoot) {
   signMac(binaries, "bundled runtime");
 }
 
-async function prepareLlamaRuntime() {
-  if (!["aarch64-apple-darwin", "x86_64-apple-darwin", "aarch64-unknown-linux-gnu",
-    "x86_64-unknown-linux-gnu", "aarch64-pc-windows-msvc", "x86_64-pc-windows-msvc"].includes(target)) {
-    throw new Error(`No bundled llama-server runtime is configured for ${target}.`);
-  }
-
-  const runtimeRoot = resolve(desktopRoot, "llama-runtime");
-  const serverName = `llama-server${extension}`;
-  const marker = join(runtimeRoot, ".llama-version");
-  if (preparedAlready(marker, join(runtimeRoot, serverName), llamaRuntimeRevision)) {
-    signMacRuntime(runtimeRoot);
-    return;
-  }
-
-  const temporaryRoot = mkdtempSync(join(tmpdir(), "bees-llama-"));
-  try {
-    await buildLlamaRuntime(temporaryRoot, runtimeRoot, serverName);
-    if (!target.includes("windows")) chmodSync(join(runtimeRoot, serverName), 0o755);
-    signMacRuntime(runtimeRoot);
-    markPrepared(marker, join(runtimeRoot, serverName), llamaRuntimeRevision);
-    writeFileSync(join(runtimeRoot, ".gitkeep"), "");
-  } finally {
-    rmSync(temporaryRoot, { recursive: true, force: true });
-  }
-}
-
 await prepareTemporalRuntime();
-if (!headless) await prepareLlamaRuntime();
 
 // Pruning is in place, so a local cross-build would delete this machine's own native builds and
 // break its dev runs. Each runner builds its own target, so nothing ships unpruned.
-for (const name of ['freellmapi','memory-runtime']) rmSync(resolve(desktopRoot,'dsh-runtime',name),{recursive:true,force:true});
 if (target === hostTarget) pruneRuntime(resolve(desktopRoot, "dsh-runtime"));
 
 signMacBundledRuntime(resolve(desktopRoot, "dsh-runtime"));

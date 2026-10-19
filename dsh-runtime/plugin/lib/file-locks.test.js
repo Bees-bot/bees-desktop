@@ -16,7 +16,6 @@ import * as observationPolicy from "@deepseek-ai/dsh-fs-observation-policy";
 import { apply as nativeFileTools, Config } from "@deepseek-ai/dsh-tool-fs";
 import { FileLocks } from "./file-locks.js";
 import { commitFile, mountFileLocks } from "./file-lock-tools.js";
-import { mountToolDiscovery } from "./tool-discovery.js";
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "bees-file-locks-"));
@@ -116,7 +115,6 @@ test("real tool dispatch and observation policy route parent and child locks ind
   const mounted = await ctx.plugin({ inject: ["tools", "systemPrompt"], apply(base) {
     for (const owner of [parent, child]) {
       const scope = createScope(base, owner, owner === child ? { parent } : undefined);
-      mountToolDiscovery(scope.ctx, { resolve: async () => undefined });
       mountFileLocks(scope.ctx, owner, locks, ctx.fs);
     }
   } });
@@ -126,7 +124,7 @@ test("real tool dispatch and observation policy route parent and child locks ind
   const path = join(root, "scoped.txt");
   for (const owner of [parent, child]) {
     const assembly = await ctx.systemPrompt.assemble({ scope: owner, signal: new AbortController().signal });
-    assert(assembly.tools.some(({ name }) => name === "bees_append_file"), "single-call append must be visible without discovery");
+    assert(assembly.tools.some(({ name }) => name === "bees_append_file"), "single-call append must be visible");
   }
   await writeFile(path, "first");
   assert.equal((await call(parent, "write", { file_path: path, content: "unlocked" })).isError, true);

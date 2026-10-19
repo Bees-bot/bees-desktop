@@ -19,10 +19,10 @@ async function jsonBody(req) {let size=0;const parts=[];for await(const chunk of
 const response=(res,status,value)=>{if(res.destroyed)return;const body=JSON.stringify(value);res.writeHead(status,{'content-type':'application/json','content-length':Buffer.byteLength(body),'cache-control':'no-store'});res.end(body);};
 
 // TLS may flush many records in one write. Bound WebSocket messages independently of file size.
-function relayStream(ws){
-  const wire=createWebSocketStream(ws,{highWaterMark:65536});
+function relayStream(ws,touch=()=>{}){
+  const wire=createWebSocketStream(ws,{highWaterMark:65536});ws.on('message',()=>touch());
   const framed=new Writable({highWaterMark:65536,write(chunk,_encoding,done){
-    let offset=0;const next=error=>{if(error)return done(error);if(offset===chunk.length)return done();const end=Math.min(offset+32768,chunk.length),part=chunk.subarray(offset,end);offset=end;wire.write(part,next);};next();
+    touch();let offset=0;const next=error=>{if(error)return done(error);if(offset===chunk.length)return done();const end=Math.min(offset+32768,chunk.length),part=chunk.subarray(offset,end);offset=end;wire.write(part,next);};next();
   },final:done=>wire.end(done)});
   return Duplex.from({readable:wire,writable:framed});
 }
@@ -57,13 +57,15 @@ export class ThreadPeer {
   websocket(id){const url=new URL('/api/relay/'+encodeURIComponent(id),this.directory.url);url.protocol=url.protocol==='https:'?'wss:':'ws:';return new WebSocket(url,{headers:{authorization:`Bearer ${this.directory.token}`},perMessageDeflate:false});}
   accept(id){
     if(this.closed)return;
-    this.incoming.add(id);const ws=this.websocket(id);const duplex=relayStream(ws);
+    this.incoming.add(id);const ws=this.websocket(id);
+    // idle limit, not a deadline: a big file on a slow link keeps the relay open while bytes flow
+    const expiry=setTimeout(()=>{this.incoming.delete(id);socket.destroy();},65000);expiry.unref();const duplex=relayStream(ws,()=>expiry.refresh());
     const socket=new TLSSocket(duplex,{isServer:true,secureContext:createSecureContext({...this.identity,minVersion:'TLSv1.3'})});
     this.sockets.add(socket);
     socket.on('error',()=>socket.destroy());ws.on('error',()=>socket.destroy());
     socket.on('close',()=>{this.sockets.delete(socket);this.incoming.delete(id);ws.close();});
     this.http.emit('connection',socket);
-    const expiry=setTimeout(()=>{this.incoming.delete(id);socket.destroy();},65000);expiry.unref();socket.on('close',()=>clearTimeout(expiry));
+    socket.on('close',()=>clearTimeout(expiry));
   }
   async send(threadId,targetClientId,payload,{relayOnly=false}={}) {
     if(this.closed)throw threadError('Client is stopping');

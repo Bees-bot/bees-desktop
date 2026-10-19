@@ -70,7 +70,8 @@ async function waitUntil(check, signal, timeout = 300_000) {
   while (Date.now() < deadline) {
     signal.throwIfAborted();
     if (await check()) return;
-    await delay(250, undefined, { signal });
+    // delay rejects with a bare AbortError, so surface the real reason (missing temporal, crashed runtime)
+    await delay(250, undefined, { signal }).catch(() => signal.throwIfAborted());
   }
   throw new Error("Runtime startup timed out");
 }

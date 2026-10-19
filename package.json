@@ -16,8 +16,7 @@
     "check:page-fetch": "node scripts/check-page-fetch.mjs",
     "typecheck": "tsc --noEmit",
     "sbom": "npm sbom --sbom-format cyclonedx --package-lock-only --omit dev > docs/sbom/desktop-runtime.cdx.json && cd dsh-runtime && npm sbom --sbom-format cyclonedx --package-lock-only --omit dev --legacy-peer-deps > ../docs/sbom/dsh-runtime.cdx.json",
-    "check": "npm run typecheck && npm run check:client && npm run check:page-fetch && npm run check:file-locks && npm run check:local-ai && node --test dsh-runtime/plugins/subscriptions/lib/codex-models.test.js dsh-runtime/plugins/subscriptions/lib/cli-path.test.js && npm run build && npm run build:hosted",
-    "check:local-ai": "node --test dsh-runtime/plugins/local-ai/lib/client.test.js dsh-runtime/plugin/lib/local-inference.test.js",
+    "check": "npm run typecheck && npm run check:client && npm run check:page-fetch && npm run check:file-locks && node --test dsh-runtime/plugins/subscriptions/lib/codex-models.test.js dsh-runtime/plugins/subscriptions/lib/cli-path.test.js && npm run build && npm run build:hosted",
     "check:file-locks": "node --test dsh-runtime/plugin/lib/file-locks.test.js",
     "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "tauri:build": "tauri build",
@@ -26,36 +25,15 @@
     "check:client": "node --test dsh-runtime/headless.test.mjs dsh-runtime/hosted-clients.test.mjs dsh-runtime/plugin/lib/thread-*.test.js dsh-runtime/plugin/lib/client-profiles.test.js"
   },
   "dependencies": {
-    "@tauri-apps/api": "2.11.1",
-    "@tauri-apps/plugin-dialog": "^2.7.3"
+    "@tauri-apps/api": "2.11.1"
   },
   "devDependencies": {
-    "@shikijs/langs": "4.3.1",
     "@tauri-apps/cli": "2.11.4",
     "@types/node": "24.13.6",
-    "anser": "2.3.5",
-    "clsx": "2.1.1",
-    "diff": "9.0.0",
     "esbuild": "0.28.2",
-    "immer": "10.1.1",
-    "katex": "0.16.47",
-    "mdast-util-from-markdown": "2.0.3",
-    "mdast-util-gfm": "3.1.0",
-    "mdast-util-math": "3.0.0",
-    "micromark-core-commonmark": "2.0.3",
-    "micromark-extension-gfm": "3.0.0",
-    "micromark-extension-math": "3.1.0",
-    "micromark-factory-space": "2.0.1",
-    "micromark-util-character": "2.1.1",
-    "micromark-util-classify-character": "2.0.1",
-    "micromark-util-sanitize-uri": "2.0.1",
-    "micromark-util-symbol": "2.0.1",
     "react": "18.3.1",
     "react-dom": "18.3.1",
-    "shiki": "4.3.1",
-    "simple-icons": "16.31.0",
     "typescript": "6.0.3",
-    "vite": "8.1.4",
-    "zustand": "4.4.7"
+    "vite": "8.1.4"
   }
 }

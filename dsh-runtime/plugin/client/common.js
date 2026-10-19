@@ -1059,6 +1059,8 @@ label>.bees-select{min-width:0}
   max-height: none;
   overflow: visible;
 }
+.bees-empty-state { display: flex; align-items: center; gap: 10px; color: var(--dsw-alias-label-secondary); }
+.bees-empty-state svg { width: 22px; height: 22px; flex-shrink: 0; }
 \n`;
 
 export async function openExternal(url) {
@@ -1070,7 +1072,7 @@ export async function openExternal(url) {
   opened.opener = null;
 }
 
-function dialogValue(label, initial, confirmOnly = false, inputType = "text", options = null, checkbox = null) {
+function dialogValue(label, initial, confirmOnly = false, inputType = "text", options = null, checkbox = null, placeholder = "") {
   return new Promise((resolve) => {
     const dialog = document.createElement("dialog");
     dialog.className = "bees-prompt";
@@ -1101,6 +1103,7 @@ function dialogValue(label, initial, confirmOnly = false, inputType = "text", op
       else if (inputType === "textarea") input.rows = 10;
       else input.type = inputType;
       input.value = initial || options?.[0]?.value || "";
+      input.placeholder = placeholder;
       input.setAttribute("aria-label", label.split("\n")[0]);
       form.append(input);
     }
@@ -1139,7 +1142,7 @@ function dialogValue(label, initial, confirmOnly = false, inputType = "text", op
   });
 }
 
-export const ask = (label, initial = "", inputType = "text") => dialogValue(label, initial, false, inputType);
+export const ask = (label, initial = "", inputType = "text", placeholder = "") => dialogValue(label, initial, false, inputType, null, null, placeholder);
 export const choose = (label, options) => dialogValue(label, "", false, "text", options);
 export const confirmAction = (label) => dialogValue(label, "", true);
 export const oneLine = (text, max = 110) => { const flat = String(text ?? "").replace(/\s+/g, " ").trim(); return flat.length > max ? flat.slice(0, max - 1) + "…" : flat; };

@@ -82,8 +82,8 @@ esac
   }
 });
 
-test("Claude path controls support typing, browsing, cancellation, errors, and local-only settings", async () => {
-  let cursor = 0, client, selected = null, pickerOptions, defaults = null, pendingRead;
+test("Claude path controls support typing, browsing, cancellation, and errors", async () => {
+  let cursor = 0, client, selected = null, pickerOptions, pendingRead;
   const state = [], dependencies = [], effects = [], calls = [];
   const status = { codex: false, codexModels: [], claude: {
     configured: true, enabled: false, path: "/old/claude", version: "Claude Code", models: ["default"]
@@ -116,7 +116,7 @@ test("Claude path controls support typing, browsing, cancellation, errors, and l
   const scope = { getSnapshot: () => ({ value: {} }), subscribe: () => () => {} };
   const render = () => {
     cursor = 0;
-    const tree = client.SubscriptionSettings({ modelSettings: scope, preferences: scope, Button: "button", productDefaults: defaults,
+    const tree = client.SubscriptionSettings({ modelSettings: scope, preferences: scope, Button: "button",
       pickFile: async (options) => { pickerOptions = options; return selected; } });
     effects.splice(0).forEach((fn) => fn());
     return tree;
@@ -152,10 +152,8 @@ test("Claude path controls support typing, browsing, cancellation, errors, and l
   input().props.onChange({ target: { value: "" } });
   await submit();
   assert.equal(input().props.value, "/detected/claude");
-  defaults = { claudeModels: ["default"] };
-  assert.equal(input(), undefined, "machine paths are hidden while editing product defaults");
 
-  defaults = null; state.length = 0; dependencies.length = 0;
+  state.length = 0; dependencies.length = 0;
   let finishRead;
   pendingRead = new Promise((resolve) => { finishRead = resolve; });
   render();
