@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 
-function harness({ providers = {}, preferences = {}, keys = {}, systemDefault, props = 0, rejectSave = false } = {}) {
+function harness({ providers = {}, preferences = {}, keys = {}, systemDefault, props = 0, rejectSave = false, rejectTest = false } = {}) {
   let client, cursor = 0;
   const states = [], answers = [], prompts = [], requests = [];
   const scope = (value) => ({ getSnapshot: () => ({ value }), subscribe: () => () => {},
@@ -14,7 +14,7 @@ function harness({ providers = {}, preferences = {}, keys = {}, systemDefault, p
       return [states[i], (value) => { states[i] = typeof value === "function" ? value(states[i]) : value; }]; }, useEffect: () => {} };
   vm.runInNewContext(readFileSync(new URL("./client.js", import.meta.url), "utf8"), {
     URL, AbortSignal, crypto: { randomUUID: () => "test-session" },
-    fetch: async (url) => { requests.push(url); return { json: async () => ({ default_generation_settings: { n_ctx: props } }) }; },
+    fetch: async (url) => { requests.push(url); return { ok: !rejectTest, json: async () => ({ default_generation_settings: { n_ctx: props }, error: rejectTest ? "Model unavailable" : undefined }) }; },
     window: { __ModuleLoader__: { load: ({ factory }) => { client = factory(() => React); } } }
   });
   const credentials = { set: async (ref, key) => { keys[ref] = key; return { ok: true }; },
@@ -45,7 +45,7 @@ test("one server form connects local servers without a key and hosted APIs with 
   assert.equal(hosted.headers.authorization, undefined);
   assert(!JSON.stringify(ui.preferences).includes("secret-key"));
   assert.equal(hosted.models[0].contextWindow, 131072);
-  assert.equal(ui.requests.length, 1);
+  assert.equal(ui.requests.length, 3);
   assert(!/Bees AI|Suggested for this computer|Another local AI server/.test(ui.text(ui.render())));
 });
 
@@ -70,7 +70,7 @@ test("editing a keyed endpoint keeps the original credential reference and model
   const profile = { baseURL: "https://api.example.com/v1", apiKeyEnv: "BEES_CUSTOM_OPENAI_API_KEY",
     headers: { "x-routing": "existing" }, models: [{ id: "old", name: "Old", contextWindow: 65536, maxTokens: 4096 }] };
   const ui = harness({ providers: { "custom-openai": profile }, keys: { BEES_CUSTOM_OPENAI_API_KEY: "saved" } });
-  await ui.click("Edit endpoint", ["https://new.example.com/v1", ""]);
+  await ui.click("Edit endpoint", ["https://api.example.com/v1", ""]);
   const saved = ui.providers()["custom-openai"];
   assert.equal(saved.apiKeyEnv, profile.apiKeyEnv);
   assert.equal(ui.keys[saved.apiKeyEnv], "saved");
@@ -111,4 +111,17 @@ test("model edits reject duplicates and preserve the system default and the last
   const other = ui.nodes(ui.render()).find((node) => node.props["aria-label"] === "Remove other");
   await other.props.onClick();
   assert.equal(ui.providers()["custom-openai"].models.length, 1);
+});
+
+
+test("server connections are tested before saving keys and cannot reuse a key at another address", async () => {
+  const rejected = harness({ rejectTest: true });
+  assert.match(rejected.text(await rejected.click("Add server", ["https://api.example.com/v1", "model", "new-key"])), /Model unavailable/);
+  assert.deepEqual(rejected.providers(), {});
+  assert.deepEqual(rejected.keys, {});
+  const profile = { baseURL: "https://api.example.com/v1", apiKeyEnv: "BEES_CUSTOM_OPENAI_API_KEY", models: [{ id: "model" }] };
+  const existing = harness({ providers: { "custom-openai": profile }, keys: { BEES_CUSTOM_OPENAI_API_KEY: "saved" } });
+  assert.match(existing.text(await existing.click("Edit endpoint", ["https://other.example.com/v1", ""])), /Enter the API key again/);
+  assert.equal(existing.requests.length, 0);
+  assert.equal(existing.providers()["custom-openai"].baseURL, profile.baseURL);
 });

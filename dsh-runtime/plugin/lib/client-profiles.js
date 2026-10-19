@@ -20,7 +20,9 @@ export class ClientProfiles {
     const client=await this.open(slot);client.directory.url=signed.url;await client.directory.resume(signed.session,client.identity.cert,client.peer.endpoints);await client.refresh();
     this.state.accounts[key]=slot;this.state.active=slot;this.active=client;this.save();return user;
   }
-  async logout(){if(Object.values(this.state.accounts).includes(this.state.anonymous))this.state.anonymous='personal-'+randomUUID();this.state.active=this.state.anonymous;this.active=await this.open(this.state.active);this.save();return {ok:true};}
+  async logout(){const prior=this.state.active,client=this.active;if(Object.values(this.state.accounts).includes(this.state.anonymous))this.state.anonymous='personal-'+randomUUID();this.state.active=this.state.anonymous;this.active=await this.open(this.state.active);this.save();
+    // Signed-out accounts must stop syncing, serving peers, and running schedules.
+    if(prior!==this.state.active){this.clients.delete(prior);client.directory.token=null;client.directory.save();await client.close();}return {ok:true};}
   async command(input){
     if(input.action==='authConfig')return authConfig(input.url??this.active.directory.url);
     if(input.action==='startLogin'){

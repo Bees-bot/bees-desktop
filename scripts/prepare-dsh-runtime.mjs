@@ -262,9 +262,6 @@ function pruneRuntime(runtimeRoot) {
   for (const entry of readdirSync(nodeModules).filter((entry) => entry.startsWith("tree-sitter")))
     for (const file of readdirSync(join(nodeModules, entry)))
       if (!/^(package\.json|LICENSE)$|\.wasm$/.test(file)) rmSync(join(nodeModules, entry, file), { recursive: true, force: true });
-  // keep metal on apple silicon and the cpu build elsewhere, so cuda and vulkan cards run qmd on the cpu
-  const llama = nodePlatform.replace("darwin", "mac").replace("win32", "win") + (nodePlatform === "darwin-arm64" ? "-metal" : "");
-  keepOnly(join(nodeModules, "@node-llama-cpp"), llama);
   // the sources the native addons were compiled from
   for (const dir of ["better-sqlite3/deps", "@temporalio/core-bridge/sdk-core"])
     rmSync(join(nodeModules, dir), { recursive: true, force: true });
@@ -302,7 +299,6 @@ await prepareTemporalRuntime();
 
 // Pruning is in place, so a local cross-build would delete this machine's own native builds and
 // break its dev runs. Each runner builds its own target, so nothing ships unpruned.
-for (const name of ['freellmapi','memory-runtime']) rmSync(resolve(desktopRoot,'dsh-runtime',name),{recursive:true,force:true});
 if (target === hostTarget) pruneRuntime(resolve(desktopRoot, "dsh-runtime"));
 
 signMacBundledRuntime(resolve(desktopRoot, "dsh-runtime"));

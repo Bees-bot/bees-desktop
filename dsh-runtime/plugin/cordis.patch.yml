@@ -193,6 +193,15 @@
   config:
     transcriptView: compact
 
+# dsh logs its sign-in link with a live token; Bees opens its window through /bees-auth instead.
+- id: web-runtime
+  config:
+    openBrowser: !!js ctx.webStartup.openBrowser
+    printUrl: false
+    surfaceContext: true
+    trustedHosts: !!js ctx.webStartup.trustedHosts
+
+# empty on purpose: Bees runs pick their own model, and the base default points at the disabled deepseek provider
 - id: agent-default-model
   config:
     provider: ""
@@ -263,7 +272,6 @@
         - approval
         - settings
         - credentials
-        - agentDefaultModel
         - llm
         - skills
         - tools

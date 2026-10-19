@@ -2,7 +2,7 @@ import z from "@deepseek-ai/schemastery";
 import { applyThreadProduct } from "./thread-product.js";
 
 export const name = "bees";
-export const inject = ["webServer", "connection", "agents", "agentPresets", "sessionPersistence", "approval", "settings", "credentials", "agentDefaultModel", "llm", "skills", "tools", "userQuestions", "sessions", "web", "attachments", "jobs", "fs"];
+export const inject = ["webServer", "connection", "agents", "agentPresets", "sessionPersistence", "approval", "settings", "credentials", "llm", "skills", "tools", "userQuestions", "sessions", "web", "attachments", "jobs", "fs"];
 
 const ModelPreference = z.object({
   id: z.string(),

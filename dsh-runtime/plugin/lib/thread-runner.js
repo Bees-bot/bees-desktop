@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync, readdirSync, lstatSync, readFileSync, realpathSync, existsSync } from 'node:fs';
 import { join, relative, resolve, sep, dirname, basename } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -32,7 +32,7 @@ export function guardThreadTool(exec,cwd){
 }
 
 export class ThreadRunner {
-  constructor(ctx,integrations){this.ctx=ctx;this.integrations=integrations;this.pending=new Map();}
+  constructor(ctx,integrations,models){this.ctx=ctx;this.integrations=integrations;this.models=models;this.pending=new Map();}
   answer(id,input){const pending=this.pending.get(id);if(!pending)throw threadError('This question is no longer waiting',409);pending.resolve(input);}
   wait(store,threadId,runId,signal,kind,content){
     const id=randomUUID();store.mutate(threadId,randomUUID(),doc=>{doc.runs.find(r=>r.id===runId).pending={id,kind,...content};});
@@ -54,16 +54,29 @@ export class ThreadRunner {
     for(const a of thread.artifacts){const {bytes}=store.object(thread,a.id);const target=join(cwd,'inputs',a.path??a.id+'-'+a.name);mkdirSync(dirname(target),{recursive:true,mode:0o700});writeFileSync(target,bytes,{mode:0o600,flag:'wx'});}
     const workflow=run.workflow??DEFAULT_WORKFLOW;
     let summary='',deliverable='';const reviews=[];
-    for(let index=0;index<workflow.length;index++){
+    const outputRoot=resolve(cwd,'outputs'),added=new Set();
+    const collect=directory=>{for(const entry of readdirSync(directory,{withFileTypes:true})){
+      const path=join(directory,entry.name),stat=lstatSync(path);if(stat.isSymbolicLink())continue;
+      if(entry.isDirectory()){collect(path);continue;}if(!entry.isFile())continue;
+      if(!resolve(path).startsWith(outputRoot+sep))throw threadError('Output escaped this run');
+      if(stat.size>10_000_000)throw threadError('A generated file exceeds the 10 MB limit');
+      const bytes=readFileSync(path),digest=createHash('sha256').update(bytes).digest('hex');
+      const artifactPath='results/'+run.id+'/'+relative(outputRoot,path).split(sep).join('/');
+      const prior=store.document(thread.id).artifacts.find(a=>a.path===artifactPath);
+      if(prior?.digest===digest)continue;
+      if(prior){const hash=store.putObject(bytes);store.mutate(thread.id,randomUUID(),d=>{Object.assign(d.artifacts.find(a=>a.id===prior.id),{digest:hash,size:bytes.length});});}
+      else{const id=randomUUID();store.attach(thread.id,id,basename(path),bytes,'bees',artifactPath);added.add(id);}
+    }};
+    try{for(let index=0;index<workflow.length;index++){
       signal.throwIfAborted();const stage=workflow[index];
       store.mutate(thread.id,randomUUID(),d=>{const r=d.runs.find(r=>r.id===run.id);r.stage=stage.name;r.stageIndex=index;});
       if(stage.kind==='approval'){
-        const answer=await this.wait(store,thread.id,run.id,signal,'approval',{text:summary||stage.name});if(answer.approved!==true)throw threadError('The work was not approved');
+        collect(outputRoot);const answer=await this.wait(store,thread.id,run.id,signal,'approval',{text:summary||stage.name});if(answer.approved!==true)throw threadError('The work was not approved');
         store.mutate(thread.id,randomUUID(),d=>{const r=d.runs.find(r=>r.id===run.id);r.stages??=[];r.stages.push({index,name:stage.name,summary:'Approved',completedAt:new Date().toISOString()});});continue;
       }
-      const selection=stage.model??run.model??(process.env.BEES_HOSTED_MODEL?'hosted/'+process.env.BEES_HOSTED_MODEL:null);
-      const model=await resolveThreadModel(selection?{provider:selection.slice(0,selection.indexOf('/')),model:selection.slice(selection.indexOf('/')+1)}:this.ctx.agentDefaultModel.currentSelection(),this.ctx.llm);
-      if(!model?.provider||!model?.model)throw threadError('Connect an AI model in Settings first');
+      const selection=stage.model||run.model||(process.env.BEES_HOSTED_MODEL?'hosted/'+process.env.BEES_HOSTED_MODEL:(await this.models())[0]?.id);
+      const model=await resolveThreadModel(selection&&{provider:selection.slice(0,selection.indexOf('/')),model:selection.slice(selection.indexOf('/')+1)},this.ctx.llm);
+      if(!model?.model||!this.ctx.llm.listProviders().some(p=>p.id===model.provider))throw threadError(selection?`The AI model ${selection} is not connected. Pick another in Settings.`:'No AI model is connected. Add one in Settings.');
       const sessionId=SessionId(run.id+'-'+index);
       const locks=new FileLocks(join(store.root,'file-locks'));
       const setup=async (agentCtx,parentId)=>{
@@ -116,14 +129,9 @@ export class ThreadRunner {
         store.mutate(thread.id,randomUUID(),d=>{const r=d.runs.find(r=>r.id===run.id);r.stages??=[];r.stages.push({index,name:stage.name,summary,completedAt:new Date().toISOString(),tools:events.filter(e=>e.type==='tool/call').map(e=>({id:e.data.callId,name:e.data.name}))});});
       }finally{signal.removeEventListener('abort',abort);await handle.dispose();}
     }
-    const outputRoot=resolve(cwd,'outputs');
-    const collect=directory=>{for(const entry of readdirSync(directory,{withFileTypes:true})){
-      const path=join(directory,entry.name);if(lstatSync(path).isSymbolicLink())continue;
-      if(entry.isDirectory()){collect(path);continue;}if(!entry.isFile())continue;
-      if(!resolve(path).startsWith(outputRoot+sep))throw threadError('Output escaped this run');
-      if(lstatSync(path).size>10_000_000)throw threadError('A generated file exceeds the 10 MB limit');
-      const artifactPath='results/'+run.id+'/'+relative(outputRoot,path).split(sep).join('/');store.attach(thread.id,randomUUID(),basename(path),readFileSync(path),'bees',artifactPath);
-    }};collect(outputRoot);
+    collect(outputRoot);}catch(e){
+      // Remove provisional approval files if the run fails.
+      if(added.size)try{store.mutate(thread.id,randomUUID(),d=>{d.artifacts=d.artifacts.filter(a=>!added.has(a.id));});}catch{}throw e;}
     return deliverable?[deliverable,...reviews].join('\n\n'):summary;
   }
 }

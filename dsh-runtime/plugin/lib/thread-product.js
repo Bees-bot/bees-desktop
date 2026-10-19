@@ -16,19 +16,20 @@ export async function applyThreadProduct(ctx,config){
   process.env.BEES_FLEET_JOB='client';
   globalThis.__beesReadFence=workspaceRoot=>({closed:[homedir(),process.env.BEES_HOST_HOME,root,process.env.DSH_HOME].filter(Boolean),open:[workspaceRoot,tmpdir(),process.env.BEES_RUNTIME_ROOT].filter(Boolean)});
   ctx.effect(()=>ctx.settings.configure({auto:false},ctx.fiber),'Bees Client settings');
-  const integrations=new ThreadIntegrations(ctx);
-  const runner=new ThreadRunner(ctx,integrations);
-  const models=async()=>{const rows=[];for(const provider of ctx.llm.listProviders())for(const model of await ctx.llm.listModels(provider.id).catch(()=>[]))rows.push({id:provider.id+'/'+model.id,name:model.name??model.id});return rows;};
-  const profiles=await new ClientProfiles(join(root,'client-v3'),{models,integrations,recoverActivity:(store,thread)=>recoverThreadActivity(ctx,store,thread),execute:options=>runner.execute(options),pending:id=>runner.pending.get(id),answer:(id,input)=>runner.answer(id,input)}).start();
-  const client=()=>profiles.active;
-  ctx.effect(()=>()=>profiles.close(),'Bees Client shutdown');
-  ctx.effect(()=>()=>integrations.close(),'Bees integrations shutdown');
-  const register=(path,handler)=>ctx.effect(()=>ctx.webServer.register({kind:'exact',path,handler}),'Bees Client '+path);
+  // Install authentication before asynchronous profile startup.
   const allowed=req=>(!req.headers.origin||req.headers.origin===`http://${req.headers.host}`)&&equal(tokenOf(req),token);
   const guard=req=>{const path=new URL(req.url??'/','http://client').pathname;if(!['/bees-auth','/healthz'].includes(path)&&!allowed(req))req.url='/_bees_unauthorized';};
   const guardUpgrade=(req,socket)=>{if(!allowed(req))socket.destroy();};
   ctx.webServer.server.prependListener('request',guard);ctx.webServer.server.prependListener('upgrade',guardUpgrade);
   ctx.effect(()=>()=>{ctx.webServer.server.off('request',guard);ctx.webServer.server.off('upgrade',guardUpgrade);},'Bees Client local authentication');
+  const integrations=new ThreadIntegrations(ctx);
+  const models=async()=>{const rows=[];for(const provider of ctx.llm.listProviders())for(const model of await ctx.llm.listModels(provider.id).catch(()=>[]))rows.push({id:provider.id+'/'+model.id,name:model.name??model.id});return rows;};
+  const runner=new ThreadRunner(ctx,integrations,models);
+  const profiles=await new ClientProfiles(join(root,'client-v3'),{models,integrations,recoverActivity:(store,thread)=>recoverThreadActivity(ctx,store,thread),execute:options=>runner.execute(options),pending:id=>runner.pending.get(id),answer:(id,input)=>runner.answer(id,input)}).start();
+  const client=()=>profiles.active;
+  ctx.effect(()=>()=>profiles.close(),'Bees Client shutdown');
+  ctx.effect(()=>()=>integrations.close(),'Bees integrations shutdown');
+  const register=(path,handler)=>ctx.effect(()=>ctx.webServer.register({kind:'exact',path,handler}),'Bees Client '+path);
   register('/_bees_unauthorized',(_req,res)=>reply(res,401,{error:'Open Bees Client again to reconnect.'}));
   register('/healthz',(_req,res)=>reply(res,200,{status:'ok',product:'bees',service:'bees-client',clientId:client().store.clientId}));
   register('/bees-api/snapshot',apiSnapshot);
@@ -47,6 +48,5 @@ export async function applyThreadProduct(ctx,config){
     return profiles.command(input);
   }));
   register('/bees-api/thread-file',async(req,res)=>{try{const q=new URL(req.url,'http://client').searchParams;const doc=client().store.document(q.get('thread'));const {artifact,bytes}=client().store.object(doc,q.get('artifact'));res.writeHead(200,{'content-type':'application/octet-stream','content-length':bytes.length,'x-content-type-options':'nosniff','content-disposition':`attachment; filename*=UTF-8''${encodeURIComponent(artifact.name)}`});res.end(bytes);}catch(e){reply(res,e.status??400,{error:e.message});}});
-  register('/bees-api/system-default-model',api(async req=>{if(req.method==='POST'){const {provider,model}=await body(req);await ctx.agentDefaultModel.saveSelection({provider,model});}return {systemDefaultModel:ctx.agentDefaultModel.currentSelection()};}));
   return profiles;
 }

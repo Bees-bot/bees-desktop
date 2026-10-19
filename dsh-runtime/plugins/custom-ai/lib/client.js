@@ -54,10 +54,10 @@ window.__ModuleLoader__.load({
     };
 
     // A few tokens of a real call, because the model-list endpoints answer any key, junk included.
-    async function testProvider(provider, model, key) {
+    async function testProvider(provider, model, key, baseURL) {
       const response = await fetch("/bees-api/general-ai/test", {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider, model, key }),
-        signal: AbortSignal.timeout(45_000)
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider, model, key, baseURL }),
+        signal: AbortSignal.timeout(130_000)
       }).catch(() => { throw new Error("Bees did not answer the connection test. Restart Bees, then try again."); });
       const value = await response.json();
       if (!response.ok) throw new Error(value.error || "Connection test failed");
@@ -292,12 +292,16 @@ window.__ModuleLoader__.load({
           models = [await serverModel(model, baseURL)];
         }
         const next = { ...profile, displayName: "OpenAI-compatible server", api: profile.api ?? "openai-completions", baseURL, models };
+        let pastedKey;
         if (!preferences.productDefaults) {
           const key = await ask("API key (optional; leave blank to keep a saved key)", "", "password");
           if (key == null) return;
           const ref = profile.apiKeyEnv ?? keyRef(id);
-          if (key.trim()) unwrap(await ctx.remote.credentials.set(ref, key.trim()));
-          const configured = unwrap(await ctx.remote.credentials.describe([ref]))[ref]?.configured;
+          pastedKey = key.trim();
+          const storedKey = unwrap(await ctx.remote.credentials.describe([ref]))[ref]?.configured;
+          if (!pastedKey && storedKey && baseURL !== profile.baseURL?.replace(/\/+$/, ""))
+            throw new Error("Enter the API key again for the new server address");
+          const configured = pastedKey || storedKey;
           if (configured) {
             next.apiKeyEnv = ref;
             next.headers = { ...profile.headers };
@@ -306,6 +310,8 @@ window.__ModuleLoader__.load({
         }
         // pi-ai requires a key or an authorization header, including for servers without auth.
         if (!next.apiKeyEnv) next.headers = { authorization: "Bearer local", ...next.headers };
+        await testProvider(id, next.models[0].id, pastedKey || (!next.apiKeyEnv ? "local" : undefined), baseURL);
+        if (pastedKey) unwrap(await ctx.remote.credentials.set(next.apiKeyEnv, pastedKey));
         await save(id, next);
       });
       const addModel = (id) => perform(async () => {

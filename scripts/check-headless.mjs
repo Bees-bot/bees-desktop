@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -16,6 +16,8 @@ const token = randomBytes(32).toString("hex");
 const root = await mkdtemp(join(tmpdir(), "bees-headless-proof-"));
 const bundledTemporal = join(desktop, "src-tauri/binaries", `temporal-${process.arch === "arm64" ? "aarch64" : "x86_64"}-apple-darwin`);
 const temporalBinary = process.env.BEES_PROOF_TEMPORAL || (process.platform === "darwin" && existsSync(bundledTemporal) ? bundledTemporal : "temporal");
+if (temporalBinary === "temporal" && spawnSync("temporal", ["--version"]).error)
+  throw new Error("No temporal program found. Set BEES_PROOF_TEMPORAL to its path, put temporal on PATH, or build the desktop app once.");
 const port = await freePort(), modelPort = await freePort();
 let modelCalls = 0, deniedReads = 0, integrationReads = 0, integrationWrites = 0, deniedIntegrationWrites = 0, child, exited, modelError, logs = "", trace = [];
 const counterWords=['first','second','third','fourth','fifth'],counterChildren=new Set(),counterCompleted=new Set();
@@ -155,8 +157,7 @@ try {
   const overlay = JSON.stringify([
     { id: "llm-pi-ai", config: { providers: { stage1: { api: "openai-completions",
       baseURL: `http://127.0.0.1:${modelPort}/v1`, headers: { authorization: "Bearer synthetic" },
-      models: [{ id: "proof", name: "Stage 1 fixture", contextWindow: 32768, maxTokens: 1024 }] } } } },
-    { id: "agent-default-model", config: { provider: "stage1", model: "proof" } }
+      models: [{ id: "proof", name: "Stage 1 fixture", contextWindow: 32768, maxTokens: 1024 }] } } } }
   ]);
   await writeFile(join(profile, "cordis.patch.yml"), overlay);
   await start(true);
