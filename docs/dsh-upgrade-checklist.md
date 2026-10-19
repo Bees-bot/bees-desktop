@@ -34,12 +34,6 @@ npm run tauri:build
 The candidate is proven by running the app: sign in through loopback, one agent
 turn, a restart that keeps the run, and a clean quit.
 
-From `bees-server`, run the Stage 1 size gate:
-
-```sh
-./scripts/count-lines-of-code.sh
-```
-
 Review new licenses and native artifacts, and run `npm run sbom` to rebuild the two
 checked-in CycloneDX files under `docs/sbom/` from the lockfiles. Finally,
 exercise this packaged critical flow without a network connection:

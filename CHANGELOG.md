@@ -2,6 +2,10 @@
 
 Notable changes, newest first. Dates are release dates.
 
+## Unreleased
+
+- Bees no longer ships its own local model engine or a separate workflow server, so the installed app is at least 130 MB smaller. Local models still work through LM Studio, Ollama or llama.cpp in Settings.
+
 ## 0.2.2
 
 - You can point Bees at the Claude Code CLI yourself. In Settings, AI, type its path or pick

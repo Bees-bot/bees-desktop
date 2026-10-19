@@ -53,10 +53,11 @@ test("legacy connections retain their IDs, keys, headers, context windows and di
   const models = [{ id: "old", name: "Old model", contextWindow: 65536, maxTokens: 4096 }];
   const ui = harness({ providers: { "custom-openai": { baseURL: "https://api.example.com/v1", apiKeyEnv: "BEES_CUSTOM_OPENAI_API_KEY", models } },
     preferences: { externalLocalAiProfile: { baseURL: "http://localhost:1234/v1", models } }, keys: { BEES_CUSTOM_OPENAI_API_KEY: "stored" } });
-  await ui.click("Edit endpoint", ["http://localhost:4321/v1", ""]);
+  await ui.click("Edit endpoint", ["http://localhost:4321/v1", "new-local-model", ""]);
   const local = ui.providers()["external-local-ai"];
   assert.equal(local.baseURL, "http://localhost:4321/v1");
-  assert.equal(local.models[0].contextWindow, 65536);
+  assert.equal(local.models[0].id, "new-local-model");
+  assert.equal(local.models[0].contextWindow, 32768);
   const toggle = ui.nodes(ui.render()).find((node) => node.props["aria-label"] === "Enable http://localhost:4321/v1");
   await toggle.props.onChange({ target: { checked: false } });
   assert(!ui.providers()["external-local-ai"]);
@@ -121,7 +122,15 @@ test("server connections are tested before saving keys and cannot reuse a key at
   assert.deepEqual(rejected.keys, {});
   const profile = { baseURL: "https://api.example.com/v1", apiKeyEnv: "BEES_CUSTOM_OPENAI_API_KEY", models: [{ id: "model" }] };
   const existing = harness({ providers: { "custom-openai": profile }, keys: { BEES_CUSTOM_OPENAI_API_KEY: "saved" } });
-  assert.match(existing.text(await existing.click("Edit endpoint", ["https://other.example.com/v1", ""])), /Enter the API key again/);
+  assert.match(existing.text(await existing.click("Edit endpoint", ["https://other.example.com/v1", "new-model", ""])), /Enter the API key again/);
   assert.equal(existing.requests.length, 0);
   assert.equal(existing.providers()["custom-openai"].baseURL, profile.baseURL);
+});
+
+test("changing a keyed server address requires fresh models and credentials", async () => {
+  const profile = { baseURL: "https://api.example.com/v1", apiKeyEnv: "BEES_CUSTOM_OPENAI_API_KEY", models: [{ id: "old-model" }] };
+  const ui = harness({ providers: { "custom-openai": profile }, keys: { BEES_CUSTOM_OPENAI_API_KEY: "old-key" } });
+  await ui.click("Edit endpoint", ["https://other.example.com/v1", "new-model", "new-key"]);
+  assert.equal(ui.providers()["custom-openai"].models[0].id, "new-model");
+  assert.equal(ui.keys.BEES_CUSTOM_OPENAI_API_KEY, "new-key");
 });

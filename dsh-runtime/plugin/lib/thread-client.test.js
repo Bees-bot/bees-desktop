@@ -69,3 +69,16 @@ test('scheduled occurrences execute once, retain quota across restart, and never
   await assert.rejects(client.command({action:'run',threadId:doc.id,operationId:randomUUID(),text:'After restart'}),/allowance/);assert.equal(calls,1);
  }finally{await client?.close();if(prior===undefined)delete process.env.BEES_HOSTED_RUNS_PER_DAY;else process.env.BEES_HOSTED_RUNS_PER_DAY=prior;await rm(root,{recursive:true,force:true});}
 });
+
+test('stopped runs retain team execution context and report a readable cancellation',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'bees-stop-run-'));let executed;
+ const client=new ThreadClient(root,{execute:async options=>{executed=options;await new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>reject(options.signal.reason),{once:true}));}});
+ try{
+  const doc=await client.command({action:'create'});
+  await client.command({action:'run',threadId:doc.id,operationId:randomUUID(),text:'Work'});
+  assert.equal(executed.team.id,(await client.snapshot()).defaultTeamId);
+  await client.command({action:'stop',threadId:doc.id,operationId:randomUUID()});await Promise.all([...client.finishing]);
+  const run=client.store.document(doc.id).runs.at(-1);
+  assert.equal(run.status,'cancelled');assert.equal(run.error,'Stopped before it finished.');
+ }finally{client.store.close();await rm(root,{recursive:true,force:true});}
+});

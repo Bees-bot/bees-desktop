@@ -1,5 +1,4 @@
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import {
   chmodSync,
   closeSync,
@@ -8,14 +7,10 @@ import {
   mkdirSync,
   mkdtempSync,
   openSync,
-  readFileSync,
   readdirSync,
   readSync,
-  rmSync,
-  statSync,
-  writeFileSync
+  rmSync
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { publishArtifact } from "./publish-artifact.mjs";
@@ -53,119 +48,9 @@ const destination = resolve(
   "binaries",
   `bees-node-${target}${extension}`
 );
-const temporalDestination = resolve(
-  desktopRoot,
-  "src-tauri",
-  "binaries",
-  `temporal-${target}${extension}`
-);
 
 mkdirSync(dirname(destination), { recursive: true });
 stageExecutable(process.execPath, destination, "Node");
-
-const temporalRelease = "1.8.2";
-const temporalAssets = {
-  "aarch64-apple-darwin": [
-    "temporal_cli_1.8.2_darwin_arm64.tar.gz",
-    "dacdc3587682c04cf27e67c8878ca2d755230b6ad63c0c6ebddd7348ae90ed94"
-  ],
-  "x86_64-apple-darwin": [
-    "temporal_cli_1.8.2_darwin_amd64.tar.gz",
-    "489d7f5420cae02b559774ac23df035141954c33a51dba96f5759a0ddccdf1b6"
-  ],
-  "aarch64-unknown-linux-gnu": [
-    "temporal_cli_1.8.2_linux_arm64.tar.gz",
-    "83600a8fac6e3da54093e5da6918d399f501532b9f1172235603f9606f4ac6e4"
-  ],
-  "x86_64-unknown-linux-gnu": [
-    "temporal_cli_1.8.2_linux_amd64.tar.gz",
-    "d8421bda989e6514b4bdb4d63a9012a8a05a806892e881a5aad8510496349a94"
-  ],
-  "aarch64-pc-windows-msvc": [
-    "temporal_cli_1.8.2_windows_arm64.tar.gz",
-    "da78339510b1f91a8212ff247940d3b1dd3022ccfa00add400359311f941697e"
-  ],
-  "x86_64-pc-windows-msvc": [
-    "temporal_cli_1.8.2_windows_amd64.tar.gz",
-    "c845948aa4ab3b1a3643f9fea6d1cd691188bc31513de5f2dc5f7eceea25f22a"
-  ]
-};
-
-/**
- * A cached artifact counts as prepared only if the marker names both the revision and the size we
- * last wrote. Version alone let a truncated or quarantined file through, and the next build shipped
- * it untouched. The sha256 in the asset tables covers the download, not what came out of it.
- */
-function preparedAlready(marker, artifact, revision) {
-  if (!existsSync(artifact) || !existsSync(marker)) return false;
-  return readFileSync(marker, "utf8").trim() === `${revision} ${statSync(artifact).size}`;
-}
-
-function markPrepared(marker, artifact, revision) {
-  writeFileSync(marker, `${revision} ${statSync(artifact).size}\n`);
-}
-
-// Check a folder before its subfolders.
-function findFile(root, name) {
-  const entries = readdirSync(root, { withFileTypes: true });
-  if (entries.some((entry) => entry.isFile() && entry.name === name)) return join(root, name);
-  for (const entry of entries) {
-    const found = entry.isDirectory() && findFile(join(root, entry.name), name);
-    if (found) return found;
-  }
-  return undefined;
-}
-
-// one retry, because a connection left idle through a long compile can be dead on reuse
-const get = (url, init = { headers: { "User-Agent": "Bees build" } }) => fetch(url, init).catch(() => fetch(url, init));
-
-async function downloadVerified(url, expectedSha256) {
-  const response = await get(url);
-  if (!response.ok) throw new Error(`Could not download ${basename(url)}: HTTP ${response.status}`);
-  const archive = Buffer.from(await response.arrayBuffer());
-  const actualSha256 = createHash("sha256").update(archive).digest("hex");
-  if (actualSha256 !== expectedSha256) {
-    throw new Error(`Integrity check failed for ${basename(url)}.`);
-  }
-  return archive;
-}
-
-async function prepareTemporalRuntime() {
-  const asset = temporalAssets[target];
-  if (!asset) throw new Error(`No embedded Temporal runtime is configured for ${target}.`);
-  const marker = resolve(desktopRoot, "src-tauri", "binaries", `.temporal-${target}.version`);
-  if (preparedAlready(marker, temporalDestination, temporalRelease)) {
-    stageExecutable(temporalDestination, temporalDestination, "Temporal");
-    markPrepared(marker, temporalDestination, temporalRelease);
-    return;
-  }
-
-  const [fileName, expectedSha256] = asset;
-  const temporaryRoot = mkdtempSync(join(tmpdir(), "bees-temporal-"));
-  try {
-    console.log(`Preparing embedded Temporal ${temporalRelease} for ${target}...`);
-    const archive = await downloadVerified(
-      `https://github.com/temporalio/cli/releases/download/v${temporalRelease}/${fileName}`,
-      expectedSha256
-    );
-    const archivePath = join(temporaryRoot, fileName);
-    const extracted = join(temporaryRoot, "extracted");
-    writeFileSync(archivePath, archive);
-    mkdirSync(extracted);
-    execFileSync("tar", ["-xf", archivePath, "-C", extracted]);
-    const temporal = findFile(extracted, `temporal${extension}`);
-    if (!temporal) throw new Error(`${fileName} did not contain the Temporal executable.`);
-    stageExecutable(temporal, temporalDestination, "Temporal");
-    // externalBin ships the binary on its own, so the licence rides along in the dsh-runtime
-    // resource instead.
-    const licence = findFile(extracted, "LICENSE");
-    if (!licence) throw new Error(`${fileName} did not contain the Temporal licence.`);
-    copyFileSync(licence, resolve(desktopRoot, "dsh-runtime", "LICENSE-temporal"));
-    markPrepared(marker, temporalDestination, temporalRelease);
-  } finally {
-    rmSync(temporaryRoot, { recursive: true, force: true });
-  }
-}
 
 function hasValidMacSignature(path) {
   try {
@@ -255,19 +140,11 @@ function pruneRuntime(runtimeRoot) {
     if (!existsSync(join(parent, keep))) return;
     for (const entry of readdirSync(parent)) if (entry !== keep) rmSync(join(parent, entry), { recursive: true, force: true });
   };
-  keepOnly(join(nodeModules, "@temporalio", "core-bridge", "releases"), target);
   keepOnly(join(nodeModules, "node-pty", "prebuilds"), nodePlatform);
   if (!nodePlatform.startsWith("win32")) rmSync(join(nodeModules, "node-pty", "third_party", "conpty"), { recursive: true, force: true });
-  // qmd only loads each grammar's .wasm, the rest is native source and prebuilds
-  for (const entry of readdirSync(nodeModules).filter((entry) => entry.startsWith("tree-sitter")))
-    for (const file of readdirSync(join(nodeModules, entry)))
-      if (!/^(package\.json|LICENSE)$|\.wasm$/.test(file)) rmSync(join(nodeModules, entry, file), { recursive: true, force: true });
-  // the sources the native addons were compiled from
-  for (const dir of ["better-sqlite3/deps", "@temporalio/core-bridge/sdk-core"])
-    rmSync(join(nodeModules, dir), { recursive: true, force: true });
-  // musl never loads on our glibc linux and trips linuxdeploy; types and maps are unread except by temporal's bundler
+  // musl never loads on our glibc linux and trips linuxdeploy; types and maps are unread
   for (const entry of readdirSync(nodeModules, { recursive: true, withFileTypes: true }))
-    if (entry.isDirectory() ? entry.name.includes("musl") : /\.d\.[cm]?ts$|\.[cm]?[jt]s\.map$/.test(entry.name) && !/@temporalio|nexus-rpc/.test(entry.parentPath))
+    if (entry.isDirectory() ? entry.name.includes("musl") : /\.d\.[cm]?ts$|\.[cm]?[jt]s\.map$/.test(entry.name))
       rmSync(join(entry.parentPath, entry.name), { recursive: true, force: true });
   // tauri copies what each .bin link points at, and fails on links into a package removed above
   const bin = join(nodeModules, ".bin");
@@ -294,8 +171,6 @@ function signMacBundledRuntime(runtimeRoot) {
   binaries.sort((a, b) => b.split(sep).length - a.split(sep).length);
   signMac(binaries, "bundled runtime");
 }
-
-await prepareTemporalRuntime();
 
 // Pruning is in place, so a local cross-build would delete this machine's own native builds and
 // break its dev runs. Each runner builds its own target, so nothing ships unpruned.

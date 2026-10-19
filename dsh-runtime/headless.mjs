@@ -1,7 +1,6 @@
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import { copyFile, mkdir, readFile, realpath, symlink, unlink, writeFile } from "node:fs/promises";
-import { createServer, connect } from "node:net";
+import { createServer } from "node:net";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from 'node:os';
@@ -19,7 +18,7 @@ export function launchConfig(config, env = process.env) {
   const [major, minor] = process.versions.node.split(".").map(Number);
   if (major !== 24 || minor < 7) throw new Error("Bees requires Node 24.7 or newer 24.x");
   if (!config || typeof config !== "object" || Array.isArray(config)) throw new Error("Expected a JSON configuration object");
-  const keys = ["stateDir", "host", "port", "temporalBinary"];
+  const keys = ["stateDir", "host", "port"];
   if (Object.keys(config).some((key) => !keys.includes(key))) throw new Error(`Supported configuration: ${keys.join(", ")}`);
   if (typeof config.stateDir !== "string" || !isAbsolute(config.stateDir) || resolve(config.stateDir) === dirname(resolve(config.stateDir)))
     throw new Error("stateDir must be an absolute, dedicated directory, not a filesystem root");
@@ -29,9 +28,7 @@ export function launchConfig(config, env = process.env) {
   const token = env.BEES_DSH_TOKEN;
   if (typeof token !== "string" || token.length < 32 || /[\s\x00-\x1f\x7f]/.test(token))
     throw new Error("Set BEES_DSH_TOKEN to a random token of at least 32 characters, without whitespace");
-  const temporalBinary = config.temporalBinary ?? "temporal";
-  if (typeof temporalBinary !== "string" || !temporalBinary.trim()) throw new Error("temporalBinary must name an executable");
-  return { stateDir: resolve(config.stateDir), host, port, temporalBinary, token };
+  return { stateDir: resolve(config.stateDir), host, port, token };
 }
 
 async function createOnce(path, content) {
@@ -70,7 +67,7 @@ async function waitUntil(check, signal, timeout = 300_000) {
   while (Date.now() < deadline) {
     signal.throwIfAborted();
     if (await check()) return;
-    // delay rejects with a bare AbortError, so surface the real reason (missing temporal, crashed runtime)
+    // delay rejects with a bare AbortError, so surface the real reason (crashed runtime)
     await delay(250, undefined, { signal }).catch(() => signal.throwIfAborted());
   }
   throw new Error("Runtime startup timed out");
@@ -81,11 +78,9 @@ export async function launch(config, signal, runtimeEnvironment = {}) {
   // The existing DSH lock reclaims dead PIDs and never evicts a live writer.
   return withFileLock(join(config.stateDir, "headless"), async () => {
     const home = join(config.stateDir, "dsh"), workspace = join(config.stateDir, "workspaces");
-    for (const name of [home, workspace, join(config.stateDir, "temporal"), join(config.stateDir, "state")])
+    for (const name of [home, workspace, join(config.stateDir, "state")])
       await mkdir(name, { recursive: true, mode: 0o700 });
-    await createOnce(join(config.stateDir, "device-id"), `${randomUUID()}\n`);
     await prepareProfile(home);
-    const temporalPort = await freePort();
     const controller = new AbortController();
     const stopped = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
     const children = [];
@@ -108,28 +103,15 @@ export async function launch(config, signal, runtimeEnvironment = {}) {
     };
     try {
       stopped.throwIfAborted();
-      const temporalEnv = Object.fromEntries(["PATH", "SystemRoot", "WINDIR", "HOME", "TMPDIR", "TEMP", "TMP"]
-        .filter((key) => process.env[key]).map((key) => [key, process.env[key]]));
-      start(config.temporalBinary, ["server", "start-dev", "--headless", "--ip", "127.0.0.1",
-        "--port", String(temporalPort), "--db-filename", join(config.stateDir, "temporal", "processes-v4.db"),
-        "--sqlite-pragma", "journal_mode=WAL", "--sqlite-pragma", "synchronous=FULL",
-        "--sqlite-pragma", "busy_timeout=5000", "--disable-config-file", "--disable-config-env"], { env: temporalEnv });
-      await waitUntil(() => new Promise((done) => {
-        const socket = connect(temporalPort, "127.0.0.1");
-        const finish = (ready) => { socket.destroy(); done(ready); };
-        socket.once("connect", () => finish(true)).once("error", () => finish(false));
-        socket.setTimeout(500, () => finish(false));
-      }), stopped, 30_000);
       start(process.execPath, ["--max-http-header-size=65536", join(runtime, "start.mjs"),
         "--profile", "bees", "--host", config.host, "--port", String(config.port), "--no-open"], {
         cwd: workspace,
         env: { ...process.env, ...runtimeEnvironment, BEES_HOST_HOME: process.env.BEES_HOST_HOME || homedir(), HOME: config.stateDir, USERPROFILE: config.stateDir,
           BEES_HEADLESS: "1", BEES_FLEET_JOB: "client", DSH_HOME: home, DSH_TELEMETRY_DISABLED: "1",
           BEES_DSH_TOKEN: config.token, BEES_DSH_QUERY_PATH: join(home, "session-query.sqlite"),
-          BEES_DATA_DIR: config.stateDir,
-          BEES_APP_DATA: config.stateDir, BEES_DEFAULT_WORKSPACE: workspace,
+          BEES_DEFAULT_WORKSPACE: workspace,
           BEES_STATE_DIR: join(config.stateDir, "state"), BEES_STARTUP_LOG: join(config.stateDir, "state", "startup.log"),
-          BEES_RUNTIME_ROOT: runtime, BEES_TEMPORAL_ADDRESS: `127.0.0.1:${temporalPort}`, BEES_PRODUCT_SOURCE: "" }
+          BEES_RUNTIME_ROOT: runtime }
       });
       await waitUntil(async () => {
         try {

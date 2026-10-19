@@ -35,7 +35,6 @@ window.__ModuleLoader__.load({
       const { api, ...rest } = route;
       return rest;
     };
-    // Preserve credentials saved by the earlier combined AI APIs screen.
     const refFor = (provider) => `BEES_FREE_${provider.replace(/[^a-z0-9]/gi, "_").toUpperCase()}_API_KEY`;
     const CUSTOM_KEY_REF = "BEES_CUSTOM_OPENAI_API_KEY";
     const css = `
@@ -286,7 +285,8 @@ window.__ModuleLoader__.load({
         const value = await ask("OpenAI-compatible server URL", profile.baseURL ?? "http://127.0.0.1:1234/v1");
         if (value == null || !value.trim()) return;
         const baseURL = serverURL(value);
-        let models = profile.models ?? [];
+        const same = baseURL === profile.baseURL?.replace(/\/+$/, "");
+        let models = same ? profile.models ?? [] : [];
         if (!models.length) {
           const model = (await ask("Model ID", ""))?.trim(); if (!model) return;
           models = [await serverModel(model, baseURL)];

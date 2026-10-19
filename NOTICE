@@ -8,18 +8,9 @@ This product includes software developed by third parties:
   Copyright (c) 2026 DeepSeek
   Licensed under the MIT License
 
-  playwright-core
-  https://github.com/microsoft/playwright
-  Licensed under the Apache License, Version 2.0
-
   TypeScript
   https://github.com/microsoft/TypeScript
   Licensed under the Apache License, Version 2.0
-
-  Temporal CLI, bundled as a sidecar
-  https://github.com/temporalio/cli
-  Copyright (c) 2024 Temporal Technologies Inc.
-  Licensed under the MIT License
 
   Tauri and Tauri plugins
   https://github.com/tauri-apps/tauri
@@ -58,12 +49,3 @@ This product includes software developed by third parties:
   https://github.com/k2-fsa/sherpa-onnx
   Turns speech into text on the device. sherpa-onnx is licensed under the
   Apache License, Version 2.0, and ONNX Runtime under the MIT License.
-
-  Lightning CSS
-  https://github.com/parcel-bundler/lightningcss
-  Licensed under the Mozilla Public License 2.0
-
-  uv, bundled to install memory's Python on first run
-  https://github.com/astral-sh/uv
-  Copyright (c) 2025 Astral Software Inc.
-  Licensed under either the MIT License or Apache License 2.0

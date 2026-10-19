@@ -143,7 +143,7 @@ function credential(value) {
   }
 }
 
-export function normalizeClaudeModels(value) {
+function normalizeClaudeModels(value) {
   if (!Array.isArray(value) || !value.length) throw new Error("Choose at least one Claude Code model");
   if (value.some((model) => typeof model !== "string")) throw new Error("Claude Code model IDs must be strings");
   const models = [...new Set(value.map((model) => String(model).trim()))];
@@ -184,7 +184,7 @@ function messageText(content) {
   }).filter(Boolean).join("\n");
 }
 
-export function claudeProtocolMode(options) {
+function claudeProtocolMode(options) {
   if (!(options.tools ?? []).some((tool) => REQUIRED_TOOL_NAMES.has(tool.name))) return "either";
   const requiredCalls = new Set();
   let mode = "tool";
@@ -198,7 +198,7 @@ export function claudeProtocolMode(options) {
   return mode;
 }
 
-export function claudeResponseSchema(tools, mode = "either") {
+function claudeResponseSchema(tools, mode = "either") {
   const names = [...new Set(tools.map((tool) => String(tool.name)).filter(Boolean))];
   return {
     type: "object",
@@ -366,7 +366,7 @@ function typedArguments(args, parameters) {
   }));
 }
 
-export function claudeChunks(result, tools = []) {
+function claudeChunks(result, tools = []) {
   const usage = { type: "usage", usage: {
     inputTokens: Number(result.usage.input_tokens ?? 0),
     outputTokens: Number(result.usage.output_tokens ?? 0),

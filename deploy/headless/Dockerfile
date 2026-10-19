@@ -6,7 +6,7 @@ RUN npm ci --ignore-scripts
 COPY dsh-runtime/package.json dsh-runtime/package-lock.json ./dsh-runtime/
 COPY dsh-runtime/plugin ./dsh-runtime/plugin
 COPY dsh-runtime/plugins ./dsh-runtime/plugins
-RUN npm ci --omit=dev --prefix dsh-runtime --ignore-scripts --legacy-peer-deps && npm rebuild --prefix dsh-runtime better-sqlite3 node-pty
+RUN npm ci --omit=dev --prefix dsh-runtime --ignore-scripts --legacy-peer-deps && npm rebuild --prefix dsh-runtime node-pty
 COPY scripts ./scripts
 COPY src/brand-mark.png ./src/brand-mark.png
 COPY dsh-runtime/start.mjs dsh-runtime/headless.mjs ./dsh-runtime/
@@ -18,7 +18,6 @@ FROM node:24.7.0-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates bash procps && rm -rf /var/lib/apt/lists/*
 WORKDIR /opt/bees
 COPY --from=build /opt/bees/dsh-runtime ./dsh-runtime
-COPY --from=build /opt/bees/src-tauri/binaries/temporal-*-unknown-linux-gnu /usr/local/bin/temporal
 COPY --from=build /opt/bees/scripts/check-headless.mjs ./scripts/check-headless.mjs
 COPY deploy/headless/config.json /etc/bees/config.json
 RUN mkdir -m 700 /var/lib/bees && chown node:node /var/lib/bees
