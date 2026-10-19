@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, existsSync, lstatSync } from 'node:fs';
 import { join } from 'node:path';
+import { DEFAULT_WORKFLOW, WORKFLOW_TEMPLATES, isValidWorkflow } from './thread-workflow.js';
 
 export const digest = value => createHash('sha256').update(value).digest('hex');
 export const canonical = value => JSON.stringify(value, (_key,v) => v && typeof v==='object' && !Array.isArray(v)
@@ -34,12 +35,21 @@ export class ThreadStore {
   }
   close(){this.db.close();}
   preference(key,value){if(value!==undefined)this.db.prepare('INSERT INTO preferences VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key,JSON.stringify(value));return JSON.parse(this.db.prepare('SELECT value FROM preferences WHERE key=?').get(key)?.value??'null');}
-  list(){return this.db.prepare('SELECT document,staged FROM threads ORDER BY json_extract(document,\'$.updatedAt\') DESC').all().map(({document,staged})=>{const d=JSON.parse(document);return {id:d.id,title:d.title,ownerClientId:d.ownerClientId,ownerUserId:d.ownerUserId,shared:d.shared,revision:d.revision,updatedAt:d.updatedAt,preview:d.messages.at(-1)?.text?.slice(0,120)??'',runs:d.runs.map(r=>({id:r.id,status:r.status})),staged:!!staged};});}
+  list(){return this.db.prepare('SELECT document,staged FROM threads ORDER BY json_extract(document,\'$.updatedAt\') DESC').all().map(({document,staged})=>{const d=JSON.parse(document);return {id:d.id,kind:d.kind??'thread',teamId:d.teamId??this.preference(`team:${d.id}`),processId:d.processId,organizationId:d.organizationId,title:d.title,legacySettings:d.kind!=='team'&&(d.kind===undefined||!!d.instructions||!!d.memory?.length||!!d.schedule||this.preference(`integrations:${d.id}`)!==null||this.preference(`browser:${d.id}`)!==null),ownerClientId:d.ownerClientId,ownerUserId:d.ownerUserId,shared:d.shared,revision:d.revision,updatedAt:d.updatedAt,preview:d.messages.at(-1)?.text?.slice(0,120)??'',runs:d.runs.map(r=>({id:r.id,status:r.status})),staged:!!staged};});}
+  teamFor(id){const doc=this.get(id),teamId=doc.teamId??this.preference(`team:${id}`);return teamId&&this.db.prepare('SELECT 1 FROM threads WHERE id=?').get(teamId)?this.get(teamId):null;}
   get(id){const row=this.db.prepare('SELECT document,staged FROM threads WHERE id=?').get(validId(id));if(!row)throw threadError('Thread is not available on this client',404);return {...JSON.parse(row.document),staged:!!row.staged};}
   document(id){const {staged,...doc}=this.get(id);return doc;}
   save(doc,staged=false){this.validate(doc);this.db.prepare('INSERT INTO threads VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,document=excluded.document,staged=excluded.staged').run(doc.id,doc.revision,canonical(doc),Number(staged));return doc;}
   validate(doc){
     validId(doc.id);validId(doc.ownerClientId);text(doc.ownerUserId,200);text(doc.title,180);
+    if(doc.organizationId!==undefined)validId(doc.organizationId);
+    if(doc.processId!==undefined&&doc.processId!=='custom'&&!WORKFLOW_TEMPLATES.some(t=>t.id===doc.processId))validId(doc.processId);
+    if(doc.processes!==undefined){
+      if(doc.kind!=='team'||!Array.isArray(doc.processes)||doc.processes.length>40||new Set(doc.processes.map(p=>p?.id)).size!==doc.processes.length)throw threadError('Invalid team processes');
+      for(const process of doc.processes){validId(process.id);text(process.name,120);if(!isValidWorkflow(process.workflow))throw threadError('Invalid process stages');}
+    }
+    if(doc.kind!==undefined&&!['team','thread'].includes(doc.kind))throw threadError('Invalid document kind');
+    if(doc.teamId!==undefined){validId(doc.teamId);if(doc.teamId===doc.id||doc.kind==='team')throw threadError('Invalid team');}
     if(!Number.isSafeInteger(doc.revision)||doc.revision<1||!Number.isSafeInteger(doc.epoch)||doc.epoch<1)throw threadError('Invalid thread revision');
     if(!Array.isArray(doc.messages)||doc.messages.length>10000||!Array.isArray(doc.artifacts)||doc.artifacts.length>1000||!Array.isArray(doc.runs)||doc.runs.length>1000||Buffer.byteLength(canonical(doc))>8_000_000)throw threadError('Thread exceeds its storage limit');
     const known=new Set();
@@ -57,7 +67,7 @@ export class ThreadStore {
     if(doc.artifacts.reduce((n,a)=>n+a.size,0)>250_000_000)throw threadError('Thread file limit reached');
     const messages=new Set();for(const m of doc.messages){validId(m.id);if(messages.has(m.id))throw threadError('Duplicate message');messages.add(m.id);text(m.text,100000);text(m.authorId,200);if(!['user','assistant','discussion','system'].includes(m.kind))throw threadError('Invalid message');}
   }
-  create(title,userId='local') {const at=now();return this.save({id:randomUUID(),title:text(title,180),ownerClientId:this.clientId,ownerUserId:userId,shared:false,epoch:1,revision:1,createdAt:at,updatedAt:at,messages:[],artifacts:[],runs:[],memory:[]});}
+  create(title,userId='local',workflow=DEFAULT_WORKFLOW,teamId,kind='thread',{processId,organizationId}={}) {const at=now();return this.save({id:randomUUID(),kind,...(teamId?{teamId:validId(teamId)}:{}),...(processId?{processId}:{}),...(organizationId?{organizationId}:{}),title:text(title,180),ownerClientId:this.clientId,ownerUserId:userId,shared:false,epoch:1,revision:1,createdAt:at,updatedAt:at,messages:[],artifacts:[],runs:[],memory:[],workflow});}
   writable(doc){if(doc.staged||doc.ownerClientId!==this.clientId)throw threadError('Changes must be accepted by the owning client',409);if(this.preference(`frozen:${doc.id}`))throw threadError('This thread is being transferred',409);}
   mutate(id,operation,fn){
     validId(operation);const doc=this.get(id);this.writable(doc);delete doc.staged;
@@ -67,7 +77,7 @@ export class ThreadStore {
   }
   message(id,operation,body,authorId,kind='user'){return this.mutate(id,operation,doc=>{
     const messageText=text(body,100000);
-    if(doc.title==='New thread'&&!doc.messages.length&&(kind==='user'||kind==='discussion'))doc.title=messageText.slice(0,80).trim();
+    if(['New thread','New goal','New chat'].includes(doc.title)&&!doc.messages.length&&(kind==='user'||kind==='discussion'))doc.title=messageText.slice(0,80).trim();
     doc.messages.push({id:operation,authorId,text:messageText,kind,createdAt:now()});
   });}
   objectPath(hash){if(!/^[a-f0-9]{64}$/.test(hash))throw threadError('Invalid file digest');return join(this.root,'objects',hash);}
@@ -76,6 +86,7 @@ export class ThreadStore {
   attach(id,operation,name,bytes,authorId,path){name=text(name,200);if(/[\x00-\x1f/\\]/.test(name)||['.','..'].includes(name))throw threadError('Invalid attachment name');if(path!==undefined)threadPath(path);const doc=this.get(id);this.writable(doc);validId(operation);if(doc.operations?.includes(operation))return this.document(id);if(doc.artifacts.length>=1000||doc.artifacts.reduce((n,a)=>n+a.size,0)+bytes.length>250_000_000)throw threadError('Thread file limit reached');const hash=this.putObject(bytes);return this.mutate(id,operation,doc=>{doc.artifacts.push({id:operation,name,...(path!==undefined?{path}:{}),digest:hash,size:bytes.length,authorId,createdAt:now()});});}
   import(doc,authority,{staged=false}={}) {
     this.validate(doc);
+    if((doc.kind??'thread')!==(authority.kind??'thread')||(doc.teamId??null)!==(authority.team_id??null))throw threadError('Snapshot does not match its team authority',409);
     if(doc.shared!==true)throw threadError('A shared snapshot must retain its directory authority');
     if(doc.ownerClientId!==authority.owner_client_id||doc.ownerUserId!==authority.owner_user_id||doc.epoch!==Number(authority.epoch))throw threadError('Snapshot is from a stale owner',409);
     const old=this.db.prepare('SELECT revision,document,staged FROM threads WHERE id=?').get(doc.id);

@@ -1,5 +1,5 @@
 import { h, useState } from './runtime.js';
-import { DEFAULT_WORKFLOW, processName } from '../lib/thread-workflow.js';
+import { DEFAULT_WORKFLOW, processName, isChatWorkflow } from '../lib/thread-workflow.js';
 
 const labels = { planned: 'Planned', running: 'In progress', waiting: 'Needs input', completed: 'Done',
   failed: 'Failed', cancelled: 'Stopped', uncertain: 'Interrupted', idle: 'Ready' };
@@ -8,7 +8,7 @@ const badge = status => h('span', { className: 'bc-kanban-status', 'data-status'
 
 export function kanbanColumns(thread, run) {
   const workflow = (run ? run.workflow : thread.workflow) ?? DEFAULT_WORKFLOW;
-  const columns = [...workflow, { name: 'Done', kind: 'terminal' }].map((stage, index) => ({ ...stage, index, cards: [] }));
+  const columns = [...workflow, { name: isChatWorkflow(workflow)?'Your turn':'Done', kind: isChatWorkflow(workflow)?'input':'terminal' }].map((stage, index) => ({ ...stage, index, cards: [] }));
   if (!run) return columns;
   const current = run.stageIndex ?? Math.max(0, workflow.findIndex(stage => stage.name === run.stage));
   const agents = run.agents ?? [];

@@ -25,9 +25,9 @@ test('accounts retain separate databases and sign-out does not expose the previo
     await profiles.start();const local=await profiles.command({action:'create',title:'Personal draft'});
     await profiles.login({url:'https://directory.example',email:'alice@example.com',password:'example-password'});
     const alice=profiles.active.store.clientId;assert.equal(profiles.active.store.document(local.id).title,'Personal draft');
-    await profiles.logout();assert.equal(profiles.active.store.list().length,0);assert.equal(profiles.active.directory.user,undefined);
+    await profiles.logout();assert.equal((await profiles.active.snapshot()).threads.length,0);assert.equal(profiles.active.directory.user,undefined);
     await profiles.login({url:'https://directory.example',email:'bob@example.com',password:'example-password'});
-    assert.notEqual(profiles.active.store.clientId,alice);assert.equal(profiles.active.store.list().length,0);
+    assert.notEqual(profiles.active.store.clientId,alice);assert.equal((await profiles.active.snapshot()).threads.length,0);
     await assert.rejects(profiles.login({url:'https://directory.example',session:'invalid'}),/Sign in again/);
     assert.equal(profiles.active.directory.user.id,'bob');
     const started=await profiles.command({action:'startLogin',url:'https://directory.example',provider:'google'});
@@ -39,7 +39,7 @@ test('accounts retain separate databases and sign-out does not expose the previo
     // Enrollment must finish even while the webview is paused in the background.
     assert.equal(profiles.active.directory.user.id,'alice');
     await profiles.command({action:'finishLogin',id:started.id});
-    assert.equal(profiles.active.store.clientId,alice);assert.equal(profiles.active.store.list().length,1);
+    assert.equal(profiles.active.store.clientId,alice);assert.equal((await profiles.active.snapshot()).threads.length,1);
     const cancelled=await profiles.command({action:'startLogin',url:'https://directory.example',provider:'github'});
     await profiles.command({action:'cancelLogin',id:cancelled.id});
     await assert.rejects(profiles.command({action:'finishLogin',id:cancelled.id}),/expired/);

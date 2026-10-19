@@ -1,11 +1,14 @@
 import { h } from './runtime.js';
-import { DEFAULT_WORKFLOW, processName } from '../lib/thread-workflow.js';
+import { DEFAULT_WORKFLOW, processName, isChatWorkflow } from '../lib/thread-workflow.js';
 
 export { THREAD_PAGES } from '../lib/thread-layout.js';
 export const THREAD_SETTINGS = [
+  ['general', 'General'], ['transfer', 'Transfer'],
+];
+export const TEAM_SETTINGS = [
   ['general', 'General'], ['members', 'Members'], ['invitations', 'Invitations'],
-  ['memory', 'Memory'], ['workflow', 'Workflow'], ['schedule', 'Schedules'],
-  ['folders', 'Files & folders'], ['addons', 'MCP integrations'], ['browser', 'Browser'], ['transfer', 'Transfer'],
+  ['memory', 'Memory'], ['processes', 'Processes'], ['workflow', 'Workflow'], ['schedule', 'Schedules'],
+  ['folders', 'Files & folders'], ['addons', 'MCP integrations'], ['browser', 'Browser'],
 ];
 export const GLOBAL_SETTINGS = [
   ['ai', 'AI connections'], ['appearance', 'Appearance'], ['instructions', 'System instructions'],
@@ -18,11 +21,17 @@ export function SettingsNav({ items, selected, onSelect, label }) {
       onClick: () => onSelect(id) }, title)));
 }
 
+export function SettingsPage({title,items,selected,onSelect,onClose,children}){
+  return h('section',{className:'bc-settings-page','aria-label':title},
+    h('header',{className:'bc-thread-header'},h('h2',null,title),h('button',{className:'bc-icon','aria-label':'Close settings',onClick:onClose},'×')),
+    h('div',{className:'bc-settings-layout'},h(SettingsNav,{items,selected,onSelect,label:`${title} sections`}),h('div',{className:'bc-settings-content'},children)));
+}
+
 export function ThreadDetails({ thread, page, onSettings, onFiles }) {
   if (page === 'details') return h('section', { className: 'bc-form' },
     h('h3', null, 'Details'), h('p', null, thread.title), h('code', null, thread.id),
     h('p', { className: 'bc-muted' }, `Created ${new Date(thread.createdAt).toLocaleString()}`),
-    h('h3', null, processName(thread.workflow)), [...(thread.workflow ?? DEFAULT_WORKFLOW), { name: 'Done' }].map((stage, i) =>
+    h('h3', null, processName(thread.workflow)), [...(thread.workflow ?? DEFAULT_WORKFLOW), { name: isChatWorkflow(thread.workflow)?'Your turn → Chat ↻':'Done' }].map((stage, i) =>
       h('p', { key: i }, `${i + 1}. ${stage.name}`)),
     h('button', { onClick: () => onSettings('general') }, 'Thread settings'));
   if (page === 'context') return h('section', { className: 'bc-form' },

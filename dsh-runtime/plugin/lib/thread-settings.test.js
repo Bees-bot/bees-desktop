@@ -80,3 +80,20 @@ test('MCP connections are per thread, credentials never enter thread documents, 
     await assert.rejects(client.command({action:'saveIntegration',threadId:second.id,serverName:'evil',command:'node',transport:'stdio'}),/owning client/);
   } finally {store.close();rmSync(root,{recursive:true,force:true});}
 });
+
+test('team integrations are shared across local threads, preserve legacy credentials and reject remote installation',async()=>{
+  const root=mkdtempSync(join(tmpdir(),'bees-team-integrations-')),secrets=new Map();
+  const integrations=new ThreadIntegrations({credentials:{set:async(k,v)=>secrets.set(JSON.stringify(k),v),resolve:async k=>({value:secrets.get(JSON.stringify(k))}),unset:async k=>secrets.delete(JSON.stringify(k))}});
+  const client=new ThreadClient(root,{integrations}),store=client.store;
+  try{
+    const team=(await client.snapshot()).teams[0],thread=await client.command({action:'create'});
+    await client.command({action:'saveIntegration',threadId:team.id,serverName:'docs',transport:'streamable-http',url:'https://example.com/mcp',secrets:{Authorization:'team-secret'}});
+    await integrations.save(store,thread.id,{serverName:'legacy',transport:'streamable-http',url:'https://legacy.example/mcp',secrets:{Authorization:'legacy-secret'}});
+    const mounted=[];await integrations.mount({plugin:(_plugin,config)=>{mounted.push(config);return Promise.resolve();}},store,thread.id,root);
+    assert.equal(mounted.length,2);assert.equal(mounted[0].headers.Authorization,'team-secret');assert.equal(mounted[1].headers.Authorization,'legacy-secret');
+    const other=await client.command({action:'createTeam',name:'Other'}),otherThread=await client.command({action:'create',teamId:other.id});
+    mounted.length=0;await integrations.mount({plugin:(_plugin,config)=>{mounted.push(config);return Promise.resolve();}},store,otherThread.id,root);assert.equal(mounted.length,0);
+    assert(!JSON.stringify(store.document(team.id)).includes('team-secret'));
+    await assert.rejects(client.localCommand(team.id,{action:'saveIntegration',operationId:randomUUID()},'remote-user'),/Unknown thread command/);
+  }finally{store.close();rmSync(root,{recursive:true,force:true});}
+});

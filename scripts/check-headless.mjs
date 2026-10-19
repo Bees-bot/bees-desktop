@@ -50,22 +50,45 @@ const model = createServer(async (req, res) => {
       assert(evidence,'Review must receive durable delegation evidence');
       const recorded=JSON.parse(evidence.split('Recorded execution evidence:\n')[1].split('\n\nThread context:')[0]);
       assert.equal(recorded.filter(agent=>agent.parentId&&agent.status==='completed').length,5);
-      for(const word of counterWords)assert(recorded.some(agent=>agent.title==='Append '+word+' to counter'));
+      for(const word of counterWords){
+        const agent=recorded.find(agent=>agent.title==='Append '+word+' to counter');assert(agent);
+        assert(agent.tools.some(tool=>tool.name==='glob'&&tool.status==='succeeded'&&tool.result.includes(counterName)),'Each child must discover the parent-created file');
+        assert(agent.tools.some(tool=>tool.name==='bees_append_file'&&tool.status==='succeeded'&&JSON.parse(tool.arguments).content===word+'\n'),'Each child must have its own successful append');
+      }
+      const parent=recorded.find(agent=>!agent.parentId&&agent.stageIndex===0);
+      const initialized=parent.tools.find(tool=>tool.name==='bees_append_file');
+      assert.equal(JSON.parse(initialized.arguments).content,'','The parent may initialize but must not append child entries');
+      assert(initialized.completedAt<=parent.tools.find(tool=>tool.name==='subagent').startedAt,'File initialization must finish before delegation');
+      assert(!parent.tools.some(tool=>['bash','write','edit','bees_commit_file'].includes(tool.name)),'The parent must never manufacture child contributions');
       counterDelta={role:'assistant',content:'Verified all five subagents completed from recorded execution evidence'};
     }else if(childWord&&body.tools){
       assert(body.tools.some(({function:fn})=>fn.name==='bees_append_file'),'Child agents need the shared atomic append tool');
       if(!attemptedTool('read'))counterDelta=call('read',{file_path:join(root,'private-other-thread.txt')});
+      else if(!attemptedTool('glob'))counterDelta=call('glob',{pattern:'counter-*.txt',path:'outputs'});
       else if(!attemptedTool('bees_append_file')){
         assert(results.some(m=>JSON.stringify(m.content).includes('Attach this file')),'Child agents must enforce the thread file boundary');
+        assert(results.some(m=>JSON.stringify(m.content).includes(counterName)),'Child agents must find the initialized shared file');
         counterChildren.add(childWord);if(counterChildren.size===5)releaseCounterChildren();
         await Promise.race([counterChildrenReady,delay(15_000,undefined,{ref:false}).then(()=>{throw Error('Five subagents must run in parallel');})]);
         counterDelta=call('bees_append_file',{file_path:'outputs/'+counterName,content:childWord+'\n'});
       }else{assert(!results.some(m=>m.is_error));counterCompleted.add(childWord);counterDelta={role:'assistant',content:'Completed '+childWord};}
     }else if(body.tools&&JSON.stringify(body.messages).includes('SUBAGENT_COUNTER_TEST_PARENT')){
       assert(body.tools.some(({function:fn})=>fn.name==='subagent'));
-      counterDelta=!attemptedTool('subagent')?{role:'assistant',tool_calls:counterWords.map((word,index)=>({index,id:'counter-'+word,type:'function',function:{name:'subagent',arguments:JSON.stringify({description:'Append '+word+' to counter',prompt:'COUNTER_CHILD_'+word+'. Append your word followed by a newline to outputs/'+counterName+'. Do not launch subtasks.',run_in_background:false})}}))}:{role:'assistant',content:'Counter complete'};
+      const instructions=JSON.stringify(body.messages.filter(m=>m.role==='system'));
+      assert(instructions.includes('Before launching children that modify an existing shared file'));
+      assert(instructions.includes('Never write a requested subagent contribution yourself'));
+      if(!attemptedTool('bees_append_file'))counterDelta=call('bees_append_file',{file_path:'outputs/'+counterName,content:''});
+      else counterDelta=!attemptedTool('subagent')?{role:'assistant',tool_calls:counterWords.map((word,index)=>({index,id:'counter-'+word,type:'function',function:{name:'subagent',arguments:JSON.stringify({description:'Append '+word+' to counter',prompt:'COUNTER_CHILD_'+word+'. Append your word followed by a newline to outputs/'+counterName+'. Do not launch subtasks.',run_in_background:false})}}))}:{role:'assistant',content:'Counter complete'};
     }
-    const delta=counterDelta??(read&&!attempted?call('read',{file_path:join(root,'private-other-thread.txt')})
+    const chatting=body.messages.some(m=>m.role==='system'&&JSON.stringify(m.content).includes('conversational AI assistant'));
+    let chatReply;
+    if(chatting){
+      assert(!reviewing);
+      const context=body.messages.filter(m=>m.role==='user').map(m=>m.content).join('\n');
+      if(context.includes('CHAT_LOOP_SECOND')){assert(context.includes('FIRST_CHAT_REPLY'),'Chat must retain its previous AI reply');assert(context.includes('CHAT_LOOP_FIRST'),'Chat must retain its previous user message');chatReply='SECOND_CHAT_REPLY';}
+      else{assert(context.includes('CHAT_LOOP_FIRST'));chatReply='FIRST_CHAT_REPLY';}
+    }
+    const delta=chatting?{role:'assistant',content:chatReply}:counterDelta??(read&&!attempted?call('read',{file_path:join(root,'private-other-thread.txt')})
       :calendar&&!attemptedTool(calendar.function.name)?call(calendar.function.name,{})
       :update&&!attemptedTool(update.function.name)?call(update.function.name,{title:'Synthetic meeting'})
       :{role:'assistant',content:'STAGE1_COMPLETE.'});
@@ -149,7 +172,7 @@ try {
   const snapshot = await api("/bees-api/snapshot");
   assert.equal(snapshot.product, "Bees Client");
   assert.equal(snapshot.threads.length, 0);
-  assert(!Object.hasOwn(snapshot, "teams") && !Object.hasOwn(snapshot, "workspaces"));
+  assert.equal(snapshot.teams.length,1);assert.equal(snapshot.teams[0].title,"Default");assert(!Object.hasOwn(snapshot,"workspaces"));
   const command = input => api("/bees-api/threads", {operationId: crypto.randomUUID(), ...input});
   const thread = await command({action: "create", title: "Synthetic thread"});
   const integration = await command({action:'saveIntegration',threadId:thread.id,serverName:'proof',transport:'stdio',command:process.execPath,args:[join(desktop,'scripts/fixtures/headless-mcp.mjs')],secrets:{BEES_PROOF_SECRET:'synthetic-mcp-credential'}});
@@ -186,6 +209,16 @@ try {
   const isolated=await command({action:'create',title:'No integration'}),isolatedRun=crypto.randomUUID();
   await command({action:'run',threadId:isolated.id,operationId:isolatedRun,text:'NO_MCP_EXPECTED. Reply STAGE1_COMPLETE.'});
   await until(async()=>{const doc=await command({action:'read',threadId:isolated.id});const run=doc.runs.find(r=>r.id===isolatedRun);assert.notEqual(run.status,'failed',run.error);return run.status==='completed';});
+  const chat=await command({action:'create',title:'New chat',templateId:'chat'});
+  for(const [prompt,reply] of [['CHAT_LOOP_FIRST','FIRST_CHAT_REPLY'],['CHAT_LOOP_SECOND','SECOND_CHAT_REPLY']]){
+    await command({action:'message',threadId:chat.id,text:prompt});
+    const operationId=crypto.randomUUID();await command({action:'run',threadId:chat.id,operationId,text:prompt});
+    await until(async()=>{const doc=await command({action:'read',threadId:chat.id});const run=doc.runs.find(r=>r.id===operationId);assert.notEqual(run.status,'failed',run.error);return run.status==='completed';});
+    const doc=await command({action:'read',threadId:chat.id});assert.equal(doc.messages.at(-1).text,reply);assert.equal(doc.runs.at(-1).stages.length,1);assert.equal(doc.runs.at(-1).workflow[0].kind,'chat');
+  }
+  const chatHistory=await command({action:'read',threadId:chat.id});
+  assert.equal(chatHistory.messages.filter(m=>m.kind==='assistant').length,2,'Each chat turn records one reply');
+  assert(chatHistory.runs.every(run=>run.stages.length===1&&run.agents.length===1),'Chat has one agent stage per reply without a review stage');
   await command({action:'configure',threadId:thread.id,workflow:[{name:'Work',kind:'work'},{name:'Approve result',kind:'approval'}]});
   const approvalRun=crypto.randomUUID();await command({action:'run',threadId:thread.id,operationId:approvalRun,text:'Prepare a fictional result for my approval.'});
   const pending=await until(async()=>{const current=await command({action:'read',threadId:thread.id});const run=current.runs.find(r=>r.id===approvalRun);assert.notEqual(run.status,'failed',run.error);return run.pending;});
@@ -217,11 +250,12 @@ try {
   assert.equal(recovered.agents.length,7,'Old runs recover their actual delegation history from saved sessions');
   assert.equal(recovered.activityError,undefined);
   assert.equal(recovered.agents.filter(agent=>agent.parentId&&agent.status==='completed').length,5);
+  for(const agent of recovered.agents.filter(agent=>agent.parentId))assert(agent.tools.some(tool=>tool.name==='bees_append_file'&&tool.status==='succeeded'),'Successful child appends must survive restart and history recovery');
   const restarted = await command({action: "read", threadId: thread.id});
   assert.equal(restarted.runs[0].status, "completed");
   assert.match(restarted.messages.at(-1).text, /STAGE1_COMPLETE/);
   await stop();
-  console.log(JSON.stringify({ok: true, checks: ["client boot", "authentication", "exclusive state", "real agent work and review", "actual tool file denial", "nested thread files and folders", "scoped MCP calls and approvals", "run deduplication", "human approval and attribution", "five parallel subagents and shared counter", "restart persistence", "no team/workspace database"], modelCalls}));
+  console.log(JSON.stringify({ok: true, checks: ["client boot", "authentication", "exclusive state", "real agent work and review", "two-turn AI chat loop", "actual tool file denial", "nested thread files and folders", "scoped MCP calls and approvals", "run deduplication", "human approval and attribution", "five parallel subagents and shared counter", "restart persistence", "no team/workspace database"], modelCalls}));
 } finally {
   await stop();
   model.closeAllConnections(); await new Promise((done) => model.close(done));

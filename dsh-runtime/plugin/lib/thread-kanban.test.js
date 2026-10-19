@@ -5,6 +5,14 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { configureRuntime } from '../client/runtime.js';
 import { ThreadKanban, kanbanColumns } from '../client/thread-kanban.js';
 import { THREAD_PAGES } from '../client/thread-panels.js';
+import { CHAT_WORKFLOW } from './thread-workflow.js';
+
+test('Chat returns to the human input column after every reply',()=>{
+  const thread={title:'Chat',workflow:CHAT_WORKFLOW};
+  const columns=kanbanColumns(thread,{id:'chat-turn',prompt:'Hello',status:'completed',workflow:CHAT_WORKFLOW,stageIndex:0,agents:[]});
+  assert.deepEqual(columns.map(c=>c.name),['Chat','Your turn']);
+  assert.equal(columns[1].kind,'input');assert.equal(columns[1].cards[0].id,'chat-turn');
+});
 
 configureRuntime(name => ({ react: React, 'react-dom': {}, '@deepseek-ai/dsh-client-ui-primitives': {} })[name], { hosted: true });
 const render = thread => renderToStaticMarkup(React.createElement(ThreadKanban, { thread }));

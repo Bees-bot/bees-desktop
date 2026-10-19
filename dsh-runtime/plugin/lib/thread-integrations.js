@@ -36,7 +36,8 @@ export class ThreadIntegrations {
       if (!entry?.scopes) throw threadError('Choose a Google integration');
       const clientId = text(input.secrets?.GOOGLE_CLIENT_ID, 2000), clientSecret = text(input.secrets?.GOOGLE_CLIENT_SECRET, 2000);
       const consent = await googleConsent({ clientId, clientSecret }, [...entry.scopes, 'openid', 'https://www.googleapis.com/auth/userinfo.email'], async client => {
-        store.writable(store.get(id));
+        if(store.get(id).kind!=='team')store.writable(store.get(id));
+        else if(store.preference(`frozen:${id}`))throw threadError('Team access is unavailable',403);
         await this.save(store, id, { ...input, secrets: { GOOGLE_CLIENT_ID: clientId, GOOGLE_CLIENT_SECRET: clientSecret, GOOGLE_REFRESH_TOKEN: client.credentials.refresh_token } });
       });
       this.consents.add(consent);
@@ -59,7 +60,7 @@ export class ThreadIntegrations {
     const entry = input.catalogId ? catalogEntry(input.catalogId) : null;
     if (input.catalogId && !entry) throw threadError('Unknown integration');
     const current = rows(store, id);
-    if (current.length >= 40) throw threadError('A thread can have up to 40 integrations');
+    if (current.length >= 40) throw threadError('A team can have up to 40 integrations');
     const serverName = input.serverName || entry?.serverName;
     if (!/^[a-zA-Z0-9_-]{1,32}$/.test(serverName ?? '') || current.some(row => row.serverName === serverName)) throw threadError('Use a unique server name with up to 32 letters, numbers, dashes or underscores');
     const transport = entry?.transport ?? input.transport;
@@ -90,7 +91,7 @@ export class ThreadIntegrations {
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw threadError('Use HTTP or HTTPS; put credentials in the credential fields');
     return url.href;
   }
-  async config(store, id, server, cwd) {
+  async config(store, id, server, cwd, browserId=id) {
     const credentials = {};
     for (const key of server.secretNames) {
       const hit = await this.ctx.credentials.resolve(secretRef(store, id, server.id, key));
@@ -107,7 +108,7 @@ export class ThreadIntegrations {
       credentials.MEMORY_FILE_PATH = join(directory, `${server.id}.jsonl`);
     }
     if (isBrowserCatalog(server.catalogId)) {
-      const mode = browserMode(store, id);
+      const mode = browserMode(store, browserId);
       if (mode === 'personal') await startAgentBrowser(mode);
       args = server.catalogId === 'playwright'
         ? [...server.args.slice(0, 2), ...(mode === 'personal' ? ['--cdp-endpoint', `http://127.0.0.1:${browserPort(mode)}`] : ['--headless', '--isolated']), '--output-dir', join(cwd, 'outputs')]
@@ -117,8 +118,11 @@ export class ThreadIntegrations {
       args, env: credentials, cwd, failOnStartupError: true };
   }
   async mount(agentCtx, store, id, cwd) {
-    for (const server of rows(store, id).filter(row => row.enabled)) {
-      const fiber = agentCtx.plugin(mcpClient, await this.config(store, id, server, cwd));
+    const team=store.teamFor(id),teamServers=team?rows(store,team.id):[];
+    const connections=[...teamServers.map(server=>({server,scope:team.id})),...rows(store,id).filter(server=>!teamServers.some(row=>row.serverName===server.serverName)).map(server=>({server,scope:id}))];
+    for (const {server,scope} of connections.filter(({server}) => server.enabled)) {
+      const browserId=team&&store.preference(`browser:${team.id}`)!==null?team.id:scope;
+      const fiber = agentCtx.plugin(mcpClient, await this.config(store, scope, server, cwd, browserId));
       let timer;
       try { await Promise.race([Promise.resolve(fiber), new Promise((_, reject) => { timer = setTimeout(() => reject(threadError(`${server.label} did not start within 30 seconds`)), 30000); })]); }
       catch (error) { await fiber.dispose(); throw error; }

@@ -50,6 +50,35 @@ test('snapshots preserve actual task, model, result and completion; inherited fo
   assert.equal(threadAgentSnapshot(session([['turn/start', {}]])).status, 'uncertain');
 });
 
+test('execution evidence distinguishes a completed turn from a successful file contribution', () => {
+  const call = (callId, name, args) => ['tool/call', { callId, name, arguments: JSON.stringify(args) }];
+  const result = (toolCallId, text, isError = false) => ['tool/result', { message: { toolCallId, isError, content: [{ type: 'text', text }] } }];
+  const value = session([
+    call('inherited', 'write', { file_path: 'outputs/counter.txt', content: 'parent entry' }),
+    result('inherited', 'Written'),
+    call('locate', 'glob', { pattern: 'counter-*.txt', path: 'outputs' }),
+    result('locate', 'No files found'),
+    call('failed', 'bees_append_file', { file_path: 'outputs/counter.txt', content: 'first\n' }),
+    result('failed', 'Access denied', true),
+    call('append', 'bees_append_file', { file_path: 'outputs/counter.txt', content: 'first\n' }),
+    result('append', '{"appended_chars":6}'),
+    call('pending', 'read', { file_path: 'outputs/counter.txt' }),
+    ['turn/end', { reason: { kind: 'completed' } }],
+  ]);
+  value.inheritedEventCount = 2;
+  const snapshot = threadAgentSnapshot(value);
+  assert.equal(snapshot.status, 'completed');
+  assert.deepEqual(snapshot.tools.map(tool => [tool.id, tool.status]), [
+    ['locate', 'succeeded'], ['failed', 'failed'], ['append', 'succeeded'], ['pending', 'pending'],
+  ]);
+  assert.equal(snapshot.tools[0].result, 'No files found');
+  assert.equal(snapshot.tools[1].result, 'Access denied');
+  assert.equal(JSON.parse(snapshot.tools[2].arguments).content, 'first\n');
+  assert(snapshot.tools[2].completedAt >= snapshot.tools[2].startedAt);
+  assert.equal(snapshot.tools[3].completedAt, undefined);
+  assert.deepEqual(threadAgentSnapshot(session([['turn/end', { reason: { kind: 'completed' } }]])).tools, []);
+});
+
 test('private thread reads recover durable child history once, with validated lineage and no model calls', async () => {
   const root = mkdtempSync(join(tmpdir(), 'bees-activity-'));
   const sources = new Map(); let opened = 0, closed = 0;
@@ -65,7 +94,7 @@ test('private thread reads recover durable child history once, with validated li
   try {
     const doc = client.store.create('Counter'), runId = randomUUID(), childId = randomUUID(), grandchildId = randomUUID();
     const cwd = join(root, 'runs', doc.id, runId), parentId = `${runId}-0`;
-    client.store.mutate(doc.id, randomUUID(), value => value.runs.push({ id: runId, status: 'completed', prompt: 'Counter', workflow: [{ name: 'Work', kind: 'work' }] }));
+    client.store.mutate(doc.id, randomUUID(), value => value.runs.push({ id: runId, status: 'completed', activityVersion: 1, prompt: 'Counter', workflow: [{ name: 'Work', kind: 'work' }] }));
     sources.set(parentId, session([['subagent/catalog', { childId }], ['turn/end', { reason: { kind: 'completed' } }]], { id: parentId, cwd, createdAt: at }));
     sources.set(childId, session([['subagent/descriptor', { label: 'First' }], ['subagent/catalog', { childId: grandchildId }], ['turn/end', { reason: { kind: 'completed' } }]], { id: childId, parentSession: parentId, cwd, createdAt: at }));
     sources.set(grandchildId, session([['turn/end', { reason: { kind: 'completed' } }]], { id: grandchildId, parentSession: childId, cwd, createdAt: at }));
@@ -74,6 +103,8 @@ test('private thread reads recover durable child history once, with validated li
     assert.equal(recovered.runs[0].agents[1].title, 'First');
     assert.equal(recovered.runs[0].agents[2].parentId, childId);
     assert(recovered.runs[0].agents.every(agent => agent.status === 'completed'));
+    assert.equal(recovered.runs[0].activityVersion, 2);
+    assert(recovered.runs[0].agents.every(agent => Array.isArray(agent.tools)));
     assert.equal(opened, 3); assert.equal(closed, 3);
     await client.command({ action: 'read', threadId: doc.id }); assert.equal(opened, 3);
     client.store.mutate(doc.id, randomUUID(), value => { delete value.runs[0].activityVersion; value.runs[0].agents = []; });

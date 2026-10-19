@@ -1,12 +1,12 @@
 import { h, useEffect, useState, hosted } from './runtime.js';
 import { openExternal } from './common.js';
 
-export function IntegrationSettings({ threadId, canManage, request, perform, page = 'addons' }) {
+export function IntegrationSettings({ threadId, canManage, request, perform, page = 'addons', scope='team' }) {
   const [data, setData] = useState(null), [catalogId, setCatalogId] = useState('playwright');
   const [transport, setTransport] = useState('stdio'), [notice, setNotice] = useState('');
   const load = async () => setData(await request('integrations', threadId));
   useEffect(() => { if (canManage) void perform(load); }, [threadId, canManage]);
-  if (!canManage) return h('p', { className: 'bc-muted' }, 'The thread owner manages MCP connections and browser access on the client that owns this thread.');
+  if (!canManage) return h('p', { className: 'bc-muted' }, 'Team owners and editors can manage connections on their own clients.');
   if (!data) return h('p', { role: 'status' }, 'Loading integrations…');
   const entry = data.catalog.find(row => row.id === catalogId);
   const change = (action, values) => perform(async () => { setData(await request(action, threadId, values)); setNotice('Saved. Changes apply to the next run.'); });
@@ -36,11 +36,11 @@ export function IntegrationSettings({ threadId, canManage, request, perform, pag
       ? 'Personal browser access is available on desktop clients.'
       : 'Personal browser access requires a supported Chromium browser as your Mac’s default browser.') : null,
     data.browser.warning ? h('p', { className: 'bc-muted' }, data.browser.warning) : null,
-    h('p', null, 'Enable Browser or Chrome DevTools in Add-ons to give this thread browser tools.'),
+    h('p', null, 'Enable Browser or Chrome DevTools in Add-ons to give every thread in this team browser tools.'),
     !hosted && data.browser.mode === 'personal' ? h('button', { onClick: () => perform(() => request('openBrowser', threadId)) }, 'Open browser') : null,
     notice ? h('p', { role: 'status' }, notice) : null);
   return h('section', { className: 'bc-form' }, h('h3', null, 'MCP integrations'),
-    h('p', { className: 'bc-muted' }, 'Connections belong to this thread on this client. Credentials stay here; reconnect them after a transfer.'),
+    h('p', { className: 'bc-muted' }, scope==='team'?'Connections apply to every thread in this team that runs on this client. Credentials stay here; reconnect them on another client.':'These existing connections apply only to this thread. Credentials stay on this client.'),
     h('button', { onClick: () => perform(load) }, 'Refresh connections'),
     ...data.servers.map(server => h('div', { className: 'bc-card bc-form', key: server.id },
       h('strong', null, server.label), h('small', null, server.serverName),
