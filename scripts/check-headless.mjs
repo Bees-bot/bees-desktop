@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -13,10 +13,6 @@ import { freePort, launchConfig } from "../dsh-runtime/headless.mjs";
 const desktop = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const token = randomBytes(32).toString("hex");
 const root = await mkdtemp(join(tmpdir(), "bees-headless-proof-"));
-const bundledTemporal = join(desktop, "src-tauri/binaries", `temporal-${process.arch === "arm64" ? "aarch64" : "x86_64"}-apple-darwin`);
-const temporalBinary = process.env.BEES_PROOF_TEMPORAL || (process.platform === "darwin" && existsSync(bundledTemporal) ? bundledTemporal : "temporal");
-if (temporalBinary === "temporal" && spawnSync("temporal", ["--version"]).error)
-  throw new Error("No temporal program found. Set BEES_PROOF_TEMPORAL to its path, put temporal on PATH, or build the desktop app once.");
 const port = await freePort(), modelPort = await freePort();
 let modelCalls = 0, deniedReads = 0, child, exited, logs = "", trace = [];
 const model = createServer(async (req, res) => {
@@ -84,7 +80,7 @@ const stop = async () => {
 };
 try {
   await writeFile(join(root,'private-other-thread.txt'),'DO_NOT_LEAK_FROM_OTHER_THREAD');
-  const config = { stateDir: join(root, "state"), port, temporalBinary };
+  const config = { stateDir: join(root, "state"), port };
   assert.throws(() => launchConfig(config, {}), /BEES_DSH_TOKEN/);
   for (const invalid of [{ stateDir: "/" }, { stateDir: "relative" }, { port: 0 }, { host: "example.com" }, { typo: true }])
     assert.throws(() => launchConfig({ ...config, ...invalid }, { BEES_DSH_TOKEN: token }));

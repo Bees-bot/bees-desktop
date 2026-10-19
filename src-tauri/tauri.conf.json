@@ -35,7 +35,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": ["binaries/bees-node", "binaries/temporal"],
+    "externalBin": ["binaries/bees-node"],
     "macOS": {
       "entitlements": "entitlements.plist"
     },

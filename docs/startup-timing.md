@@ -24,12 +24,10 @@ locates an interrupted or hung step.
 The sequence includes:
 
 - Native application construction, cleanup scans, tray setup, and splash invocation.
-- Profile preparation, Temporal spawn/readiness, Node spawn, and HTTP readiness.
+- Profile preparation, Node spawn, and HTTP readiness.
 - CLI imports, profile composition, each plugin module import, dependency wait,
   and initialization, plus the overall DSH tree settling.
-- Bees database, agent/workspace setup, each MCP mount, recovery, Temporal
-  connections, workflow bundling, and reconciliation.
-- Background Hindsight installation/startup, first team sync, and local model startup.
+- Bees database, agent/workspace setup, each MCP mount, recovery, and reconciliation.
 - Webview navigation/load, Bees client module loading, shell mounting, and
   `ui.data-rendered` after the first populated UI has had a frame to paint.
 
@@ -70,7 +68,7 @@ desktop relaunch is still needed to measure the full UI improvement.
 ## Incremental development launches
 
 The launch hook itself originally took 0.94 seconds. Cargo's build script then
-copied the DSH/llama.cpp resource trees (15.3 seconds in one timing report), and
+copied the DSH resource trees (15.3 seconds in one timing report), and
 the application recompiled/relinked. Preparation replaced the Node and Temporal
 executables on every launch, invalidating Cargo even when their bytes were
 unchanged. A measurement through the actual `tauri:dev` command spent 27.2

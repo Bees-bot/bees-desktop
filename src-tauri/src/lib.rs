@@ -6,11 +6,10 @@ use process::{
     available_loopback_port, reap_agent_browsers, reap_orphaned_sidecars, Sidecar,
 };
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::{
     fmt::Write as _,
     fs,
-    net::{TcpListener, TcpStream},
+    net::TcpListener,
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::atomic::{AtomicBool, Ordering},
@@ -26,7 +25,6 @@ use tauri_plugin_updater::UpdaterExt;
 
 struct ManagedDsh {
     child: Sidecar,
-    temporal: Sidecar,
     runtime_root: PathBuf,
     port: u16,
     token: String,
@@ -54,23 +52,7 @@ fn token() -> Result<String, String> {
     Ok(value)
 }
 
-fn stable_uuid(value: &str) -> String {
-    let mut bytes: [u8; 16] = Sha256::digest(value.as_bytes())[..16].try_into().unwrap();
-    bytes[6] = (bytes[6] & 0x0f) | 0x50;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    format!(
-        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-        bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
-    )
-}
-
-fn legacy_device_uuid(value: &str) -> Option<String> {
-    (value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
-        .then(|| stable_uuid(value))
-}
-
-fn runtime_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf, PathBuf), String> {
+fn runtime_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), String> {
     let node_name = if cfg!(windows) {
         "bees-node.exe"
     } else {
@@ -82,17 +64,6 @@ fn runtime_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf, PathBuf), 
         .map(|directory| directory.join(node_name))
         .filter(|path| path.is_file())
         .ok_or_else(|| "The bundled Node.js runtime is missing. Reinstall Bees.".to_string())?;
-    let temporal_name = if cfg!(windows) {
-        "temporal.exe"
-    } else {
-        "temporal"
-    };
-    let temporal = std::env::current_exe()
-        .map_err(|error| error.to_string())?
-        .parent()
-        .map(|directory| directory.join(temporal_name))
-        .filter(|path| path.is_file())
-        .ok_or_else(|| "The bundled Temporal runtime is missing. Reinstall Bees.".to_string())?;
     let packaged = app
         .path()
         .resource_dir()
@@ -153,12 +124,10 @@ fn runtime_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf, PathBuf), 
     {
         return Err("The bundled DeepSeek Harness application is missing. Reinstall Bees.".into());
     }
-    Ok((node, temporal, runtime))
+    Ok((node, runtime))
 }
 
-/// First line of the overlay Bees used to write into a profile. Only used to recognise it.
-const LEGACY_OVERLAY_MARKER: &str = "# Bees-owned profile overlay";
-/// The profile's own patch document. DSH owns everything in here from 0.1.7 on.
+/// The profile's own patch document, owned by DSH's settings layer.
 const USER_OVERLAY_NAME: &str = "cordis.patch.yml";
 /// Empty user overlay, the shape DSH writes back to.
 const EMPTY_OVERLAY: &str = "[]\n";
@@ -168,13 +137,7 @@ fn copy_profile(runtime: &Path, profile: &Path) -> Result<(), String> {
     fs::copy(runtime.join("profile").join("package.json"), profile.join("package.json"))
         .map_err(|error| error.to_string())?;
     let user = profile.join(USER_OVERLAY_NAME);
-    // Before 0.1.7 this was Bees' own overlay, rewritten on every launch and never holding anything
-    // of the user's. It now belongs to DSH's settings layer, so an old copy has to go: it pins
-    // entries the settings screens are expected to write.
-    let legacy = fs::read_to_string(&user)
-        .map(|current| current.starts_with(LEGACY_OVERLAY_MARKER))
-        .unwrap_or(false);
-    if !user.exists() || legacy {
+    if !user.exists() {
         fs::write(&user, EMPTY_OVERLAY).map_err(|error| error.to_string())?;
     }
     Ok(())
@@ -269,83 +232,6 @@ fn stable_loopback_port(app: &tauri::AppHandle) -> Result<u16, String> {
     Ok(port)
 }
 
-/// Where the work lives: this computer's folder, or one the person shares between computers.
-fn data_dir(app_data: &Path) -> Result<PathBuf, String> {
-    let pointer = app_data.join("data-folder");
-    let chosen = fs::read_to_string(&pointer).unwrap_or_default();
-    if chosen.trim().is_empty() {
-        return Ok(app_data.to_path_buf());
-    }
-    let path = PathBuf::from(chosen.trim());
-    // falling back to the old folder would split the work across two copies
-    if !path.is_dir() {
-        return Err(format!(
-            "Bees keeps your work in {}, and that folder is not on this computer right now. Reconnect it and open Bees again, or delete {} to go back to this computer's own copy.",
-            path.display(),
-            pointer.display()
-        ));
-    }
-    Ok(path)
-}
-
-/// This computer's id, kept outside the database since several computers share one.
-fn device_id(app_data: &Path) -> Result<String, String> {
-    let path = app_data.join("device-id");
-    let existing = fs::read_to_string(&path).unwrap_or_default();
-    let existing = existing.trim();
-    if !existing.is_empty() {
-        if let Some(id) = legacy_device_uuid(existing) {
-            fs::write(&path, &id).map_err(|error| error.to_string())?;
-            return Ok(id);
-        }
-        return Ok(existing.to_string());
-    }
-    let id = stable_uuid(&token()?);
-    fs::write(&path, &id).map_err(|error| error.to_string())?;
-    Ok(id)
-}
-
-/// The lock this launch holds, so quit releases ours and never a folder we were refused.
-static CLAIMED: Mutex<Option<PathBuf>> = Mutex::new(None);
-
-/// Armed by Settings → Removing Bees, emptied as the app exits. Deleting the folder while the
-/// sidecars still run only removes what they recreate a second later.
-static REMOVE_ON_EXIT: Mutex<Option<PathBuf>> = Mutex::new(None);
-
-/// One computer at a time, and no expiry since Google Drive can carry a lock slower than any wait.
-fn claim_data_folder(data: &Path, app_data: &Path) -> Result<(), String> {
-    // written either way, the plugin reads it on every launch
-    let me = device_id(app_data)?;
-    if data == app_data {
-        return Ok(());
-    }
-    let lock = data.join("in-use");
-    // a lock that will not read counts as held
-    if lock.exists() {
-        let held = fs::read_to_string(&lock).unwrap_or_default();
-        let mut lines = held.lines();
-        let holder = lines.next().unwrap_or_default().trim();
-        if holder != me && legacy_device_uuid(holder).as_deref() != Some(me.as_str()) {
-            let computer = lines.next().map(str::trim).filter(|name| !name.is_empty());
-            // named, since a crashed computer leaves it behind and deleting it is the way back in
-            return Err(format!(
-                "{} has this Bees folder open. Quit Bees there, let Google Drive finish, then open it here. If that computer is gone, delete {}.",
-                computer.unwrap_or("Another computer"),
-                lock.display()
-            ));
-        }
-    }
-    let computer = sysinfo::System::host_name().unwrap_or_default();
-    fs::write(&lock, format!("{me}\n{computer}")).map_err(|error| error.to_string())?;
-    // release a lock from an earlier claim, or a switch that never restarted would strand it
-    if let Ok(mut claimed) = CLAIMED.lock() {
-        if let Some(stale) = claimed.replace(lock.clone()).filter(|held| *held != lock) {
-            let _ = fs::remove_file(stale);
-        }
-    }
-    Ok(())
-}
-
 fn state_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let directory = app
         .path()
@@ -400,29 +286,6 @@ fn wait_ready(child: &mut Sidecar, url: &str, log: &Path, attempts: u32) -> Resu
     ))
 }
 
-fn wait_temporal(child: &mut Sidecar, address: &str, log: &Path) -> Result<(), String> {
-    for _ in 0..300 {
-        if let Some(status) = child
-            .child()
-            .try_wait()
-            .map_err(|error| error.to_string())?
-        {
-            return Err(format!(
-                "Temporal stopped during startup ({status}). See {}.",
-                log.display()
-            ));
-        }
-        if TcpStream::connect(address).is_ok() {
-            return Ok(());
-        }
-        thread::sleep(Duration::from_millis(200));
-    }
-    Err(format!(
-        "Temporal did not become ready. See {}.",
-        log.display()
-    ))
-}
-
 /// What any sidecar needs to find its files and trust a certificate.
 const BASE_ENVIRONMENT: [&str; 16] = [
     "PATH",
@@ -443,7 +306,7 @@ const BASE_ENVIRONMENT: [&str; 16] = [
     "NODE_EXTRA_CA_CERTS",
 ];
 
-/// Model credentials. Only the runtime that talks to a model gets these; Temporal has no use for them.
+/// Model credentials, only for the runtime that talks to a model.
 const RUNTIME_ENVIRONMENT: [&str; 5] = [
     "DEEPSEEK_API_KEY",
     "OPENAI_API_KEY",
@@ -465,12 +328,12 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
         return Err("Local execution is disabled on this computer.".to_string());
     }
     let _startup = startup::start("runtime.ensure");
-    let (node, temporal_binary, runtime) = startup::step("runtime.paths", || runtime_paths(app))?;
+    let (node, runtime) = startup::step("runtime.paths", || runtime_paths(app))?;
     let manager = app.state::<DshManager>();
     let mut managed = startup::step("runtime.manager-lock", || manager.0.lock())
         .map_err(|error| error.to_string())?;
     if let Some(current) = managed.as_mut() {
-        if current.runtime_root == runtime && current.child.alive()? && current.temporal.alive()? {
+        if current.runtime_root == runtime && current.child.alive()? {
             let base_url = format!("http://127.0.0.1:{}", current.port);
             // A sidecar whose process is alive but has stopped answering has to be replaced.
             // Returning the error here left it in state, so every retry waited on the same dead
@@ -497,64 +360,16 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
         .app_data_dir()
         .map_err(|error| error.to_string())?;
     let home = app_data.join("dsh");
-    let data = data_dir(&app_data)?;
-    startup::step("bees.data.claim", || claim_data_folder(&data, &app_data))?;
-    let workspace = data.join("workspaces");
+    let workspace = app_data.join("workspaces");
     fs::create_dir_all(&workspace).map_err(|error| error.to_string())?;
     startup::step("runtime.profile.prepare", || prepare_profile(&runtime, &home))?;
 
     let port = stable_loopback_port(app)?;
-    let temporal_port = loop {
-        let candidate = available_loopback_port()?;
-        if candidate != port {
-            break candidate;
-        }
-    };
-    let temporal_address = format!("127.0.0.1:{temporal_port}");
     let secret = token()?;
     let base_url = format!("http://127.0.0.1:{port}");
     let entry = runtime.join("start.mjs");
     let (log, log_path) = open_log(app)?;
     let errors = log.try_clone().map_err(|error| error.to_string())?;
-    let temporal_log = log.try_clone().map_err(|error| error.to_string())?;
-    let temporal_errors = log.try_clone().map_err(|error| error.to_string())?;
-    let temporal_root = app_data.join("temporal");
-    fs::create_dir_all(&temporal_root).map_err(|error| error.to_string())?;
-    let mut temporal_command = Command::new(&temporal_binary);
-    temporal_command.env_clear();
-    inherit_environment(&mut temporal_command, &BASE_ENVIRONMENT);
-    temporal_command
-        .args([
-            "server",
-            "start-dev",
-            "--headless",
-            "--ip",
-            "127.0.0.1",
-            "--port",
-        ])
-        .arg(temporal_port.to_string())
-        .arg("--db-filename")
-        .arg(temporal_root.join("processes-v4.db"))
-        .args([
-            "--sqlite-pragma",
-            "journal_mode=WAL",
-            "--sqlite-pragma",
-            "synchronous=FULL",
-            "--sqlite-pragma",
-            "busy_timeout=5000",
-            "--disable-config-file",
-            "--disable-config-env",
-        ])
-        .stdin(Stdio::null())
-        .stdout(Stdio::from(temporal_log))
-        .stderr(Stdio::from(temporal_errors));
-    let mut temporal = Sidecar::new(
-        startup::step("temporal.spawn", || temporal_command.spawn())
-            .map_err(|error| format!("Temporal could not start: {error}"))?,
-    );
-    startup::step("temporal.wait-port", || {
-        wait_temporal(&mut temporal, &temporal_address, &log_path)
-    })?;
     let mut command = Command::new(&node);
     command.env_clear();
     inherit_environment(&mut command, &BASE_ENVIRONMENT);
@@ -572,24 +387,14 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
         .env("DSH_HOME", &home)
         .env("DSH_TELEMETRY_DISABLED", "1")
         .env("BEES_DSH_TOKEN", &secret)
-        .env("BEES_DSH_QUERY_PATH", home.join("session-query.sqlite"))
         .env("BEES_FLEET_JOB", "client")
-        .env("BEES_DATA_DIR", &data)
-        .env("BEES_APP_DATA", &app_data)
         .env("BEES_DEFAULT_WORKSPACE", &workspace)
         .env("BEES_STATE_DIR", state_dir(app)?)
         .env("BEES_STARTUP_LOG", state_dir(app)?.join("startup.log"))
         .env("BEES_RUNTIME_ROOT", &runtime)
-        .env("BEES_TEMPORAL_ADDRESS", &temporal_address)
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(errors));
-    // Only development builds can write shipped defaults back into the source checkout.
-    #[cfg(debug_assertions)]
-    command.env(
-        "BEES_PRODUCT_SOURCE",
-        Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap(),
-    );
     let mut child = Sidecar::new(
         startup::step("node.spawn", || command.spawn())
             .map_err(|error| format!("DeepSeek Harness could not start: {error}"))?,
@@ -600,7 +405,6 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
     startup::mark("runtime.healthy");
     *managed = Some(ManagedDsh {
         child,
-        temporal,
         runtime_root: runtime,
         port,
         token: secret.clone(),
@@ -753,30 +557,7 @@ fn set_execution_preferences(app: tauri::AppHandle, preferences: ExecutionPrefer
 fn open_cloud(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<(), String> {
     let preferences = execution_preferences(app.clone())?;
     if preferences.mode != "cloud" { return Err("Select cloud mode first".to_string()); }
-    let url = cloud_url(&preferences.cloud_url)?;
-    app.add_capability(tauri::ipc::CapabilityBuilder::new("cloud-notifications")
-        .window("main").local(false).remote(format!("{}/app*", url.origin().ascii_serialization()))
-        .permission("allow-cloud-notification")).map_err(|e| e.to_string())?;
-    window.navigate(url).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn fleet_notification(app: tauri::AppHandle, message: String) -> Result<(), String> {
-    use tauri_plugin_notification::NotificationExt;
-    if message.len() > 512 { return Err("Notification is too long".to_string()); }
-    app.notification().request_permission().map_err(|e| e.to_string())?;
-    app.notification().builder().title("Bees").body(message).show().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn fleet_open_connections(app: tauri::AppHandle, organization: String, team: String) -> Result<(), String> {
-    let preferences = execution_preferences(app)?;
-    if preferences.mode != "cloud" { return Err("Select cloud mode first".to_string()); }
-    let mut url = cloud_url(&preferences.cloud_url)?;
-    url.set_path("/app");
-    url.set_query(None);
-    url.query_pairs_mut().append_pair("organization", &organization).append_pair("team", &team);
-    open_external_url(url.to_string())
+    window.navigate(cloud_url(&preferences.cloud_url)?).map_err(|e| e.to_string())
 }
 
 fn validated_external_url(url: &str) -> Result<&str, String> {
@@ -823,89 +604,6 @@ fn open_external_url(url: String) -> Result<(), String> {
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     Err("Opening website links is not supported on this device.".to_string())
 }
-
-/// A new data folder is only picked up at launch.
-#[tauri::command]
-fn restart_app(app: tauri::AppHandle) {
-    app.request_restart();
-}
-
-/// Recursive so the confirmation can name what it is about to remove.
-fn folder_size(path: &Path) -> u64 {
-    let Ok(entries) = fs::read_dir(path) else {
-        return 0;
-    };
-    entries
-        .flatten()
-        .map(|entry| match entry.file_type() {
-            // a symlink is neither, which is what stops the walk following one out of the folder
-            Ok(kind) if kind.is_dir() => folder_size(&entry.path()),
-            _ => entry.metadata().map(|meta| meta.len()).unwrap_or(0),
-        })
-        .sum()
-}
-
-/// The folder the app owns, and how much is in it. Its own copy of the identifier check is the
-/// point: the settings screen names the path, so it has to be the path that goes.
-fn bees_data_folder(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let data = app.path().app_data_dir().map_err(|error| error.to_string())?;
-    let named = data.file_name().and_then(|name| name.to_str()) == Some(app.config().identifier.as_str());
-    // the parent check rules out a home directory, which would otherwise be deleted whole
-    if !named || data.parent().is_none() {
-        return Err(format!("{} is not the Bees data folder.", data.display()));
-    }
-    Ok(data)
-}
-
-#[derive(Serialize)]
-struct DataFolder {
-    path: String,
-    bytes: u64,
-}
-
-// walks the whole data folder, so it must not block the main thread
-#[tauri::command(async)]
-fn bees_data_size(app: tauri::AppHandle) -> Result<DataFolder, String> {
-    let data = bees_data_folder(&app)?;
-    Ok(DataFolder { bytes: folder_size(&data), path: data.display().to_string() })
-}
-
-/// Settings → Removing Bees. Nothing is deleted here: the app quits, the exit hook takes the
-/// sidecars down, and the removal runs after them.
-// the confirm is native so no page script can skip it; async keeps the wait off the main thread
-#[tauri::command(async)]
-fn uninstall_bees(app: tauri::AppHandle) -> Result<bool, String> {
-    let data = bees_data_folder(&app)?;
-    let confirmed = app.dialog()
-        .message(format!("Bees quits and deletes everything in {}. Your own folders are left alone, and nothing here can be recovered.", data.display()))
-        .title("Remove Bees and its data?")
-        .buttons(MessageDialogButtons::OkCancelCustom("Remove Bees".into(), "Keep Bees".into()))
-        .blocking_show();
-    if !confirmed {
-        return Ok(false);
-    }
-    *REMOVE_ON_EXIT.lock().map_err(|error| error.to_string())? = Some(data);
-    QUIT_CONFIRMED.store(true, Ordering::SeqCst);
-    app.exit(0);
-    Ok(true)
-}
-
-/// The memory server runs detached and outlives DSH, so find it by its port like local-memory.js does.
-#[cfg(unix)]
-fn kill_local_memory_server() {
-    let Ok(listeners) = Command::new("lsof")
-        .args(["-t", "-i", "tcp:8898", "-sTCP:LISTEN"])
-        .output()
-    else {
-        return;
-    };
-    for pid in String::from_utf8_lossy(&listeners.stdout).split_whitespace() {
-        // the group first, then the pid alone in case the listener is not the group leader
-        let _ = Command::new("kill").args(["-9", &format!("-{pid}"), pid]).status();
-    }
-}
-#[cfg(not(unix))]
-fn kill_local_memory_server() {}
 
 /// Closing the window only hides it, so this is how the window comes back: the tray, the dock,
 /// and a second launch all route here.
@@ -1050,7 +748,6 @@ pub fn run() {
     }
     builder = builder
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build());
     builder
         .setup(|app| {
@@ -1058,11 +755,10 @@ pub fn run() {
                 startup::open(&state.join("startup.log"));
             }
             let _setup = startup::start("native.setup");
-            if let Ok((node, temporal, _)) =
+            if let Ok((node, _)) =
                 startup::step("native.runtime-paths", || runtime_paths(app.handle()))
             {
                 startup::step("native.reap-node", || reap_orphaned_sidecars(&node));
-                startup::step("native.reap-temporal", || reap_orphaned_sidecars(&temporal));
             }
             if let Ok(state) = state_dir(app.handle()) {
                 startup::step("native.reap-browser", || reap_agent_browsers(&state));
@@ -1087,15 +783,10 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             execution_preferences,
-            fleet_notification,
             set_execution_preferences,
             open_cloud,
-            fleet_open_connections,
             ensure_dsh_runtime,
-            restart_app,
             open_external_url,
-            bees_data_size,
-            uninstall_bees,
             check_for_update,
             install_update
         ])
@@ -1152,14 +843,5 @@ fn shutdown(handle: &tauri::AppHandle) {
     }
     if let Ok(state) = state_dir(handle) {
         reap_agent_browsers(&state);
-    }
-    // the only place the folder lock comes off, since quitting kills the harness outright
-    if let Some(lock) = CLAIMED.lock().unwrap_or_else(|e| e.into_inner()).take() {
-        let _ = fs::remove_file(lock);
-    }
-    // last, so the files the sidecars were holding are closed before the folder goes
-    if let Some(folder) = REMOVE_ON_EXIT.lock().unwrap_or_else(|e| e.into_inner()).take() {
-        kill_local_memory_server();
-        let _ = fs::remove_dir_all(folder);
     }
 }

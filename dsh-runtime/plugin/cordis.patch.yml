@@ -13,7 +13,7 @@
 - id: ui-settings-models
   disabled: true
 
-# Temporal is the only scheduler for Bees work. Long runs receive an explicit clock.
+# Bees runs its own schedules in plugin/lib/thread-client.js. Long runs receive an explicit clock.
 - id: schedule
   disabled: true
 

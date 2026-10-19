@@ -7,4 +7,4 @@ if(process.env.BEES_MODEL_PROFILE){
   await writeFile(profile+'/cordis.patch.yml',process.env.BEES_MODEL_PROFILE,{mode:0o600});delete process.env.BEES_MODEL_PROFILE;
 }
 const controller=new AbortController();for(const event of ['SIGINT','SIGTERM'])process.once(event,()=>controller.abort());
-await launch(launchConfig({stateDir,host:'0.0.0.0',port:8080,temporalBinary:'/usr/local/bin/temporal'}),controller.signal);
+await launch(launchConfig({stateDir,host:'0.0.0.0',port:8080}),controller.signal);

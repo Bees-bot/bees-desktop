@@ -5,7 +5,7 @@ set -euo pipefail
 win() { if command -v cygpath >/dev/null; then cygpath -m "$1"; else echo "$1"; fi; }
 BIN=$(win "$1") RT=$(win "$2") C=$(win "${RUNNER_TEMP:-/tmp}/bees-home")
 X=; [ -f "$BIN/bees-node.exe" ] && X=.exe
-mkdir -p "$C/dsh" "$C/dsh-state" "$C/workspaces" "$C/temporal"
+mkdir -p "$C/dsh" "$C/dsh-state" "$C/workspaces"
 cat > "$C/prep.cjs" <<'EOF'
 // same profile prepare_profile in src-tauri/src/lib.rs builds
 const fs = require('fs'), path = require('path'), [rt, home] = process.argv.slice(2);
@@ -21,19 +21,13 @@ for (const p of ['@deepseek-ai/dsh-experimental-client-ui-agent-team', '@deepsee
   fs.mkdirSync(path.dirname(d), { recursive: true });
   fs.symlinkSync(fs.realpathSync(path.join(rt, 'node_modules', p)), d, 'junction');
 }
-fs.writeFileSync(path.join(path.dirname(home), 'device-id'), require('crypto').randomUUID());
 EOF
 "$BIN/bees-node$X" "$C/prep.cjs" "$RT" "$C/dsh"
 
-"$BIN/temporal$X" server start-dev --headless --ip 127.0.0.1 --port 7233 --db-filename "$C/temporal/p.db" \
-  --disable-config-file --disable-config-env > "$C/temporal.log" 2>&1 &
-for _ in $(seq 60); do (echo > /dev/tcp/127.0.0.1/7233) 2>/dev/null && break; sleep 1; done
-
 cd "$C/workspaces"
 DSH_HOME="$C/dsh" DSH_TELEMETRY_DISABLED=1 BEES_DSH_TOKEN=install-check \
-BEES_DSH_QUERY_PATH="$C/dsh/session-query.sqlite" BEES_DATABASE_PATH="$C/bees-stage1.db" \
-BEES_DATA_DIR="$C" BEES_APP_DATA="$C" BEES_DEFAULT_WORKSPACE="$C/workspaces" BEES_STATE_DIR="$C/dsh-state" \
-BEES_STARTUP_LOG="$C/dsh-state/startup.log" BEES_RUNTIME_ROOT="$RT" BEES_TEMPORAL_ADDRESS=127.0.0.1:7233 \
+BEES_DSH_QUERY_PATH="$C/dsh/session-query.sqlite" BEES_DEFAULT_WORKSPACE="$C/workspaces" BEES_STATE_DIR="$C/dsh-state" \
+BEES_STARTUP_LOG="$C/dsh-state/startup.log" BEES_RUNTIME_ROOT="$RT" \
   "$BIN/bees-node$X" --max-http-header-size=65536 "$RT/start.mjs" --profile bees --host 127.0.0.1 \
   --port 4317 --no-open > "$C/dsh.log" 2>&1 &
 
@@ -44,5 +38,5 @@ for _ in $(seq 180); do
   sleep 1
 done
 echo "::error::engine never answered /healthz"
-tail -n 60 "$C/temporal.log" "$C/dsh.log" "$C/dsh-state/startup.log" 2>/dev/null || true
+tail -n 60 "$C/dsh.log" "$C/dsh-state/startup.log" 2>/dev/null || true
 exit 1

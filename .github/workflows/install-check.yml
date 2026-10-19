@@ -34,7 +34,7 @@ jobs:
           PKG=$(dpkg-deb -f Bees_*_amd64.deb Package) && dpkg -L "$PKG" | grep -E '^/usr/bin/'
           echo "BIN=$(dirname "$(dpkg -L "$PKG" | grep '/bees-node$')")" >> "$GITHUB_ENV"
           echo "RT=$(dirname "$(dpkg -L "$PKG" | grep '/dsh-runtime/start.mjs$')")" >> "$GITHUB_ENV"
-          echo "APP=$(dpkg -L "$PKG" | grep -E '^/usr/bin/' | grep -vE 'bees-node|temporal' | head -1)" >> "$GITHUB_ENV"
+          echo "APP=$(dpkg -L "$PKG" | grep -E '^/usr/bin/' | grep -v bees-node | head -1)" >> "$GITHUB_ENV"
       - name: Check libraries
         run: |
           for f in $(dpkg -L "$(dpkg-deb -f Bees_*_amd64.deb Package)" | grep -E '^/usr/bin/'); do
