@@ -112,13 +112,19 @@ export function apply(ctx) {
       if (req.method !== "POST") return json(res, 405, { error: "method not allowed" });
       try {
         const { provider, model, key: pasted, baseURL } = await requestBody(req);
+        if (baseURL) {
+          const url = new URL(baseURL);
+          if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error("Use an http:// or https:// server URL without credentials");
+        }
         // a custom or local server is tested the same way, through its own chat endpoint
         const definition = baseURL ? { url: `${String(baseURL).replace(/\/+$/, "")}/chat/completions` }
           : Object.hasOwn(PROVIDERS, provider) ? PROVIDERS[provider] : null;
         if (!definition) throw new Error("Choose a supported provider");
         if (typeof model !== "string" || !model.trim()) throw new Error("Add a model ID for this provider, then test again.");
         // a key being added is tested before it is saved
-        const key = String(pasted ?? "").trim() || (await ctx.credentials.resolve(baseURL ? CUSTOM_KEY_REF : refFor(provider)))?.value;
+        const serverRef = provider === "external-local-ai" ? "BEES_EXTERNAL_LOCAL_AI_API_KEY"
+          : /^custom-openai(?:-\d+)?$/.test(provider) ? `BEES_${provider.replace(/-/g, "_").toUpperCase()}_API_KEY` : CUSTOM_KEY_REF;
+        const key = String(pasted ?? "").trim() || (await ctx.credentials.resolve(baseURL ? serverRef : refFor(provider)))?.value;
         if (!key) throw new Error("Add the API key first");
         const { response, text } = await probe(definition, model.trim(), key);
         if (!response.ok) throw new Error(providerFailure(response.status, text));

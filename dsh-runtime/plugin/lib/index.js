@@ -12,9 +12,22 @@ const ModelPreference = z.object({
 });
 
 export const Config = z.object({
+  themePreset: z.string().default("corporate").volatile(),
+  colorMode: z.string().default("light").volatile(),
+  darkThemePreset: z.string().default("halloween").volatile(),
+  lightThemePreset: z.string().default("corporate").volatile(),
+  organizationColors: z.dict(z.string()).default({}).volatile(),
   generalAiProviders: z.array(z.string()).default([]).volatile(),
   generalAiModels: z.dict(z.array(ModelPreference)).default({}).volatile(),
   codexModels: z.array(ModelPreference).default([]).volatile(),
+  openAiServerProfiles: z.dict(z.object({
+    displayName: z.string(),
+    api: z.string(),
+    baseURL: z.string(),
+    apiKeyEnv: z.string(),
+    headers: z.dict(z.string()),
+    models: z.array(ModelPreference).default([])
+  })).default({}).volatile(),
   externalLocalAiProfile: z.object({
     displayName: z.string(),
     api: z.string(),

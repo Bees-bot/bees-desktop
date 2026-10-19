@@ -10,7 +10,7 @@ import { withFileLock } from "@deepseek-ai/dsh-atomic-write";
 
 const runtime = dirname(fileURLToPath(import.meta.url));
 const profilePackages = [
-  ...["dsh-plugin", "dsh-local-ai", "dsh-custom-ai", "dsh-subscriptions"].map((name) => `@bees/${name}`),
+  ...["dsh-plugin", "dsh-custom-ai", "dsh-subscriptions"].map((name) => `@bees/${name}`),
   ...["agent-team", "tool-agent-team", "client-ui-agent-team"].map((name) => `@deepseek-ai/dsh-experimental-${name}`)
 ];
 

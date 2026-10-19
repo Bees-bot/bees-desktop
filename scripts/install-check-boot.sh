@@ -15,7 +15,7 @@ fs.copyFileSync(path.join(rt, 'profile', 'package.json'), path.join(prof, 'packa
 fs.writeFileSync(path.join(prof, 'cordis.patch.yml'), '[]\n');
 fs.writeFileSync(path.join(home, 'settings.yaml'), 'ui-onboarding:\n  welcomeNoticeVersion: 2026-08-13.1\n');
 for (const p of ['@deepseek-ai/dsh-experimental-client-ui-agent-team', '@deepseek-ai/dsh-experimental-agent-team',
-  '@deepseek-ai/dsh-experimental-tool-agent-team', '@bees/dsh-plugin', '@bees/dsh-local-ai',
+  '@deepseek-ai/dsh-experimental-tool-agent-team', '@bees/dsh-plugin',
   '@bees/dsh-custom-ai', '@bees/dsh-subscriptions']) {
   const d = path.join(prof, 'node_modules', p);
   fs.mkdirSync(path.dirname(d), { recursive: true });

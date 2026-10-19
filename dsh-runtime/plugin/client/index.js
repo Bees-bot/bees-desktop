@@ -29,7 +29,7 @@ window.__ModuleLoader__.load({
       }
       retry = () => this.setState(({ attempt }) => ({ error: null, attempt: attempt + 1 }));
       render() {
-        if (this.state.error === null) return h(BeesApp, { ...this.props, key: this.state.attempt });
+        if (this.state.error === null) return h(BeesApp, { ...this.props, brandMark, key: this.state.attempt });
         return h("div", { className: "bees-app bees-loading", role: "alert" },
           h("div", { className: "bees-stack" },
             h("img", { className: "bees-mark", src: brandMark, alt: "" }),

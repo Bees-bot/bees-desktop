@@ -6,6 +6,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
+import { authConfig, browserSignInUrl } from './plugin/lib/thread-auth.js';
 const exec=promisify(execFile);
 const hash=v=>createHash('sha256').update(v).digest('hex');
 const json=(res,status,value,headers={})=>{res.writeHead(status,{'content-type':'application/json','cache-control':'no-store',...headers});res.end(JSON.stringify(value));};
@@ -49,16 +50,33 @@ export function createHostedGateway({directoryUrl,assets,provision,publicUrl}){
       const url=new URL(req.url??'/',publicUrl??'http://localhost');
       if(req.method!=='GET'&&req.headers.origin&&req.headers.origin!==(publicUrl?new URL(publicUrl).origin:'http://'+req.headers.host))return json(res,403,{error:'Origin is not permitted'});
       if(url.pathname==='/healthz')return json(res,200,{status:'ok',service:'bees-hosted-clients'});
+      if(url.pathname==='/bees-auth/finish'&&req.method==='GET'){
+        res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer','content-security-policy':"default-src 'none'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"});
+        return res.end(`<!doctype html><title>Bees sign in</title><p>Return to Bees to finish signing in.</p><script>
+const state=new URLSearchParams(location.search).get('state'),result=Object.fromEntries(new URLSearchParams(location.hash.slice(1)));history.replaceState(null,'',location.pathname);
+if(state){const channel=new BroadcastChannel('bees-sign-in-'+state);channel.postMessage(result);channel.close();window.close();}
+</script>`);
+      }
       if(url.pathname==='/'||url.pathname==='/app'){res.writeHead(200,{'content-type':'text/html','cache-control':'no-store'});return res.end('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bees Client</title><body><div id="bees-root"></div><script type="module" src="/app/assets/app.js"></script></body></html>');}
       if(url.pathname.startsWith('/app/assets/')){const name=url.pathname.slice('/app/assets/'.length);if(!/^[a-zA-Z0-9_.-]+$/.test(name))return json(res,404,{error:'Unavailable'});const content=await readFile(join(assets,name));res.writeHead(200,{'content-type':name.endsWith('.js')?'text/javascript':name.endsWith('.css')?'text/css':'application/octet-stream','x-content-type-options':'nosniff'});return res.end(content);}
       if(!['/bees-api/threads','/bees-api/thread-file'].includes(url.pathname))return json(res,404,{error:'Unavailable'});
       const bytes=req.method==='POST'?await body(req):undefined;
       const input=bytes&&url.pathname==='/bees-api/threads'?JSON.parse(bytes.toString()):null;
+      if(input?.action==='authConfig')return json(res,200,await authConfig(directory.origin));
+      if(input?.action==='startLogin'){
+        if(!/^[a-f0-9-]{36}$/.test(input.state??''))return json(res,400,{error:'Invalid sign-in attempt'});
+        const redirect=new URL('/bees-auth/finish',publicUrl??'http://'+req.headers.host);redirect.searchParams.set('state',input.state);
+        return json(res,200,{url:browserSignInUrl(directory.origin,input,redirect.toString())});
+      }
+      if(['finishLogin','cancelLogin'].includes(input?.action))return json(res,400,{error:'Sign in through Bees Cloud'});
       let token=decodeURIComponent(String(req.headers.cookie??'').split(';').map(p=>p.trim().split('=')).find(([k])=>k==='bees_hosted_session')?.[1]??'');
       if(input?.action==='logout')return json(res,200,{ok:true},{'set-cookie':'bees_hosted_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0'});
       if(input?.action==='login'){
+        if(input.session)token=String(input.session);
+        else {
         const r=await fetch(directory.origin+'/api/auth/'+(input.name?'sign-up/email':'sign-in/email'),{method:'POST',headers:{'content-type':'application/json',origin:directory.origin,'x-forwarded-for':String(req.headers['x-real-ip']??req.socket.remoteAddress??'')},body:JSON.stringify({email:input.email,password:input.password,...(input.name?{name:input.name}:{})}),signal:AbortSignal.timeout(20000)});
         const value=await r.json();if(!r.ok)return json(res,r.status,{error:value.message??'Sign in failed'});token=r.headers.get('set-auth-token')??value.token;
+        }
       }
       if(!token)return json(res,401,{error:'Sign in to Bees Client'});
       const auth=await fetch(directory.origin+'/api/me',{headers:{authorization:'Bearer '+token},signal:AbortSignal.timeout(10000)});if(!auth.ok)return json(res,401,{error:'Sign in again'});

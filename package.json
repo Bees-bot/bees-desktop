@@ -16,12 +16,14 @@
     "check:page-fetch": "node scripts/check-page-fetch.mjs",
     "typecheck": "tsc --noEmit",
     "sbom": "npm sbom --sbom-format cyclonedx --package-lock-only --omit dev > docs/sbom/desktop-runtime.cdx.json && cd dsh-runtime && npm sbom --sbom-format cyclonedx --package-lock-only --omit dev --legacy-peer-deps > ../docs/sbom/dsh-runtime.cdx.json",
-    "check": "npm run typecheck && npm run check:client && npm run check:page-fetch && npm run check:file-locks && node --test dsh-runtime/plugins/subscriptions/lib/codex-models.test.js dsh-runtime/plugins/subscriptions/lib/cli-path.test.js && npm run build && npm run build:hosted",
+    "check": "npm run typecheck && npm run check:client && npm run check:page-fetch && npm run check:file-locks && npm run check:ai && node --test dsh-runtime/plugins/subscriptions/lib/codex-models.test.js dsh-runtime/plugins/subscriptions/lib/cli-path.test.js && npm run build && npm run build:hosted",
     "check:file-locks": "node --test dsh-runtime/plugin/lib/file-locks.test.js",
     "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "tauri:build": "tauri build",
     "build:hosted": "node scripts/build-hosted-ui.mjs",
-    "check:client": "node --test dsh-runtime/headless.test.mjs dsh-runtime/hosted-clients.test.mjs dsh-runtime/plugin/lib/thread-*.test.js dsh-runtime/plugin/lib/client-profiles.test.js"
+    "check:hosted": "node --test dsh-runtime/hosted-clients.test.mjs",
+    "check:client": "node --test dsh-runtime/headless.test.mjs dsh-runtime/hosted-clients.test.mjs dsh-runtime/plugin/lib/thread-*.test.js dsh-runtime/plugin/lib/client-profiles.test.js",
+    "check:ai": "node --test dsh-runtime/plugins/custom-ai/lib/*.test.js"
   },
   "dependencies": {
     "@tauri-apps/api": "2.11.1"

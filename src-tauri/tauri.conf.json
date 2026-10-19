@@ -13,6 +13,7 @@
     "macOSPrivateApi": true,
     "windows": [{
       "title": "Bees Client",
+      "dragDropEnabled": false,
       "width": 1180,
       "height": 760,
       "maximized": true,

@@ -1,0 +1,62 @@
+- generic [ref=e1]:
+  - navigation "Main navigation" [ref=e2]:
+    - button "✳" [ref=e3] [cursor=pointer]
+    - button "Threads" [ref=e4] [cursor=pointer]:
+      - img [ref=e5]
+    - button "Organization settings" [ref=e7] [cursor=pointer]:
+      - img [ref=e8]
+    - button "Switch to dark theme" [ref=e11] [cursor=pointer]: ☾
+    - button "Global settings" [ref=e12] [cursor=pointer]:
+      - img [ref=e13]
+    - button "Your account" [ref=e17] [cursor=pointer]: "Y"
+  - complementary [ref=e18]:
+    - generic [ref=e19]:
+      - heading "Threads" [level=1] [ref=e20]
+      - button "New thread" [ref=e21] [cursor=pointer]:
+        - img [ref=e22]
+    - generic [ref=e24]:
+      - img [ref=e25]
+      - textbox "Search threads" [ref=e28]:
+        - /placeholder: Find a thread…
+    - generic [ref=e29]:
+      - button "All" [pressed] [ref=e30] [cursor=pointer]
+      - button "Mine" [ref=e31] [cursor=pointer]
+      - button "Shared" [ref=e32] [cursor=pointer]
+    - paragraph [ref=e34]: Your work starts with a thread.
+    - generic [ref=e35]: Private on this machine
+  - main [ref=e37]:
+    - generic [ref=e39]:
+      - heading "A little help. A lot done." [level=2] [ref=e40]
+      - paragraph [ref=e41]: Your people, AI, and work in one conversation.
+    - generic [ref=e42]:
+      - text: A thread transfer is waiting for you.
+      - button "Accept transfer" [ref=e43] [cursor=pointer]
+    - region "Conversation" [ref=e44]:
+      - generic [ref=e45]:
+        - text: ✳
+        - heading "What would you like to get done?" [level=2] [ref=e46]
+        - paragraph [ref=e47]: Start with an idea. Add files and people as you go.
+        - generic [ref=e48]:
+          - button "Research a topic" [ref=e49] [cursor=pointer]
+          - button "Make sense of my files" [ref=e50] [cursor=pointer]
+          - button "Prepare a weekly update" [ref=e51] [cursor=pointer]
+    - generic [ref=e52]:
+      - textbox "Message" [ref=e53]:
+        - /placeholder: Ask Bees to get something done…
+      - generic [ref=e54]:
+        - button "Add files and folders" [disabled] [ref=e55]:
+          - img [ref=e56]
+        - generic [ref=e58]: Ask Bees
+        - generic [ref=e59]: ⌘ Enter to send
+        - button "Send message" [disabled] [ref=e60]:
+          - img [ref=e61]
+  - complementary "Thread results" [ref=e63]:
+    - generic [ref=e64]:
+      - img [ref=e65]
+      - strong [ref=e67]: Results & files
+      - generic [ref=e68]: "0"
+      - button "Close files" [ref=e69] [cursor=pointer]:
+        - img [ref=e70]
+    - generic [ref=e73]:
+      - heading "Room for good work." [level=2] [ref=e74]
+      - paragraph [ref=e75]: Files you add and results Bees creates stay together in this thread.

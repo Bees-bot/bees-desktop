@@ -19630,21 +19630,6 @@
       "externalReferences": []
     },
     {
-      "bom-ref": "@bees/dsh-local-ai@0.1.0",
-      "type": "library",
-      "name": "local-ai",
-      "version": "0.1.0",
-      "scope": "required",
-      "purl": "pkg:npm/%40bees/dsh-local-ai@0.1.0",
-      "properties": [
-        {
-          "name": "cdx:npm:package:private",
-          "value": "true"
-        }
-      ],
-      "externalReferences": []
-    },
-    {
       "bom-ref": "@bees/dsh-subscriptions@0.1.0",
       "type": "library",
       "name": "subscriptions",
@@ -19665,7 +19650,6 @@
       "ref": "@bees/dsh-runtime@0.1.0",
       "dependsOn": [
         "@bees/dsh-custom-ai@0.1.0",
-        "@bees/dsh-local-ai@0.1.0",
         "@bees/dsh-plugin@0.1.1",
         "@bees/dsh-subscriptions@0.1.0",
         "@deepseek-ai/cordis@4.0.4",
@@ -24528,10 +24512,6 @@
     },
     {
       "ref": "@bees/dsh-custom-ai@0.1.0",
-      "dependsOn": []
-    },
-    {
-      "ref": "@bees/dsh-local-ai@0.1.0",
       "dependsOn": []
     },
     {

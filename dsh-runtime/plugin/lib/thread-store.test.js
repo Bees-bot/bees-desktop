@@ -6,6 +6,31 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ThreadStore, checkpointDigest } from './thread-store.js';
 
+test('first message names placeholder threads once and preserves custom titles',()=>{
+  const root=mkdtempSync(join(tmpdir(),'bees-thread-title-'));const store=new ThreadStore(root);
+  try{
+    const prompt='  Set NUMBER_OF_AGENTS=5 and test subagent functionality: Counter file: counter-<yyyy-mm-dd-hh-ss>.txt  ';
+    const expected=prompt.trim().slice(0,80).trim();
+    for(const kind of ['user','discussion']){
+      const doc=store.create('New thread'),op=randomUUID();
+      assert.throws(()=>store.message(doc.id,op,'  ','alice',kind),/valid text/);
+      assert.equal(store.get(doc.id).title,'New thread');
+      const named=store.message(doc.id,op,prompt,'alice',kind);
+      assert.equal(named.title,expected);
+      assert.equal(store.list().find(t=>t.id===doc.id).title,expected);
+      store.message(doc.id,op,'Duplicate request','alice',kind);
+      assert.equal(store.get(doc.id).messages.length,1);
+      assert.equal(store.message(doc.id,randomUUID(),'Follow-up','alice').title,expected);
+      store.mutate(doc.id,randomUUID(),d=>{d.title='New thread';});
+      assert.equal(store.message(doc.id,randomUUID(),'Keep the chosen title','alice').title,'New thread');
+    }
+    const custom=store.create('Counter test');
+    assert.equal(store.message(custom.id,randomUUID(),prompt,'alice').title,'Counter test');
+    const existing=store.create(expected);
+    assert.equal(store.message(existing.id,randomUUID(),prompt,'alice').title,expected);
+  }finally{store.close();rmSync(root,{recursive:true,force:true});}
+});
+
 test('thread operations deduplicate and replicas cannot mutate owner state',()=>{
   const root=mkdtempSync(join(tmpdir(),'bees-threads-'));const a=new ThreadStore(join(root,'a'));const b=new ThreadStore(join(root,'b'));
   try{

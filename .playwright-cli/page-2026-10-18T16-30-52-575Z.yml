@@ -1,0 +1,70 @@
+- generic [ref=e1]:
+  - navigation "Main navigation" [ref=e2]:
+    - button "✳" [ref=e3] [cursor=pointer]
+    - button "Threads" [ref=e4] [cursor=pointer]
+    - button "Organization settings" [ref=e7] [cursor=pointer]
+    - button "Switch to dark theme" [ref=e11] [cursor=pointer]: ☾
+    - button "Global settings" [ref=e12] [cursor=pointer]
+    - button "Your account" [ref=e17] [cursor=pointer]: "Y"
+  - complementary [ref=e18]:
+    - generic [ref=e19]:
+      - heading "Threads" [level=1] [ref=e20]
+      - button "New thread" [ref=e21] [cursor=pointer]
+    - textbox "Search threads" [ref=e28]:
+      - /placeholder: Find a thread…
+    - generic [ref=e29]:
+      - button "All" [pressed] [ref=e30] [cursor=pointer]
+      - button "Mine" [ref=e31] [cursor=pointer]
+      - button "Shared" [ref=e32] [cursor=pointer]
+    - generic [ref=e33]:
+      - generic [ref=e34]:
+        - button "Layout test thread Open shared work" [active] [ref=e35] [cursor=pointer]:
+          - generic [ref=e39]:
+            - strong [ref=e40]: Layout test thread
+            - generic [ref=e41]: Open shared work
+        - generic [ref=e42]:
+          - code [ref=e43]: first
+          - group [ref=e44]:
+            - generic "Settings for Layout test thread" [ref=e45] [cursor=pointer]
+      - generic [ref=e50]:
+        - button "Another thread Open shared work" [ref=e51] [cursor=pointer]:
+          - generic [ref=e55]:
+            - strong [ref=e56]: Another thread
+            - generic [ref=e57]: Open shared work
+        - generic [ref=e58]:
+          - code [ref=e59]: second
+          - group [ref=e60]:
+            - generic "Settings for Another thread" [ref=e61] [cursor=pointer]
+    - generic [ref=e66]: Private on this machine
+  - main [ref=e68]:
+    - generic [ref=e69]:
+      - generic [ref=e70]:
+        - heading "Layout test thread" [level=2] [ref=e108]
+        - paragraph [ref=e72]: This machine
+      - generic [ref=e109]:
+        - button "Thread settings" [ref=e110] [cursor=pointer]
+        - button "Share" [ref=e115] [cursor=pointer]
+        - button "Customize layout" [ref=e120] [cursor=pointer]
+    - region "Conversation panel" [ref=e122]:
+      - tablist "Panel views" [ref=e123]:
+        - tab "Conversation" [selected] [ref=e124] [cursor=pointer]
+        - tab "Kanban" [ref=e125] [cursor=pointer]
+        - tab "Discussion" [ref=e126] [cursor=pointer]
+        - tab "Files" [ref=e127] [cursor=pointer]
+        - tab "Details" [ref=e128] [cursor=pointer]
+        - tab "Context" [ref=e129] [cursor=pointer]
+        - tab "Schedules" [ref=e130] [cursor=pointer]
+        - tab "Memory" [ref=e131] [cursor=pointer]
+        - tab "Add-ons" [ref=e132] [cursor=pointer]
+        - tab "Executions" [ref=e133] [cursor=pointer]
+        - tab "Traces" [ref=e134] [cursor=pointer]
+      - tabpanel "Conversation" [ref=e137]:
+        - generic [ref=e138]:
+          - region "Conversation messages" [ref=e139]
+          - generic [ref=e140]:
+            - textbox "Message" [ref=e141]:
+              - /placeholder: Ask Bees to get something done…
+            - generic [ref=e142]:
+              - button "Add files and folders" [ref=e143] [cursor=pointer]
+              - generic [ref=e146]: Ask Bees
+              - button "Send message" [disabled] [ref=e147]

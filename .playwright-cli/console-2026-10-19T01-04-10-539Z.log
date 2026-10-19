@@ -1,0 +1,22 @@
+[   93374ms] [ERROR] TypeError: ko is not a function
+    at https://bees-new-thread.test/app.js:59:12304
+    at Array.map (<anonymous>)
+    at gp (https://bees-new-thread.test/app.js:59:12293)
+    at Ml (https://bees-new-thread.test/app.js:6:16968)
+    at Bu (https://bees-new-thread.test/app.js:8:44144)
+    at Au (https://bees-new-thread.test/app.js:8:39827)
+    at Gm (https://bees-new-thread.test/app.js:8:39755)
+    at ao (https://bees-new-thread.test/app.js:8:39609)
+    at al (https://bees-new-thread.test/app.js:8:35968)
+    at Ru (https://bees-new-thread.test/app.js:8:34916) @ https://bees-new-thread.test/app.js:7
+[   93377ms] TypeError: ko is not a function
+    at https://bees-new-thread.test/app.js:59:12304
+    at Array.map (<anonymous>)
+    at gp (https://bees-new-thread.test/app.js:59:12293)
+    at Ml (https://bees-new-thread.test/app.js:6:16968)
+    at Bu (https://bees-new-thread.test/app.js:8:44144)
+    at Au (https://bees-new-thread.test/app.js:8:39827)
+    at Gm (https://bees-new-thread.test/app.js:8:39755)
+    at ao (https://bees-new-thread.test/app.js:8:39609)
+    at al (https://bees-new-thread.test/app.js:8:35968)
+    at Ru (https://bees-new-thread.test/app.js:8:34916)

@@ -1,0 +1,58 @@
+- generic [ref=e1]:
+  - navigation "Main navigation" [ref=e2]:
+    - button "✳" [ref=e3] [cursor=pointer]
+    - button "Threads" [ref=e4] [cursor=pointer]
+    - button "Organization settings" [ref=e7] [cursor=pointer]
+    - button "Switch to dark theme" [ref=e11] [cursor=pointer]: ☾
+    - button "Global settings" [ref=e12] [cursor=pointer]
+    - button "Your account" [ref=e17] [cursor=pointer]: "Y"
+  - complementary [ref=e18]:
+    - generic [ref=e19]:
+      - heading "Threads" [level=1] [ref=e20]
+      - button "New thread" [ref=e21] [cursor=pointer]
+    - textbox "Search threads" [ref=e28]:
+      - /placeholder: Find a thread…
+    - generic [ref=e29]:
+      - button "All" [pressed] [ref=e30] [cursor=pointer]
+      - button "Mine" [ref=e31] [cursor=pointer]
+      - button "Shared" [ref=e32] [cursor=pointer]
+    - generic [ref=e33]:
+      - generic [ref=e34]:
+        - button "Layout test thread Open shared work" [ref=e35] [cursor=pointer]:
+          - generic [ref=e39]:
+            - strong [ref=e40]: Layout test thread
+            - generic [ref=e41]: Open shared work
+        - generic [ref=e42]:
+          - code [ref=e43]: first
+          - group [ref=e44]:
+            - generic "Settings for Layout test thread" [ref=e45] [cursor=pointer]
+      - generic [ref=e50]:
+        - button "Another thread Open shared work" [ref=e51] [cursor=pointer]:
+          - generic [ref=e55]:
+            - strong [ref=e56]: Another thread
+            - generic [ref=e57]: Open shared work
+        - generic [ref=e58]:
+          - code [ref=e59]: second
+          - group [ref=e60]:
+            - generic "Settings for Another thread" [ref=e61] [cursor=pointer]
+    - generic [ref=e66]: Private on this machine
+  - main [ref=e68]:
+    - generic [ref=e70]:
+      - heading "A little help. A lot done." [level=2] [ref=e71]
+      - paragraph [ref=e72]: Your people, AI, and work in one conversation.
+    - generic [ref=e73]:
+      - generic [ref=e75]:
+        - text: ✳
+        - heading "What would you like to get done?" [level=2] [ref=e76]
+        - paragraph [ref=e77]: Start with an idea. Add files and people as you go.
+        - generic [ref=e78]:
+          - button "Research a topic" [ref=e79] [cursor=pointer]
+          - button "Make sense of my files" [ref=e80] [cursor=pointer]
+          - button "Prepare a weekly update" [ref=e81] [cursor=pointer]
+      - generic [ref=e82]:
+        - textbox "Message" [ref=e83]:
+          - /placeholder: Ask Bees to get something done…
+        - generic [ref=e84]:
+          - button "Add files and folders" [disabled] [ref=e85]
+          - generic [ref=e88]: Ask Bees
+          - button "Send message" [disabled] [ref=e89]

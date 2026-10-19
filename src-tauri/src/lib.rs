@@ -208,9 +208,8 @@ fn prepare_profile(runtime: &Path, home: &Path) -> Result<(), String> {
 
 /// Every plugin Bees ships. The launch check and the profile links both read this, so a new
 /// plugin cannot be staged without also being verified and linked.
-const BEES_PLUGINS: [&str; 4] = [
+const BEES_PLUGINS: [&str; 3] = [
     "dsh-plugin",
-    "dsh-local-ai",
     "dsh-custom-ai",
     "dsh-subscriptions",
 ];
