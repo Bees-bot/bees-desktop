@@ -19,7 +19,9 @@ export class ClientProfiles {
     const client=await this.open(slot);client.directory.url=signed.url;await client.directory.resume(signed.session,client.identity.cert,client.peer.endpoints);await client.refresh();
     this.state.accounts[key]=slot;this.state.active=slot;this.active=client;this.save();return user;
   }
-  async logout(){if(Object.values(this.state.accounts).includes(this.state.anonymous))this.state.anonymous='personal-'+randomUUID();this.state.active=this.state.anonymous;this.active=await this.open(this.state.active);this.save();return {ok:true};}
+  async logout(){const prior=this.state.active,client=this.active;if(Object.values(this.state.accounts).includes(this.state.anonymous))this.state.anonymous='personal-'+randomUUID();this.state.active=this.state.anonymous;this.active=await this.open(this.state.active);this.save();
+    // a signed-out account must not keep syncing, serving peers or running its schedules
+    if(prior!==this.state.active){this.clients.delete(prior);client.directory.token=null;client.directory.save();await client.close();}return {ok:true};}
   async command(input){if(input.action==='resumeSession'){const user=await this.active.directory.resume(input.session,this.active.identity.cert,this.active.peer.endpoints);await this.active.refresh();return user;}if(input.action==='login')return this.login(input);if(input.action==='logout')return this.logout();return this.active.command(input);}
   async close(){await Promise.all([...this.clients.values()].map(c=>c.close()));}
 }
