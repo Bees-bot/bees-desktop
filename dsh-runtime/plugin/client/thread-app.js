@@ -112,7 +112,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const known=new Set(data?.threads?.map(t=>t.id));
   const threadTeamId=t=>allTeams.some(team=>team.id===t.teamId)?t.teamId:data?.defaultTeamId;
   const threads=[...(data?.threads??[]),...roster.threads.filter(t=>t.kind!=='team'&&!known.has(t.id)).map(t=>({id:t.id,teamId:t.team_id,title:'Shared thread',shared:true,ownerClientId:t.owner_client_id}))]
-    .filter(t=>teams.some(team=>team.id===threadTeamId(t))&&(t.title+' '+t.id).toLowerCase().includes(query.toLowerCase()));
+    .filter(t=>teams.some(team=>team.id===threadTeamId(t))&&(t.title+' '+(t.preview??'')+' '+t.id).toLowerCase().includes(query.trim().toLowerCase()));
   const authority=roster.threads.find(t=>t.id===selected), participants=roster.participants.filter(p=>p.thread_id===selected);
   const owner=roster.clients.find(c=>c.id===(authority?.owner_client_id??thread?.ownerClientId));
   const own=!!thread&&thread.ownerClientId===data?.clientId, manage=!!thread&&(own||thread.ownerUserId===data?.user?.id);
@@ -186,7 +186,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
       :h(ThreadDetails,{thread:effectiveThread,page,onSettings:openSettings,onFiles:()=>navigate('files')}));
   const renderThread=t=>h('div',{key:t.id,className:'bc-thread-row '+(selected===t.id?'active':'')},
     h('button',{className:'bc-thread','aria-current':selected===t.id?'page':undefined,onClick:()=>select(t.id)},h('span',{className:'bc-thread-symbol'},icon(t.processId==='chat'?'chat':'goal')),
-      h('span',null,h('strong',null,t.title),h('small',null,t.preview??'Open shared work')),t.runs?.some(r=>r.status==='running')?h('span',{className:'bc-dot',title:'Running'}):null),
+      h('span',null,h('strong',null,t.title),h('small',null,t.preview?.replace(/^\s*(?:#+|>|[-*+])\s|\*\*?|`/gm,'')??'Open shared work')),t.runs?.some(r=>r.status==='running')?h('span',{className:'bc-dot',title:'Running'}):null),
     h('div',{className:'bc-thread-meta'},
       h('details',{className:'bc-thread-menu',onKeyDown:event=>{if(event.key==='Escape'){event.currentTarget.open=false;event.currentTarget.querySelector('summary').focus();}}},
         h('summary',{'aria-label':`Settings for ${t.title}`,title:'Thread settings'},icon('more')),
@@ -214,7 +214,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
           h('button',{className:'bc-team-toggle','aria-expanded':!!query||!collapsed[row.id],onClick:()=>{if(currentTeamId!==row.id){select(null);setTeamId(row.id);}setCollapsed(values=>({...values,[row.id]:!values[row.id]}));}},
             h('span',{'aria-hidden':true},query||!collapsed[row.id]?'⌄':'›'),h('strong',null,row.title),h('small',null,teamThreads(row.id).length)),
           h(TeamMenu,{team:row,icon,busy,canCreate:!row.shared||roster.participants.some(p=>p.thread_id===row.id&&p.user_id===data?.user?.id&&['owner','editor'].includes(p.role)),onCreate:create,onSettings:openTeamSettings})),
-        query||!collapsed[row.id]?h('div',{className:'bc-team-threads'},teamThreads(row.id).map(renderThread),!teamThreads(row.id).length?h('p',{className:'bc-muted bc-empty-list'},'No threads yet.'):null):null))
+        query||!collapsed[row.id]?h('div',{className:'bc-team-threads'},teamThreads(row.id).map(renderThread),!teamThreads(row.id).length?h('p',{className:'bc-muted bc-empty-list'},query?'No matching threads.':'No threads yet.'):null):null))
         :threads.map(renderThread),
         !teams.length||!threads.length&&allTeams.length<2?h('p',{className:'bc-muted bc-empty-list'},teams.length?'Start a New Goal or New Chat.':'Create a team from the Bees menu to get started.'):null),
       roster.invitations?.length?h('section',{className:'bc-invitations'},h('strong',null,'Invitations'),
