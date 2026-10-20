@@ -248,6 +248,8 @@ export class ThreadClient {
       if(input.memory!==undefined&&(!Array.isArray(input.memory)||input.memory.length>100||input.memory.some(m=>typeof m!=='string'||m.length>10000)))throw threadError('Invalid thread memory');
       // Preserve the next occurrence when an unchanged schedule is saved.
       const fresh=input.schedule===undefined?undefined:schedule(input.schedule),same=s=>s&&checkpointDigest({...s,nextAt:0,error:0,attemptAt:0});
+      // a schedule switched off keeps its prompt and time for when it comes back on
+      if(fresh&&input.schedule.enabled===false)fresh.enabled=false;
       const recurrence=fresh===undefined||same(fresh)===same(doc.schedule)?doc.schedule:fresh;
       result=this.store.mutate(id,input.operationId,d=>{if(input.processes!==undefined)d.processes=input.processes;if(input.workflow!==undefined&&d.kind!=='team')d.processId=input.processId??workflowTemplate(workflow)?.id??'custom';if(input.title!==undefined)d.title=text(input.title,180);if(input.instructions!==undefined){if(typeof input.instructions!=='string'||input.instructions.length>20000)throw threadError('Invalid instructions');d.instructions=input.instructions.trim();}d.workflow=workflow.map(s=>({name:s.name,kind:s.kind,...(s.model?{model:s.model}:{})}));if(input.workflow!==undefined&&d.kind==='team')d.workflowConfigured=true;if(input.memory!==undefined)d.memory=input.memory;d.schedule=recurrence;});
     }
@@ -287,19 +289,23 @@ export class ThreadClient {
     try{for(const row of this.store.list()){
       if(row.ownerClientId!==this.store.clientId||row.staged||this.jobs.has(row.id)||this.store.preference(`frozen:${row.id}`))continue;
       const doc=this.store.document(row.id),s=doc.schedule;if(!s?.enabled||Date.parse(s.nextAt)>Date.now()||Date.parse(s.attemptAt??0)>Date.now()-60000)continue;
-      const hash=checkpointDigest({thread:row.id,occurrence:s.nextAt});const operationId=`${hash.slice(0,8)}-${hash.slice(8,12)}-4${hash.slice(13,16)}-8${hash.slice(17,20)}-${hash.slice(20,32)}`;
+      const uuid=value=>{const hash=checkpointDigest(value);return `${hash.slice(0,8)}-${hash.slice(8,12)}-4${hash.slice(13,16)}-8${hash.slice(17,20)}-${hash.slice(20,32)}`;};
+      const operationId=uuid({thread:row.id,occurrence:s.nextAt});
       try{
         let target=row.id;
         if(doc.kind==='team'){
           await this.fence(doc.id);
-          const key=`scheduled-thread:${doc.id}:${s.nextAt}`;
+          // one thread per team schedule, so each run sees the files the last one made
+          const key=`scheduled-thread:${doc.id}`;
           target=this.store.preference(key);
-          if(!target){
+          if(!this.store.list().some(t=>t.id===target&&t.ownerClientId===this.store.clientId&&!t.staged&&!this.store.preference(`frozen:${t.id}`))){
             this.store.db.exec('BEGIN IMMEDIATE');
             try{target=this.store.create(s.prompt.slice(0,80),doc.ownerUserId,doc.workflow,doc.id).id;this.store.preference(key,target);this.store.db.exec('COMMIT');}catch(e){this.store.db.exec('ROLLBACK');throw e;}
           }
           if(doc.shared)await this.registerThread(target);
         }
+        if(this.jobs.has(target))continue;
+        await this.localCommand(target,{action:'message',operationId:uuid({thread:row.id,occurrence:s.nextAt,kind:'message'}),text:s.prompt},doc.ownerUserId);
         await this.localCommand(target,{action:'run',operationId,text:s.prompt},doc.ownerUserId);this.store.mutate(row.id,randomUUID(),d=>{d.schedule.nextAt=nextOccurrence(s,new Date()).toISOString();delete d.schedule.error;});}
       catch(e){try{this.store.mutate(row.id,randomUUID(),d=>{d.schedule.error=e.message;d.schedule.attemptAt=new Date().toISOString();});}catch{}}
     }}finally{this.scheduling=false;}
