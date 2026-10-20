@@ -120,8 +120,10 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     // read files before creating the thread, so a bad file never leaves an empty thread behind
     checkSize(files);const contents=await Promise.all(files.map(encode));
     let id=selected;if(!id){const created=await command('create',null,{templateId:newTemplate,teamId:currentTeamId});id=created.id;select(id);}
-    for(const [i,file] of files.entries())await command('attach',id,{name:file.name,path:file.name,content:contents[i]});
-    await command(discussion?'discussion':'message',id,{text});onAccepted?.();
+    // the file ids ride on the message, so it shows what was sent with it
+    const ids=files.map(()=>crypto.randomUUID());
+    for(const [i,file] of files.entries())await command('attach',id,{name:file.name,path:file.name,content:contents[i],operationId:ids[i]});
+    await command(discussion?'discussion':'message',id,{text,...(ids.length?{files:ids}:{})});onAccepted?.();
     if(!discussion)await command('run',id,{text});await refresh();await read(id);return true;
   });
   const attach=(files,prefix='',id=selected)=>perform(async()=>{
@@ -201,7 +203,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     :h('section',{className:'bc-form'},h('h3',null,'Data & files'),h('p',null,'Threads keep their own files and folders. Add files or whole folders from a thread’s Files tab.'),h('p',{className:'bc-muted'},'Files and results travel with a shared or transferred thread. AI connections, browser access and add-on keys and sign-ins stay on the computer where you set them up.'));
   const effectiveThread=thread&&{...thread,workflow:workflowFor(thread,team),instructions:[team?.instructions,thread.instructions].filter(Boolean).join('\n\n'),memory:[...(team?.memory??[]),...(thread.memory??[])]};
   const templates=[...WORKFLOW_TEMPLATES,...(team?.processes??[])];
-  const conversation=discussion=>h(ThreadConversation,{key:selected??'welcome',thread:effectiveThread,discussion,peerNames,userId:data?.user?.id,userName:data?.user?.name||data?.user?.email?.split('@')[0],canWrite:selected?canWrite:canCreateInTeam,viewOnly,manage,run,active,busy,act,onSend:send,onAttach:attach,onFiles:()=>navigate('files'),suggestion:selected?null:suggestion,templates,
+  const conversation=discussion=>h(ThreadConversation,{key:selected??'welcome',thread:effectiveThread,discussion,peerNames,userId:data?.user?.id,userName:data?.user?.name||data?.user?.email?.split('@')[0],canWrite:selected?canWrite:canCreateInTeam,viewOnly,manage,run,active,busy,act,onSend:send,onAttach:attach,onFiles:()=>navigate('files'),onOpenFile:file=>{navigate('files');previewFile(file);},suggestion:selected?null:suggestion,templates,
     templateId:thread?.processId&&templates.some(t=>t.id===thread.processId)?thread.processId:effectiveThread?(workflowTemplate(effectiveThread.workflow)?.id??'custom'):newTemplate,
     onTemplateChange:templateId=>{setNewTemplate(templateId);if(thread)void act('configure',{workflow:templates.find(t=>t.id===templateId).workflow,processId:templateId});}});
   const renderWidget=page=>!thread?h('p',{className:'bc-muted',role:'status'},'Connecting to this thread…')
@@ -278,7 +280,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
 
 }
 
-export function ThreadConversation({thread,discussion,peerNames,userId,userName,canWrite,viewOnly,manage,run,active,busy,act,onSend,onAttach,onFiles,suggestion,templateId='goals',onTemplateChange,templates=WORKFLOW_TEMPLATES}){
+export function ThreadConversation({thread,discussion,peerNames,userId,userName,canWrite,viewOnly,manage,run,active,busy,act,onSend,onAttach,onFiles,onOpenFile,suggestion,templateId='goals',onTemplateChange,templates=WORKFLOW_TEMPLATES}){
   const [draft,setDraft]=useState(''),[pending,setPending]=useState([]),end=useRef(),picker=useRef();
   const addPending=picked=>setPending(current=>[...current.filter(f=>!picked.some(p=>p.name===f.name)),...picked]);
   const take=files=>thread?void onAttach(files):addPending(files);
@@ -296,7 +298,8 @@ export function ThreadConversation({thread,discussion,peerNames,userId,userName,
       messages.map(m=>h('article',{key:m.id,className:'bc-message '+m.kind},
         h('span',{className:'bc-avatar '+(m.kind==='assistant'?'bees':'')},m.kind==='assistant'?'✳':initials(peerNames.get(m.authorId)??(m.authorId===userId||m.authorId==='local'?userName:m.authorId))),h('div',null,
           h('div',{className:'bc-message-author'},m.kind==='assistant'?'Bees':peerNames.get(m.authorId)??(m.authorId===userId||m.authorId==='local'?'You':m.authorId),h('small',null,new Date(m.createdAt).toDateString()===new Date().toDateString()?new Date(m.createdAt).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):when(m.createdAt))),
-          h('div',{className:'bc-bubble'},h(MarkdownText,{text:m.text,content:m.text})),unanswered.has(m.id)?h('p',{className:'bc-muted bc-unanswered'},unanswered.get(m.id)):null))),
+          h('div',{className:'bc-bubble'},h(MarkdownText,{text:m.text,content:m.text})),
+          m.files?.length?h('div',{className:'bc-pending-files bc-message-files'},m.files.map(fileId=>thread.artifacts?.find(a=>a.id===fileId)).filter(Boolean).map(file=>h('button',{key:file.id,type:'button',title:'Open '+file.name,onClick:()=>onOpenFile(file)},file.name))):null,unanswered.has(m.id)?h('p',{className:'bc-muted bc-unanswered'},unanswered.get(m.id)):null))),
       !discussion&&active?h('div',{className:'bc-working',role:'status'},h('span',{className:'bc-dot'}),chatting?'Bees is replying…':run.stage?`Bees is working on the ${run.stage} stage…`:'Bees is working…',h('button',{disabled:!canWrite,onClick:()=>act('stop')},'Stop')):null,
       !discussion&&run?.error?h('div',{className:'bc-notice'},run.error):null,
       !discussion&&run?.pending?h('fieldset',{disabled:!canWrite||run.pending.kind==='approval'&&!manage,className:'bc-fieldset'},h(Question,{key:run.pending.id,run,threadId:thread.id,act})):null,h('div',{ref:end})):null,

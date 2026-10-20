@@ -87,10 +87,10 @@ export class ThreadStore {
     this.db.exec('BEGIN IMMEDIATE');
     try{fn(doc);doc.operations.push(operation);this.trim(doc);doc.revision++;doc.updatedAt=now();this.save(doc);this.db.exec('COMMIT');return doc;}catch(e){this.db.exec('ROLLBACK');throw e;}
   }
-  message(id,operation,body,authorId,kind='user'){return this.mutate(id,operation,doc=>{
-    const messageText=text(body,100000);
+  message(id,operation,body,authorId,kind='user',files){return this.mutate(id,operation,doc=>{
+    const messageText=text(body,100000),attached=Array.isArray(files)?files.filter(f=>doc.artifacts.some(a=>a.id===f)).slice(0,20):[];
     if(['New thread','New goal','New chat'].includes(doc.title)&&!doc.messages.length&&(kind==='user'||kind==='discussion'))doc.title=messageText.slice(0,80).trim();
-    doc.messages.push({id:operation,authorId,text:messageText,kind,createdAt:now()});
+    doc.messages.push({id:operation,authorId,text:messageText,kind,createdAt:now(),...(attached.length?{files:attached}:{})});
   });}
   objectPath(hash){if(!/^[a-f0-9]{64}$/.test(hash))throw threadError('Invalid file digest');return join(this.root,'objects',hash);}
   putObject(bytes,expected){if(!Buffer.isBuffer(bytes)||bytes.length>10_000_000)throw threadError('Files must be 10 MB or smaller');const hash=digest(bytes);if(expected&&expected!==hash)throw threadError('File integrity check failed');const path=this.objectPath(hash);if(existsSync(path)){if(lstatSync(path).isSymbolicLink()||digest(readFileSync(path))!==hash)throw threadError('Stored file failed verification');}else writeFileSync(path,bytes,{flag:'wx',mode:0o600});return hash;}

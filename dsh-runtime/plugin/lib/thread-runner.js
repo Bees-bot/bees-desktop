@@ -66,11 +66,13 @@ export class ThreadRunner {
       if(!resolve(path).startsWith(outputRoot+sep))throw threadError('Output escaped this run');
       if(stat.size>10_000_000)throw threadError('A generated file exceeds the 10 MB limit');
       const bytes=readFileSync(path),digest=createHash('sha256').update(bytes).digest('hex');
-      const artifactPath='results/'+run.id+'/'+relative(outputRoot,path).split(sep).join('/');
+      // swap out characters windows refuses so a name like "notes: 20 oct.md" keeps the work instead of failing the run
+      const parts=relative(outputRoot,path).split(sep).map(part=>{part=part.replace(/[\x00-\x1f\\:*?"<>|]/g,'-').replace(/[. ]+$/,'')||'_';return /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part)?'_'+part:part;});
+      const artifactPath='results/'+run.id+'/'+parts.join('/');
       const prior=store.document(thread.id).artifacts.find(a=>a.path===artifactPath);
       if(prior?.digest===digest)continue;
       if(prior){const hash=store.putObject(bytes);store.mutate(thread.id,randomUUID(),d=>{Object.assign(d.artifacts.find(a=>a.id===prior.id),{digest:hash,size:bytes.length});});}
-      else{const id=randomUUID();store.attach(thread.id,id,basename(path),bytes,'bees',artifactPath);added.add(id);}
+      else{const id=randomUUID();store.attach(thread.id,id,parts.at(-1),bytes,'bees',artifactPath);added.add(id);}
     }};
     try{for(let index=0;index<workflow.length;index++){
       signal.throwIfAborted();const stage=workflow[index];

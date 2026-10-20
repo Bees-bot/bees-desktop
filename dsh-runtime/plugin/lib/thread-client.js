@@ -237,7 +237,7 @@ export class ThreadClient {
   async localCommand(id,input,actor){
     await this.fence(id);validId(input.operationId);
     let result;
-    if(input.action==='message'||input.action==='discussion')result=this.store.message(id,input.operationId,input.text,actor,input.action==='discussion'?'discussion':'user');
+    if(input.action==='message'||input.action==='discussion')result=this.store.message(id,input.operationId,input.text,actor,input.action==='discussion'?'discussion':'user',input.files);
     else if(input.action==='attach'){const bytes=typeof input.content==='string'&&input.content.length<=13_333_336?Buffer.from(input.content,'base64'):null;if(!bytes||bytes.toString('base64')!==input.content)throw threadError('Invalid attachment');result=this.store.attach(id,input.operationId,input.name,bytes,actor,input.path);}
     else if(input.action==='folder')result=this.store.mutate(id,input.operationId,d=>{d.folders??=[];if(!d.folders.includes(input.path))d.folders.push(input.path);});
     else if(input.action==='configure'){
