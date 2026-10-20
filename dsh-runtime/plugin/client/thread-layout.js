@@ -105,7 +105,7 @@ export function ThreadWorkspace({ initialLayout, toolbar, navigation, renderWidg
     toolbar ? createPortal(h('button', { className: 'bc-customize-layout', disabled: saving, 'aria-pressed': editing,
       onClick: () => editing ? finish() : setEditing(true) }, saving ? 'Saving…' : editing ? 'Done customizing' : 'Customize layout'), toolbar) : null,
     editing ? h('section', { className: 'bc-layout-tools', 'aria-label': 'Customize layout' },
-      h('p', null, 'Drag tabs onto a panel edge to split, or onto another tab to group. Drag dividers to resize. Your layout applies to all threads on this client.'),
+      h('p', null, 'Drag tabs onto a panel edge to split, or onto another tab to group. Drag dividers to resize. Your layout applies to all threads on this computer.'),
       h('div', { className: 'bc-actions' },
         h('select', { 'aria-label': 'Widget to move', value: moving, disabled: saving, onChange: event => setMoving(event.target.value) }, THREAD_PAGES.map(([id, label]) => h('option', { key: id, value: id }, label))),
         h('select', { 'aria-label': 'Widget position', value: position, disabled: saving, onChange: event => setPosition(event.target.value) },

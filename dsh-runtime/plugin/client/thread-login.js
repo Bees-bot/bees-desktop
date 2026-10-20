@@ -42,7 +42,7 @@ export function Login({server,request,onComplete}) {
     error?h('p',{className:'bc-error',role:'alert'},error):null,
     waiting?h('p',{role:'status'},'Finish signing in in your browser.'):null,
     waiting?h('button',{type:'button',onClick:()=>cancel.current?.()},'Cancel sign in'):null,
-    signup?field('Name',{value:name,required:true,disabled:busy,autoComplete:'name',onChange:e=>setName(e.target.value)}):null,
+    signup?field('Name',{value:name,required:true,pattern:'.*\\S.*',title:'Enter your name.',disabled:busy,autoComplete:'name',onChange:e=>setName(e.target.value)}):null,
     field('Email',{value:email,type:'email',required:true,disabled:busy,autoComplete:'email',onChange:e=>setEmail(e.target.value)}),
     config?.ssoEnabled?h('button',{type:'button',disabled:busy,onClick:()=>social('sso')},'Continue with company SSO'):null,
     field('Password',{value:password,type:'password',required:true,disabled:busy,minLength:8,autoComplete:signup?'new-password':'current-password',onChange:e=>setPassword(e.target.value)}),

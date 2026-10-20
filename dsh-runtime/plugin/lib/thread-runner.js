@@ -81,7 +81,7 @@ export class ThreadRunner {
       }
       const selection=stage.model||run.model||(process.env.BEES_HOSTED_MODEL?'hosted/'+process.env.BEES_HOSTED_MODEL:(await this.models())[0]?.id);
       const model=await resolveThreadModel(selection&&{provider:selection.slice(0,selection.indexOf('/')),model:selection.slice(selection.indexOf('/')+1)},this.ctx.llm);
-      if(!model?.model||!this.ctx.llm.listProviders().some(p=>p.id===model.provider))throw threadError(selection?`The AI model ${selection} is not connected. Pick another in Settings.`:'No AI model is connected. Add one in Settings.');
+      if(!model?.model||!this.ctx.llm.listProviders().some(p=>p.id===model.provider))throw threadError(selection?`The AI model ${selection} is not connected. Pick another in Settings.`:'No AI model is connected. Add one in Global settings, under AI connections.');
       const sessionId=SessionId(run.id+'-'+index);
       const locks=new FileLocks(join(store.root,'file-locks'));
       const setup=async (agentCtx,parentId)=>{
@@ -93,7 +93,7 @@ export class ThreadRunner {
         agentCtx.effect(()=>()=>locks.releaseOwner(owner),'Thread file locks');
         mountPageFetch(agentCtx,this.ctx.web);mountRepeatGuard(agentCtx,owner);
         let steps=0;
-        agentCtx.on('agent/pre-step',(_input,next)=>{if(++steps>100)throw threadError('This stage reached its model-call limit');return next();});
+        agentCtx.on('agent/pre-step',(_input,next)=>{if(++steps>100)throw threadError('Bees stopped after 100 steps so this would not run forever. Try asking for a smaller piece of work.');return next();});
         agentCtx.tools.guard(exec=>guardThreadTool(exec,cwd));
         await this.integrations?.mount(agentCtx,store,thread.id,cwd);
         agentCtx.on('tools/pre-execute',async(exec,next)=>{
@@ -111,9 +111,10 @@ export class ThreadRunner {
         agentCtx.on('approval/request',async req=>{
           const answer=await this.wait(store,thread.id,run.id,signal,'approval',{text:req.reason??`Allow ${req.toolName}?`});return answer.approved===true?'approved':'rejected';
         });
+        // go first, or the hidden dsh screen takes the question and the run waits on a prompt nobody sees
         agentCtx.on('user-questions/request',async req=>{
-          const answer=await this.wait(store,thread.id,run.id,signal,'questions',{questions:req.questions});return {answers:answer.answers??{}};
-        });
+          const answer=await this.wait(store,thread.id,run.id,signal,'questions',{questions:req.questions});return {answers:Array.isArray(answer.answers)?answer.answers:[]};
+        },true);
       };
       const handle=await this.ctx.agents.create({sessionId,meta:{cwd,agentPreset:'standard'},agentOptions:model,setup:async agentCtx=>{
         await this.ctx.agentPresets.mount(agentCtx,'standard');await setup(agentCtx);
@@ -123,11 +124,11 @@ export class ThreadRunner {
       try{
         handle.agent.followup(createUserMessage({source:{kind:'user'},content:[{type:'text',text:[run.prompt,stage.kind==='chat'?'Continue the conversation with a reply to the latest user message.':'Current workflow stage: '+stage.name+'. Complete this stage of the requested outcome.',summary?'Previous stage result:\n'+summary:'',
           stage.kind==='review'?'Recorded execution evidence:\n'+JSON.stringify(store.document(thread.id).runs.find(r=>r.id===run.id).agents??[]):'',
-          'Thread context:\n'+thread.messages.slice(-40).map(m=>`${m.authorId}: ${m.text}`).join('\n'),
+          team?'Team: '+team.title:'','Thread context:\n'+thread.messages.slice(-40).map(m=>`${m.authorId}: ${m.text}`).join('\n'),
           'Thread memory:\n'+(thread.memory??[]).join('\n')].filter(Boolean).join('\n\n')}]}));
         await delay(0);await handle.agent.whenIdle();signal.throwIfAborted();
         const events=handle.agent.session.snapshotEvents();const end=[...events].reverse().find(e=>e.type==='turn/end');
-        if(end?.data?.reason?.kind&&end.data.reason.kind!=='completed')throw threadError('The agent did not finish: '+(end.data.reason.error?.message??end.data.reason.kind));
+        if(end?.data?.reason?.kind&&end.data.reason.kind!=='completed')throw threadError('Bees could not finish this: '+(end.data.reason.error?.message??end.data.reason.kind));
         const messages=events.filter(e=>e.type==='assistant/message').map(e=>(e.data.message.content??[]).filter(b=>b.type==='text').map(b=>b.text).join('\n')).filter(Boolean);
         summary=messages.at(-1)??'Work completed.';
         if(stage.kind==='review')reviews.push(stage.name+': '+summary);else deliverable=summary;

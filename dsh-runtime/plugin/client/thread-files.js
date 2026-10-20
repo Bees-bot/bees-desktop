@@ -1,4 +1,5 @@
 import { h, useEffect, useRef, useState, MarkdownText } from './runtime.js';
+import { droppedFiles, when } from './common.js';
 
 const mediaTypes = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', avif: 'image/avif', bmp: 'image/bmp', ico: 'image/x-icon',
@@ -33,15 +34,20 @@ function FilePreview({ file }) {
   }, [file.url]);
   if (error) return h('p', { role: 'alert' }, error);
   if (!content) return h('p', { role: 'status' }, 'Loading preview…');
-  if (content.type?.startsWith('image/')) return h('img', { src: content.url, alt: file.name });
-  if (content.type?.startsWith('audio/')) return h('audio', { src: content.url, controls: true, 'aria-label': file.name });
-  if (content.type?.startsWith('video/')) return h('video', { src: content.url, controls: true, 'aria-label': file.name });
+  if (content.text === '') return h('p', { className: 'bc-muted' }, 'This file is empty.');
+  // a damaged file or a codec chrome cannot play would show a broken icon or a dead player
+  const failed = () => setContent({});
+  if (content.type?.startsWith('image/')) return h('img', { src: content.url, alt: file.name, onError: failed });
+  if (content.type?.startsWith('audio/')) return h('audio', { src: content.url, controls: true, 'aria-label': file.name, onError: failed });
+  if (content.type?.startsWith('video/')) return h('video', { src: content.url, controls: true, 'aria-label': file.name, onError: failed });
   if (content.type === 'application/pdf') return h('iframe', { src: content.url, title: file.name });
   if (/^html?$/.test(content.type)) return h('iframe', { srcDoc: content.text, sandbox: '', referrerPolicy: 'no-referrer', title: file.name });
   if (['md', 'markdown'].includes(content.type)) return h(MarkdownText, { text: content.text, content: content.text });
   if (content.type === 'text') return h('pre', { className: 'bc-preview' }, content.text);
-  return h('p', { className: 'bc-muted' }, 'Preview is unavailable for this file format. Download it to open it in its application.');
+  return h('p', { className: 'bc-muted' }, 'This file can\'t be previewed here. Download it to open it in its application.');
 }
+
+const outputNote = file => [file.path, file.createdAt && when(file.createdAt)].filter(part => part && part !== file.name).join(' · ');
 
 export function ThreadFiles({ thread, canWrite, busy, onAttach, onPreview, preview, onClosePreview }) {
   const [folder, setFolder] = useState('');
@@ -63,12 +69,14 @@ export function ThreadFiles({ thread, canWrite, busy, onAttach, onPreview, previ
   });
   const upload = event => { const files = [...event.target.files]; event.target.value = ''; void onAttach(files, prefix); };
   const fileButton = file => h('button', { className: 'bc-file' + (file.authorId === 'bees' ? ' bc-file-output' : ''), key: file.id, 'aria-pressed': preview?.id === file.id, onClick: () => onPreview(file) },
-    h('span', null, h('strong', null, file.name), h('small', null, `${(file.size / 1024).toFixed(1)} KB`),
-      file.authorId === 'bees' && file.path ? h('small', null, file.path) : null));
+    h('span', null, h('strong', null, file.name), h('small', null, file.size < 1024 ? `${file.size} B` : file.size < 1048576 ? `${(file.size / 1024).toFixed(1)} KB` : `${(file.size / 1048576).toFixed(1)} MB`),
+      file.authorId === 'bees' && outputNote(file) ? h('small', null, outputNote(file)) : null));
   return h('section', { className: 'bc-files' },
     h('div', { className: 'bc-form bc-files-list' },
     h('div', { className: 'bc-file-groups' },
-      h('section', { className: 'bc-form', 'aria-label': 'Input files' },
+      h('section', { className: 'bc-form', 'aria-label': 'Input files',
+        onDragOver: event => { if (canWrite && !busy && event.dataTransfer.types.includes('Files')) event.preventDefault(); },
+        onDrop: event => { const dropped = canWrite && !busy ? droppedFiles(event) : []; if (dropped.length) { event.preventDefault(); void onAttach(dropped, prefix); } } },
         h('div', { className: 'bc-actions bc-files-toolbar' },
           h('h3', null, 'Input files'),
           h('nav', { className: 'bc-actions bc-breadcrumbs', 'aria-label': 'Folder path' },
@@ -80,7 +88,7 @@ export function ThreadFiles({ thread, canWrite, busy, onAttach, onPreview, previ
           h('button', { disabled: !canWrite || busy, onClick: () => folderInput.current.click() }, 'Add folder')),
         ...[...directories].sort().map(name => h('button', { className: 'bc-file', key: name, onClick: () => setFolder(prefix + name) }, '▱', h('strong', null, name))),
         ...files.map(fileButton),
-        !directories.size && !files.length ? h('p', { className: 'bc-muted' }, 'This folder is empty. Add files or a folder to give Bees context.') : null),
+        !directories.size && !files.length ? h('p', { className: 'bc-muted' }, canWrite ? 'This folder is empty. Add files or a folder to give Bees context.' : 'This folder is empty.') : null),
       h('section', { className: 'bc-form', 'aria-label': 'Output files' },
         h('h3', null, 'Output files'),
         ...outputs.map(fileButton),
