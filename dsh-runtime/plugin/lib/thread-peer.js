@@ -74,11 +74,11 @@ export class ThreadPeer {
       const bytes=Buffer.from(JSON.stringify(payload));
       if(bytes.length>16_000_000)return bad(threadError('Peer request is too large'));
       const agent=socket?new Agent({keepAlive:false}):false;if(agent)agent.createConnection=()=>socket;
-      const req=httpsRequest(new URL('/exchange',endpoint),{method:'POST',ca:grant.target.certificate,servername:'bees-client',minVersion:'TLSv1.3',agent,
+      const req=httpsRequest(new URL('/exchange',endpoint),{method:'POST',ca:grant.target.certificate,servername:'bees-client',minVersion:'TLSv1.3',agent,timeout:socket?30000:2500,
         headers:{authorization:`Bearer ${grant.id}`,'content-type':'application/json','content-length':bytes.length}},res=>{
         const chunks=[];let size=0;res.on('data',chunk=>{size+=chunk.length;if(size>16_000_000){req.destroy(threadError('Peer response is too large'));return;}chunks.push(chunk);});
         res.on('end',()=>{try{const body=JSON.parse(Buffer.concat(chunks).toString());if(res.statusCode!==200)throw threadError(body.error??'Peer request failed',res.statusCode);ok(body.result);}catch(e){bad(e);}});res.on('error',bad);
-      });this.sockets.add(req);req.on('close',()=>this.sockets.delete(req));req.on('error',bad);req.setTimeout(socket?30000:2500,()=>req.destroy(threadError('Peer connection timed out')));req.end(bytes);
+      });this.sockets.add(req);req.on('close',()=>this.sockets.delete(req));req.on('error',bad);req.on('timeout',()=>req.destroy(threadError('Peer connection timed out',408)));req.end(bytes);
     });
     // shortcut: routable addresses first, then the private relay; add ICE only if relay egress warrants it.
     try{

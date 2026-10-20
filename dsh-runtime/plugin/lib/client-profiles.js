@@ -25,7 +25,7 @@ export class ClientProfiles {
   key(url,user){return createHash('sha256').update(url+'\n'+user).digest('hex');}
   async login(input){
     const signed=await this.active.directory.signIn(input);
-    const response=await fetch(signed.url+'/api/me',{headers:{authorization:'Bearer '+signed.session},signal:AbortSignal.timeout(20000)});if(!response.ok)throw threadError('Sign in again',401);const {user}=await response.json();
+    const response=await fetch(signed.url+'/api/me',{headers:{authorization:'Bearer '+signed.session},signal:AbortSignal.timeout(20000)});const user=response.ok&&(await response.json().catch(()=>({}))).user;if(!user)throw response.status===401?threadError('Sign in again',401):threadError("Bees can't be reached right now.",502);
     const key=this.key(signed.url,user.id);
     const slot=this.state.accounts[key]??(!this.active.directory.user&&!Object.values(this.state.accounts).includes(this.state.active)?this.state.active:key);
     const client=await this.open(slot);client.directory.url=signed.url;await client.directory.resume(signed.session,client.identity.cert,client.peer.endpoints);await client.refresh();

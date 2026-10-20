@@ -1,6 +1,8 @@
 import { h, hosted } from './runtime.js';
 import { OrganizationIcon } from './thread-organization-appearance.js';
 
+export const initials=name=>(name||'You').split(/\s|@/).filter(Boolean).slice(0,2).map(x=>x[0]).join('').toUpperCase();
+
 export function TeamMenu({team,icon,busy,canCreate,onCreate,onSettings,onHide}){
   const choose=fn=>event=>{event.currentTarget.closest('details').open=false;fn();};
   return h('details',{className:'bc-team-menu bc-thread-menu',onKeyDown:event=>{if(event.key==='Escape'){event.currentTarget.open=false;event.currentTarget.querySelector('summary').focus();}}},
@@ -17,7 +19,7 @@ export function TeamSection({team,grouped,expanded,active,onToggle,menu,count,ch
   return h('section',{className:'bc-team-section'+(active?' active':'')+(!grouped?' bc-team-ungrouped':'')},
     grouped?h('div',{className:'bc-team-heading'},
       h('button',{className:'bc-team-toggle','aria-expanded':expanded,onClick:onToggle},
-        h('span',{'aria-hidden':true},expanded?'⌄':'›'),h('strong',null,team.title),h('small',null,count)),menu):null,
+        h('span',{'aria-hidden':true},expanded?'⌄':'›'),h('strong',{title:team.title},team.title),h('small',null,count)),menu):null,
     !grouped||expanded?h('div',{className:'bc-team-threads'},children):null);
 }
 

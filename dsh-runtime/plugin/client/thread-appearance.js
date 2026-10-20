@@ -34,7 +34,7 @@ export function AppearanceSettings({ preference, onSave, disabled }) {
   const choose = theme => onSave({ themePreset: theme.id, colorMode: theme.dark ? 'dark' : 'light' });
   return h('section', { className: 'bc-form' },
     h('h3', null, 'Appearance'),
-    h('p', { className: 'bc-muted' }, 'Your theme applies across all threads and organizations on this client.'),
+    h('p', { className: 'bc-muted' }, 'Your theme applies across all threads and organizations on this computer.'),
     h('h3', null, 'Theme defaults'),
     ...['dark', 'light'].map(mode => h('label', { className: 'bc-field', key: mode },
       h('span', null, `Default ${mode} theme`),
