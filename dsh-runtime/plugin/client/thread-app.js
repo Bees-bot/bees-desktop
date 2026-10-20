@@ -85,8 +85,15 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     tick();const timer=setInterval(tick,5000);
     return()=>{alive=false;clearInterval(timer);document.removeEventListener('pointerdown',dismissMenus,true);document.removeEventListener('toggle',revealMenu,true);document.removeEventListener('dragover',blockDrop);document.removeEventListener('drop',blockDrop);style.remove();document.title=previousTitle;};
   },[]);
+  // a reload opened the empty start screen instead of the thread you were in
+  const restored=useRef(false);
+  useEffect(()=>{if(!data||restored.current)return;let id=null;try{id=localStorage.getItem('bees:open-thread');}catch{}
+    const found=!!id&&(data.threads.some(t=>t.id===id)||!!data.directory?.threads.some(t=>t.id===id&&t.kind!=='team'));
+    if(!found&&data.connectionError)return;restored.current=true;if(found&&!selectedRef.current)select(id);},[data]);
+  useEffect(()=>{if(restored.current)try{selected?localStorage.setItem('bees:open-thread',selected):localStorage.removeItem('bees:open-thread');}catch{}},[selected]);
   useEffect(()=>{setPreview(null);setThread(null);if(selected)void read(selected).catch(e=>{if(selectedRef.current===selected)setError(e.message);});},[selected]);
-  useEffect(()=>{if(selected&&thread)void read(selected).catch(()=>{});},[data]);
+  // the owner deleted it or took our access away, so close it instead of showing the old copy
+  useEffect(()=>{if(selected&&thread)void read(selected).catch(()=>{if(selectedRef.current===selected&&data&&!data.connectionError&&!data.threads.some(t=>t.id===selected)&&!data.directory?.threads.some(t=>t.id===selected)){select(null);setNotice('That thread was deleted, or you no longer have access to it.');}});},[data]);
   useEffect(()=>{setTeam(null);if(currentTeamId)void readTeam(currentTeamId).catch(e=>setError(e.message));},[currentTeamId]);
   useEffect(()=>{if(currentTeamId)void readTeam(currentTeamId).catch(()=>{});},[data]);
   useEffect(()=>{if(preferences?.getSnapshot().status==='ready')(ctx?.get?.('theme')??ctx?.theme)?.setTheme(theme.dark?'dark':'light');},[ctx,theme.id]);
@@ -100,7 +107,9 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     else {await command('preferences',null,{values});await refresh();}
   });
   const clearAccount=()=>{profileEpoch.current++;select(null);setOrganizationId(undefined);setTeamId(null);setTeam(null);setCollapsed({});setThread(null);setPreview(null);setSuggestion(null);setData(null);};
-  const create=(templateId='goals',id=currentTeamId)=>perform(async()=>{const next=await command('create',null,{title:templateId==='chat'?'New chat':templateId==='goals'?'New goal':'New thread',templateId,teamId:id});await refresh();select(next.id);setTeamId(id);setCollapsed(values=>({...values,[id]:false}));});
+  // the thread is saved on its first message, so an unused New Goal or New Chat leaves nothing behind
+  const create=(templateId='goals',id=currentTeamId)=>{select(null);setTeamId(id);setNewTemplate(templateId);setCollapsed(values=>({...values,[id]:false}));requestAnimationFrame(()=>document.querySelector('.bc-composer textarea')?.focus());};
+  const deleteThread=t=>perform(async()=>{if(!await confirmAction(`Delete “${t.title}”? Its messages, runs and files are removed for everyone in it. This can’t be undone.`,'Delete'))return;await command('delete',t.id);if(selectedRef.current===t.id)select(null);await refresh();});
   const chooseTeam=id=>perform(async()=>{select(null);setTeamId(id);setTeam(null);setCollapsed(values=>({...values,[id]:false}));await command('preferences',null,{values:{selectedTeamId:id,hiddenTeamIds:hiddenTeamIds.filter(hidden=>hidden!==id)}});await refresh();});
   const hideTeam=id=>perform(async()=>{if(threads.some(t=>t.id===selected&&threadTeamId(t)===id)||currentTeamId===id){select(null);setTeamId(null);setTeam(null);}await command('preferences',null,{values:{hiddenTeamIds:[...new Set([...hiddenTeamIds,id])]}});await refresh();});
   const createTeam=()=>perform(async()=>{const name=await ask('Team name','');if(!name?.trim())return;const next=await command('createTeam',null,{name,...(selectedOrganizationId?{organizationId:selectedOrganizationId}:{})});await refresh();select(null);setTeamId(next.id);});
@@ -143,6 +152,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const previewFile=file=>setPreview({...file,url:`/bees-api/thread-file?thread=${selected}&artifact=${file.id}`});
   const saveThread=values=>perform(async()=>{await command('configure',selected,values);await refresh();await read(selected);setNotice('Thread settings saved.');});
   const saveTeam=values=>perform(async()=>{await command('configure',currentTeamId,values);await refresh();await readTeam(currentTeamId);setNotice(values.processes!==undefined?'Processes saved. Start a new thread to use them.':'Team settings saved. Changes apply to new runs in every thread.');return true;});
+  const leaveTeam=()=>perform(async()=>{if(!await confirmAction(`Leave ${team.title}? You lose access to its threads. Threads you started on this computer stay with you.`,'Leave'))return;await command('leave',currentTeamId);setDialog(null);select(null);setTeamId(null);setTeam(null);await refresh();});
   const teamAction=(action,values)=>perform(async()=>{await command(action,currentTeamId,values);await refresh();await readTeam(currentTeamId);});
   const files=thread?h(ThreadFiles,{key:selected,thread,canWrite,busy,onAttach:attach,onPreview:previewFile,preview,onClosePreview:()=>setPreview(null)}):null;
   const integrations=section=>team?h(IntegrationSettings,{key:currentTeamId+section,threadId:currentTeamId,canManage:(teamOwn||['owner','editor'].includes(teamRole))&&!team.unavailable&&!team.frozen,request:command,perform,page:section}):null;
@@ -151,7 +161,8 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     !teamParticipants.length?h('p',null,'Only you have access to this private team.'):null,
     teamParticipants.map(p=>h('div',{key:p.user_id,className:'bc-person'},h('span',null,p.name??p.email),h('small',null,{owner:'Owner',editor:'Can contribute and run work',viewer:'Can view'}[p.role]??p.role),
       canConfigureTeam&&p.role!=='owner'?h('button',{disabled:busy,onClick:async()=>{if(await confirmAction(`Remove ${p.name??p.email} from this team? They lose access to all of its threads.`,'Remove'))void teamAction('remove',{userId:p.user_id});}},'Remove'):null)),
-    h('button',{onClick:()=>setTeamSection('invitations')},'Invite someone'));
+    canConfigureTeam?h('button',{onClick:()=>setTeamSection('invitations')},'Invite someone'):null,
+    team?.shared&&!teamOwn&&teamRole&&teamRole!=='owner'?h('button',{disabled:busy,onClick:leaveTeam},'Leave team'):null);
   const invitations=h('form',{className:'bc-form',onSubmit:event=>{event.preventDefault();void perform(async()=>{
     if(!data?.user){setDialog('login');return;}const invite=await command('share',currentTeamId,{email,role});setInviteLink(invite.url);setNotice(`Invited ${email}. It shows in their Bees sidebar, or you can send them the link below.`);setEmail('');await refresh();await readTeam(currentTeamId);
   });}},h('h3',null,'Invitations'),h('p',{className:'bc-muted'},'Invite someone to this team and all its threads, including people outside your organization.'),
@@ -205,7 +216,8 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     h('div',{className:'bc-thread-meta'},
       h('details',{className:'bc-thread-menu',onKeyDown:event=>{if(event.key==='Escape'){event.currentTarget.open=false;event.currentTarget.querySelector('summary').focus();}}},
         h('summary',{'aria-label':`Settings for ${t.title}`,title:'Thread settings'},icon('more')),
-        h('nav',{'aria-label':`${t.title} settings`},THREAD_SETTINGS.map(([id,label])=>h('button',{key:id,onClick:event=>{event.currentTarget.closest('details').open=false;openSettings(id,t.id);}},label))))));
+        h('nav',{'aria-label':`${t.title} settings`},THREAD_SETTINGS.map(([id,label])=>h('button',{key:id,onClick:event=>{event.currentTarget.closest('details').open=false;openSettings(id,t.id);}},label)),
+          t.ownerClientId===data?.clientId?h('button',{disabled:busy||t.runs?.some(r=>r.status==='running'),title:t.runs?.some(r=>r.status==='running')?'Stop the work running in this thread first':undefined,onClick:event=>{event.currentTarget.closest('details').open=false;deleteThread(t);}},'Delete'):null))));
   const acceptInvitation=invitation=>perform(async()=>{
     await command('acceptInvitation',null,{invitationId:invitation.id});
     const next=await refresh(),joined=next.directory.threads.find(t=>t.id===invitation.thread_id);

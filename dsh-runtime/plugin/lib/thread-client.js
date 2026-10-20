@@ -56,7 +56,8 @@ export class ThreadClient {
   async refresh(){if(!this.directory.token||this.closing)return;const heartbeat=await this.directory.request('/heartbeat',{endpoints:this.peer.endpoints});if(heartbeat.user)this.directory.user=heartbeat.user;
     // a thread shared while the roster was in flight is missing from it, so only judge threads shared before the fetch
     const sharedBefore=new Set(this.store.list().filter(t=>t.shared).map(t=>t.id));this.roster=await this.directory.request('/');if(this.closing)return;this.connectionError=null;
-    for(const local of this.store.list())if(sharedBefore.has(local.id)&&!this.roster.threads.some(t=>t.id===local.id)){this.store.preference(`frozen:${local.id}`,true);this.jobs.get(local.id)?.abort();}
+    // a copy of someone else's thread that left the roster was deleted or taken from us, so it goes too
+    for(const local of this.store.list())if(sharedBefore.has(local.id)&&!this.roster.threads.some(t=>t.id===local.id)){this.jobs.get(local.id)?.abort();if(local.ownerClientId!==this.store.clientId&&!local.staged)this.store.drop(local.id);else this.store.preference(`frozen:${local.id}`,true);}
     for(const authority of this.roster.threads){const local=this.store.list().find(t=>t.id===authority.id);if(local?.ownerClientId===this.store.clientId&&authority.owner_client_id!==this.store.clientId){this.store.preference(`frozen:${authority.id}`,true);this.jobs.get(authority.id)?.abort();}if(local?.staged&&authority.owner_client_id===this.store.clientId){const doc=this.store.document(local.id);this.store.activateTransfer(local.id,authority,checkpointDigest(doc));this.store.preference(`frozen:${local.id}`,false);}}
     await this.command({action:'organizations'}).catch(error=>{this.organizationError=error.message;});
     this.options.notify?.();
@@ -193,6 +194,21 @@ export class ThreadClient {
       try{doc=await this.sync(id);}catch(e){doc=this.store.get(id);if(doc.ownerClientId!==this.store.clientId||doc.shared)doc.unavailable=e.status===403?'You no longer have access to this thread.':e.status===502?"Bees can't be reached right now.":!e.status||e.status===408?"The owner's laptop can't be reached right now.":e.message;}
       await this.options.recoverActivity?.(this.store,doc);
       return {...this.store.get(id),teamId:doc.teamId??this.store.preference(`team:${id}`),...(doc.unavailable?{unavailable:doc.unavailable}:{}),frozen:doc.ownerClientId===this.store.clientId&&!!this.store.preference(`frozen:${id}`)};
+    }
+    if(input.action==='leave'){
+      // the roster row, since a team whose owner never came online has no copy here
+      const me=this.directory.user?.id,team=this.roster.threads.find(t=>t.id===id);if(!me)throw threadError('Sign in to leave this team',401);
+      if(team?.kind!=='team'||team.owner_client_id===this.store.clientId)throw threadError('Only a team someone else owns can be left');
+      await this.directory.request(`/threads/${id}/participants/${encodeURIComponent(me)}`,{},'DELETE');
+      // threads made on this laptop stay, they are still yours
+      for(const t of this.store.list())if((t.id===id||t.teamId===id)&&t.ownerClientId!==this.store.clientId){this.jobs.get(t.id)?.abort();this.store.drop(t.id);}
+      await this.refresh().catch(()=>{});return {ok:true};
+    }
+    if(input.action==='delete'){
+      const doc=await this.fence(id);if(doc.kind==='team')throw threadError('Only a thread can be deleted');
+      if(this.jobs.has(id)||doc.runs.some(r=>['running','waiting'].includes(r.status)))throw threadError('Stop the work running in this thread before you delete it',409);
+      if(doc.shared)await this.directory.request(`/threads/${id}`,{},'DELETE');
+      this.store.drop(id);this.options.notify?.();return {ok:true};
     }
     if(['share','remove'].includes(input.action)){const authority=await this.authority(id).catch(e=>{if(this.store.get(id).shared)throw e;return null;});if(authority&&authority.owner_client_id!==this.store.clientId)return this.peer.send(id,authority.owner_client_id,{kind:'command',command:input});}
     if(input.action==='share')return this.share(id,input);
