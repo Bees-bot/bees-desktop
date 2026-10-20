@@ -111,9 +111,10 @@ export class ThreadRunner {
         agentCtx.on('approval/request',async req=>{
           const answer=await this.wait(store,thread.id,run.id,signal,'approval',{text:req.reason??`Allow ${req.toolName}?`});return answer.approved===true?'approved':'rejected';
         });
+        // go first, or the hidden dsh screen takes the question and the run waits on a prompt nobody sees
         agentCtx.on('user-questions/request',async req=>{
-          const answer=await this.wait(store,thread.id,run.id,signal,'questions',{questions:req.questions});return {answers:answer.answers??{}};
-        });
+          const answer=await this.wait(store,thread.id,run.id,signal,'questions',{questions:req.questions});return {answers:Array.isArray(answer.answers)?answer.answers:[]};
+        },true);
       };
       const handle=await this.ctx.agents.create({sessionId,meta:{cwd,agentPreset:'standard'},agentOptions:model,setup:async agentCtx=>{
         await this.ctx.agentPresets.mount(agentCtx,'standard');await setup(agentCtx);
