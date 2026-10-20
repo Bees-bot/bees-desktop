@@ -5,6 +5,7 @@ import { hostname } from 'node:os';
 import { ThreadStore, checkpointDigest, canonical, threadError, text, validId } from './thread-store.js';
 import { ThreadPeer, peerCertificate } from './thread-peer.js';
 import { schedule, nextOccurrence } from './thread-schedule.js';
+import { validOrganizationAppearance } from './organization-appearance.js';
 import { THEME_PRESETS } from './themes.js';
 import { DEFAULT_WORKFLOW, WORKFLOW_TEMPLATES, workflowFor, workflowTemplate, isValidWorkflow } from './thread-workflow.js';
 import { normalizeThreadLayout } from './thread-layout.js';
@@ -14,7 +15,8 @@ export class DirectoryConnection {
   constructor(root,clientId){this.path=join(root,'directory.json');this.clientId=clientId;this.stop=new AbortController();if(existsSync(this.path))Object.assign(this,JSON.parse(readFileSync(this.path,'utf8')));this.url??=process.env.BEES_ACCOUNT_API_URL??'https://app.bees.bot';}
   save(){writeFileSync(this.path,JSON.stringify({url:this.url,token:this.token,user:this.user}),{mode:0o600});}
   async request(path,body,method=body===undefined?'GET':'POST'){
-    const result=await fetch(this.url+'/api/directory'+(path==='/'?'':path),{method,headers:{authorization:`Bearer ${this.token}`,'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.any([this.stop.signal,AbortSignal.timeout(20000)])});
+    let result;try{result=await fetch(this.url+'/api/directory'+(path==='/'?'':path),{method,headers:{authorization:`Bearer ${this.token}`,'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.any([this.stop.signal,AbortSignal.timeout(20000)])});}
+    catch(error){throw threadError(`Could not reach Bees Server at ${this.url}. ${['localhost','127.0.0.1'].includes(new URL(this.url).hostname)?'Start the local server with npm run dev in bees-server.':'Check your connection and Bees Server address.'}`,503);}
     const value=await result.json();if(!result.ok)throw threadError(value.error?.message??'Bees Server could not complete the request',result.status);return value;
   }
   async signIn({url,email,password,name,session}){
@@ -53,11 +55,12 @@ export class ThreadClient {
     const sharedBefore=new Set(this.store.list().filter(t=>t.shared).map(t=>t.id));this.roster=await this.directory.request('/');if(this.closing)return;this.connectionError=null;
     for(const local of this.store.list())if(sharedBefore.has(local.id)&&!this.roster.threads.some(t=>t.id===local.id)){this.store.preference(`frozen:${local.id}`,true);this.jobs.get(local.id)?.abort();}
     for(const authority of this.roster.threads){const local=this.store.list().find(t=>t.id===authority.id);if(local?.ownerClientId===this.store.clientId&&authority.owner_client_id!==this.store.clientId){this.store.preference(`frozen:${authority.id}`,true);this.jobs.get(authority.id)?.abort();}if(local?.staged&&authority.owner_client_id===this.store.clientId){const doc=this.store.document(local.id);this.store.activateTransfer(local.id,authority,checkpointDigest(doc));this.store.preference(`frozen:${local.id}`,false);}}
+    await this.command({action:'organizations'}).catch(error=>{this.organizationError=error.message;});
     this.options.notify?.();
   }
   async authority(id){await this.refresh();const t=this.roster.threads.find(t=>t.id===id);if(!t)throw threadError('Thread access is unavailable',403);return t;}
   async fence(id){const doc=this.store.get(id);this.store.writable(doc);if(doc.shared){const t=await this.authority(id);if(t.owner_client_id!==this.store.clientId||Number(t.epoch)!==doc.epoch)throw threadError('This client no longer owns the thread',409);}return doc;}
-  async snapshot(){const rows=this.store.list();return {product:'Bees Client',clientId:this.store.clientId,user:this.directory.user??null,serverUrl:this.directory.url,connectionError:this.connectionError??null,threads:rows.filter(t=>t.kind!=='team'),teams:rows.filter(t=>t.kind==='team'&&(!t.shared||!this.directory.token||this.connectionError||this.roster.threads.some(row=>row.id===t.id))),defaultTeamId:this.store.preference('defaultTeam'),directory:this.roster,models:await this.options.models?.()??[],defaultModel:this.store.preference('model'),settings:this.store.preference('settings')??{}};}
+  async snapshot(){const rows=this.store.list();return {product:'Bees Client',clientId:this.store.clientId,user:this.directory.user??null,organizations:this.organizations(),organizationError:this.organizationError??null,serverUrl:this.directory.url,connectionError:this.connectionError??null,threads:rows.filter(t=>t.kind!=='team'),teams:rows.filter(t=>t.kind==='team'&&(!t.shared||!this.directory.token||this.connectionError||this.roster.threads.some(row=>row.id===t.id))),defaultTeamId:this.store.preference('defaultTeam'),directory:this.roster,models:await this.options.models?.()??[],defaultModel:this.store.preference('model'),settings:this.store.preference('settings')??{}};}
   async registerThread(id,input={}){await this.fence(id);let doc=this.store.document(id);if(!this.directory.token)throw threadError('Sign in to share or transfer a thread',401);
     const team=this.store.teamFor(id);
     if(team&&!team.shared)await this.registerThread(team.id);
@@ -100,6 +103,7 @@ export class ThreadClient {
   }
   async replicate(){if(this.replicating||!this.directory.token||this.closing)return;this.replicating=true;try{for(const t of this.roster.threads){if(this.closing)break;if(t.owner_client_id===this.store.clientId)continue;try{await this.syncAuthority(t);}catch{/* An offline owner keeps the last authorized copy available. */}}}finally{this.replicating=false;}}
   async files(doc,source){for(const a of doc.artifacts){try{this.store.object(doc,a.id);continue;}catch{}const object=await this.peer.send(doc.id,source,{kind:'object',artifactId:a.id});if(object.artifact.digest!==a.digest||object.artifact.size!==a.size)throw threadError('File manifest changed');const bytes=Buffer.from(object.content,'base64');if(bytes.length!==a.size)throw threadError('Incomplete file transfer');this.store.putObject(bytes,a.digest);}}
+  organizations(){const appearance=this.store.preference('organizationAppearance')??{};return (this.store.preference('organizations')??[]).map(org=>({...org,...(appearance[org.id]?{appearance:appearance[org.id]}:{})}));}
   ensureOrganizationTeam(organization){
     const key=`organizationDefault:${validId(organization.id)}`;
     if(this.store.preference(key))return this.store.preference(key);
@@ -140,6 +144,10 @@ export class ThreadClient {
           if(!theme||key==='darkThemePreset'&&!theme.dark||key==='lightThemePreset'&&theme.dark)throw threadError('Invalid theme');
         }else if(key==='selectedOrganizationId'){
           if(value!==null)validId(value);
+        }else if(key==='selectedTeamId'){
+          if(value!==null)validId(value);
+        }else if(key==='hiddenTeamIds'){
+          if(!Array.isArray(value)||value.length>10000)throw threadError('Invalid hidden teams');for(const id of value)validId(id);
         }else if(key==='threadLayout'){
           const layout=normalizeThreadLayout(value);
           if(!layout)throw threadError('Invalid thread layout');
@@ -148,7 +156,14 @@ export class ThreadClient {
       }
       return this.store.preference('settings',{...this.store.preference('settings'),...values});
     }
-    if(input.action==='organizations'){const result=await this.directory.request('/organizations');for(const org of result.organizations)if(org.role==='owner')this.ensureOrganizationTeam(org);return result;}
+    if(input.action==='organizations'){const result=await this.directory.request('/organizations');for(const org of result.organizations)if(org.role==='owner')this.ensureOrganizationTeam(org);this.store.preference('organizations',result.organizations.map(({id,name,role})=>({id,name,role})));this.organizationError=null;return {...result,organizations:this.organizations()};}
+    if(input.action==='organizationAppearance'){
+      const id=validId(input.organizationId);
+      if(!this.organizations().some(org=>org.id===id))throw threadError('Organization membership required',403);
+      if(!validOrganizationAppearance(input.appearance))throw threadError('Choose a valid org icon and color');
+      this.store.preference('organizationAppearance',{...this.store.preference('organizationAppearance'),[id]:input.appearance});
+      this.options.notify?.();return this.organizations().find(org=>org.id===id);
+    }
     if(input.action==='createOrganization'){const org=await this.directory.request('/organizations',{name:input.name});this.ensureOrganizationTeam(org);this.options.notify?.();return org;}
     if(input.action==='organizationMembers')return this.directory.request(`/organizations/${validId(input.organizationId)}/members`);
     if(input.action==='inviteOrganization')return this.directory.request(`/organizations/${validId(input.organizationId)}/invitations`,{email:input.email,role:input.role??'member'});

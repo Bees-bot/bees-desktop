@@ -373,6 +373,9 @@ fn ensure_dsh_runtime_blocking(app: &tauri::AppHandle) -> Result<DshRuntimeInfo,
     command.env_clear();
     inherit_environment(&mut command, &BASE_ENVIRONMENT);
     inherit_environment(&mut command, &RUNTIME_ENVIRONMENT);
+    command.env("BEES_ACCOUNT_API_URL", std::env::var("BEES_ACCOUNT_API_URL").unwrap_or_else(|_| {
+        if cfg!(debug_assertions) { "http://127.0.0.1:3000" } else { "https://app.bees.bot" }.to_string()
+    }));
     command
         .current_dir(&workspace)
         // Node stops reading at 16 KiB of headers and answers 431, which the webview shows as a

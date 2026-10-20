@@ -11,8 +11,17 @@ export function serverOrigin(value) {
 }
 
 export async function authConfig(url) {
-  const response = await fetch(serverOrigin(url) + '/api/config', { signal: AbortSignal.timeout(20000) });
-  if (!response.ok) throw threadError('Could not load sign-in options', response.status);
+  const origin = serverOrigin(url);
+  let response;
+  try {
+    response = await fetch(origin + '/api/config', { signal: AbortSignal.timeout(20000) });
+  } catch {
+    throw threadError(`Could not reach the server at ${origin}. Check the server URL and your internet connection. The Bees server is at https://app.bees.bot.`, 503);
+  }
+  if (response.status >= 500)
+    throw threadError(`The Bees server at ${origin} is temporarily unavailable. Please try again in a few minutes.`, response.status);
+  if (!response.ok)
+    throw threadError(`Could not load sign-in options from ${origin} (HTTP ${response.status}). Check the server URL or contact your server administrator.`, response.status);
   const config = await response.json();
   if (config.architecture !== 'client-owned-threads')
     throw threadError('This Bees Server needs an update before you can sign in with this client. Update the server or choose a compatible Bees Server.', 409);
