@@ -149,8 +149,9 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     h('select',{'aria-label':'Destination client',value:target,required:true,onChange:e=>setTarget(e.target.value)},h('option',{value:''},'Choose a participating client'),transferClients.map(c=>h('option',{key:c.id,value:c.id},c.name))),
     h('button',{className:'bc-primary',type:'submit',disabled:busy||active||!own||!data?.user},'Offer transfer'),
     authority?.transfer_client_id?h('button',{type:'button',onClick:()=>act('cancelTransfer')},'Cancel pending transfer'):null);
+  const verifyEmail=()=>perform(async()=>{await command('verifyEmail');setNotice('Check your email to verify your account.');});
   const account=data?.user?h('section',{className:'bc-form'},h('p',null,data.user.email),
-    !data.user.emailVerified?h('button',{onClick:()=>perform(async()=>{await command('verifyEmail');setNotice('Check your email to verify your account.');})},'Send verification email'):null,
+    !data.user.emailVerified?h('button',{onClick:verifyEmail},'Send verification email'):null,
     h('button',{onClick:()=>perform(async()=>{await command('logout');clearAccount();await refresh();setDialog(hosted?'login':null);})},'Sign out'))
     :h('button',{onClick:()=>setDialog('login')},'Sign in');
   const threadContent=!thread?h('p',{role:'status'},'Loading thread settings…')
@@ -164,7 +165,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     :teamSection==='folders'?teamFiles:integrations(teamSection);
   const globalContent=settingsSection==='ai'?h(AiConnections,{ctx,preferences,modelSettings,models:data?.models??[],current:data?.defaultModel,onModel:model=>act('model',{model})})
     :settingsSection==='appearance'?h(AppearanceSettings,{preference,onSave:saveAppearance,disabled:busy||!!preferences&&preferences.getSnapshot().status!=='ready'})
-    :settingsSection==='organizations'?(data?.user?h(OrganizationsPanel,{key:data.user.id+selectedOrganizationId,perform,organizationId:selectedOrganizationId,onChanged:loadOrganizations}):h('button',{onClick:()=>setDialog('login')},'Sign in to manage organizations'))
+    :settingsSection==='organizations'?(data?.user?h(OrganizationsPanel,{key:data.user.id+selectedOrganizationId,perform,organizationId:selectedOrganizationId,onChanged:loadOrganizations,onNotice:setNotice}):h('button',{onClick:()=>setDialog('login')},'Sign in to manage organizations'))
     :settingsSection==='account'?account
     :settingsSection==='instructions'?h('form',{className:'bc-form',key:data?.clientId,onSubmit:event=>{event.preventDefault();const systemInstructions=new FormData(event.currentTarget).get('instructions');void perform(async()=>{await command('preferences',null,{values:{systemInstructions}});await refresh();setNotice('System instructions saved.');});}},
       h('h3',null,'System instructions'),h('p',{className:'bc-muted'},'Applied to new runs in every thread on this client.'),h('textarea',{'aria-label':'System instructions',name:'instructions',rows:10,maxLength:20000,defaultValue:data?.settings?.systemInstructions??''}),h('button',{className:'bc-primary',disabled:busy||!data},'Save instructions'))
@@ -213,7 +214,10 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
         query||!collapsed[row.id]?h('div',{className:'bc-team-threads'},teamThreads(row.id).map(renderThread),!teamThreads(row.id).length?h('p',{className:'bc-muted bc-empty-list'},'No threads yet.'):null):null))
         :threads.map(renderThread),
         !teams.length||!threads.length&&allTeams.length<2?h('p',{className:'bc-muted bc-empty-list'},teams.length?'Start a New Goal or New Chat.':'Create a team from the Bees menu to get started.'):null),
-      roster.invitations?.length?h('section',{className:'bc-invitations'},h('strong',null,'Invitations'),roster.invitations.map(i=>h('button',{key:i.id,onClick:()=>acceptInvitation(i)},'Accept invitation'))):null,
+      roster.invitations?.length?h('section',{className:'bc-invitations'},h('strong',null,'Invitations'),
+        roster.invitations.map(i=>h('div',{key:i.id,className:'bc-person'},h('span',null,`${i.invited_by_name??'Someone'} invited you`,h('small',null,i.role==='viewer'?'Can view':'Can contribute and run work')),
+          data.user?.emailVerified?h('button',{disabled:busy,onClick:()=>acceptInvitation(i)},'Accept'):null)),
+        data.user?.emailVerified?null:h(React.Fragment,null,h('p',{className:'bc-muted'},'Verify your email to accept.'),h('button',{disabled:busy,onClick:verifyEmail},'Send verification email'))):null,
       h('footer',null,h('span',{className:'bc-dot '+(data?.connectionError?'offline':'')}),data?.user?'Connected to Bees':'Private on this machine')),
     h('main',{className:'bc-main'},h(UpdateBar),settingsOpen?h(React.Fragment,null,
       error?h('p',{className:'bc-error',role:'alert'},error):null,notice?h('p',{className:'bc-notice',role:'status'},notice):null,
@@ -306,16 +310,17 @@ function LegacyOverrides({rows,section,perform,busy}){
       :h(WorkflowSettings,{key:id+section,thread:doc,scope:'legacy',section,busy,disabled:doc.frozen||!!doc.unavailable,onSave:values=>perform(async()=>{setDoc(await command('configure',id,values));})}):null);
 }
 
-function OrganizationsPanel({perform,organizationId,onChanged}){
+function OrganizationsPanel({perform,organizationId,onChanged,onNotice}){
   const [data,setData]=useState({organizations:[],invitations:[]}),[id,setId]=useState(organizationId??''),[members,setMembers]=useState({members:[],clients:[]}),[name,setName]=useState(''),[email,setEmail]=useState('');
-  const load=async()=>setData(await command('organizations'));useEffect(()=>{void perform(load);},[]);
-  useEffect(()=>{let current=true;setMembers({members:[],clients:[]});if(id)void perform(async()=>{const next=await command('organizationMembers',null,{organizationId:id});if(current)setMembers(next);});return()=>{current=false;};},[id]);
+  const load=async()=>{const next=await command('organizations');setData(next);return next;};useEffect(()=>{void perform(async()=>{const next=await load();if(!id&&next.organizations.length===1)setId(next.organizations[0].id);});},[]);
+  // heartbeats land every 5s, so re-read the clients to keep Online honest
+  useEffect(()=>{let current=true;setMembers({members:[],clients:[]});const get=async()=>{const next=await command('organizationMembers',null,{organizationId:id});if(current)setMembers({...next,at:Date.now()});};if(id)void perform(get);const timer=id?setInterval(()=>void get().catch(()=>{}),15000):null;return()=>{current=false;clearInterval(timer);};},[id]);
   const admin=['owner','admin'].includes(data.organizations.find(o=>o.id===id)?.role);
   return h('section',{className:'bc-form'},h('h3',null,'Organizations'),h('p',{className:'bc-muted'},'Find colleagues and their clients. Thread invitations control access to work.'),
-    data.invitations.map(i=>h('button',{key:i.id,onClick:()=>perform(async()=>{await command('acceptOrganization',null,{invitationId:i.id});await load();await onChanged?.();})},'Join invited organization')),
+    data.invitations.map(i=>h('div',{key:i.id,className:'bc-person'},h('span',null,(i.invited_by_name?i.invited_by_name+' invited you to ':'You’re invited to ')+(i.organization_name??'an organization')),h('button',{onClick:()=>perform(async()=>{await command('acceptOrganization',null,{invitationId:i.id});await load();setId(i.organization_id);await onChanged?.();onNotice?.(`You joined ${i.organization_name??'the organization'}.`);})},'Join'))),
     h('div',{className:'bc-actions'},h('input',{'aria-label':'Organization name',placeholder:'Organization name',value:name,onChange:e=>setName(e.target.value)}),h('button',{disabled:!name.trim(),onClick:()=>perform(async()=>{const org=await command('createOrganization',null,{name});setName('');await load();setId(org.id);await onChanged?.();})},'Create')),
     data.organizations.length?h('select',{'aria-label':'Organization',value:id,onChange:e=>setId(e.target.value)},h('option',{value:''},'Choose an organization'),data.organizations.map(o=>h('option',{key:o.id,value:o.id},o.name))):null,
     id?members.members.map(m=>h('div',{key:m.user_id,className:'bc-person'},h('span',null,m.name??m.email),h('small',null,m.role),admin&&m.role!=='owner'?h('button',{onClick:()=>perform(async()=>{await command('removeOrganizationMember',null,{organizationId:id,userId:m.user_id});setMembers(await command('organizationMembers',null,{organizationId:id}));})},'Remove'):null)):null,
-    id?members.clients.map(c=>h('small',{key:c.id},c.name+' · '+(Date.now()-Date.parse(c.last_seen_at)<30000?'Online':'Offline'))):null,
-    id&&admin?h('div',{className:'bc-actions'},h('input',{'aria-label':'Invite colleague by email',type:'email',placeholder:'Colleague’s email',value:email,onChange:e=>setEmail(e.target.value)}),h('button',{disabled:!email,onClick:()=>perform(async()=>{await command('inviteOrganization',null,{organizationId:id,email});setEmail('');})},'Invite')):null);
+    id?members.clients.map(c=>h('small',{key:c.id},c.name+' · '+(members.at-Date.parse(c.last_seen_at)<30000?'Online':'Offline'))):null,
+    id&&admin?h('div',{className:'bc-actions'},h('input',{'aria-label':'Invite colleague by email',type:'email',placeholder:'Colleague’s email',value:email,onChange:e=>setEmail(e.target.value)}),h('button',{disabled:!email,onClick:()=>perform(async()=>{await command('inviteOrganization',null,{organizationId:id,email});setEmail('');onNotice?.(`Invited ${email}. They can join from Organization settings in Bees.`);})},'Invite')):null);
 }
