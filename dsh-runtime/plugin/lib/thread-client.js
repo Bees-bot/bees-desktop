@@ -15,24 +15,27 @@ export class DirectoryConnection {
   save(){writeFileSync(this.path,JSON.stringify({url:this.url,token:this.token,user:this.user}),{mode:0o600});}
   async request(path,body,method=body===undefined?'GET':'POST'){
     const result=await fetch(this.url+'/api/directory'+(path==='/'?'':path),{method,headers:{authorization:`Bearer ${this.token}`,'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.any([this.stop.signal,AbortSignal.timeout(20000)])}).catch(e=>{throw this.stop.signal.aborted?e:threadError("Bees can't be reached right now.",502);});
-    const value=await (result.ok?result.json():result.json().catch(()=>({})));if(!result.ok)throw threadError(value.error?.message??'Bees Server could not complete the request',result.status);return value;
+    // a server whose database is down answers 200 with the error inside, which replaced the thread list and crashed the page
+    const value=await result.json().catch(()=>null);if(!result.ok||!value||value.error)throw threadError(result.ok||result.status>=500?"Bees can't be reached right now.":value?.error?.message??'Bees Server could not complete the request',result.ok?502:result.status);return value;
   }
   async signIn({url,email,password,name,session}){
     const server=new URL(serverOrigin(url??this.url));
     await authConfig(server.origin);
     if(session)return {url:server.origin,session:text(session,8192)};
     const response=await fetch(server.origin+'/api/auth/'+(name?'sign-up/email':'sign-in/email'),{method:'POST',headers:{'content-type':'application/json',origin:server.origin},body:JSON.stringify({email,password,...(name?{name}:{})}),signal:AbortSignal.timeout(20000)});
-    const value=await response.json();if(!response.ok)throw threadError(value.message??'Sign in failed',response.status);
+    // a server that lost its database answers 500 with an empty body
+    const value=await response.json().catch(()=>({}));if(!response.ok)throw threadError(response.status>=500?"Bees can't be reached right now.":value.message??'Sign in failed',response.status);
     return {url:server.origin,session:response.headers.get('set-auth-token')??value.token};
   }
   async login(input,certificate,endpoints){const signed=await this.signIn(input);const prior=this.url;this.url=signed.url;try{return await this.resume(signed.session,certificate,endpoints);}catch(e){this.url=prior;throw e;}}
   async resume(session,certificate,endpoints){
     const headers={authorization:`Bearer ${session}`,'content-type':'application/json'};
-    const me=await fetch(this.url+'/api/me',{headers,signal:AbortSignal.timeout(20000)});if(!me.ok)throw threadError('Sign in again',401);
-    const user=(await me.json()).user;
+    const me=await fetch(this.url+'/api/me',{headers,signal:AbortSignal.timeout(20000)}),user=me.ok&&(await me.json().catch(()=>({}))).user;
+    // a server that is down answers 500, or 200 with no user on older servers, which is not a bad session
+    if(!user)throw me.status===401?threadError('Sign in again',401):threadError("Bees can't be reached right now.",502);
     if(this.user&&this.user.id!==user.id)throw threadError('Use a separate client data directory for another account',409);
     const response=await fetch(this.url+'/api/directory/clients',{method:'POST',headers,body:JSON.stringify({id:this.clientId,name:process.env.BEES_CLIENT_NAME??hostname(),certificate,endpoints}),signal:AbortSignal.timeout(20000)});
-    const value=await response.json();if(!response.ok)throw threadError(value.error?.message??'Client enrollment failed',response.status);
+    const value=await response.json().catch(()=>({}));if(!response.ok)throw threadError(response.status>=500?"Bees can't be reached right now.":value.error?.message??'Client enrollment failed',response.status);
     this.token=value.token;this.user=user;this.save();return user;
   }
 }
@@ -165,9 +168,9 @@ export class ThreadClient {
         if(doc.shared){await this.authority(id);const role=this.roster.participants.find(p=>p.thread_id===id&&p.user_id===this.directory.user?.id)?.role;if(!['owner','editor'].includes(role))throw threadError('Team editor access required',403);}
       }else{
         await this.fence(id);
-        if(doc.shared&&doc.ownerUserId!==this.directory.user?.id)throw threadError('Only the thread owner may manage integrations',403);
+        if(doc.shared&&doc.ownerUserId!==this.directory.user?.id)throw threadError('Only the thread owner can manage add-ons',403);
       }
-      if(!this.options.integrations)throw threadError('Integrations are unavailable on this client');
+      if(!this.options.integrations)throw threadError('Add-ons are not available on this client');
       return this.options.integrations.command(this.store,id,input);
     }
     if(input.action==='read'){
@@ -240,7 +243,8 @@ export class ThreadClient {
       if(!result.runs.some(r=>r.id===run.id))throw threadError('This operation identity was already used',409);
       if(quota)this.store.preference('admissions:'+day,[...admissions,run.id]);
       const abort=new AbortController();this.jobs.set(id,abort);
-      const executionThread={...this.store.document(id),memory:[...(team?.memory??[]),...(configuration.memory??[])]};
+      const names=new Map(this.roster.participants.map(p=>[p.user_id,p.name??p.email])),doc=this.store.document(id);
+      const executionThread={...doc,messages:doc.messages.map(m=>({...m,authorId:names.get(m.authorId)??m.authorId})),memory:[...(team?.memory??[]),...(configuration.memory??[])]};
       const finished=(async()=>{try{const output=await this.options.execute({thread:executionThread,team,run,signal:abort.signal,store:this.store});await this.fence(id);this.store.mutate(id,randomUUID(),doc=>{const r=doc.runs.find(r=>r.id===run.id);r.status='completed';r.completedAt=new Date().toISOString();doc.messages.push({id:randomUUID(),authorId:'bees',kind:'assistant',text:output||'Work completed.',createdAt:r.completedAt});});}catch(e){try{this.store.mutate(id,randomUUID(),doc=>{const r=doc.runs.find(r=>r.id===run.id);r.status=abort.signal.aborted?'cancelled':'failed';r.error=abort.signal.aborted?'Stopped before it finished.':e.message;});}catch(write){console.error(`Bees Client could not record the end of run ${run.id}: ${write.message}`);}}finally{this.jobs.delete(id);this.options.notify?.();}})();
       this.finishing.add(finished);void finished.finally(()=>this.finishing.delete(finished));
     } else if(input.action==='stop'){this.jobs.get(id)?.abort();result=this.store.document(id);}

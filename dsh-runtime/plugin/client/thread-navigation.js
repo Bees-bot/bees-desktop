@@ -1,5 +1,7 @@
 import { h } from './runtime.js';
 
+export const initials=name=>(name||'You').split(/\s|@/).filter(Boolean).slice(0,2).map(x=>x[0]).join('').toUpperCase();
+
 export function TeamMenu({team,icon,busy,canCreate,onCreate,onSettings}){
   const choose=fn=>event=>{event.currentTarget.closest('details').open=false;fn();};
   return h('details',{className:'bc-team-menu bc-thread-menu',onKeyDown:event=>{if(event.key==='Escape'){event.currentTarget.open=false;event.currentTarget.querySelector('summary').focus();}}},
@@ -29,5 +31,5 @@ export function BeesNavigation({brandMark,icon,organizations=[],organizationId,t
     h('button',{className:'bc-icon','aria-label':'Organization settings',title:'Organization settings',onClick:()=>onGlobal('organizations')},icon('share')),
     h('button',{className:'bc-icon','aria-label':`Switch to ${theme.dark?'light':'dark'} theme`,title:'Switch theme',onClick:onTheme},theme.dark?'☀':'☾'),
     h('button',{className:'bc-icon','aria-label':'Global settings',title:'Global settings',onClick:()=>onGlobal('ai')},icon('settings')),
-    h('button',{className:'bc-avatar',title:user?.email??'Sign in','aria-label':'Your account',onClick:onAccount},(user?.email??'You').slice(0,1).toUpperCase()));
+    h('button',{className:'bc-avatar',title:user?.email??'Sign in','aria-label':'Your account',onClick:onAccount},initials(user?.name||user?.email?.split('@')[0])));
 }

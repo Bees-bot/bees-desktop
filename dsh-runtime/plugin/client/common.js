@@ -127,6 +127,11 @@ function dialogValue(label, initial, confirmOnly = false, inputType = "text", pl
 }
 
 export const ask = (label, initial = "", inputType = "text", placeholder = "") => dialogValue(label, initial, false, inputType, placeholder);
+// folders come through a drop as unreadable entries, so only plain files are kept
+export const droppedFiles = event => [...(event.dataTransfer?.items ?? [])].filter(item => item.kind === 'file' && !item.webkitGetAsEntry?.()?.isDirectory).map(item => item.getAsFile()).filter(Boolean);
+// spreadsheets copy a picture next to the text, so a paste with text stays text. every screenshot is image.png, so each gets its own name
+export const pastedFiles = event => event.clipboardData?.types.includes('text/plain') ? [] : [...(event.clipboardData?.files ?? [])].map((file, i) => /^image\.\w+$/.test(file.name) ? new File([file], `pasted-${new Date().toTimeString().slice(0, 8).replaceAll(':', '')}${i ? '-' + (i + 1) : ''}.${file.name.split('.').pop()}`, { type: file.type }) : file);
+export const when = value => new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 export const confirmAction = (label) => dialogValue(label, "", true);
 export const Button = ({ children, className = "", ...props }) =>
   h("button", { type: "button", className: `bees-btn ${className}`, ...props }, children);

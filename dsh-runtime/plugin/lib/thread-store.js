@@ -29,7 +29,7 @@ export class ThreadStore {
     // An interrupted agent may have made an external change. Recovery always needs an explicit retry.
     for(const {id,document} of this.db.prepare('SELECT id,document FROM threads WHERE staged=0').all()) {
       const doc=JSON.parse(document);let changed=false;
-      for(const run of doc.runs) if(doc.ownerClientId===this.clientId&&run.status==='running') {run.status='uncertain';run.error='This client stopped during execution. Review external actions before retrying.';changed=true;}
+      for(const run of doc.runs) if(doc.ownerClientId===this.clientId&&run.status==='running') {run.status='uncertain';run.error='Bees closed while this was running. Check anything it may have changed before you try again.';changed=true;}
       if(changed) this.save(this.trim({...doc,revision:doc.revision+1}));
     }
     // files no thread lists any more (trimmed, rejected, or refused at the limit) give their space back on start
@@ -65,7 +65,7 @@ export class ThreadStore {
     const known=new Set();
     if(doc.folders!==undefined&&(!Array.isArray(doc.folders)||doc.folders.length>1000))throw threadError('Invalid thread folders');
     const paths=new Set();
-    for(const a of doc.artifacts)if(a.path!==undefined){threadPath(a.path);if(paths.has(a.path.toLowerCase()))throw threadError('A file already exists at this path');paths.add(a.path.toLowerCase());}
+    for(const a of doc.artifacts)if(a.path!==undefined){threadPath(a.path);if(paths.has(a.path.toLowerCase()))throw threadError(`${a.path} already exists in this thread. Rename it and add it again.`);paths.add(a.path.toLowerCase());}
     const folders=(doc.folders??[]).map(value=>threadPath(value).toLowerCase());
     for(const folder of folders)if(paths.has(folder))throw threadError('A file occupies this folder');
     for(const path of [...paths,...folders]){

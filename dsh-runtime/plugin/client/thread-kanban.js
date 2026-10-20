@@ -1,7 +1,8 @@
-import { h, useState } from './runtime.js';
+import { h, useState, MarkdownText } from './runtime.js';
+import { when } from './common.js';
 import { DEFAULT_WORKFLOW, processName, isChatWorkflow } from '../lib/thread-workflow.js';
 
-const labels = { planned: 'Planned', running: 'In progress', waiting: 'Needs input', completed: 'Done',
+export const labels = { planned: 'Planned', running: 'In progress', waiting: 'Needs input', completed: 'Done',
   failed: 'Failed', cancelled: 'Stopped', uncertain: 'Interrupted', idle: 'Ready' };
 const agentStatus = (agent, run) => ['running', 'idle'].includes(agent.status) && run.status !== 'running' ? 'uncertain' : agent.status;
 const count = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -35,7 +36,7 @@ function WorkCard({ card, selected, onSelect }) {
       h('strong', { className: 'bc-kanban-title', title: card.title }, card.title),
       card.parentTitle ? h('small', { className: 'bc-kanban-parent', title: card.parentTitle }, `Parent: ${card.parentTitle}`) : null,
       h('small', null, [...new Set(card.agents.map(agent => agent.model).filter(Boolean))].join(' · ') || 'Agent details unavailable'),
-      card.createdAt ? h('small', null, `Started ${new Date(card.createdAt).toLocaleString()}`) : null));
+      card.createdAt ? h('small', null, `Started ${when(card.createdAt)}`) : null));
 }
 
 function WorkDetails({ card, run, onSelect }) {
@@ -45,12 +46,12 @@ function WorkDetails({ card, run, onSelect }) {
     card.task && card.task !== card.title ? h('p', { className: 'bc-preserve' }, card.task) : null,
     h('div', { className: 'bc-kanban-agent-details' }, card.agents.map(agent => h('article', { key: agent.id, className: 'bc-card bc-form' },
       h('div', { className: 'bc-kanban-card-heading' }, h('strong', null, agent.title || (agent.parentId ? 'Subagent' : `${(run.workflow ?? DEFAULT_WORKFLOW)[agent.stageIndex]?.name ?? 'Work'} agent`)), badge(agentStatus(agent, run))),
-      h('code', null, agent.id), agent.model ? h('small', null, agent.model) : null,
-      agent.completedAt ? h('small', null, `Finished ${new Date(agent.completedAt).toLocaleString()}`) : null))),
+      h('small', { className: 'bc-muted' }, 'Agent ID ', h('code', null, agent.id)), agent.model ? h('small', null, agent.model) : null,
+      agent.completedAt ? h('small', null, `Finished ${when(agent.completedAt)}`) : null))),
     card.kind === 'Root work item' ? (run.stages ?? []).map((stage, index) => h('details', { key: index },
-      h('summary', null, `${stage.name} result`), h('p', { className: 'bc-preserve' }, stage.summary),
+      h('summary', null, `${stage.name} result`), stage.summary ? h(MarkdownText, { text: stage.summary, content: stage.summary }) : null,
       stage.tools?.length ? h('small', null, 'Tools: ' + stage.tools.map(tool => tool.name).join(', ')) : null))
-      : card.summary ? h('p', { className: 'bc-preserve' }, card.summary) : null);
+      : card.summary ? h(MarkdownText, { text: card.summary, content: card.summary }) : null);
 }
 
 export function ThreadKanban({ thread, onConversation, onWorkflow }) {
@@ -70,7 +71,7 @@ export function ThreadKanban({ thread, onConversation, onWorkflow }) {
         h('select', { value: runId, onChange: event => { setRunId(event.target.value); setCardId(''); } },
           h('option', { value: '' }, 'Latest execution'),
           [...runs].reverse().map(entry => h('option', { key: entry.id, value: entry.id },
-            `${new Date(entry.createdAt).toLocaleString()} · ${entry.prompt.slice(0, 60)}`)))) : null,
+            `${when(entry.createdAt)} · ${entry.prompt.slice(0, 60)}`)))) : null,
       h('button', { onClick: onWorkflow }, 'Process settings')),
     run ? h('p', { className: 'bc-muted', role: 'status' },
       `Execution: ${labels[run.status] ?? run.status} · ` + (!run.agents || !run.agents.length && run.activityError

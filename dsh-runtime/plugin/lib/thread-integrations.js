@@ -45,12 +45,12 @@ export class ThreadIntegrations {
     } else if (input.action === 'saveIntegration') await this.save(store, id, input);
     else if (['toggleIntegration', 'removeIntegration'].includes(input.action)) {
       const current = rows(store, id), server = current.find(row => row.id === validId(input.serverId));
-      if (!server) throw threadError('Integration not found', 404);
+      if (!server) throw threadError('Add-on not found', 404);
       if (input.action === 'removeIntegration') {
         store.preference(`integrations:${id}`, current.filter(row => row.id !== server.id));
         for (const key of server.secretNames) await this.ctx.credentials.unset(secretRef(store, id, server.id, key));
       } else {
-        if (typeof input.enabled !== 'boolean') throw threadError('Choose whether to enable this integration');
+        if (typeof input.enabled !== 'boolean') throw threadError('Choose whether to turn this add-on on');
         store.preference(`integrations:${id}`, current.map(row => row.id === server.id ? { ...row, enabled: input.enabled } : row));
       }
     } else throw threadError('Unknown integration command');
@@ -58,11 +58,12 @@ export class ThreadIntegrations {
   }
   async save(store, id, input) {
     const entry = input.catalogId ? catalogEntry(input.catalogId) : null;
-    if (input.catalogId && !entry) throw threadError('Unknown integration');
+    if (input.catalogId && !entry) throw threadError('Unknown add-on');
     const current = rows(store, id);
-    if (current.length >= 40) throw threadError('A team can have up to 40 integrations');
+    if (current.length >= 40) throw threadError('A team can have up to 40 add-ons');
     const serverName = input.serverName || entry?.serverName;
-    if (!/^[a-zA-Z0-9_-]{1,32}$/.test(serverName ?? '') || current.some(row => row.serverName === serverName)) throw threadError('Use a unique server name with up to 32 letters, numbers, dashes or underscores');
+    if (!/^[a-zA-Z0-9_-]{1,32}$/.test(serverName ?? '')) throw threadError('Use a server name of 1 to 32 letters, numbers, dashes or underscores, with no spaces');
+    if (current.some(row => row.serverName === serverName)) throw threadError(`An add-on with the server name "${serverName}" is already connected. Pick another server name.`);
     const transport = entry?.transport ?? input.transport;
     if (!['stdio', 'streamable-http'].includes(transport)) throw threadError('Choose an MCP transport');
     const suppliedArgs = entry?.args ?? input.args ?? [];

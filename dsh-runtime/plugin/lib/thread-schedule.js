@@ -4,7 +4,7 @@ import { threadError, text } from './thread-store.js';
 export function schedule(input,after=new Date()){
   if(input===null)return null;
   const prompt=text(input.prompt),timezone=text(input.timezone??Intl.DateTimeFormat().resolvedOptions().timeZone,100);
-  try{new Intl.DateTimeFormat('en',{timeZone:timezone});}catch{throw threadError('Invalid timezone');}
+  try{new Intl.DateTimeFormat('en',{timeZone:timezone});}catch{throw threadError('Unknown timezone. Use a name like Asia/Kathmandu.');}
   let expression,fields={};
   const frequency=input.frequency??'daily';
   if(frequency==='hourly'){

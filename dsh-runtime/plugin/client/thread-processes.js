@@ -4,7 +4,7 @@ import { DEFAULT_WORKFLOW, WORKFLOW_TEMPLATES, isChatWorkflow } from '../lib/thr
 export function WorkflowStages({stages,onChange,disabled=false}){
   return h('fieldset',{className:'bc-form bc-fieldset',disabled},
     stages.map((stage,index)=>h('div',{key:index,className:'bc-actions'},
-      h('input',{'aria-label':'Stage name',value:stage.name,required:true,maxLength:80,onChange:e=>onChange(stages.map((s,i)=>i===index?{...s,name:e.target.value}:s))}),
+      h('input',{'aria-label':'Stage name',value:stage.name,required:true,pattern:'.*\\S.*',title:'Give each stage a name.',maxLength:80,onChange:e=>onChange(stages.map((s,i)=>i===index?{...s,name:e.target.value}:s))}),
       h('select',{'aria-label':'Stage type',value:stage.kind,onChange:e=>onChange(stages.map((s,i)=>i===index?{...s,kind:e.target.value}:s))},
         h('option',{value:'work'},'Work'),h('option',{value:'review'},'Independent review'),h('option',{value:'approval'},'Your approval'),h('option',{value:'chat',disabled:stages.length!==1},'AI chat')),
       h('button',{type:'button','aria-label':'Remove stage',disabled:stages.length===1,onClick:()=>onChange(stages.filter((_,i)=>i!==index))},'×'))),
@@ -25,13 +25,13 @@ export function TeamProcesses({team,canManage,canCreate,busy,onSave,onStart}){
         canManage&&!WORKFLOW_TEMPLATES.some(t=>t.id===process.id)?h('button',{disabled:busy,onClick:()=>edit(process)},'Edit'):null,
         canManage&&!WORKFLOW_TEMPLATES.some(t=>t.id===process.id)?h('button',{disabled:busy,onClick:async()=>{if(await onSave((team.processes??[]).filter(p=>p.id!==process.id)))setEditing(null);}},'Delete'):null)))),
     canManage?h('button',{className:'bc-primary',disabled:busy,onClick:()=>edit(null)},'Create process'):null,
-    editing?h('form',{ref:editor,className:'bc-form bc-process-editor',onSubmit:async event=>{
+    editing?h('form',{key:editing,ref:editor,className:'bc-form bc-process-editor',onSubmit:async event=>{
       event.preventDefault();if(busy||!canManage)return;
-      const process={id:editing==='new'?crypto.randomUUID():editing,name:name.trim(),workflow:stages};
+      const process={id:editing==='new'?crypto.randomUUID():editing,name:name.trim(),workflow:stages.map(s=>({...s,name:s.name.trim()}))};
       const processes=editing==='new'?[...(team.processes??[]),process]:(team.processes??[]).map(p=>p.id===editing?process:p);
       if(await onSave(processes))setEditing(null);
     }},h('h3',null,editing==='new'?'Create process':'Edit process'),
-      h('label',{className:'bc-field'},h('span',null,'Process name'),h('input',{value:name,required:true,maxLength:120,onChange:e=>setName(e.target.value)})),
+      h('label',{className:'bc-field'},h('span',null,'Process name'),h('input',{value:name,required:true,pattern:'.*\\S.*',title:'Give the process a name.',maxLength:120,onChange:e=>{setName(e.target.value);e.target.setCustomValidity([...WORKFLOW_TEMPLATES,...(team.processes??[])].some(p=>p.id!==editing&&p.name.toLowerCase()===e.target.value.trim().toLowerCase())?'A process with this name already exists.':'');}})),
       h(WorkflowStages,{stages,onChange:setStages,disabled:busy}),
       h('div',{className:'bc-actions'},h('button',{className:'bc-primary',disabled:busy,type:'submit'},'Save process'),h('button',{type:'button',onClick:()=>setEditing(null)},'Cancel'))):null);
 }
