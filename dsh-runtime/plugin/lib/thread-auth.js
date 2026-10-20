@@ -11,9 +11,10 @@ export function serverOrigin(value) {
 }
 
 export async function authConfig(url) {
-  const response = await fetch(serverOrigin(url) + '/api/config', { signal: AbortSignal.timeout(20000) });
+  const unreachable = () => { throw threadError("Can't reach a Bees Server at this address.", 502); };
+  const response = await fetch(serverOrigin(url) + '/api/config', { signal: AbortSignal.timeout(20000) }).catch(unreachable);
   if (!response.ok) throw threadError('Could not load sign-in options', response.status);
-  const config = await response.json();
+  const config = await response.json().catch(unreachable);
   if (config.architecture !== 'client-owned-threads')
     throw threadError('This Bees Server needs an update before you can sign in with this client. Update the server or choose a compatible Bees Server.', 409);
   return { socialProviders: Array.isArray(config.socialProviders) ? config.socialProviders.filter(p => ['google', 'github'].includes(p)) : [], ssoEnabled: config.ssoEnabled === true };

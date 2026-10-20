@@ -80,7 +80,7 @@ export function ThreadFiles({ thread, canWrite, busy, onAttach, onPreview, previ
           h('button', { disabled: !canWrite || busy, onClick: () => folderInput.current.click() }, 'Add folder')),
         ...[...directories].sort().map(name => h('button', { className: 'bc-file', key: name, onClick: () => setFolder(prefix + name) }, '▱', h('strong', null, name))),
         ...files.map(fileButton),
-        !directories.size && !files.length ? h('p', { className: 'bc-muted' }, 'This folder is empty. Add files or a folder to give Bees context.') : null),
+        !directories.size && !files.length ? h('p', { className: 'bc-muted' }, canWrite ? 'This folder is empty. Add files or a folder to give Bees context.' : 'This folder is empty.') : null),
       h('section', { className: 'bc-form', 'aria-label': 'Output files' },
         h('h3', null, 'Output files'),
         ...outputs.map(fileButton),

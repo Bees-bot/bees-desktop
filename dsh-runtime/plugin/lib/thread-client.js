@@ -14,8 +14,8 @@ export class DirectoryConnection {
   constructor(root,clientId){this.path=join(root,'directory.json');this.clientId=clientId;this.stop=new AbortController();if(existsSync(this.path))Object.assign(this,JSON.parse(readFileSync(this.path,'utf8')));this.url??=process.env.BEES_ACCOUNT_API_URL??'https://app.bees.bot';}
   save(){writeFileSync(this.path,JSON.stringify({url:this.url,token:this.token,user:this.user}),{mode:0o600});}
   async request(path,body,method=body===undefined?'GET':'POST'){
-    const result=await fetch(this.url+'/api/directory'+(path==='/'?'':path),{method,headers:{authorization:`Bearer ${this.token}`,'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.any([this.stop.signal,AbortSignal.timeout(20000)])});
-    const value=await result.json();if(!result.ok)throw threadError(value.error?.message??'Bees Server could not complete the request',result.status);return value;
+    const result=await fetch(this.url+'/api/directory'+(path==='/'?'':path),{method,headers:{authorization:`Bearer ${this.token}`,'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.any([this.stop.signal,AbortSignal.timeout(20000)])}).catch(e=>{throw this.stop.signal.aborted?e:threadError("Bees can't be reached right now.",502);});
+    const value=await (result.ok?result.json():result.json().catch(()=>({})));if(!result.ok)throw threadError(value.error?.message??'Bees Server could not complete the request',result.status);return value;
   }
   async signIn({url,email,password,name,session}){
     const server=new URL(serverOrigin(url??this.url));
@@ -93,6 +93,8 @@ export class ThreadClient {
   async syncAuthority(authority){const id=authority.id;if(authority.owner_client_id===this.store.clientId)return this.store.document(id);
     if(authority.team_id){const team=this.roster.threads.find(t=>t.id===authority.team_id);if(team)await this.syncAuthority(team);}
     const local=this.store.list().find(t=>t.id===id);if(local?.staged&&authority.transfer_client_id===this.store.clientId&&checkpointDigest(this.store.document(id))===authority.transfer_digest)return this.store.document(id);
+    // both stamps are server time, so a wrong laptop clock can't make an online owner look offline
+    const seen=c=>Date.parse(this.roster.clients?.find(x=>x.id===c)?.last_seen_at);if(seen(this.store.clientId)-seen(authority.owner_client_id)>30000)throw threadError("The owner's laptop can't be reached right now.",408);
     const doc=await this.peer.send(id,authority.owner_client_id,{kind:'snapshot'});
     if(this.closing)throw threadError('Client is stopping');
     const imported=this.store.import(doc,authority);
@@ -170,7 +172,7 @@ export class ThreadClient {
     }
     if(input.action==='read'){
       let doc;
-      try{doc=await this.sync(id);}catch(e){doc=this.store.get(id);if(doc.ownerClientId!==this.store.clientId||doc.shared)doc.unavailable=e.message;}
+      try{doc=await this.sync(id);}catch(e){doc=this.store.get(id);if(doc.ownerClientId!==this.store.clientId||doc.shared)doc.unavailable=e.status===403?'You no longer have access to this thread.':e.status===502?"Bees can't be reached right now.":!e.status||e.status===408?"The owner's laptop can't be reached right now.":e.message;}
       await this.options.recoverActivity?.(this.store,doc);
       return {...this.store.get(id),teamId:doc.teamId??this.store.preference(`team:${id}`),...(doc.unavailable?{unavailable:doc.unavailable}:{}),frozen:doc.ownerClientId===this.store.clientId&&!!this.store.preference(`frozen:${id}`)};
     }

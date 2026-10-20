@@ -36,7 +36,7 @@ export function IntegrationSettings({ threadId, canManage, request, perform, pag
       ? 'Personal browser access is available on desktop clients.'
       : 'Personal browser access requires a supported Chromium browser as your Mac’s default browser.') : null,
     data.browser.warning ? h('p', { className: 'bc-muted' }, data.browser.warning) : null,
-    h('p', null, 'Enable Browser or Chrome DevTools in Add-ons to give every thread in this team browser tools.'),
+    h('p', null, 'Turn on Browser or Chrome DevTools in MCP integrations to give every thread in this team browser tools.'),
     !hosted && data.browser.mode === 'personal' ? h('button', { onClick: () => perform(() => request('openBrowser', threadId)) }, 'Open browser') : null,
     notice ? h('p', { role: 'status' }, notice) : null);
   return h('section', { className: 'bc-form' }, h('h3', null, 'MCP integrations'),
