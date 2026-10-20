@@ -141,6 +141,8 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const owner=roster.clients.find(c=>c.id===(authority?.owner_client_id??thread?.ownerClientId));
   const own=!!thread&&thread.ownerClientId===data?.clientId, manage=!!thread&&(own||thread.ownerUserId===data?.user?.id);
   const run=thread?.runs?.at(-1), active=run?.status==='running';
+  // the 5 second roster tick is too slow to watch a reply come in
+  useEffect(()=>{if(!active||!selected)return;const timer=setInterval(()=>void read(selected).catch(()=>{}),1500);return()=>clearInterval(timer);},[active,selected]);
   const canEdit=!selected||!!thread&&(own||participants.some(p=>p.user_id===data?.user?.id&&p.role!=='viewer'));
   const canWrite=canEdit&&!thread?.frozen&&!thread?.unavailable;
   const canConfigure=manage&&canWrite;
@@ -281,7 +283,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
 }
 
 export function ThreadConversation({thread,discussion,peerNames,userId,userName,canWrite,viewOnly,manage,run,active,busy,act,onSend,onAttach,onFiles,onOpenFile,suggestion,templateId='goals',onTemplateChange,templates=WORKFLOW_TEMPLATES}){
-  const [draft,setDraft]=useState(''),[pending,setPending]=useState([]),end=useRef(),picker=useRef();
+  const [draft,setDraft]=useState(''),[pending,setPending]=useState([]),end=useRef(),picker=useRef(),pinned=useRef(true);
   const addPending=picked=>setPending(current=>[...current.filter(f=>!picked.some(p=>p.name===f.name)),...picked]);
   const take=files=>thread?void onAttach(files):addPending(files);
   const chatting=isChatWorkflow(thread?.workflow)||templateId==='chat';
@@ -289,17 +291,21 @@ export function ThreadConversation({thread,discussion,peerNames,userId,userName,
   // an older stopped or failed run would leave its message with no reply and no reason
   const unanswered=new Map();if(!discussion)for(const r of thread?.runs??[])if(r.error&&r.status!=='running'&&r!==run){let i=messages.findLastIndex(m=>m.createdAt<=r.createdAt);while(messages[i+1]?.kind==='assistant')i++;if(i>=0)unanswered.set(messages[i].id,r.error);}
   useEffect(()=>{if(suggestion&&!discussion)setDraft(suggestion.text);},[suggestion]);
-  useEffect(()=>{if(end.current?.getClientRects().length)end.current.scrollIntoView({block:'nearest'});},[messages.length]);
+  // follow new words and messages unless the person scrolled up to read, but always show one they just sent
+  const sent=messages.filter(m=>m.authorId===userId||m.authorId==='local').length;
+  useEffect(()=>{pinned.current=true;},[thread?.id,sent]);
+  useEffect(()=>{if(pinned.current&&end.current?.getClientRects().length)end.current.scrollIntoView({block:'nearest'});},[messages.length,active&&run?.partial]);
   return h('div',{className:'bc-chat-widget'+(!discussion&&!messages.length?' bc-empty-chat':''),
     onDragOver:e=>{if(canWrite&&!busy&&e.dataTransfer.types.includes('Files'))e.preventDefault();},
     onDrop:e=>{const dropped=canWrite&&!busy?droppedFiles(e):[];if(!dropped.length)return;e.preventDefault();take(dropped);}},
-    thread?h('section',{className:'bc-conversation','aria-label':discussion?'Discussion messages':'Conversation messages'},
+    thread?h('section',{className:'bc-conversation','aria-label':discussion?'Discussion messages':'Conversation messages',onScroll:e=>{const b=e.currentTarget;pinned.current=b.scrollHeight-b.scrollTop-b.clientHeight<40;}},
       discussion&&!messages.length?h('p',{className:'bc-muted'},'Discuss this work with the people in your thread. Messages here do not start an AI run.'):null,
       messages.map(m=>h('article',{key:m.id,className:'bc-message '+m.kind},
         h('span',{className:'bc-avatar '+(m.kind==='assistant'?'bees':'')},m.kind==='assistant'?'✳':initials(peerNames.get(m.authorId)??(m.authorId===userId||m.authorId==='local'?userName:m.authorId))),h('div',null,
           h('div',{className:'bc-message-author'},m.kind==='assistant'?'Bees':peerNames.get(m.authorId)??(m.authorId===userId||m.authorId==='local'?'You':m.authorId),h('small',null,new Date(m.createdAt).toDateString()===new Date().toDateString()?new Date(m.createdAt).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):when(m.createdAt))),
           h('div',{className:'bc-bubble'},h(MarkdownText,{text:m.text,content:m.text})),
           m.files?.length?h('div',{className:'bc-pending-files bc-message-files'},m.files.map(fileId=>thread.artifacts?.find(a=>a.id===fileId)).filter(Boolean).map(file=>h('button',{key:file.id,type:'button',title:'Open '+file.name,onClick:()=>onOpenFile(file)},file.name))):null,unanswered.has(m.id)?h('p',{className:'bc-muted bc-unanswered'},unanswered.get(m.id)):null))),
+      !discussion&&active&&run.partial?h('article',{className:'bc-message assistant'},h('span',{className:'bc-avatar bees'},'✳'),h('div',null,h('div',{className:'bc-message-author'},'Bees'),h('div',{className:'bc-bubble'},h(MarkdownText,{text:run.partial,content:run.partial})))):null,
       !discussion&&active?h('div',{className:'bc-working',role:'status'},h('span',{className:'bc-dot'}),chatting?'Bees is replying…':run.stage?`Bees is working on the ${run.stage} stage…`:'Bees is working…',h('button',{disabled:!canWrite,onClick:()=>act('stop')},'Stop')):null,
       !discussion&&run?.error?h('div',{className:'bc-notice'},run.error):null,
       !discussion&&run?.pending?h('fieldset',{disabled:!canWrite||run.pending.kind==='approval'&&!manage,className:'bc-fieldset'},h(Question,{key:run.pending.id,run,threadId:thread.id,act})):null,h('div',{ref:end})):null,

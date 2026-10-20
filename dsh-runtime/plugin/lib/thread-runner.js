@@ -89,6 +89,11 @@ export class ThreadRunner {
       const setup=async (agentCtx,parentId)=>{
         const owner=scopeOf(agentCtx);
         trackThreadAgent(agentCtx,{agent:owner,store,threadId:thread.id,runId:run.id,stageIndex:index,parentId});
+        // the stage agent's reply as it streams, so the screen shows words before the stage ends
+        if(!parentId){let live='',timer;
+          const flush=()=>{timer=undefined;try{store.mutate(thread.id,randomUUID(),d=>{d.runs.find(r=>r.id===run.id).partial=live.slice(-20000);});}catch{}};
+          agentCtx.effect(()=>agentCtx.on('agent/assistant-stream',({agent,frame})=>{if(agent!==owner)return;if(frame.type==='start')live='';else if(frame.chunk?.type==='text-delta'){live+=frame.chunk.text;timer??=setTimeout(flush,1500);}}),'Thread live reply');
+          agentCtx.effect(()=>()=>clearTimeout(timer),'Thread live reply timer');}
         // Preset inheritance excludes thread-specific tools and guards.
         agentCtx.effect(()=>this.ctx.on('agent/created',({agent})=>{if(this.ctx.agents.isOwnedBy(agent.id,owner))return setup(agent.ctx,owner.id);}), 'Thread child setup');
         mountFileLocks(agentCtx,owner,locks,this.ctx.fs,this.ctx.get('sandboxPolicy'));
@@ -134,7 +139,7 @@ export class ThreadRunner {
         const messages=events.filter(e=>e.type==='assistant/message').map(e=>(e.data.message.content??[]).filter(b=>b.type==='text').map(b=>b.text).join('\n')).filter(Boolean);
         summary=messages.at(-1)??'Work completed.';
         if(stage.kind==='review')reviews.push(stage.name+': '+summary);else deliverable=summary;
-        store.mutate(thread.id,randomUUID(),d=>{const r=d.runs.find(r=>r.id===run.id);r.stages??=[];r.stages.push({index,name:stage.name,summary,completedAt:new Date().toISOString(),tools:events.filter(e=>e.type==='tool/call').map(e=>({id:e.data.callId,name:e.data.name}))});});
+        store.mutate(thread.id,randomUUID(),d=>{const r=d.runs.find(r=>r.id===run.id);delete r.partial;r.stages??=[];r.stages.push({index,name:stage.name,summary,completedAt:new Date().toISOString(),tools:events.filter(e=>e.type==='tool/call').map(e=>({id:e.data.callId,name:e.data.name}))});});
       }finally{signal.removeEventListener('abort',abort);await handle.dispose();}
     }
     collect(outputRoot);}catch(e){
