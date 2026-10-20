@@ -89,19 +89,21 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const clearAccount=()=>{profileEpoch.current++;select(null);setOrganizationId(undefined);setOrganizations([]);setTeamId(null);setTeam(null);setCollapsed({});setThread(null);setPreview(null);setSuggestion(null);setData(null);};
   const create=(templateId='goals',id=currentTeamId)=>perform(async()=>{const next=await command('create',null,{title:templateId==='chat'?'New chat':templateId==='goals'?'New goal':'New thread',templateId,teamId:id});await refresh();select(next.id);setTeamId(id);setCollapsed(values=>({...values,[id]:false}));});
   const createTeam=()=>perform(async()=>{const name=await ask('Team name','');if(!name?.trim())return;const next=await command('createTeam',null,{name,...(selectedOrganizationId?{organizationId:selectedOrganizationId}:{})});await refresh();select(null);setTeamId(next.id);});
-  const send=(text,discussion=false,onAccepted)=>perform(async()=>{
+  const checkSize=files=>{if(files.some(file=>file.size>10_000_000))throw Error('Files must be 10 MB or smaller');};
+  const encode=file=>new Promise((ok,bad)=>{const reader=new FileReader();reader.onload=()=>ok(reader.result.split(',')[1]);reader.onerror=()=>bad(Error('Could not read '+file.name));reader.readAsDataURL(file);});
+  const send=(text,discussion=false,onAccepted,files=[])=>perform(async()=>{
     if(!text.trim()||busy||!canWrite||active&&!discussion)return false;
+    // read files before creating the thread, so a bad file never leaves an empty thread behind
+    checkSize(files);const contents=await Promise.all(files.map(encode));
     let id=selected;if(!id){const created=await command('create',null,{templateId:newTemplate,teamId:currentTeamId});id=created.id;select(id);}
+    for(const [i,file] of files.entries())await command('attach',id,{name:file.name,path:file.name,content:contents[i]});
     await command(discussion?'discussion':'message',id,{text});onAccepted?.();
     if(!discussion)await command('run',id,{text});await refresh();await read(id);return true;
   });
   const attach=(files,prefix='',id=selected)=>perform(async()=>{
     if(!id)throw Error('Start a thread before attaching files');
-    if(files.some(file=>file.size>10_000_000))throw Error('Files must be 10 MB or smaller');
-    for(const file of files){
-      const content=await new Promise((ok,bad)=>{const reader=new FileReader();reader.onload=()=>ok(reader.result.split(',')[1]);reader.onerror=()=>bad(Error('Could not read '+file.name));reader.readAsDataURL(file);});
-      await command('attach',id,{name:file.name,path:prefix+(file.webkitRelativePath||file.name),content});
-    }
+    checkSize(files);
+    for(const file of files)await command('attach',id,{name:file.name,path:prefix+(file.webkitRelativePath||file.name),content:await encode(file)});
     if(id===currentTeamId)await readTeam(id);else await read(id);setNotice(`Added ${files.length} file${files.length===1?'':'s'}.`);return true;
   });
   const roster=data?.directory??{threads:[],participants:[],clients:[],invitations:[]};
@@ -242,7 +244,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
 }
 
 export function ThreadConversation({thread,discussion,peerNames,userId,canWrite,manage,run,active,busy,act,onSend,onFiles,suggestion,templateId='goals',onTemplateChange,templates=WORKFLOW_TEMPLATES}){
-  const [draft,setDraft]=useState(''),end=useRef();
+  const [draft,setDraft]=useState(''),[pending,setPending]=useState([]),end=useRef(),picker=useRef();
   const chatting=isChatWorkflow(thread?.workflow)||templateId==='chat';
   const messages=(thread?.messages??[]).filter(m=>discussion?m.kind==='discussion':m.kind!=='discussion');
   useEffect(()=>{if(suggestion&&!discussion)setDraft(suggestion.text);},[suggestion]);
@@ -257,12 +259,15 @@ export function ThreadConversation({thread,discussion,peerNames,userId,canWrite,
       !discussion&&active?h('div',{className:'bc-working',role:'status'},h('span',{className:'bc-dot'}),run.stage??(chatting?'Bees is replying…':'Bees is working…'),h('button',{disabled:!canWrite,onClick:()=>act('stop')},'Stop')):null,
       !discussion&&run?.error?h('div',{className:'bc-notice'},run.error):null,
       !discussion&&run?.pending?h('fieldset',{disabled:!canWrite||run.pending.kind==='approval'&&!manage,className:'bc-fieldset'},h(Question,{key:run.pending.id,run,threadId:thread.id,act})):null,h('div',{ref:end})):null,
-    h('form',{className:'bc-composer',onSubmit:e=>{e.preventDefault();const sent=draft;void onSend(sent,discussion,()=>setDraft(current=>current===sent?'':current));}},
+    h('form',{className:'bc-composer',onSubmit:e=>{e.preventDefault();const sent=draft;void onSend(sent,discussion,()=>{setDraft(current=>current===sent?'':current);setPending([]);},pending);}},
       h('textarea',{placeholder:discussion?'Message the people in this thread…':chatting?'Chat with Bees…':'Ask Bees to get something done…','aria-label':discussion?'Discussion message':'Message',disabled:!canWrite,value:draft,onChange:e=>setDraft(e.target.value),onKeyDown:e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();e.currentTarget.form.requestSubmit();}}}),
       !discussion&&!messages.length&&!thread?.runs?.length?h('label',{className:'bc-template'},h('span',null,'Template'),h('select',{'aria-label':'Thread template',value:templateId,disabled:busy||!canWrite||!!thread&&!manage,onChange:e=>onTemplateChange(e.target.value)},
         templateId==='custom'?h('option',{value:'custom'},'Custom process'):null,
         templates.map(t=>h('option',{key:t.id,value:t.id},t.name+(t.id==='goals'?' (default)':''))))):null,
-      h('div',{className:'bc-composer-footer'},h('button',{type:'button',className:'bc-icon','aria-label':'Add files and folders',disabled:!thread,onClick:onFiles},icon('plus')),
+      pending.length?h('div',{className:'bc-pending-files'},pending.map(file=>h('span',{key:file.name},file.name,
+        h('button',{type:'button',className:'bc-icon','aria-label':'Remove '+file.name,disabled:busy,onClick:()=>setPending(current=>current.filter(f=>f!==file))},icon('close'))))):null,
+      h('div',{className:'bc-composer-footer'},h('button',{type:'button',className:'bc-icon','aria-label':thread?'Add files and folders':'Add files',disabled:!thread&&(busy||!canWrite),onClick:thread?onFiles:()=>picker.current.click()},icon('plus')),
+        thread?null:h('input',{type:'file',multiple:true,hidden:true,ref:picker,onChange:e=>{const picked=[...e.target.files];e.target.value='';setPending(current=>[...current.filter(f=>!picked.some(p=>p.name===f.name)),...picked]);}}),
         h('span',null,discussion?'Discussion':chatting?'Chat with AI':'Ask Bees'),h('span',{className:'bc-spacer'}),h('small',null,active?(chatting?'Bees is replying…':'Working on this machine'):chatting?'Your turn · ⌘ Enter to send':'⌘ Enter to send'),
         h('button',{className:'bc-send',type:'submit','aria-label':discussion?'Send discussion message':'Send message',disabled:busy||!canWrite||!draft.trim()||active&&!discussion},icon('send')))));
 }
