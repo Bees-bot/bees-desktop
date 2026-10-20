@@ -4,6 +4,7 @@ import { DEFAULT_WORKFLOW, processName, isChatWorkflow } from '../lib/thread-wor
 const labels = { planned: 'Planned', running: 'In progress', waiting: 'Needs input', completed: 'Done',
   failed: 'Failed', cancelled: 'Stopped', uncertain: 'Interrupted', idle: 'Ready' };
 const agentStatus = (agent, run) => ['running', 'idle'].includes(agent.status) && run.status !== 'running' ? 'uncertain' : agent.status;
+const count = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const badge = status => h('span', { className: 'bc-kanban-status', 'data-status': status }, labels[status] ?? status);
 
 export function kanbanColumns(thread, run) {
@@ -79,7 +80,7 @@ export function ThreadKanban({ thread, onConversation, onWorkflow }) {
     run?.activityError ? h('p', { role: 'status', className: 'bc-muted' }, run.activityError) : null,
     h('div', { className: 'bc-kanban-board', role: 'region', 'aria-label': 'Workflow board', tabIndex: 0 },
       columns.map(stage => h('section', { key: stage.index, className: 'bc-kanban-column', 'aria-label': stage.name },
-        h('header', null, h('h3', null, stage.name), h('small', null, `${stage.cards.length} work items`)),
+        h('header', null, h('h3', null, stage.name), h('small', null, count(stage.cards.length, 'work item'))),
         stage.cards.length ? h('ul', { className: 'bc-kanban-items', 'aria-label': `${stage.name} work items` },
           stage.cards.map(card => h(WorkCard, { key: card.id, card, selected: selected?.id === card.id, onSelect: () => setCardId(card.id) })))
           : h('p', { className: 'bc-muted bc-kanban-empty' }, 'No work')))),
