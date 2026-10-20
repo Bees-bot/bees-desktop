@@ -8,9 +8,20 @@ import { authConfig, desktopSignIn, serverOrigin } from './thread-auth.js';
 /** Account content and peer credentials never share a client database. AI connections belong to this machine. */
 export class ClientProfiles {
   constructor(root,options={}){this.root=root;this.options=options;this.clients=new Map();mkdirSync(root,{recursive:true,mode:0o700});this.path=join(root,'accounts.json');this.state=existsSync(this.path)?JSON.parse(readFileSync(this.path,'utf8')):{anonymous:'personal',active:'personal',accounts:{}};}
-  save(){const temporary=this.path+'.tmp';writeFileSync(temporary,JSON.stringify(this.state),{mode:0o600});renameSync(temporary,this.path);}
+  save(){if(this.active){this.state.servers??={};this.state.servers[this.active.directory.url]=this.state.active;}const temporary=this.path+'.tmp';writeFileSync(temporary,JSON.stringify(this.state),{mode:0o600});renameSync(temporary,this.path);}
   async open(slot){if(!/^[a-zA-Z0-9-]+$/.test(slot))throw threadError('Invalid client profile');if(!this.clients.has(slot))this.clients.set(slot,await new ThreadClient(join(this.root,slot),this.options).start());return this.clients.get(slot);}
-  async start(){this.active=await this.open(this.state.active);if(this.active.directory.user){const key=this.key(this.active.directory.url,this.active.directory.user.id);this.state.accounts[key]=this.state.active;this.save();}return this;}
+  savedDirectory(slot){if(!/^[a-zA-Z0-9-]+$/.test(slot))throw threadError('Invalid client profile');const path=join(this.root,slot,'directory.json');return this.clients.get(slot)?.directory??(existsSync(path)?JSON.parse(readFileSync(path,'utf8')):{});}
+  accounts(){return Object.entries(this.state.accounts).flatMap(([id,slot])=>{const directory=this.savedDirectory(slot);return directory.token&&directory.user?[{id,user:directory.user,url:directory.url,active:slot===this.state.active}]:[];}).sort((a,b)=>(a.user.email??'').localeCompare(b.user.email??''));}
+  async snapshot(){return {...await this.active.snapshot(),localActive:this.state.active===this.state.anonymous,accounts:this.accounts().map(account=>{const client=this.clients.get(this.state.accounts[account.id]);return {...account,organizations:client?.organizations()??[],organizationError:client?.organizationError??null};})};}
+  async start(){
+    const url=process.env.BEES_ACCOUNT_API_URL&&serverOrigin(process.env.BEES_ACCOUNT_API_URL);
+    this.state.servers??={};const prior=this.savedDirectory(this.state.active);if(prior.url)this.state.servers[prior.url]=this.state.active;
+    if(url&&this.savedDirectory(this.state.active).url&&this.savedDirectory(this.state.active).url!==url){
+      this.state.active=this.state.servers[url]??Object.values(this.state.accounts).find(slot=>{const d=this.savedDirectory(slot);return d.url===url&&d.token;})??'personal-'+this.key(url,'anonymous');
+      if(!Object.values(this.state.accounts).includes(this.state.active))this.state.anonymous=this.state.active;
+    }
+    this.active=await this.open(this.state.active);this.active.directory.save();if(this.active.directory.user&&this.active.directory.token){const key=this.key(this.active.directory.url,this.active.directory.user.id);this.state.accounts[key]=this.state.active;}await Promise.all([...new Set(Object.values(this.state.accounts))].filter(slot=>slot!==this.state.active&&this.savedDirectory(slot).token).map(slot=>this.open(slot)));this.save();return this;
+  }
   key(url,user){return createHash('sha256').update(url+'\n'+user).digest('hex');}
   async login(input){
     const signed=await this.active.directory.signIn(input);
@@ -20,10 +31,24 @@ export class ClientProfiles {
     const client=await this.open(slot);client.directory.url=signed.url;await client.directory.resume(signed.session,client.identity.cert,client.peer.endpoints);await client.refresh();
     this.state.accounts[key]=slot;this.state.active=slot;this.active=client;this.save();return user;
   }
-  async logout(){const prior=this.state.active,client=this.active;if(Object.values(this.state.accounts).includes(this.state.anonymous))this.state.anonymous='personal-'+randomUUID();this.state.active=this.state.anonymous;this.active=await this.open(this.state.active);this.save();
+  async logout(){const prior=this.state.active,client=this.active;
+    if(this.savedDirectory(this.state.anonymous).url&&this.savedDirectory(this.state.anonymous).url!==client.directory.url)this.state.anonymous='personal-'+this.key(client.directory.url,'anonymous');
+    if(Object.values(this.state.accounts).includes(this.state.anonymous))this.state.anonymous='personal-'+randomUUID();this.state.active=this.state.anonymous;this.active=await this.open(this.state.active);
+    this.active.directory.url=client.directory.url;this.active.directory.save();this.save();
     // Signed-out accounts must stop syncing, serving peers, and running schedules.
     if(prior!==this.state.active){this.clients.delete(prior);client.directory.token=null;client.directory.save();await client.close();}return {ok:true};}
   async command(input){
+    if(input.action==='switchAccount'||input.action==='selectOrganization'){
+      const account=this.accounts().find(account=>account.id===input.accountId);
+      if(!account&&!(input.action==='selectOrganization'&&input.accountId==null))throw threadError('Sign in to this account again',401);
+      const slot=account?this.state.accounts[account.id]:process.env.BEES_HOSTED_CLIENT?this.state.active:this.state.anonymous,client=await this.open(slot);
+      if(input.action==='selectOrganization'){
+        const organizationId=input.organizationId??null;
+        if(organizationId&&!(client.store.preference('organizations')??[]).some(org=>org.id===organizationId))throw threadError('Organization membership required',403);
+        await client.command({action:'preferences',values:{selectedOrganizationId:organizationId}});
+      }
+      this.state.active=slot;this.active=client;this.save();return {ok:true};
+    }
     if(input.action==='authConfig')return authConfig(input.url??this.active.directory.url);
     if(input.action==='startLogin'){
       if(process.env.BEES_HOSTED_CLIENT)throw threadError('Sign in through Bees Cloud');

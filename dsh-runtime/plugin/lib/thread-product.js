@@ -33,7 +33,7 @@ export async function applyThreadProduct(ctx,config){
   register('/_bees_unauthorized',(_req,res)=>reply(res,401,{error:'Open Bees Client again to reconnect.'}));
   register('/healthz',(_req,res)=>reply(res,200,{status:'ok',product:'bees',service:'bees-client',clientId:client().store.clientId}));
   register('/bees-api/snapshot',apiSnapshot);
-  async function apiSnapshot(_req,res){try{reply(res,200,await client().snapshot());}catch(e){reply(res,400,{error:e.message});}}
+  async function apiSnapshot(_req,res){try{reply(res,200,await profiles.snapshot());}catch(e){reply(res,400,{error:e.message});}}
   register('/bees-api/active-runs',(_req,res)=>{const count=[...profiles.clients.values()].reduce((n,c)=>n+c.jobs.size,0);reply(res,200,count);});
   register('/bees-auth',async(req,res)=>{
     const offered=new URL(req.url,'http://client').searchParams.get('token');if(!equal(offered,token))return reply(res,401,{error:'Unauthorized'});
@@ -43,7 +43,7 @@ export async function applyThreadProduct(ctx,config){
   });
   const api=handler=>async(req,res)=>{try{reply(res,200,await handler(req));}catch(e){reply(res,e.status??400,{error:e.message});}};
   register('/bees-api/threads',api(async req=>{
-    if(req.method==='GET')return await client().snapshot();if(req.method!=='POST')throw Error('Method not allowed');
+    if(req.method==='GET')return await profiles.snapshot();if(req.method!=='POST')throw Error('Method not allowed');
     const input=await body(req);
     return profiles.command(input);
   }));

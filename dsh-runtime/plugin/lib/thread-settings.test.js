@@ -9,6 +9,7 @@ import { ThreadIntegrations } from './thread-integrations.js';
 import { ThreadStore } from './thread-store.js';
 import { schedule } from './thread-schedule.js';
 import { scheduleDraft } from '../client/thread-schedule-form.js';
+import { validOrganizationAppearance,iconForeground } from './organization-appearance.js';
 import { THEME_PRESETS, nextThemePreset } from './themes.js';
 
 test('folder attachments retain nested paths and reject escapes, collisions and invalid imported folders', () => {
@@ -96,4 +97,26 @@ test('team integrations are shared across local threads, preserve legacy credent
     assert(!JSON.stringify(store.document(team.id)).includes('team-secret'));
     await assert.rejects(client.localCommand(team.id,{action:'saveIntegration',operationId:randomUUID()},'remote-user'),/Unknown thread command/);
   }finally{store.close();rmSync(root,{recursive:true,force:true});}
+});
+
+
+test('org icons and colors validate, survive directory refresh and restart, and remain account-local',async()=>{
+  const root=mkdtempSync(join(tmpdir(),'bees-org-appearance-')),otherRoot=mkdtempSync(join(tmpdir(),'bees-org-appearance-other-'));
+  let client=new ThreadClient(root);const other=new ThreadClient(otherRoot),id=randomUUID();
+  const appearance={icon:'star',color:'#7c3aed',image:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg=='},org={id,name:'Studio',role:'member'};
+  try{
+    for(const active of [client,other])active.directory.request=async()=>({organizations:[org],invitations:[]});
+    await client.command({action:'organizations'});await other.command({action:'organizations'});
+    for(const invalid of [{icon:'unknown',color:'#7c3aed'},{icon:'star',color:'red'},{icon:'star',color:'url(https://example.test)'},{...appearance,token:'private'},{...appearance,image:'https://example.test/icon.png'},{...appearance,image:'data:image/svg+xml;base64,PHN2Zz4='},{...appearance,image:'data:image/png;base64,iVBORw0KGgo'+ 'A'.repeat(128_000)},{...appearance,image:42},null]){
+      assert.equal(validOrganizationAppearance(invalid),false);
+      await assert.rejects(client.command({action:'organizationAppearance',organizationId:id,appearance:invalid}),/valid org icon/);
+    }
+    await assert.rejects(client.command({action:'organizationAppearance',organizationId:randomUUID(),appearance}),/membership/);
+    await client.command({action:'organizationAppearance',organizationId:id,appearance});
+    assert.deepEqual((await client.command({action:'organizations'})).organizations[0].appearance,appearance);
+    assert.equal((await other.snapshot()).organizations[0].appearance,undefined);
+    client.store.close();client=new ThreadClient(root);
+    assert.deepEqual((await client.snapshot()).organizations[0].appearance,appearance);
+    assert.equal(iconForeground('#eab308'),'#182018');assert.equal(iconForeground('#2563eb'),'#ffffff');
+  }finally{client.store.close();other.store.close();rmSync(root,{recursive:true,force:true});rmSync(otherRoot,{recursive:true,force:true});}
 });

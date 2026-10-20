@@ -36,6 +36,29 @@ test('new and previously empty owned organizations get exactly one Default team'
   }finally{client.store.close();rmSync(root,{recursive:true,force:true});}
 });
 
+test('team visibility and selection persist locally without changing teams or their threads',async()=>{
+  const root=mkdtempSync(join(tmpdir(),'bees-hidden-team-'));let client=new ThreadClient(root);
+  try{
+    const team=await client.command({action:'createTeam',name:'Research'}),thread=await client.command({action:'create',teamId:team.id});
+    await client.command({action:'preferences',values:{hiddenTeamIds:[team.id],selectedTeamId:team.id}});
+    assert.equal(client.store.get(team.id).hidden,undefined);assert.equal(client.store.get(thread.id).teamId,team.id);
+    client.store.close();client=new ThreadClient(root);
+    assert.deepEqual((await client.snapshot()).settings.hiddenTeamIds,[team.id]);assert.equal((await client.snapshot()).settings.selectedTeamId,team.id);
+    await assert.rejects(client.command({action:'preferences',values:{hiddenTeamIds:['invalid']}}),/Invalid identity/);
+    await assert.rejects(client.command({action:'preferences',values:{hiddenTeamIds:'all'}}),/Invalid hidden teams/);
+    await client.command({action:'preferences',values:{hiddenTeamIds:[]}});assert.deepEqual((await client.snapshot()).settings.hiddenTeamIds,[]);
+  }finally{client.store.close();rmSync(root,{recursive:true,force:true});}
+});
+
+test('organization connection errors identify the server and how to start it',async()=>{
+  const root=mkdtempSync(join(tmpdir(),'bees-org-offline-')),client=new ThreadClient(root),prior=globalThis.fetch;
+  try{
+    client.directory.url='http://127.0.0.1:3000';globalThis.fetch=async()=>{throw new TypeError('fetch failed');};
+    await assert.rejects(client.command({action:'createOrganization',name:'Research'}),/127\.0\.0\.1:3000.*npm run dev/);
+    assert.equal((await client.snapshot()).teams.length,1);
+  }finally{globalThis.fetch=prior;client.store.close();rmSync(root,{recursive:true,force:true});}
+});
+
 test('team processes persist, start threads with captured stages, and leave existing threads intact after deletion',async()=>{
   const root=mkdtempSync(join(tmpdir(),'bees-team-process-'));let client=new ThreadClient(root,{execute:async()=> 'Done'});
   try{

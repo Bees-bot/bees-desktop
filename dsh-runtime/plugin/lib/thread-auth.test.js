@@ -50,6 +50,39 @@ test('a received Google token is not reported as signed in when client enrollmen
   }finally{failed.close();}
 });
 
+test('unreachable sign-in servers show the address and how to fix it',async()=>{
+  const original=globalThis.fetch;
+  try{
+    for(const failure of [new TypeError('fetch failed'),new DOMException('The operation timed out','TimeoutError')]){
+      globalThis.fetch=async()=>{throw failure;};
+      await assert.rejects(authConfig('https://missing.example/'),{
+        status:503,
+        message:'Could not reach the server at https://missing.example. Check the server URL and your internet connection. The Bees server is at https://app.bees.bot.'
+      });
+    }
+    globalThis.fetch=()=>assert.fail('Invalid server URLs must not be contacted');
+    await assert.rejects(authConfig('http://evil.example'),/Use an HTTPS Bees Server/);
+  }finally{globalThis.fetch=original;}
+});
+
+test('sign-in explains server outages separately from an unreachable address',async()=>{
+  const original=globalThis.fetch;
+  try{
+    for(const status of [500,502,503,504]){
+      globalThis.fetch=async()=>new Response('<html>Service Temporarily Unavailable</html>',{status});
+      await assert.rejects(authConfig('https://app.bees.bot'),{
+        status,
+        message:'The Bees server at https://app.bees.bot is temporarily unavailable. Please try again in a few minutes.'
+      });
+    }
+    globalThis.fetch=async()=>new Response('',{status:404});
+    await assert.rejects(authConfig('https://bees.example'),{
+      status:404,
+      message:'Could not load sign-in options from https://bees.example (HTTP 404). Check the server URL or contact your server administrator.'
+    });
+  }finally{globalThis.fetch=original;}
+});
+
 test('the client rejects the older server API before opening a provider or sending credentials',async()=>{
   const original=globalThis.fetch;
   globalThis.fetch=async()=>new Response(JSON.stringify({socialProviders:['google','github'],ssoEnabled:true}));

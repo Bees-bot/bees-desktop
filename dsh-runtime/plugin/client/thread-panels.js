@@ -14,7 +14,7 @@ export const TEAM_SETTINGS = [
 ];
 export const GLOBAL_SETTINGS = [
   ['ai', 'AI connections'], ['appearance', 'Appearance'], ['instructions', 'System instructions'],
-  ['storage', 'Data & files'], ['organizations', 'Organization settings'], ['account', 'Account'],
+  ['storage', 'Data & files'], ['organizations', 'Org settings'], ['account', 'Accounts'],
 ];
 
 export function SettingsNav({ items, selected, onSelect, label }) {
