@@ -82,7 +82,7 @@ export class ThreadIntegrations {
     for (const key of [...(entry?.env ?? []), ...(entry?.headers ?? [])]) if (!key.optional && !secrets[key.name]?.trim()) throw threadError(`Enter ${key.label}`);
     const server = { id: randomUUID(), serverName, label: text(input.label || entry?.label || serverName, 120), catalogId: entry?.id ?? '', transport,
       command: transport === 'stdio' ? text(entry?.command || input.command, 1000) : '', args,
-      url: transport === 'streamable-http' ? this.url(entry?.url || input.url) : '',
+      url: transport === 'streamable-http' && entry?.id !== 'composio' ? this.url(entry?.url || input.url) : '',
       secretNames: Object.keys(secrets).filter(key => secrets[key]), enabled: true };
     for (const key of server.secretNames) await this.ctx.credentials.set(secretRef(store, id, server.id, key), secrets[key]);
     store.preference(`integrations:${id}`, [...current, server]);
@@ -92,7 +92,13 @@ export class ThreadIntegrations {
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw threadError('Use HTTP or HTTPS; put credentials in the credential fields');
     return url.href;
   }
-  async config(store, id, server, cwd, browserId=id) {
+  async config(store, id, server, cwd, browserId=id, directory) {
+    if (server.catalogId === 'composio') {
+      if (!directory?.token) throw threadError('Sign in to Bees to use Composio', 401);
+      const { token } = await directory.request('/composio/session', {});
+      return { transport: 'streamable-http', serverName: server.serverName,
+        url: directory.url + '/api/composio/mcp', headers: { Authorization: `Bearer ${token}` }, failOnStartupError: true };
+    }
     const credentials = {};
     for (const key of server.secretNames) {
       const hit = await this.ctx.credentials.resolve(secretRef(store, id, server.id, key));
@@ -118,12 +124,12 @@ export class ThreadIntegrations {
     return { transport: 'stdio', serverName: server.serverName, command: server.command === '{node}' ? process.execPath : server.command,
       args, env: credentials, cwd, failOnStartupError: true };
   }
-  async mount(agentCtx, store, id, cwd) {
+  async mount(agentCtx, store, id, cwd, directory) {
     const team=store.teamFor(id),teamServers=team?rows(store,team.id):[];
     const connections=[...teamServers.map(server=>({server,scope:team.id})),...rows(store,id).filter(server=>!teamServers.some(row=>row.serverName===server.serverName)).map(server=>({server,scope:id}))];
     for (const {server,scope} of connections.filter(({server}) => server.enabled)) {
       const browserId=team&&store.preference(`browser:${team.id}`)!==null?team.id:scope;
-      const fiber = agentCtx.plugin(mcpClient, await this.config(store, scope, server, cwd, browserId));
+      const fiber = agentCtx.plugin(mcpClient, await this.config(store, scope, server, cwd, browserId, directory));
       let timer;
       try { await Promise.race([Promise.resolve(fiber), new Promise((_, reject) => { timer = setTimeout(() => reject(threadError(`${server.label} did not start within 30 seconds`)), 30000); })]); }
       catch (error) { await fiber.dispose(); throw error; }

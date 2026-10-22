@@ -22,7 +22,7 @@ export function IntegrationSettings({ threadId, canManage, request, perform, pag
       if (connect) {
         const result = await request('connectGoogle', threadId, input); await openExternal(result.url);
         setNotice('Finish Google sign-in in your browser, then refresh connections.');
-      } else { setData(await request('saveIntegration', threadId, input)); form.reset(); setNotice('Connected. The next run will use this add-on.'); }
+      } else { setData(await request('saveIntegration', threadId, input)); form.reset(); setNotice(entry?.id === 'composio' ? 'Enabled. Ask an agent to use an app; it will give you a sign-in link when needed.' : 'Connected. The next run will use this add-on.'); }
     });
   };
   const field = (label, name, extra = {}) => h('label', { className: 'bc-field', key: name }, h('span', null, label), h('input', { name, ...extra }));
@@ -41,7 +41,7 @@ export function IntegrationSettings({ threadId, canManage, request, perform, pag
     !hosted && data.browser.mode === 'personal' ? h('button', { onClick: () => perform(() => request('openBrowser', threadId)) }, 'Open browser') : null,
     notice ? h('p', { role: 'status' }, notice) : null);
   return h('section', { className: 'bc-form' }, h('h3', null, 'Add-ons'),
-    h('p', { className: 'bc-muted' }, scope==='team'?'Add-ons work in every thread in this team that runs on this computer. Their keys and sign-ins stay on this computer, so connect them again on another one.':'These add-ons work only in this thread. Their keys and sign-ins stay on this computer.'),
+    h('p', { className: 'bc-muted' }, scope==='team'?'Add-ons work in every thread in this team that runs on this computer. Local add-on keys and sign-ins stay on this computer; Composio accounts are managed online.':'These add-ons work only in this thread. Local add-on keys and sign-ins stay on this computer; Composio accounts are managed online.'),
     h('button', { onClick: () => perform(load) }, 'Refresh connections'),
     ...data.servers.map(server => h('div', { className: 'bc-card bc-form', key: server.id },
       h('strong', null, server.label), h('small', null, server.serverName),
@@ -70,6 +70,6 @@ export function IntegrationSettings({ threadId, canManage, request, perform, pag
       entry ? [...entry.env, ...entry.headers].map(key => field(entry.scopes ? key.name.replaceAll('_', ' ') : key.label, 'secret:' + key.name,
         { type: 'password', autoComplete: 'off', required: !key.optional && !entry.scopes })) : null,
       entry?.scopes && !hosted ? h('button', { type: 'submit', value: 'google', className: 'bc-primary', formNoValidate: true }, 'Connect with Google') : null,
-      h('button', { type: 'submit', className: 'bc-primary' }, 'Connect add-on')),
+      h('button', { type: 'submit', className: 'bc-primary' }, entry?.id === 'composio' ? 'Enable Composio' : 'Connect add-on')),
     notice ? h('p', { role: 'status' }, notice) : null);
 }

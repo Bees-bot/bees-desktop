@@ -75,6 +75,16 @@ test('MCP connections are per thread, credentials never enter thread documents, 
       assert(config.args.includes('--isolated')&&config.args.includes('--headless'));
       assert(!config.args.includes('--browserUrl')&&!config.args.includes('--cdp-endpoint'));
     }
+    await integrations.save(store,first.id,{catalogId:'composio'});
+    const composio=store.preference(`integrations:${first.id}`).at(-1);
+    const directory={token:'client-token',url:'https://bees.example',request:async(path)=>{
+      assert.equal(path,'/composio/session');return {token:'run-token'};
+    }};
+    const remote=await integrations.config(store,first.id,composio,root,first.id,directory);
+    assert.equal(remote.url,'https://bees.example/api/composio/mcp');
+    assert.equal(remote.headers.Authorization,'Bearer run-token');
+    assert(!JSON.stringify(composio).includes('run-token'));
+    await assert.rejects(integrations.config(store,first.id,composio,root),/Sign in to Bees/);
     await assert.rejects(integrations.save(store,first.id,{serverName:'bad',transport:'stdio',command:'node',args:{},secrets:{}}),/arguments/);
     await assert.rejects(client.localCommand(first.id,{action:'saveIntegration',operationId:randomUUID()},'remote-user'),/Unknown thread command/);
     store.save({...store.document(second.id),ownerClientId:randomUUID()});
