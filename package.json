@@ -21,8 +21,8 @@
     "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "tauri:build": "tauri build",
     "build:hosted": "node scripts/build-hosted-ui.mjs",
-    "check:hosted": "node --test dsh-runtime/hosted-clients.test.mjs",
-    "check:client": "node --test dsh-runtime/headless.test.mjs dsh-runtime/hosted-clients.test.mjs dsh-runtime/plugin/lib/thread-*.test.js dsh-runtime/plugin/lib/client-profiles.test.js",
+    "check:hosted": "node --test dsh-runtime/hosted-*.test.mjs",
+    "check:client": "node --test dsh-runtime/headless.test.mjs dsh-runtime/hosted-*.test.mjs dsh-runtime/plugin/lib/thread-*.test.js dsh-runtime/plugin/lib/client-profiles.test.js",
     "check:ai": "node --test dsh-runtime/plugins/custom-ai/lib/*.test.js"
   },
   "dependencies": {

@@ -59,6 +59,7 @@ test('MCP connections are per thread, credentials never enter thread documents, 
   const client=new ThreadClient(root,{integrations}), store=client.store;
   try {
     const first=store.create('First'),second=store.create('Second');
+    store.preference(`browser:${first.id}`,'own');
     await integrations.save(store,first.id,{serverName:'docs',transport:'streamable-http',url:'https://example.com/mcp',secrets:{Authorization:'private-token'}});
     const server=store.preference(`integrations:${first.id}`)[0];
     assert(!JSON.stringify(server).includes('private-token'));assert(!JSON.stringify(store.document(first.id)).includes('private-token'));

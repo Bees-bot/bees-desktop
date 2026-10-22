@@ -12,10 +12,13 @@ import { IntegrationSettings } from './thread-integrations.js';
 import { Login } from './thread-login.js';
 import { ThreadWorkspace } from './thread-layout.js';
 import { TeamProcesses, WorkflowStages } from './thread-processes.js';
+import { TeamAgents } from './thread-agents.js';
+import { TeamMemory } from './thread-memory.js';
+import { RootFolderSettings } from './thread-folders.js';
 import { OrganizationAppearance } from './thread-organization-appearance.js';
 import { BeesNavigation, TeamMenu, TeamSection, TeamManagement, closeHoverMenu, initials } from './thread-navigation.js';
 
-async function api(input){const response=await fetch('/bees-api/threads',{...(input?{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(input)}:{}),credentials:'same-origin'});const value=await response.json();if(!response.ok)throw Error(typeof value.error==='string'?value.error:value.error?.message??'Could not complete this request');return value;}
+async function api(input){const response=await fetch('/bees-api/threads',{...(input?{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(input)}:{}),credentials:'same-origin'}).catch(()=>{throw Object.assign(Error(offline),{status:503});});const value=await response.json().catch(()=>({error:offline}));if(!response.ok)throw Object.assign(Error(response.status>=500?offline:typeof value.error==='string'?value.error:value.error?.message??'Could not complete this request'),{status:response.status});return value;}
 const offline="Bees can't be reached right now.";
 const command=(action,threadId,values={})=>api({action,threadId,operationId:crypto.randomUUID(),...values});
 const icon=(name,props={})=>h('svg',{width:20,height:20,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:1.7,strokeLinecap:'round',strokeLinejoin:'round','aria-hidden':true,...props},
@@ -29,8 +32,8 @@ function UpdateBar(){const [version,setVersion]=useState(null),[status,setStatus
   useEffect(()=>{if(!invoke)return;const check=()=>invoke('check_for_update').then(setVersion,()=>{});check();const timer=setInterval(check,6*60*60*1000);return()=>clearInterval(timer);},[]);
   if(!version)return null;const installing=status==='installing';
   return h('div',{className:'bc-notice',role:'status'},status&&!installing?status:`Bees ${version} is ready to install.`,h('button',{onClick:()=>void openExternal(`https://github.com/Bees-bot/bees-desktop/releases/tag/v${version}`)},"What's new"),h('button',{className:'bc-primary',disabled:installing,onClick:()=>{setStatus('installing');invoke('install_update').then(restarting=>{if(!restarting)setStatus('');},e=>setStatus('Update failed: '+e));}},installing?'Downloading…':'Update and restart'),h('button',{disabled:installing,onClick:()=>setVersion(null)},'Later'));}
-function AiConnections({ctx,preferences,modelSettings,models,onModel,current}){
-  return h('div',{className:'bc-form'},h('label',{className:'bc-field'},h('span',null,'Default AI'),h('select',{value:current??'',onChange:e=>onModel(e.target.value)},h('option',{value:''},'Use connected system default'),models.map(m=>h('option',{key:m.id,value:m.id},m.name)))),!hosted&&ctx&&preferences&&modelSettings?h(React.Fragment,null,
+function AiConnections({ctx,preferences,modelSettings,models,onModel,current,freeAI}){
+  return h('div',{className:'bc-form'},freeAI?.available?h('p',{className:'bc-muted'},'Bees Free is included with your account. Messages go through OpenRouter to a free model. Shared request limits apply.'):freeAI?.message?h('p',{role:'status'},freeAI.message):null,h('label',{className:'bc-field'},h('span',null,'Default AI'),h('select',{value:current??'',onChange:e=>onModel(e.target.value)},h('option',{value:''},'Use connected system default'),models.map(m=>h('option',{key:m.id,value:m.id},m.name)))),!hosted&&ctx&&preferences&&modelSettings?h(React.Fragment,null,
     h(SubscriptionSettings,{ctx,preferences,modelSettings,ask,openExternal,Button,pickFile:window.__TAURI__?.core?.invoke?options=>window.__TAURI__.core.invoke('plugin:dialog|open',{options}):undefined,onChange:()=>{}}),
     h(CustomAiSettings,{ctx,preferences,modelSettings,ask,confirmAction,openExternal,Button}),
     h(OpenAiServersSettings,{ctx,preferences,modelSettings,ask,Button})
@@ -81,7 +84,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     const blockDrop=event=>{if(!event.dataTransfer?.types?.includes('Files'))return;if(event.type==='dragover'&&!event.defaultPrevented)event.dataTransfer.dropEffect='none';event.preventDefault();};
     document.addEventListener('dragover',blockDrop);document.addEventListener('drop',blockDrop);
     // a call that failed while the server was down left its error up after the connection came back
-    let alive=true;const tick=()=>{if(alive)void refresh().then(next=>{if(!next?.connectionError)setError(e=>e===offline?'':e);}).catch(e=>{setError(e.message);if(hosted)setDialog('login');});};
+    let alive=true;const tick=()=>{if(alive)void refresh().then(next=>{if(!next?.connectionError)setError(e=>e===offline?'':e);}).catch(e=>{setError(e.message);setData(previous=>previous?{...previous,connectionError:e.message}:previous);if(hosted&&e.status===401)setDialog('login');});};
     tick();const timer=setInterval(tick,5000);
     return()=>{alive=false;clearInterval(timer);document.removeEventListener('pointerdown',dismissMenus,true);document.removeEventListener('toggle',revealMenu,true);document.removeEventListener('dragover',blockDrop);document.removeEventListener('drop',blockDrop);style.remove();document.title=previousTitle;};
   },[]);
@@ -142,11 +145,12 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const transferClients=roster.clients.filter(c=>c.id!==data?.clientId&&(c.user_id===data?.user?.id||participants.some(p=>p.user_id===c.user_id&&p.role!=='viewer')));
   const previewFile=file=>setPreview({...file,url:`/bees-api/thread-file?thread=${selected}&artifact=${file.id}`});
   const saveThread=values=>perform(async()=>{await command('configure',selected,values);await refresh();await read(selected);setNotice('Thread settings saved.');});
+  const saveFolder=values=>perform(async()=>{await command('setRootFolder',null,values);await refresh();setNotice('Folder settings saved.');return true;});
   const saveTeam=values=>perform(async()=>{await command('configure',currentTeamId,values);await refresh();await readTeam(currentTeamId);setNotice(values.processes!==undefined?'Processes saved. Start a new thread to use them.':'Team settings saved. Changes apply to new runs in every thread.');return true;});
   const teamAction=(action,values)=>perform(async()=>{await command(action,currentTeamId,values);await refresh();await readTeam(currentTeamId);});
   const files=thread?h(ThreadFiles,{key:selected,thread,canWrite,busy,onAttach:attach,onPreview:previewFile,preview,onClosePreview:()=>setPreview(null)}):null;
   const integrations=section=>team?h(IntegrationSettings,{key:currentTeamId+section,threadId:currentTeamId,canManage:(teamOwn||['owner','editor'].includes(teamRole))&&!team.unavailable&&!team.frozen,request:command,perform,page:section}):null;
-  const configuration=(section,note)=>team?h(React.Fragment,null,canConfigureTeam||!note?null:h('p',{className:'bc-muted'},'Only the team owner can change shared settings.'),h(WorkflowSettings,{key:currentTeamId+section+(canConfigureTeam?'':team.revision),thread:team,scope:'team',section,disabled:!canConfigureTeam,busy,onSave:saveTeam})):h('p',{role:'status'},'Loading team settings…');
+  const configuration=(section,note)=>team?h(React.Fragment,null,canConfigureTeam||!note?null:h('p',{className:'bc-muted'},'Only the team owner can change shared settings.'),h(WorkflowSettings,{key:currentTeamId+section+(canConfigureTeam?'':team.revision),thread:team,agents:team.agents??[],scope:'team',section,disabled:!canConfigureTeam,busy,onSave:saveTeam})):h('p',{role:'status'},'Loading team settings…');
   const members=h('section',{className:'bc-form'},h('h3',null,'Members'),
     !teamParticipants.length?h('p',null,'Only you have access to this private team.'):null,
     teamParticipants.map(p=>h('div',{key:p.user_id,className:'bc-person'},h('span',null,p.name??p.email),h('small',null,{owner:'Owner',editor:'Can contribute and run work',viewer:'Can view'}[p.role]??p.role),
@@ -178,12 +182,15 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const legacyRows=(data?.threads??[]).filter(t=>t.teamId===currentTeamId&&t.legacySettings&&t.ownerClientId===data?.clientId);
   const teamContent=!team?h('p',{role:'status'},'Loading team settings…')
     :teamSection==='processes'?h(TeamProcesses,{key:currentTeamId,team,canManage:canConfigureTeam,canCreate:canCreateInTeam,busy,onSave:processes=>saveTeam({processes}),onStart:templateId=>create(templateId,currentTeamId)})
-    :['general','workflow','memory','schedule'].includes(teamSection)?configuration(teamSection)
+    :teamSection==='agents'?h(TeamAgents,{key:currentTeamId,team,models:data?.models, presets:data?.agentPresets,canManage:canConfigureTeam,busy,onSave:agents=>saveTeam({agents})})
+    :teamSection==='memory'?h(React.Fragment,null,h(TeamMemory,{key:currentTeamId,teamId:currentTeamId,canManage:canConfigureTeam,request:command}),configuration('memory'))
+    :['general','workflow','schedule'].includes(teamSection)?configuration(teamSection)
     :teamSection==='members'?members:teamSection==='invitations'?invitations
     :teamSection==='folders'?teamFiles:integrations(teamSection);
-  const globalContent=settingsSection==='ai'?h(AiConnections,{ctx,preferences,modelSettings,models:data?.models??[],current:data?.defaultModel,onModel:model=>act('model',{model})})
+  const globalContent=settingsSection==='ai'?h(AiConnections,{ctx,preferences,modelSettings,models:data?.models??[],current:data?.defaultModel,freeAI:data?.freeAI,onModel:model=>act('model',{model})})
     :settingsSection==='appearance'?h(AppearanceSettings,{preference,onSave:saveAppearance,disabled:busy||!!preferences&&preferences.getSnapshot().status!=='ready'})
-    :settingsSection==='organizations'?(data?.user?h(OrganizationsPanel,{key:data.user.id+selectedOrganizationId,perform,busy,icon,organizationId:selectedOrganizationId,onChanged:loadOrganizations,onNotice:setNotice}):h('button',{onClick:()=>setDialog('login')},'Sign in to manage organizations'))
+    :settingsSection==='organizations'?(data?.user?h(OrganizationsPanel,{key:data.user.id+selectedOrganizationId,perform,busy,icon,ctx,folders:data?.folders,onSaveFolder:saveFolder,organizationId:selectedOrganizationId,onChanged:loadOrganizations,onNotice:setNotice}):h('button',{onClick:()=>setDialog('login')},'Sign in to manage organizations'))
+    :settingsSection==='storage'?h(RootFolderSettings,{ctx,folders:data?.folders,busy,onSave:saveFolder})
     :settingsSection==='account'?account
     :settingsSection==='instructions'?h('form',{className:'bc-form',key:data?.clientId,onSubmit:event=>{event.preventDefault();const systemInstructions=new FormData(event.currentTarget).get('instructions');void perform(async()=>{await command('preferences',null,{values:{systemInstructions}});await refresh();setNotice('System instructions saved.');});}},
       h('h3',null,'System instructions'),h('p',{className:'bc-muted'},'Used for new runs in every thread on this computer.'),h('textarea',{'aria-label':'System instructions',name:'instructions',rows:10,maxLength:20000,defaultValue:data?.settings?.systemInstructions??''}),h('button',{className:'bc-primary',disabled:busy||!data},'Save instructions'))
@@ -237,7 +244,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
         roster.invitations.map(i=>h('div',{key:i.id,className:'bc-person'},h('span',null,`${i.invited_by_name??'Someone'} invited you`,h('small',null,i.role==='viewer'?'Can view':'Can contribute and run work')),
           data.user?.emailVerified?h('button',{disabled:busy,onClick:()=>acceptInvitation(i)},'Accept'):null)),
         data.user?.emailVerified?null:h(React.Fragment,null,h('p',{className:'bc-muted'},'Verify your email to accept.'),h('button',{disabled:busy,onClick:verifyEmail},'Send verification email'))):null,
-      h('footer',null,h('span',{className:'bc-dot '+(data?.connectionError?'offline':'')}),data?.connectionError?"Can't reach Bees right now":data?.user?'Connected to Bees':'Private on this machine')),
+      h('footer',null,h('span',{className:'bc-dot '+(data?.connectionError?'offline':'')}),h('span',null,data?.connectionError?"Can't reach Bees right now":data?.user?'Connected to Bees':'Private on this machine',(data?.connectionError||data?.user)&&data?.serverUrl?h('small',{className:'bc-server-url'},data.serverUrl):null))),
     h('main',{className:'bc-main'},h(UpdateBar),settingsOpen?h(React.Fragment,null,
       error?h('p',{className:'bc-error',role:'alert'},error):null,notice?h('p',{className:'bc-notice',role:'status'},notice):null,
       h(SettingsPage,{title:settingsTitle,items:dialog==='team'?TEAM_SETTINGS:GLOBAL_SETTINGS,selected:dialog==='team'?teamSection:settingsSection,
@@ -301,7 +308,7 @@ export function ThreadConversation({thread,discussion,peerNames,userId,userName,
         h('button',{className:'bc-send',type:'submit','aria-label':discussion?'Send discussion message':'Send message',disabled:busy||!canWrite||!draft.trim()||active&&!discussion},icon('send')))));
 }
 
-function WorkflowSettings({thread,onSave,section='general',scope='thread',disabled=false,busy=false}){
+function WorkflowSettings({thread,onSave,agents=[],section='general',scope='thread',disabled=false,busy=false}){
   const [title,setTitle]=useState(thread.title),[instructions,setInstructions]=useState(thread.instructions??''),[memory,setMemory]=useState((thread.memory??[]).join('\n'));
   const [stages,setStages]=useState(thread.workflow??DEFAULT_WORKFLOW);
   const [scheduled,setScheduled]=useState(!!thread.schedule?.enabled),[recurrence,setRecurrence]=useState(scheduleDraft(thread.schedule));
@@ -314,7 +321,7 @@ function WorkflowSettings({thread,onSave,section='general',scope='thread',disabl
     scope!=='thread'?h('label',{className:'bc-field'},h('span',null,scope==='team'?'Instructions for every thread':'Existing thread instructions'),h('textarea',{value:instructions,rows:3,maxLength:20000,onChange:e=>setInstructions(e.target.value),placeholder:'How should Bees approach work in this team?'})):null,
     ):null,
     section==='memory'?h('label',{className:'bc-field'},h('span',null,scope==='team'?'Remember across this team · one note per line':'Remember in this thread · one note per line'),h('textarea',{value:memory,rows:3,onChange:e=>setMemory(e.target.value)})):null,
-    section==='workflow'?h(React.Fragment,null,h('p',null,`${processName(stages)} · ${isChatWorkflow(stages)?'You → Chat → You ↻':stages.map(stage=>stage.name).concat('Done').join(' → ')}`),h('strong',null,'Stages'),h(WorkflowStages,{stages,onChange:setStages,disabled:disabled||busy})):null,
+    section==='workflow'?h(React.Fragment,null,h('p',null,`${processName(stages)} · ${isChatWorkflow(stages)?'You → Chat → You ↻':stages.map(stage=>stage.name).concat('Done').join(' → ')}`),h('strong',null,'Stages'),h(WorkflowStages,{stages,agents,onChange:setStages,disabled:disabled||busy})):null,
     section==='schedule'?h(React.Fragment,null,thread.schedule?.nextAt?h('p',{className:'bc-muted'},'Next run: '+when(thread.schedule.nextAt)):null,thread.schedule?.error?h('p',{role:'status'},thread.schedule.error):null,
     h('label',{className:'bc-check'},h('input',{type:'checkbox',checked:scheduled,onChange:e=>setScheduled(e.target.checked)}),'Run on a schedule'),
     scheduled?h(React.Fragment,null,h(Field,{label:'What should Bees do each time?',value:recurrence.prompt,required:true,pattern:'.*\\S.*',title:'Say what Bees should do each time.',onChange:e=>update('prompt',e.target.value)}),h('label',{className:'bc-field'},h('span',null,'Repeats'),h('select',{value:recurrence.frequency,onChange:e=>update('frequency',e.target.value)},['daily','weekly','monthly','hourly','advanced'].map(f=>h('option',{key:f,value:f},({daily:'Daily',weekly:'Weekly',monthly:'Monthly',hourly:'Interval',advanced:'Custom cron'})[f])))),
@@ -335,7 +342,7 @@ function LegacyOverrides({rows,section,perform,busy}){
       :h(WorkflowSettings,{key:id+section,thread:doc,scope:'legacy',section,busy,disabled:doc.frozen||!!doc.unavailable,onSave:values=>perform(async()=>{setDoc(await command('configure',id,values));})}):null);
 }
 
-function OrganizationsPanel({perform,busy,icon,organizationId,onChanged,onNotice}){
+function OrganizationsPanel({perform,busy,icon,ctx,folders,onSaveFolder,organizationId,onChanged,onNotice}){
   const [data,setData]=useState({organizations:[],invitations:[]}),[id,setId]=useState(organizationId??''),[members,setMembers]=useState({members:[],clients:[]}),[name,setName]=useState(''),[email,setEmail]=useState('');
   const load=async()=>{const next=await command('organizations');setData(next);return next;};useEffect(()=>{void perform(async()=>{const next=await load();if(!id&&next.organizations.length===1)setId(next.organizations[0].id);});},[]);
   // heartbeats land every 5s, so re-read the clients to keep Online honest
@@ -347,6 +354,7 @@ function OrganizationsPanel({perform,busy,icon,organizationId,onChanged,onNotice
     h('form',{className:'bc-actions',onSubmit:e=>{e.preventDefault();if(!busy&&name.trim())void perform(async()=>{const org=await command('createOrganization',null,{name:name.trim()});setName('');await load();setId(org.id);await onChanged?.();});}},h('input',{'aria-label':'Organization name',placeholder:'Organization name',maxLength:120,value:name,onChange:e=>setName(e.target.value)}),h('button',{type:'submit',disabled:busy||!name.trim()},'Create')),
     data.organizations.length?h('select',{'aria-label':'Organization',value:id,onChange:e=>setId(e.target.value)},h('option',{value:''},'Choose an organization'),data.organizations.map(o=>h('option',{key:o.id,value:o.id},o.name))):null,
     organization?h(OrganizationAppearance,{key:organization.id,organization,icon,busy,onSave:appearance=>perform(async()=>{await command('organizationAppearance',null,{organizationId:id,appearance});await load();await onChanged?.();return true;})}):null,
+    organization?h(RootFolderSettings,{key:organization.id,ctx,folders,organization,busy,onSave:onSaveFolder}):null,
     id?members.members.map(m=>h('div',{key:m.user_id,className:'bc-person'},h('span',null,m.name??m.email),h('small',null,{owner:'Owner',admin:'Admin',member:'Member'}[m.role]??m.role),admin&&m.role!=='owner'?h('button',{disabled:busy,onClick:()=>perform(async()=>{await command('removeOrganizationMember',null,{organizationId:id,userId:m.user_id});setMembers(await command('organizationMembers',null,{organizationId:id}));})},'Remove'):null)):null,
     id?members.clients.map(c=>h('small',{key:c.id},c.name+' · '+(members.at-Date.parse(c.last_seen_at)<30000?'Online':'Offline'))):null,
     id&&admin?h('form',{className:'bc-actions',onSubmit:e=>{e.preventDefault();const to=email.trim();if(!busy&&to)void perform(async()=>{await command('inviteOrganization',null,{organizationId:id,email:to});setEmail('');onNotice?.(`Invited ${to}. They can join from Organization settings in Bees.`);});}},h('input',{'aria-label':'Invite colleague by email',type:'email',required:true,placeholder:'Colleague’s email',value:email,onChange:e=>setEmail(e.target.value)}),h('button',{type:'submit',disabled:busy||!email.trim()},'Invite')):null);

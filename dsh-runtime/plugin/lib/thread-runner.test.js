@@ -26,6 +26,9 @@ test('tool paths use actual DSH arguments and cannot escape through traversal or
     assert.match(guardThreadTool({name:'write',arguments:{file_path:'escape/new/secret'}},cwd),/Attach/);
     assert.match(guardThreadTool({name:'bash',arguments:{sandbox_permissions:'danger-full-access'}},cwd),/widen/);
     assert.equal(guardThreadTool({name:'mcp__mail__get',arguments:{path:'/api/messages'}},cwd),undefined);
+    assert.match(guardThreadTool({name:'mcp__mail__get'},cwd,{mcpAccess:'none'}),/disabled/);
+    assert.match(guardThreadTool({name:'mcp__mail__get'},cwd,{mcpAccess:'selected',mcpServers:['docs']}),/disabled/);
+    assert.equal(guardThreadTool({name:'mcp__docs__read'},cwd,{mcpAccess:'selected',mcpServers:['docs']}),undefined);
   }finally{rmSync(root,{recursive:true,force:true});}
 });
 

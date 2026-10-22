@@ -3,7 +3,7 @@ export const CHAT_WORKFLOW = [{ name: 'Chat', kind: 'chat' }];
 export const isChatWorkflow = workflow => workflow?.length===1&&workflow[0].kind==='chat';
 export const workflowFor = (thread,team) => thread.processId?thread.workflow:team?.workflowConfigured?team.workflow:thread.workflow??DEFAULT_WORKFLOW;
 export const isValidWorkflow = workflow => Array.isArray(workflow)&&workflow.length>0&&workflow.length<=12
-  &&workflow.every(s=>s&&['work','review','approval','chat'].includes(s.kind)&&typeof s.name==='string'&&!!s.name.trim()&&s.name.length<=80&&(!s.model||typeof s.model==='string'&&s.model.length<=200&&s.model.includes('/')))
+  &&workflow.every(s=>s&&['work','review','approval','chat'].includes(s.kind)&&typeof s.name==='string'&&!!s.name.trim()&&s.name.length<=80&&(!s.model||typeof s.model==='string'&&s.model.length<=200&&s.model.includes('/'))&&(!s.agentId||typeof s.agentId==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(s.agentId)))
   &&(!workflow.some(s=>s.kind==='chat')||workflow.length===1);
 
 export const WORKFLOW_TEMPLATES = [

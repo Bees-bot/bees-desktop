@@ -14,6 +14,7 @@ import {
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { publishArtifact } from "./publish-artifact.mjs";
+import { prepareMemoryInstaller } from "./prepare-memory-runtime.mjs";
 import "./check-node.mjs";
 
 const desktopRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -171,6 +172,8 @@ function signMacBundledRuntime(runtimeRoot) {
   binaries.sort((a, b) => b.split(sep).length - a.split(sep).length);
   signMac(binaries, "bundled runtime");
 }
+
+await prepareMemoryInstaller(resolve(desktopRoot, 'dsh-runtime', 'memory-runtime'), target, stageExecutable);
 
 // Pruning is in place, so a local cross-build would delete this machine's own native builds and
 // break its dev runs. Each runner builds its own target, so nothing ships unpruned.
