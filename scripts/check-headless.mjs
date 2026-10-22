@@ -15,6 +15,7 @@ const desktop = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const token = randomBytes(32).toString("hex");
 const root = await mkdtemp(join(tmpdir(), "bees-headless-proof-"));
 const port = await freePort(), modelPort = await freePort();
+let namedAgentCalls = 0;
 let modelCalls = 0, deniedReads = 0, integrationReads = 0, integrationWrites = 0, deniedIntegrationWrites = 0, child, exited, modelError, logs = "", trace = [];
 const counterWords=['first','second','third','fourth','fifth'],counterChildren=new Set(),counterCompleted=new Set();
 const counterName='counter-'+new Date().toISOString().replace(/\D/g,'-').slice(0,19)+'.txt';
@@ -22,10 +23,13 @@ let releaseCounterChildren;
 const counterChildrenReady=new Promise(resolve=>{releaseCounterChildren=resolve;});
 const model = createServer(async (req, res) => {
   try {
+    // Memory should wait for a real local model, without installing its service in this proof.
+    if (req.method === 'GET' && req.url === '/v1/models') { res.writeHead(200, { 'content-type': 'application/json' }).end('{"data":[]}'); return; }
     const chunks = []; for await (const chunk of req) chunks.push(chunk);
     const body = JSON.parse(Buffer.concat(chunks));
     assert.equal(req.url, "/v1/chat/completions");
     modelCalls++;
+    if(body.messages.some(message=>message.role==='system'&&JSON.stringify(message.content).includes('TEAM_AGENT_PRIMARY_SOURCES')))namedAgentCalls++;
     const read = body.tools?.find(({function:fn})=>fn.name==='read');
     const attemptedTool = name => body.messages.some(m=>m.tool_calls?.some(({function:fn})=>fn.name===name));
     const attempted = attemptedTool('read');
@@ -46,7 +50,7 @@ const model = createServer(async (req, res) => {
     if(reviewing&&JSON.stringify(body.messages).includes('SUBAGENT_COUNTER_TEST_PARENT')){
       const evidence=body.messages.find(m=>m.role==='user'&&m.content.includes('Recorded execution evidence:'))?.content;
       assert(evidence,'Review must receive durable delegation evidence');
-      const recorded=JSON.parse(evidence.split('Recorded execution evidence:\n')[1].split('\n\nThread context:')[0]);
+      const recorded=JSON.parse(evidence.split('Recorded execution evidence:\n')[1].split('\n\n')[0]);
       assert.equal(recorded.filter(agent=>agent.parentId&&agent.status==='completed').length,5);
       for(const word of counterWords){
         const agent=recorded.find(agent=>agent.title==='Append '+word+' to counter');assert(agent);
@@ -143,7 +147,7 @@ const stop = async () => {
 };
 try {
   await writeFile(join(root,'private-other-thread.txt'),'DO_NOT_LEAK_FROM_OTHER_THREAD');
-  const config = { stateDir: join(root, "state"), port };
+  const config = { stateDir: join(root, "state"), port, host: process.env.BEES_PROOF_HOST ?? '127.0.0.1' };
   assert.throws(() => launchConfig(config, {}), /BEES_DSH_TOKEN/);
   for (const invalid of [{ stateDir: "/" }, { stateDir: "relative" }, { port: 0 }, { host: "example.com" }, { typo: true }])
     assert.throws(() => launchConfig({ ...config, ...invalid }, { BEES_DSH_TOKEN: token }));
@@ -171,6 +175,13 @@ try {
   assert.equal(snapshot.threads.length, 0);
   assert.equal(snapshot.teams.length,1);assert.equal(snapshot.teams[0].title,"Default");assert(!Object.hasOwn(snapshot,"workspaces"));
   const command = input => api("/bees-api/threads", {operationId: crypto.randomUUID(), ...input});
+  assert(existsSync(snapshot.folders.root), 'A work root is assigned automatically');
+  const workRoot=join(root,'Run files');await mkdir(workRoot);
+  const changedFolders=await command({action:'setRootFolder',directory:workRoot});
+  assert(existsSync(changedFolders.root));
+  const runFolder=(threadId,runId)=>join(changedFolders.root,snapshot.clientId,'Local','teams',snapshot.defaultTeamId,'threads',threadId,'runs',runId);
+  const namedAgent={id:crypto.randomUUID(),name:'Researcher',presetId:'standard',instructions:'TEAM_AGENT_PRIMARY_SOURCES: cite primary sources.',model:'stage1/proof',reasoningEffort:'',enabled:true,mcpAccess:'selected',mcpServers:['proof']};
+  await command({action:'configure',threadId:snapshot.defaultTeamId,agents:[namedAgent],workflow:[{name:'Work',kind:'work',agentId:namedAgent.id},{name:'Review',kind:'review',agentId:namedAgent.id}]});
   const thread = await command({action: "create", title: "Synthetic thread"});
   const integration = await command({action:'saveIntegration',threadId:thread.id,serverName:'proof',transport:'stdio',command:process.execPath,args:[join(desktop,'scripts/fixtures/headless-mcp.mjs')],secrets:{BEES_PROOF_SECRET:'synthetic-mcp-credential'}});
   assert(!JSON.stringify(integration).includes('synthetic-mcp-credential'));
@@ -195,7 +206,10 @@ try {
   assert(integrationReads>=2, 'Both stages must be able to read the thread MCP');
   assert(integrationWrites>0 && deniedIntegrationWrites>0, 'MCP actions require work approval and are denied during review');
   assert.equal(completed.runs[0].decisions.length,1);
-  const inputs=join(config.stateDir,'state/client-v3/personal/runs',thread.id,operationId,'inputs');
+  const inputs=join(runFolder(thread.id,operationId),'inputs');
+  assert(namedAgentCalls>=2,'Both real stages use the named team agent instructions');
+  assert.equal(completed.runs[0].workflow[0].agent.id,namedAgent.id);
+  const memory=await command({action:'memory_status',threadId:snapshot.defaultTeamId});assert(memory.enabled);assert(memory.memories.some(row=>row.content.includes('STAGE1_COMPLETE')),'Completed work is retained for automatic memory');
   assert.equal(await readFile(join(inputs,'Research/brief.txt'),'utf8'),'Synthetic brief');
   assert(existsSync(join(inputs,'Research/empty')));
   const callsBeforeRetry = modelCalls;
@@ -231,7 +245,7 @@ try {
   const parentAgent=counterAgents.find(agent=>!agent.parentId&&agent.stageIndex===0);
   assert.equal(counterAgents.filter(agent=>agent.parentId===parentAgent.id).length,5);
   assert(counterAgents.every(agent=>agent.status==='completed'));
-  const counterOutput=join(config.stateDir,'state/client-v3/personal/runs',counter.id,counterRun,'outputs',counterName);
+  const counterOutput=join(runFolder(counter.id,counterRun),'outputs',counterName);
   assert.deepEqual((await readFile(counterOutput,'utf8')).trim().split('\n').sort(),[...counterWords].sort());
   await command({action:'configure',threadId:counter.id,workflow:[{name:'Work',kind:'work',model:'stage1/missing-model'}]});
   await command({action:'run',threadId:counter.id,text:'This run must report the underlying model error.'});
@@ -252,7 +266,7 @@ try {
   assert.equal(restarted.runs[0].status, "completed");
   assert.match(restarted.messages.at(-1).text, /STAGE1_COMPLETE/);
   await stop();
-  console.log(JSON.stringify({ok: true, checks: ["client boot", "authentication", "exclusive state", "real agent work and review", "two-turn AI chat loop", "actual tool file denial", "nested thread files and folders", "scoped MCP calls and approvals", "run deduplication", "human approval and attribution", "five parallel subagents and shared counter", "restart persistence", "no team/workspace database"], modelCalls}));
+  console.log(JSON.stringify({ok: true, checks: ["client boot", "authentication", "exclusive state", "real agent work and review", "two-turn AI chat loop", "actual tool file denial", "nested thread files and folders", "automatic and configurable root folder", "named team agents", "automatic team memory queue", "scoped MCP calls and approvals", "run deduplication", "human approval and attribution", "five parallel subagents and shared counter", "restart persistence", "no team/workspace database"], modelCalls}));
 } finally {
   await stop();
   model.closeAllConnections(); await new Promise((done) => model.close(done));

@@ -19,3 +19,4 @@ output/playwright/
 
 # Generated runtime caches from earlier installs.
 llama-runtime/
+dsh-runtime/memory-runtime/

@@ -1,12 +1,15 @@
 import { h, useState, useRef, useEffect } from './runtime.js';
 import { DEFAULT_WORKFLOW, WORKFLOW_TEMPLATES, isChatWorkflow } from '../lib/thread-workflow.js';
 
-export function WorkflowStages({stages,onChange,disabled=false}){
+export function WorkflowStages({stages,onChange,disabled=false,agents=[]}){
   return h('fieldset',{className:'bc-form bc-fieldset',disabled},
     stages.map((stage,index)=>h('div',{key:index,className:'bc-actions'},
       h('input',{'aria-label':'Stage name',value:stage.name,required:true,pattern:'.*\\S.*',title:'Give each stage a name.',maxLength:80,onChange:e=>onChange(stages.map((s,i)=>i===index?{...s,name:e.target.value}:s))}),
       h('select',{'aria-label':'Stage type',value:stage.kind,onChange:e=>onChange(stages.map((s,i)=>i===index?{...s,kind:e.target.value}:s))},
         h('option',{value:'work'},'Work'),h('option',{value:'review'},'Independent review'),h('option',{value:'approval'},'Your approval'),h('option',{value:'chat',disabled:stages.length!==1},'AI chat')),
+      stage.kind!=='approval'?h('label',{className:'bc-field'},h('span',null,'Agent'),h('select',{'aria-label':'Stage agent',value:stage.agentId??'',onChange:e=>onChange(stages.map((s,i)=>{if(i!==index)return s;const next={...s};if(e.target.value)next.agentId=e.target.value;else delete next.agentId;return next;}))},
+        h('option',{value:''},'Default Bees agent'),stage.agentId&&!agents.some(agent=>agent.id===stage.agentId)?h('option',{value:stage.agentId},'Removed agent — choose another'):null,
+        agents.map(agent=>h('option',{key:agent.id,value:agent.id,disabled:!agent.enabled},agent.name+(agent.enabled?'':' (disabled)'))))):null,
       h('button',{type:'button','aria-label':'Remove stage',disabled:stages.length===1,onClick:()=>onChange(stages.filter((_,i)=>i!==index))},'×'))),
     h('button',{type:'button',disabled:stages.length>=12||isChatWorkflow(stages),onClick:()=>onChange([...stages,{name:'Next step',kind:'work'}])},'Add stage'));
 }
@@ -32,6 +35,6 @@ export function TeamProcesses({team,canManage,canCreate,busy,onSave,onStart}){
       if(await onSave(processes))setEditing(null);
     }},h('h3',null,editing==='new'?'Create process':'Edit process'),
       h('label',{className:'bc-field'},h('span',null,'Process name'),h('input',{value:name,required:true,pattern:'.*\\S.*',title:'Give the process a name.',maxLength:120,onChange:e=>{setName(e.target.value);e.target.setCustomValidity([...WORKFLOW_TEMPLATES,...(team.processes??[])].some(p=>p.id!==editing&&p.name.toLowerCase()===e.target.value.trim().toLowerCase())?'A process with this name already exists.':'');}})),
-      h(WorkflowStages,{stages,onChange:setStages,disabled:busy}),
+      h(WorkflowStages,{stages,agents:team.agents??[],onChange:setStages,disabled:busy}),
       h('div',{className:'bc-actions'},h('button',{className:'bc-primary',disabled:busy,type:'submit'},'Save process'),h('button',{type:'button',onClick:()=>setEditing(null)},'Cancel'))):null);
 }

@@ -2,8 +2,26 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {createHostedGateway} from './hosted-clients.mjs';
+import {mkdtemp,writeFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 const listen=server=>new Promise((resolve,reject)=>{server.once('error',reject).listen(0,'127.0.0.1',()=>resolve('http://127.0.0.1:'+server.address().port));});
 const close=server=>new Promise(r=>{server.closeAllConnections();server.close(r);});
+test('hosted releases invalidate browser assets and missing assets return 404',async()=>{
+ const assets=await mkdtemp(join(tmpdir(),'bees-hosted-assets-'));const servers=[];
+ try{
+  const versions=[];
+  for(const bundle of ['first release','second release']){
+   await writeFile(join(assets,'app.js'),bundle);
+   const gateway=createHostedGateway({directoryUrl:'https://directory.test',assets,provision:()=>{throw Error('Unexpected provisioning');}});servers.push(gateway);const url=await listen(gateway);
+   const html=await fetch(url+'/app/');assert.equal(html.headers.get('cache-control'),'no-store');
+   const script=(await html.text()).match(/src="([^"]+)"/)[1];versions.push(script);
+   const response=await fetch(url+script);assert.equal(await response.text(),bundle);assert.equal(response.headers.get('cache-control'),'no-cache');
+   assert.equal((await fetch(url+'/app/assets/missing.js')).status,404);
+  }
+  assert.notEqual(versions[0],versions[1]);
+ }finally{await Promise.all(servers.map(close));await rm(assets,{recursive:true,force:true});}
+});
 test('hosted gateway authenticates each request and routes only to the matching account client',async()=>{
  const servers=[];const directory=createServer(async(req,res)=>{res.setHeader('content-type','application/json');if(req.url==='/api/me'){const user=String(req.headers.authorization??'').slice(7);if(!['alice','bob'].includes(user)){res.statusCode=401;return res.end('{}');}return res.end(JSON.stringify({user:{id:user,email:user+'@example.com'}}));}if(req.url==='/api/auth/sign-in/email'){const chunks=[];for await(const c of req)chunks.push(c);return res.end(JSON.stringify({token:JSON.parse(Buffer.concat(chunks)).email.split('@')[0]}));}res.statusCode=404;res.end('{}');});servers.push(directory);
  try{

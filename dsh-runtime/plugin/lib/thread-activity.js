@@ -37,7 +37,7 @@ export async function recoverThreadActivity(ctx, store, thread) {
     validId(run.id);
     const agents = new Map((run.agents ?? []).map(agent => [agent.id, agent]));
     const errors = [];
-    const cwd = join(store.root, 'runs', thread.id, run.id);
+    const cwd = store.preference('executionFolder:' + run.id) ?? join(store.root, 'runs', thread.id, run.id);
     const queue = (run.workflow ?? DEFAULT_WORKFLOW).flatMap((stage, stageIndex) => stage.kind === 'approval' ? [] : [{ id: `${run.id}-${stageIndex}`, stageIndex }]);
     const visited = new Set();
     for (let position = 0; position < queue.length; position++) {
