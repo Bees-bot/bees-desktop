@@ -33,7 +33,7 @@ export function guardThreadTool(exec,cwd,agent){
 }
 
 export class ThreadRunner {
-  constructor(ctx,integrations,models,folders,freeAI){this.freeAI=freeAI;this.folders=folders;this.ctx=ctx;this.integrations=integrations;this.models=models;this.pending=new Map();}
+  constructor(ctx,integrations,models,folders,credits){this.credits=credits;this.folders=folders;this.ctx=ctx;this.integrations=integrations;this.models=models;this.pending=new Map();}
   answer(id,input){const pending=this.pending.get(id);if(!pending)throw threadError('This question is no longer waiting',409);pending.resolve(input);}
   wait(store,threadId,runId,signal,kind,content){
     const id=randomUUID();store.mutate(threadId,randomUUID(),doc=>{doc.runs.find(r=>r.id===runId).pending={id,kind,...content};});
@@ -84,13 +84,13 @@ export class ThreadRunner {
       }
       const selection=stage.agent?.model||stage.model||run.model||(process.env.BEES_HOSTED_MODEL?'hosted/'+process.env.BEES_HOSTED_MODEL:(await this.models(store))[0]?.id);
       let model=await resolveThreadModel(selection&&{provider:selection.slice(0,selection.indexOf('/')),model:selection.slice(selection.indexOf('/')+1),...(stage.agent?.reasoningEffort?{reasoningEffort:stage.agent.reasoningEffort}:{})},this.ctx.llm);
-      if(this.freeAI)model=this.freeAI.resolve(store,model);
+      if(this.credits)model=this.credits.resolve(store,model);
       if(!model?.model||!this.ctx.llm.listProviders().some(p=>p.id===model.provider))throw threadError(selection?`The AI model ${selection} is not connected. Pick another in Settings.`:'No AI model is connected. Add one in Global settings, under AI connections.');
       const sessionId=SessionId(run.id+'-'+index);
       const locks=new FileLocks(join(store.root,'file-locks'));
       const setup=async (agentCtx,parentId)=>{
         const owner=scopeOf(agentCtx);
-        this.freeAI?.mount(agentCtx,store);
+        this.credits?.mount(agentCtx,store);
         trackThreadAgent(agentCtx,{agent:owner,store,threadId:thread.id,runId:run.id,stageIndex:index,parentId});
         // Preset inheritance excludes thread-specific tools and guards.
         agentCtx.effect(()=>this.ctx.on('agent/created',({agent})=>{if(this.ctx.agents.isOwnedBy(agent.id,owner))return setup(agent.ctx,owner.id);}), 'Thread child setup');

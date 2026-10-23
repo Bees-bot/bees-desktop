@@ -85,7 +85,7 @@ spec:
             - name: BEES_MAX_HOSTED_CLIENTS
               value: "10"
             - name: BEES_HOSTED_RUNS_PER_DAY
-              value: "1"
+              value: "0"
           ports:
             - containerPort: 3100
           readinessProbe:

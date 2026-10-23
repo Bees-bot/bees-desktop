@@ -8,7 +8,7 @@ import { ThreadFolders } from './thread-folders.js';
 import { ThreadMemory } from './thread-memory.js';
 import { LocalMemory } from './local-memory.js';
 import { recoverThreadActivity } from './thread-activity.js';
-import { ThreadFreeAI, isAccountAIProvider } from './thread-free-ai.js';
+import { ThreadCredits, isAccountAIProvider } from './thread-credits.js';
 
 const equal=(a,b)=>{const x=Buffer.from(String(a??'')),y=Buffer.from(String(b??''));return x.length===y.length&&x.length>0&&timingSafeEqual(x,y);};
 const tokenOf=req=>String(req.headers.authorization??'').replace(/^Bearer\s+/i,'')||String(req.headers.cookie??'').split(';').map(x=>x.trim().split('=')).find(([k])=>k==='bees_dsh')?.[1];
@@ -28,14 +28,14 @@ export async function applyThreadProduct(ctx,config){
   ctx.webServer.server.prependListener('request',guard);ctx.webServer.server.prependListener('upgrade',guardUpgrade);
   ctx.effect(()=>()=>{ctx.webServer.server.off('request',guard);ctx.webServer.server.off('upgrade',guardUpgrade);},'Bees Client local authentication');
   const integrations=new ThreadIntegrations(ctx);
-  const freeAI=new ThreadFreeAI(ctx);
-  const models=async store=>{const rows=[];for(const provider of ctx.llm.listProviders().filter(p=>!isAccountAIProvider(p.id)))for(const model of await ctx.llm.listModels(provider.id).catch(()=>[]))rows.push({id:provider.id+'/'+model.id,name:model.name??model.id});return [...rows,...freeAI.models(store)];};
+  const credits=new ThreadCredits(ctx);
+  const models=async store=>{const rows=[];for(const provider of ctx.llm.listProviders().filter(p=>!isAccountAIProvider(p.id)))for(const model of await ctx.llm.listModels(provider.id).catch(()=>[]))rows.push({id:provider.id+'/'+model.id,name:model.name??model.id});return [...rows,...credits.models(store)];};
   folders=new ThreadFolders(join(root,'folders.json'),{privateRoot:root,defaultRoot:process.env.BEES_HOSTED_CLIENT?join(root,'files'):join(process.env.BEES_HOST_HOME||homedir(),'Bees'),hosted:!!process.env.BEES_HOSTED_CLIENT});
   const localMemory=new LocalMemory(ctx.settings,{get:()=>({memoryModel:typeof config.memoryModel?.get==='function'?config.memoryModel.get():config.memoryModel??''}),update:patch=>ctx.settings.update('bees',patch)},join(root,'memory'),ctx.credentials);
   const memory=store=>{const service=new ThreadMemory(store,ctx.credentials);service.local=localMemory;return service;};
   const agentPresets=async()=>(await ctx.agentPresets.list()).filter(preset=>!preset.broken).map(({id,name})=>({id,name}));
-  const runner=new ThreadRunner(ctx,integrations,models,folders,freeAI);
-  const profiles=await new ClientProfiles(join(root,'client-v3'),{models,freeAI,integrations,folders,memory,agentPresets,recoverActivity:(store,thread)=>recoverThreadActivity(ctx,store,thread),execute:options=>runner.execute(options),pending:id=>runner.pending.get(id),answer:(id,input)=>runner.answer(id,input)}).start();
+  const runner=new ThreadRunner(ctx,integrations,models,folders,credits);
+  const profiles=await new ClientProfiles(join(root,'client-v3'),{models,credits,integrations,folders,memory,agentPresets,recoverActivity:(store,thread)=>recoverThreadActivity(ctx,store,thread),execute:options=>runner.execute(options),pending:id=>runner.pending.get(id),answer:(id,input)=>runner.answer(id,input)}).start();
   const client=()=>profiles.active;
   ctx.effect(()=>async()=>{await profiles.close();await localMemory.close();},'Bees Client shutdown');
   ctx.effect(()=>()=>integrations.close(),'Bees integrations shutdown');

@@ -39,7 +39,7 @@ test('hosted gateway authenticates each request and routes only to the matching 
   const start=await fetch(url+'/bees-api/threads',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'startLogin',provider:'google',state:'01234567-0123-4123-8123-0123456789ab',url:'https://attacker.example'})});
   const authorization=new URL((await start.json()).url);assert.equal(authorization.origin,directoryUrl);assert.equal(authorization.searchParams.get('provider'),'google');
   const redirect=new URL(authorization.searchParams.get('redirect'));assert.equal(redirect.origin,url);assert.equal(redirect.pathname,'/bees-auth/finish');
-  const finish=await fetch(redirect);const html=await finish.text();assert.match(html,/BroadcastChannel/);assert.match(html,/history.replaceState/);assert.doesNotThrow(()=>new Function(html.match(/<script>([\s\S]*?)<\/script>/)[1]));
+  const finish=await fetch(redirect);const html=await finish.text();assert.match(html,/<p role="status">Signing in…/);assert.match(html,/BroadcastChannel/);assert.match(html,/history.replaceState/);assert.doesNotThrow(()=>new Function(html.match(/<script>([\s\S]*?)<\/script>/)[1]));
   const social=await fetch(url+'/bees-api/threads',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'login',session:'alice'})});
   assert.equal(social.status,200);assert.match(social.headers.get('set-cookie'),/bees_hosted_session=alice/);
   const rejected=await fetch(url+'/bees-api/threads',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'login',session:'revoked'})});
