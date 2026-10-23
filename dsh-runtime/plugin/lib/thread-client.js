@@ -16,8 +16,11 @@ export class DirectoryConnection {
   constructor(root,clientId){this.path=join(root,'directory.json');this.clientId=clientId;this.stop=new AbortController();if(existsSync(this.path))Object.assign(this,JSON.parse(readFileSync(this.path,'utf8')));this.url??=process.env.BEES_ACCOUNT_API_URL??'https://app.bees.bot';}
   save(){writeFileSync(this.path,JSON.stringify({url:this.url,token:this.token,user:this.user}),{mode:0o600});}
   async request(path,body,method=body===undefined?'GET':'POST'){
-    let result;try{result=await fetch(this.url+'/api/directory'+(path==='/'?'':path),{method,headers:{authorization:`Bearer ${this.token}`,'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.any([this.stop.signal,AbortSignal.timeout(20000)])});}
+    const token=this.token;
+    let result;try{result=await fetch(this.url+'/api/directory'+(path==='/'?'':path),{method,headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.any([this.stop.signal,AbortSignal.timeout(20000)])});}
     catch(error){if(this.stop.signal.aborted)throw error;throw threadError(`Could not reach Bees Server at ${this.url}. ${['localhost','127.0.0.1'].includes(new URL(this.url).hostname)?'Start the local server with npm run dev in bees-server.':'Check your connection and Bees Server address.'}`,503);}
+    // Older servers send 401 for unsupported app routes; their normal account routes still accept the token.
+    if(result.status===401&&this.token===token&&!path.startsWith('/composio/'))this.authRequired=true;
     // a server whose database is down answers 200 with the error inside, which replaced the thread list and crashed the page
     const value=await result.json().catch(()=>null);if(!result.ok||!value||value.error)throw threadError(result.ok||result.status>=500?"Bees can't be reached right now.":value?.error?.message??'Bees Server could not complete the request',result.ok?502:result.status);return value;
   }
@@ -39,7 +42,7 @@ export class DirectoryConnection {
     if(this.user&&this.user.id!==user.id)throw threadError('Use a separate client data directory for another account',409);
     const response=await fetch(this.url+'/api/directory/clients',{method:'POST',headers,body:JSON.stringify({id:this.clientId,name:process.env.BEES_CLIENT_NAME??hostname(),certificate,endpoints}),signal:AbortSignal.timeout(20000)});
     const value=await response.json().catch(()=>({}));if(!response.ok)throw threadError(response.status>=500?"Bees can't be reached right now.":value.error?.message??'Client enrollment failed',response.status);
-    this.token=value.token;this.user=user;this.save();return user;
+    this.token=value.token;this.user=user;this.authRequired=false;this.save();return user;
   }
 }
 
@@ -66,7 +69,7 @@ export class ThreadClient {
   }
   async authority(id){await this.refresh();const t=this.roster.threads.find(t=>t.id===id);if(!t)throw threadError('Thread access is unavailable',403);return t;}
   async fence(id){const doc=this.store.get(id);this.store.writable(doc);if(doc.shared){const t=await this.authority(id);if(t.owner_client_id!==this.store.clientId||Number(t.epoch)!==doc.epoch)throw threadError('This client no longer owns the thread',409);}return doc;}
-  async snapshot(){const rows=this.store.list();return {product:'Bees Client',clientId:this.store.clientId,user:this.directory.user??null,organizations:this.organizations(),organizationError:this.organizationError??null,serverUrl:this.directory.url,connectionError:this.connectionError??null,threads:rows.filter(t=>t.kind!=='team'),teams:rows.filter(t=>t.kind==='team'&&(!t.shared||!this.directory.token||this.connectionError||this.roster.threads.some(row=>row.id===t.id))),defaultTeamId:this.store.preference('defaultTeam'),directory:this.roster,models:await this.options.models?.(this.store)??[],freeAI:this.options.freeAI?.view(this.store),agentPresets:await this.options.agentPresets?.()??[],defaultModel:this.store.preference('model'),settings:this.store.preference('settings')??{}};}
+  async snapshot(){const rows=this.store.list();return {product:'Bees Client',clientId:this.store.clientId,user:this.directory.user??null,signedIn:!!this.directory.token&&!this.directory.authRequired,organizations:this.organizations(),organizationError:this.organizationError??null,serverUrl:this.directory.url,connectionError:this.connectionError??null,threads:rows.filter(t=>t.kind!=='team'),teams:rows.filter(t=>t.kind==='team'&&(!t.shared||!this.directory.token||this.connectionError||this.roster.threads.some(row=>row.id===t.id))),defaultTeamId:this.store.preference('defaultTeam'),directory:this.roster,models:await this.options.models?.(this.store)??[],freeAI:this.options.freeAI?.view(this.store),agentPresets:await this.options.agentPresets?.()??[],defaultModel:this.store.preference('model'),settings:this.store.preference('settings')??{}};}
   async registerThread(id,input={}){await this.fence(id);let doc=this.store.document(id);if(!this.directory.token)throw threadError('Sign in to share or transfer a thread',401);
     const team=this.store.teamFor(id);
     if(team&&!team.shared)await this.registerThread(team.id);

@@ -29,13 +29,13 @@ export class ThreadIntegrations {
   async command(store, id, input, directory) {
     if (input.action === 'integrations') return this.snapshot(store, id);
     if (['composioApps', 'connectComposioApp'].includes(input.action)) {
-      if (!rows(store, id).some(server => server.catalogId === 'composio' && server.enabled)) throw threadError('Enable Composio first');
-      if (!directory?.token) throw threadError('Sign in to Bees to browse Composio apps', 401);
+      if (!directory?.token || directory.authRequired) throw threadError('Sign in to Bees to connect your apps', 401);
       if (input.action === 'composioApps') {
         const query = new URLSearchParams({ search: input.search ?? '' });
         if (input.cursor) query.set('cursor', input.cursor);
         return directory.request('/composio/toolkits?' + query);
       }
+      if (!rows(store, id).some(server => server.catalogId === 'composio' && server.enabled)) throw threadError('Enable app access for this team first');
       return directory.request('/composio/link', { toolkit: input.toolkit });
     }
     if (input.action === 'setBrowser') {
@@ -108,7 +108,7 @@ export class ThreadIntegrations {
   }
   async config(store, id, server, cwd, browserId=id, directory) {
     if (server.catalogId === 'composio') {
-      if (!directory?.token) throw threadError('Sign in to Bees to use Composio', 401);
+      if (!directory?.token || directory.authRequired) throw threadError('Sign in to Bees to use connected apps', 401);
       const { token } = await directory.request('/composio/session', {});
       return { transport: 'streamable-http', serverName: server.serverName,
         url: directory.url + '/api/composio/mcp', headers: { Authorization: `Bearer ${token}` }, failOnStartupError: true };

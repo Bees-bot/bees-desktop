@@ -51,7 +51,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const [dialog,setDialog]=useState(null), [settingsSection,setSettingsSection]=useState('ai'), [threadSection,setThreadSection]=useState('general');
   const [error,setError]=useState(''), [notice,setNotice]=useState(''), [busy,setBusy]=useState(false), [preview,setPreview]=useState(null);
   const [email,setEmail]=useState(''), [role,setRole]=useState('viewer'), [target,setTarget]=useState(''), [inviteLink,setInviteLink]=useState('');
-  const selectedRef=useRef(selected), profileEpoch=useRef(0); selectedRef.current=selected;
+  const selectedRef=useRef(selected), profileEpoch=useRef(0), loginReturn=useRef(null); selectedRef.current=selected;
   const preference=useAppearance(preferences,data?.settings);
   const teamRows=data?.teams??[],teamIds=new Set(teamRows.map(t=>t.id));
   const selectedOrganizationId=organizationId===undefined?(data?.settings?.selectedOrganizationId??null):organizationId;
@@ -68,7 +68,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const act=(action,values={})=>perform(async()=>{const id=selected;const result=await command(action,id,values);await refresh();if(id)await read(id);return result;});
   const select=id=>{if(id!==selected){setThread(null);setError(e=>e===offline?e:'');}const row=data?.threads.find(t=>t.id===id)??data?.directory?.threads.find(t=>t.id===id);const parent=row?.teamId??row?.team_id;if(parent&&allTeams.some(t=>t.id===parent))setTeamId(parent);selectedRef.current=id;setSelected(id);setNewTemplate('goals');setSuggestion(null);setNavigation({id:'conversation'});setDialog(null);setInviteLink('');setNotice('');};
   const navigate=next=>{setNavigation({id:next});setDialog(null);};
-  const closeDialog=()=>{setDialog(null);setError('');setNotice('');};
+  const closeDialog=()=>{const returnTo=loginReturn.current;loginReturn.current=null;setDialog(returnTo?'team':null);setError('');setNotice('');};
   const openSettings=(section,id=selected)=>{if(id!==selected)select(id);setThreadSection(section);setInviteLink('');setNotice('');setDialog('thread');};
   const openTeamSettings=(section='general',id=currentTeamId)=>{if(id!==currentTeamId){select(null);setTeamId(id);setTeam(null);}setTeamSection(section);setInviteLink('');setNotice('');setDialog('team');};
   const openGlobal=section=>{setSettingsSection(section);setDialog('settings');setNotice('');};
@@ -149,7 +149,8 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const saveTeam=values=>perform(async()=>{await command('configure',currentTeamId,values);await refresh();await readTeam(currentTeamId);setNotice(values.processes!==undefined?'Processes saved. Start a new thread to use them.':'Team settings saved. Changes apply to new runs in every thread.');return true;});
   const teamAction=(action,values)=>perform(async()=>{await command(action,currentTeamId,values);await refresh();await readTeam(currentTeamId);});
   const files=thread?h(ThreadFiles,{key:selected,thread,canWrite,busy,onAttach:attach,onPreview:previewFile,preview,onClosePreview:()=>setPreview(null)}):null;
-  const integrations=section=>team?h(IntegrationSettings,{key:currentTeamId+section,threadId:currentTeamId,canManage:(teamOwn||['owner','editor'].includes(teamRole))&&!team.unavailable&&!team.frozen,signedIn:!!data?.user,request:command,perform,page:section}):null;
+  const signInForApps=()=>{loginReturn.current=currentTeamId;setError('');setDialog('login');};
+  const integrations=section=>team?h(IntegrationSettings,{key:currentTeamId+section,threadId:currentTeamId,canManage:(teamOwn||['owner','editor'].includes(teamRole))&&!team.unavailable&&!team.frozen,signedIn:data?.signedIn??!!data?.user,onSignIn:signInForApps,request:command,perform,page:section}):null;
   const configuration=(section,note)=>team?h(React.Fragment,null,canConfigureTeam||!note?null:h('p',{className:'bc-muted'},'Only the team owner can change shared settings.'),h(WorkflowSettings,{key:currentTeamId+section+(canConfigureTeam?'':team.revision),thread:team,agents:team.agents??[],scope:'team',section,disabled:!canConfigureTeam,busy,onSave:saveTeam})):h('p',{role:'status'},'Loading team settings…');
   const members=h('section',{className:'bc-form'},h('h3',null,'Members'),
     !teamParticipants.length?h('p',null,'Only you have access to this private team.'):null,
@@ -250,7 +251,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
       h(SettingsPage,{title:settingsTitle,items:dialog==='team'?TEAM_SETTINGS:GLOBAL_SETTINGS,selected:dialog==='team'?teamSection:settingsSection,
         onSelect:section=>{if(dialog==='team')setTeamSection(section);else setSettingsSection(section);setNotice('');},onClose:closeDialog},
         dialog==='team'?h(React.Fragment,null,team&&!canConfigureTeam&&!['addons','browser'].includes(teamSection)?h('p',{className:'bc-muted'},'Only the team owner can change shared settings.'):null,teamContent,
-          team&&legacyRows.length&&['general','memory','workflow','schedule','addons','browser'].includes(teamSection)?h(LegacyOverrides,{key:currentTeamId+teamSection,rows:legacyRows,section:teamSection,perform,busy}):null):globalContent))
+          team&&legacyRows.length&&['general','memory','workflow','schedule','addons','browser'].includes(teamSection)?h(LegacyOverrides,{key:currentTeamId+teamSection,rows:legacyRows,section:teamSection,perform,busy,signedIn:data?.signedIn??!!data?.user,onSignIn:signInForApps}):null):globalContent))
       :null,h('section',{className:'bc-thread-surface',hidden:settingsOpen},
       h('header',{className:'bc-thread-header'},h('button',{className:'bc-icon bc-back-to-threads','aria-label':'Show threads',onClick:()=>select(null)},'‹'),h('div',null,h('h2',null,thread?.title??(selected?'Loading thread…':'A little help. A lot done.')),
         h('p',null,selected?(owner?.name??(own?'This machine':'Shared work')):'Your people, AI, and work in one conversation.')),
@@ -269,7 +270,11 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     modalOpen?h(Dialog,{wide:dialog==='thread',title:dialog==='thread'?`Thread settings${thread?' · '+thread.title:''}`:'Welcome to Bees',onClose:closeDialog},
       error?h('p',{className:'bc-error',role:'alert'},error):null,notice?h('p',{className:'bc-notice',role:'status'},notice):null,
       dialog==='thread'?h('div',{className:'bc-settings-layout'},h(SettingsNav,{items:THREAD_SETTINGS,selected:threadSection,onSelect:section=>{setThreadSection(section);setNotice('');},label:'Thread settings sections'}),h('div',{className:'bc-settings-content'},threadContent))
-      :h(Login,{server:data?.serverUrl,request:(action,values)=>command(action,null,values),onComplete:async()=>{clearAccount();await refresh();setError('');setNotice('');setDialog(null);}})):null);
+      :h(Login,{server:data?.serverUrl,request:(action,values)=>command(action,null,values),onComplete:async()=>{
+        const returnTo=loginReturn.current;loginReturn.current=null;clearAccount();const next=await refresh();setError('');setNotice('');
+        if(returnTo){const target=next.teams.find(team=>team.id===returnTo)??next.teams.find(team=>team.id===next.defaultTeamId);setTeamId(target?.id);setOrganizationId(target?.organizationId??null);setTeamSection('addons');setDialog('team');}
+        else setDialog(null);
+      }})):null);
 
 }
 
@@ -332,13 +337,13 @@ function WorkflowSettings({thread,onSave,agents=[],section='general',scope='thre
     disabled?null:h('button',{className:'bc-primary',type:'submit'},busy?'Saving…':scope==='team'?'Save team settings':'Save thread settings')));
 }
 
-function LegacyOverrides({rows,section,perform,busy}){
+function LegacyOverrides({rows,section,perform,busy,signedIn,onSignIn}){
   const [id,setId]=useState(rows[0]?.id),[doc,setDoc]=useState(null);
   useEffect(()=>{let current=true;setDoc(null);if(id)void perform(async()=>{const value=await command('read',id);if(current)setDoc(value);});return()=>{current=false;};},[id]);
   return h('details',{className:'bc-legacy-settings'},h('summary',null,'Existing thread settings'),
     h('p',{className:'bc-muted'},'Settings saved before teams are preserved for these threads. Team instructions and memory are added to them; a saved team workflow takes priority.'),
     h('select',{'aria-label':'Existing thread settings',value:id,onChange:e=>setId(e.target.value)},rows.map(row=>h('option',{key:row.id,value:row.id},row.title))),
-    doc?['addons','browser'].includes(section)?h(IntegrationSettings,{key:id+section,threadId:id,scope:'thread',canManage:!doc.frozen&&!doc.unavailable,signedIn:!!data?.user,request:command,perform,page:section})
+    doc?['addons','browser'].includes(section)?h(IntegrationSettings,{key:id+section,threadId:id,scope:'thread',canManage:!doc.frozen&&!doc.unavailable,signedIn,onSignIn,request:command,perform,page:section})
       :h(WorkflowSettings,{key:id+section,thread:doc,scope:'legacy',section,busy,disabled:doc.frozen||!!doc.unavailable,onSave:values=>perform(async()=>{setDoc(await command('configure',id,values));})}):null);
 }
 
