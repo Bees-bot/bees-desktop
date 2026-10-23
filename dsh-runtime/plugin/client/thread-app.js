@@ -10,6 +10,7 @@ import { ThreadKanban } from './thread-kanban.js';
 import { DEFAULT_WORKFLOW, WORKFLOW_TEMPLATES, workflowTemplate, processName, workflowFor, isChatWorkflow } from '../lib/thread-workflow.js';
 import { IntegrationSettings } from './thread-integrations.js';
 import { Login } from './thread-login.js';
+import { CreditSettings, FirstStart } from './thread-credits.js';
 import { ThreadWorkspace } from './thread-layout.js';
 import { TeamProcesses, WorkflowStages } from './thread-processes.js';
 import { TeamAgents } from './thread-agents.js';
@@ -32,8 +33,8 @@ function UpdateBar(){const [version,setVersion]=useState(null),[status,setStatus
   useEffect(()=>{if(!invoke)return;const check=()=>invoke('check_for_update').then(setVersion,()=>{});check();const timer=setInterval(check,6*60*60*1000);return()=>clearInterval(timer);},[]);
   if(!version)return null;const installing=status==='installing';
   return h('div',{className:'bc-notice',role:'status'},status&&!installing?status:`Bees ${version} is ready to install.`,h('button',{onClick:()=>void openExternal(`https://github.com/Bees-bot/bees-desktop/releases/tag/v${version}`)},"What's new"),h('button',{className:'bc-primary',disabled:installing,onClick:()=>{setStatus('installing');invoke('install_update').then(restarting=>{if(!restarting)setStatus('');},e=>setStatus('Update failed: '+e));}},installing?'Downloading…':'Update and restart'),h('button',{disabled:installing,onClick:()=>setVersion(null)},'Later'));}
-function AiConnections({ctx,preferences,modelSettings,models,onModel,current,freeAI}){
-  return h('div',{className:'bc-form'},freeAI?.available?h('p',{className:'bc-muted'},'Bees Free is included with your account. Messages go through OpenRouter to a free model. Shared request limits apply.'):freeAI?.message?h('p',{role:'status'},freeAI.message):null,h('label',{className:'bc-field'},h('span',null,'Default AI'),h('select',{value:current??'',onChange:e=>onModel(e.target.value)},h('option',{value:''},'Use connected system default'),models.map(m=>h('option',{key:m.id,value:m.id},m.name)))),!hosted&&ctx&&preferences&&modelSettings?h(React.Fragment,null,
+function AiConnections({ctx,preferences,modelSettings,models,onModel,current,credits}){
+  return h('div',{className:'bc-form'},credits?.available?h('p',{className:'bc-muted'},'Bees Credits uses your personal balance on desktop and web. See Credits & billing to buy tokens or manage auto-renew.'):credits?.message?h('p',{role:'status'},credits.message):null,h('label',{className:'bc-field'},h('span',null,'Default AI'),h('select',{value:current??'',onChange:e=>onModel(e.target.value)},h('option',{value:''},'Use connected system default'),models.map(m=>h('option',{key:m.id,value:m.id},m.name)))),!hosted&&ctx&&preferences&&modelSettings?h(React.Fragment,null,
     h(SubscriptionSettings,{ctx,preferences,modelSettings,ask,openExternal,Button,pickFile:window.__TAURI__?.core?.invoke?options=>window.__TAURI__.core.invoke('plugin:dialog|open',{options}):undefined,onChange:()=>{}}),
     h(CustomAiSettings,{ctx,preferences,modelSettings,ask,confirmAction,openExternal,Button}),
     h(OpenAiServersSettings,{ctx,preferences,modelSettings,ask,Button})
@@ -188,7 +189,8 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     :['general','workflow','schedule'].includes(teamSection)?configuration(teamSection)
     :teamSection==='members'?members:teamSection==='invitations'?invitations
     :teamSection==='folders'?teamFiles:integrations(teamSection);
-  const globalContent=settingsSection==='ai'?h(AiConnections,{ctx,preferences,modelSettings,models:data?.models??[],current:data?.defaultModel,freeAI:data?.freeAI,onModel:model=>act('model',{model})})
+  const globalContent=settingsSection==='ai'?h(AiConnections,{ctx,preferences,modelSettings,models:data?.models??[],current:data?.defaultModel,credits:data?.credits,onModel:model=>act('model',{model})})
+    :settingsSection==='credits'?h(CreditSettings,{key:data?.user?.id??'local',connection:data?.credits,user:data?.user,request:(action,values)=>command(action,null,values),onRefresh:refresh,onSignIn:()=>setDialog('login')})
     :settingsSection==='appearance'?h(AppearanceSettings,{preference,onSave:saveAppearance,disabled:busy||!!preferences&&preferences.getSnapshot().status!=='ready'})
     :settingsSection==='organizations'?(data?.user?h(OrganizationsPanel,{key:data.user.id+selectedOrganizationId,perform,busy,icon,ctx,folders:data?.folders,onSaveFolder:saveFolder,organizationId:selectedOrganizationId,onChanged:loadOrganizations,onNotice:setNotice}):h('button',{onClick:()=>setDialog('login')},'Sign in to manage organizations'))
     :settingsSection==='storage'?h(RootFolderSettings,{ctx,folders:data?.folders,busy,onSave:saveFolder})
@@ -226,6 +228,13 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const settingsOpen=dialog==='settings'||dialog==='team', modalOpen=dialog==='thread'||dialog==='login';
   const currentTeam=teams.find(t=>t.id===currentTeamId);
   const settingsTitle=dialog==='team'?`Team settings${currentTeam?' · '+currentTeam.title:''}`:settingsSection==='organizations'?'Org settings':'Global settings';
+  if(data?.onboarding===null)return h('div',{className:'bc-app bc-onboarding-app','data-bees-theme':theme.id,style:themeStyle(theme)},
+    h(FirstStart,{user:data.user,organizations,busy,error,onSignIn:()=>setDialog('login'),
+      onVerify:verifyEmail,
+      onCloud:values=>void perform(async()=>{await command('completeOnboarding',null,{mode:'cloud',...values});clearAccount();await refresh();}),
+      onLocal:()=>void perform(async()=>{await command('completeOnboarding',null,{mode:'local'});clearAccount();await refresh();openGlobal('ai');})}),
+    notice?h('p',{role:'status'},notice):null,
+    dialog==='login'?h(Dialog,{title:'Sign in',onClose:closeDialog},h(Login,{server:data.serverUrl,request:(action,values)=>command(action,null,values),onComplete:async()=>{await refresh();closeDialog();}})):null);
   return h('div',{className:'bc-app '+(selected||settingsOpen?'has-thread':''),'data-bees-theme':theme.id,style:themeStyle(theme)},
     h(BeesNavigation,{brandMark,icon,organizations,accounts:data?.accounts??[],user:data?.user,localActive:data?.localActive,organizationId:selectedOrganizationId,theme,busy:busy||!data,
       onOrganization:chooseOrganization,onCreateOrganization:createOrganization,onGlobal:openGlobal,

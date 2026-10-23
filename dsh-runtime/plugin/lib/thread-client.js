@@ -64,12 +64,12 @@ export class ThreadClient {
     for(const local of this.store.list())if(sharedBefore.has(local.id)&&!this.roster.threads.some(t=>t.id===local.id)){this.store.preference(`frozen:${local.id}`,true);this.jobs.get(local.id)?.abort();}
     for(const authority of this.roster.threads){const local=this.store.list().find(t=>t.id===authority.id);if(local?.ownerClientId===this.store.clientId&&authority.owner_client_id!==this.store.clientId){this.store.preference(`frozen:${authority.id}`,true);this.jobs.get(authority.id)?.abort();}if(local?.staged&&authority.owner_client_id===this.store.clientId){const doc=this.store.document(local.id);this.store.activateTransfer(local.id,authority,checkpointDigest(doc));this.store.preference(`frozen:${local.id}`,false);}}
     await this.command({action:'organizations'}).catch(error=>{this.organizationError=error.message;});
-    await this.options.freeAI?.sync(this);
+    await this.options.credits?.sync(this);
     this.options.notify?.();
   }
   async authority(id){await this.refresh();const t=this.roster.threads.find(t=>t.id===id);if(!t)throw threadError('Thread access is unavailable',403);return t;}
   async fence(id){const doc=this.store.get(id);this.store.writable(doc);if(doc.shared){const t=await this.authority(id);if(t.owner_client_id!==this.store.clientId||Number(t.epoch)!==doc.epoch)throw threadError('This client no longer owns the thread',409);}return doc;}
-  async snapshot(){const rows=this.store.list();return {product:'Bees Client',clientId:this.store.clientId,user:this.directory.user??null,signedIn:!!this.directory.token&&!this.directory.authRequired,organizations:this.organizations(),organizationError:this.organizationError??null,serverUrl:this.directory.url,connectionError:this.connectionError??null,threads:rows.filter(t=>t.kind!=='team'),teams:rows.filter(t=>t.kind==='team'&&(!t.shared||!this.directory.token||this.connectionError||this.roster.threads.some(row=>row.id===t.id))),defaultTeamId:this.store.preference('defaultTeam'),directory:this.roster,models:await this.options.models?.(this.store)??[],freeAI:this.options.freeAI?.view(this.store),agentPresets:await this.options.agentPresets?.()??[],defaultModel:this.store.preference('model'),settings:this.store.preference('settings')??{}};}
+  async snapshot(){const rows=this.store.list();return {product:'Bees Client',clientId:this.store.clientId,user:this.directory.user??null,signedIn:!!this.directory.token&&!this.directory.authRequired,organizations:this.organizations(),organizationError:this.organizationError??null,serverUrl:this.directory.url,connectionError:this.connectionError??null,threads:rows.filter(t=>t.kind!=='team'),teams:rows.filter(t=>t.kind==='team'&&(!t.shared||!this.directory.token||this.connectionError||this.roster.threads.some(row=>row.id===t.id))),defaultTeamId:this.store.preference('defaultTeam'),directory:this.roster,models:await this.options.models?.(this.store)??[],credits:this.options.credits?.view(this.store),agentPresets:await this.options.agentPresets?.()??[],defaultModel:this.store.preference('model'),settings:this.store.preference('settings')??{}};}
   async registerThread(id,input={}){await this.fence(id);let doc=this.store.document(id);if(!this.directory.token)throw threadError('Sign in to share or transfer a thread',401);
     const team=this.store.teamFor(id);
     if(team&&!team.shared)await this.registerThread(team.id);
@@ -175,6 +175,9 @@ export class ThreadClient {
       this.store.preference('organizationAppearance',{...this.store.preference('organizationAppearance'),[id]:input.appearance});
       this.options.notify?.();return this.organizations().find(org=>org.id===id);
     }
+    if(input.action==='credits'){await this.options.credits?.sync(this,true);return this.options.credits?.view(this.store)??null;}
+    if(input.action==='purchaseCredits')return this.directory.request('/credits/checkout',{id:input.id,autoRenew:input.autoRenew,amountCents:input.amountCents});
+    if(input.action==='creditAutoRenew'){const result=await this.directory.request('/credits/auto-renew',{enabled:input.enabled,amountCents:input.amountCents});await this.options.credits?.sync(this,true);return result;}
     if(input.action==='createOrganization'){const org=await this.directory.request('/organizations',{name:input.name});this.ensureOrganizationTeam(org);this.options.notify?.();return org;}
     if(input.action==='organizationMembers')return this.directory.request(`/organizations/${validId(input.organizationId)}/members`);
     if(input.action==='inviteOrganization')return this.directory.request(`/organizations/${validId(input.organizationId)}/invitations`,{email:input.email,role:input.role??'member'});
@@ -309,5 +312,5 @@ export class ThreadClient {
       catch(e){try{this.store.mutate(row.id,randomUUID(),d=>{d.schedule.error=e.message;d.schedule.attemptAt=new Date().toISOString();});}catch{}}
     }}finally{this.scheduling=false;}
   }
-  async close(){this.closing=true;clearInterval(this.timer);this.directory.stop.abort();for(const abort of this.jobs.values())abort.abort();await Promise.allSettled([...this.finishing]);this.options.freeAI?.close(this);await this.memory?.close();await this.peer?.close();this.store.close();}
+  async close(){this.closing=true;clearInterval(this.timer);this.directory.stop.abort();for(const abort of this.jobs.values())abort.abort();await Promise.allSettled([...this.finishing]);this.options.credits?.close(this);await this.memory?.close();await this.peer?.close();this.store.close();}
 }

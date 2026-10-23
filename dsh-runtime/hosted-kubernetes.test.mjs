@@ -53,3 +53,17 @@ test('new hosted images wait for running work and reuse the existing persistent 
   assert(calls.some(url => url.endsWith('/active-runs')));
   assert.throws(() => kubernetesClients({ ...base, image: 'registry.test/bees:latest' }), /digest/);
 });
+
+test('existing workers pick up the credit-based run allowance when idle, preserving other environment settings',async()=>{
+ const c=cluster();let active=0;
+ const options={image,directoryUrl:'https://directory.test',api:c.api,fetcher:async url=>url.endsWith('/active-runs')?Response.json(active):Response.json({})};
+ const user={id:'alice'};await kubernetesClients(options)(user,'session');
+ const deployment=[...c.rows.values()].find(row=>row.kind==='Deployment');
+ const env=deployment.spec.template.spec.containers[0].env;
+ env.find(row=>row.name==='BEES_HOSTED_RUNS_PER_DAY').value='1';
+ active=1;await kubernetesClients(options)(user,'session');assert.equal(c.writes.filter(row=>row.method==='PATCH').length,0);
+ active=0;await kubernetesClients(options)(user,'session');
+ const patch=c.writes.find(row=>row.method==='PATCH').input.spec.template.spec.containers[0];
+ assert.equal(patch.env.find(row=>row.name==='BEES_HOSTED_RUNS_PER_DAY').value,process.env.BEES_HOSTED_RUNS_PER_DAY??'0');
+ assert.equal(patch.env.find(row=>row.name==='BEES_ACCOUNT_API_URL').value,'https://directory.test');
+});
