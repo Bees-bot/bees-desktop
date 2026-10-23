@@ -13,6 +13,8 @@
 !dsh-runtime/headless.mjs
 !dsh-runtime/client-cloud.mjs
 !dsh-runtime/hosted-clients.mjs
+!dsh-runtime/hosted-api.mjs
+!dsh-runtime/hosted-kubernetes.mjs
 !dsh-runtime/profile/
 !dsh-runtime/profile/**
 !dsh-runtime/plugin/

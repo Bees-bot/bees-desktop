@@ -8,11 +8,15 @@ import { MCP_CATALOG, catalogEntry, isBrowserCatalog } from './mcp-catalog.js';
 import { defaultBrowser, browserSetup, browserWarning, browserPort, startAgentBrowser, showAgentBrowser, closeAgentBrowser } from './agent-browser.js';
 import { googleConsent } from './google-consent.js';
 import { threadError, text, validId } from './thread-store.js';
+import { agentAllowsServer } from './thread-agents.js';
 
 const lib = dirname(fileURLToPath(import.meta.url));
 const secretRef = (store, threadId, serverId, key) => credentialRef(`BEES_THREAD_${store.clientId}_${threadId}_${serverId}_${key}`.replace(/[^a-zA-Z0-9_]/g, '_').toUpperCase());
 const rows = (store, id) => store.preference(`integrations:${id}`) ?? [];
-const browserMode = (store, id) => store.preference(`browser:${id}`) ?? 'own';
+export const browserMode = (store, id, available = !process.env.BEES_HOSTED_CLIENT && !!defaultBrowser()) => {
+  const saved = store.preference(`browser:${id}`);
+  return available && saved !== 'own' ? 'personal' : 'own';
+};
 
 export class ThreadIntegrations {
   constructor(ctx) { this.ctx = ctx; this.consents = new Set(); }
@@ -118,10 +122,10 @@ export class ThreadIntegrations {
     return { transport: 'stdio', serverName: server.serverName, command: server.command === '{node}' ? process.execPath : server.command,
       args, env: credentials, cwd, failOnStartupError: true };
   }
-  async mount(agentCtx, store, id, cwd) {
+  async mount(agentCtx, store, id, cwd, agent) {
     const team=store.teamFor(id),teamServers=team?rows(store,team.id):[];
     const connections=[...teamServers.map(server=>({server,scope:team.id})),...rows(store,id).filter(server=>!teamServers.some(row=>row.serverName===server.serverName)).map(server=>({server,scope:id}))];
-    for (const {server,scope} of connections.filter(({server}) => server.enabled)) {
+    for (const {server,scope} of connections.filter(({server}) => server.enabled && agentAllowsServer(agent, server.serverName))) {
       const browserId=team&&store.preference(`browser:${team.id}`)!==null?team.id:scope;
       const fiber = agentCtx.plugin(mcpClient, await this.config(store, scope, server, cwd, browserId));
       let timer;

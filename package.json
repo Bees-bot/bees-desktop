@@ -13,6 +13,7 @@
     "build": "vite build",
     "start:headless": "node dsh-runtime/headless.mjs",
     "check:headless": "node scripts/check-headless.mjs",
+    "check:web": "npm run check && node scripts/check-headless.mjs --web",
     "check:page-fetch": "node scripts/check-page-fetch.mjs",
     "typecheck": "tsc --noEmit",
     "sbom": "npm sbom --sbom-format cyclonedx --package-lock-only --omit dev > docs/sbom/desktop-runtime.cdx.json && cd dsh-runtime && npm sbom --sbom-format cyclonedx --package-lock-only --omit dev --legacy-peer-deps > ../docs/sbom/dsh-runtime.cdx.json",
@@ -21,8 +22,8 @@
     "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "tauri:build": "tauri build",
     "build:hosted": "node scripts/build-hosted-ui.mjs",
-    "check:hosted": "node --test dsh-runtime/hosted-clients.test.mjs",
-    "check:client": "node --test dsh-runtime/headless.test.mjs dsh-runtime/hosted-clients.test.mjs dsh-runtime/plugin/lib/thread-*.test.js dsh-runtime/plugin/lib/client-profiles.test.js",
+    "check:hosted": "node --test dsh-runtime/hosted-*.test.mjs",
+    "check:client": "node --test dsh-runtime/headless.test.mjs dsh-runtime/hosted-*.test.mjs dsh-runtime/plugin/lib/thread-*.test.js dsh-runtime/plugin/lib/client-profiles.test.js",
     "check:ai": "node --test dsh-runtime/plugins/custom-ai/lib/*.test.js"
   },
   "dependencies": {
@@ -35,6 +36,6 @@
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "typescript": "6.0.3",
-    "vite": "8.1.4"
+    "vite": "8.1.6"
   }
 }

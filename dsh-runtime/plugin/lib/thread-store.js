@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, existsSync, lstatSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { validateTeamAgents } from './thread-agents.js';
 import { DEFAULT_WORKFLOW, WORKFLOW_TEMPLATES, isValidWorkflow } from './thread-workflow.js';
 
 export const digest = value => createHash('sha256').update(value).digest('hex');
@@ -60,6 +61,8 @@ export class ThreadStore {
       if(doc.kind!=='team'||!Array.isArray(doc.processes)||doc.processes.length>40||new Set(doc.processes.map(p=>p?.id)).size!==doc.processes.length)throw threadError('Invalid team processes');
       for(const process of doc.processes){validId(process.id);text(process.name,120);if(!isValidWorkflow(process.workflow))throw threadError('Invalid process stages');}
     }
+    if(doc.agents!==undefined){if(doc.kind!=='team')throw threadError('Agents belong to a team');validateTeamAgents(doc.agents);}
+    if(doc.workflow!==undefined&&!isValidWorkflow(doc.workflow))throw threadError('Invalid workflow stages');
     if(doc.kind!==undefined&&!['team','thread'].includes(doc.kind))throw threadError('Invalid document kind');
     if(doc.teamId!==undefined){validId(doc.teamId);if(doc.teamId===doc.id||doc.kind==='team')throw threadError('Invalid team');}
     if(!Number.isSafeInteger(doc.revision)||doc.revision<1||!Number.isSafeInteger(doc.epoch)||doc.epoch<1)throw threadError('Invalid thread revision');

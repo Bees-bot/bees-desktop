@@ -1,0 +1,194 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bees-clients
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bees-client-gateway
+  namespace: bees-clients
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: bees-client-gateway
+  namespace: bees-clients
+rules:
+  - apiGroups: [""]
+    resources: [secrets, services, persistentvolumeclaims]
+    verbs: [get, create]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, list, create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bees-client-gateway
+  namespace: bees-clients
+subjects:
+  - kind: ServiceAccount
+    name: bees-client-gateway
+    namespace: bees-clients
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: bees-client-gateway
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bees-client-gateway
+  namespace: bees-clients
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: bees-client-gateway
+  template:
+    metadata:
+      labels:
+        app: bees-client-gateway
+    spec:
+      serviceAccountName: bees-client-gateway
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: gateway
+          image: __CLIENT_IMAGE__
+          command: [node, dsh-runtime/hosted-clients.mjs]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          env:
+            - name: BEES_CLIENT_IMAGE
+              value: __CLIENT_IMAGE__
+            - name: BEES_CLIENT_BACKEND
+              value: kubernetes
+            - name: BEES_CLIENT_NAMESPACE
+              value: bees-clients
+            - name: BEES_ACCOUNT_API_URL
+              value: https://app.bees.bot
+            - name: BEES_HOSTED_CLIENT_URL
+              value: https://app.bees.bot/app
+            - name: BEES_GATEWAY_HOST
+              value: 0.0.0.0
+            - name: BEES_MAX_HOSTED_CLIENTS
+              value: "10"
+            - name: BEES_HOSTED_RUNS_PER_DAY
+              value: "0"
+          ports:
+            - containerPort: 3100
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 3100
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3100
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 384Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bees-client-gateway
+  namespace: bees-clients
+spec:
+  selector:
+    app: bees-client-gateway
+  ports:
+    - port: 80
+      targetPort: 3100
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bees-client-gateway
+  namespace: bees-clients
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: 16m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "360"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "360"
+spec:
+  ingressClassName: nginx
+  # The existing bees-api ingress owns this host's TLS certificate.
+  rules:
+    - host: app.bees.bot
+      http:
+        paths:
+          - path: /app
+            pathType: Prefix
+            backend:
+              service:
+                name: bees-client-gateway
+                port:
+                  number: 80
+          - path: /bees-api
+            pathType: Prefix
+            backend:
+              service:
+                name: bees-client-gateway
+                port:
+                  number: 80
+          - path: /bees-auth
+            pathType: Prefix
+            backend:
+              service:
+                name: bees-client-gateway
+                port:
+                  number: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: isolated-client-workspaces
+  namespace: bees-clients
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: bees-client
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: bees-client-gateway
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    - to:
+        # GKE NodeLocal DNS uses the service IP on the host network.
+        - ipBlock:
+            cidr: 34.118.224.10/32
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 34.118.224.0/20]

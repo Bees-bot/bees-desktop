@@ -7,6 +7,7 @@ import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
 import { authConfig, browserSignInUrl } from './plugin/lib/thread-auth.js';
+import { kubernetesClients } from './hosted-kubernetes.mjs';
 const exec=promisify(execFile);
 const hash=v=>createHash('sha256').update(v).digest('hex');
 const json=(res,status,value,headers={})=>{res.writeHead(status,{'content-type':'application/json','cache-control':'no-store',...headers});res.end(JSON.stringify(value));};
@@ -28,9 +29,10 @@ export function dockerClients({image,stateRoot,directoryUrl,maxClients=50}){
       if(running&&running.Config.Labels['bees.client']!==id)throw Error('Container ownership mismatch');
       if(running&&!running.State.Running){await exec('docker',['rm',name]);running=null;}
       if(!running){
-        await exec('docker',['run','-d','--name',name,'--label','bees.client='+id,'--restart','unless-stopped','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges','--pids-limit','256','--memory','2g','--cpus','2','--tmpfs','/tmp:rw,nosuid,size=512m','--mount',`type=volume,source=${name},target=/var/lib/bees`,'-p','127.0.0.1::8080',
+        // The native-addon loader caches shared libraries in /tmp, which must permit mmap execution.
+        await exec('docker',['run','-d','--name',name,'--label','bees.client='+id,'--restart','unless-stopped','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges','--pids-limit','256','--memory','2g','--cpus','2','--tmpfs','/tmp:rw,exec,nosuid,size=512m','--mount',`type=volume,source=${name},target=/var/lib/bees`,'-p','127.0.0.1::8080',
           ...['BEES_DSH_TOKEN','BEES_THREAD_SESSION','BEES_ACCOUNT_API_URL','BEES_CLIENT_NAME','BEES_HOSTED_CLIENT','BEES_HOSTED_MODEL','BEES_MODEL_PROFILE','BEES_HOSTED_RUNS_PER_DAY'].flatMap(k=>['-e',k]),'--entrypoint','node',image,'dsh-runtime/client-cloud.mjs'],
-          {env:{...process.env,BEES_DSH_TOKEN:credential.token,BEES_THREAD_SESSION:session,BEES_ACCOUNT_API_URL:directoryUrl,BEES_CLIENT_NAME:'Bees Cloud',BEES_HOSTED_CLIENT:'1',BEES_HOSTED_RUNS_PER_DAY:process.env.BEES_HOSTED_RUNS_PER_DAY??'1'},maxBuffer:1_000_000});
+          {env:{...process.env,BEES_DSH_TOKEN:credential.token,BEES_THREAD_SESSION:session,BEES_ACCOUNT_API_URL:directoryUrl,BEES_CLIENT_NAME:'Bees Cloud',BEES_HOSTED_CLIENT:'1',BEES_HOSTED_RUNS_PER_DAY:process.env.BEES_HOSTED_RUNS_PER_DAY??'0'},maxBuffer:1_000_000});
       }
       const inspected=JSON.parse((await exec('docker',['inspect',name])).stdout)[0];
       if(inspected.Config.Labels['bees.client']!==id)throw Error('Container ownership mismatch');
@@ -45,6 +47,7 @@ export function dockerClients({image,stateRoot,directoryUrl,maxClients=50}){
 
 export function createHostedGateway({directoryUrl,assets,provision,publicUrl}){
   const directory=new URL(directoryUrl);if(directory.protocol!=='https:'&&!['localhost','127.0.0.1'].includes(directory.hostname))throw Error('Use a secure Bees Server');
+  let assetVersion;
   return createServer(async(req,res)=>{
     try{
       const url=new URL(req.url??'/',publicUrl??'http://localhost');
@@ -52,13 +55,16 @@ export function createHostedGateway({directoryUrl,assets,provision,publicUrl}){
       if(url.pathname==='/healthz')return json(res,200,{status:'ok',service:'bees-hosted-clients'});
       if(url.pathname==='/bees-auth/finish'&&req.method==='GET'){
         res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer','content-security-policy':"default-src 'none'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"});
-        return res.end(`<!doctype html><title>Bees sign in</title><p>Return to Bees to finish signing in.</p><script>
+        return res.end(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bees sign in</title><p role="status">Signing in… Return to Bees to continue.</p><script>
 const state=new URLSearchParams(location.search).get('state'),result=Object.fromEntries(new URLSearchParams(location.hash.slice(1)));history.replaceState(null,'',location.pathname);
 if(state){const channel=new BroadcastChannel('bees-sign-in-'+state);channel.postMessage(result);channel.close();window.close();}
 </script>`);
       }
-      if(url.pathname==='/'||url.pathname==='/app'){res.writeHead(200,{'content-type':'text/html','cache-control':'no-store'});return res.end('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bees Client</title><body><div id="bees-root"></div><script type="module" src="/app/assets/app.js"></script></body></html>');}
-      if(url.pathname.startsWith('/app/assets/')){const name=url.pathname.slice('/app/assets/'.length);if(!/^[a-zA-Z0-9_.-]+$/.test(name))return json(res,404,{error:'Unavailable'});const content=await readFile(join(assets,name));res.writeHead(200,{'content-type':name.endsWith('.js')?'text/javascript':name.endsWith('.css')?'text/css':'application/octet-stream','x-content-type-options':'nosniff'});return res.end(content);}
+      if(url.pathname==='/'||url.pathname==='/app'||url.pathname==='/app/'){
+        assetVersion??=hash(await readFile(join(assets,'app.js'))).slice(0,16);
+        res.writeHead(200,{'content-type':'text/html','cache-control':'no-store'});return res.end(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bees Client</title><body><div id="bees-root"></div><script type="module" src="/app/assets/app.js?v=${assetVersion}"></script></body></html>`);
+      }
+      if(url.pathname.startsWith('/app/assets/')){const name=url.pathname.slice('/app/assets/'.length);if(!/^[a-zA-Z0-9_.-]+$/.test(name))return json(res,404,{error:'Unavailable'});let content;try{content=await readFile(join(assets,name));}catch(error){if(error.code==='ENOENT')return json(res,404,{error:'Unavailable'});throw error;}res.writeHead(200,{'content-type':name.endsWith('.js')?'text/javascript':name.endsWith('.css')?'text/css':'application/octet-stream','cache-control':'no-cache','x-content-type-options':'nosniff'});return res.end(content);}
       if(!['/bees-api/threads','/bees-api/thread-file'].includes(url.pathname))return json(res,404,{error:'Unavailable'});
       const bytes=req.method==='POST'?await body(req):undefined;
       const input=bytes&&url.pathname==='/bees-api/threads'?JSON.parse(bytes.toString()):null;
@@ -97,6 +103,8 @@ if(state){const channel=new BroadcastChannel('bees-sign-in-'+state);channel.post
 
 if(process.argv[1]===fileURLToPath(import.meta.url)){
   const directoryUrl=process.env.BEES_ACCOUNT_API_URL??'https://app.bees.bot';
-  const provision=dockerClients({image:process.env.BEES_CLIENT_IMAGE,stateRoot:process.env.BEES_GATEWAY_STATE??'/var/lib/bees-gateway',directoryUrl,maxClients:Number(process.env.BEES_MAX_HOSTED_CLIENTS??50)});
-  createHostedGateway({directoryUrl,assets:resolve(process.env.BEES_CLIENT_ASSETS??'dist/hosted'),provision,publicUrl:process.env.BEES_HOSTED_CLIENT_URL}).listen(Number(process.env.PORT??3100),'127.0.0.1');
+  const provision=process.env.BEES_CLIENT_BACKEND==='kubernetes'
+    ?kubernetesClients({image:process.env.BEES_CLIENT_IMAGE,directoryUrl,namespace:process.env.BEES_CLIENT_NAMESPACE??'bees-clients',maxClients:Number(process.env.BEES_MAX_HOSTED_CLIENTS??10)})
+    :dockerClients({image:process.env.BEES_CLIENT_IMAGE,stateRoot:process.env.BEES_GATEWAY_STATE??'/var/lib/bees-gateway',directoryUrl,maxClients:Number(process.env.BEES_MAX_HOSTED_CLIENTS??50)});
+  createHostedGateway({directoryUrl,assets:resolve(process.env.BEES_CLIENT_ASSETS??'dist/hosted'),provision,publicUrl:process.env.BEES_HOSTED_CLIENT_URL}).listen(Number(process.env.PORT??3100),process.env.BEES_GATEWAY_HOST??'127.0.0.1');
 }

@@ -8,6 +8,7 @@ import { schedule, nextOccurrence } from './thread-schedule.js';
 import { validOrganizationAppearance } from './organization-appearance.js';
 import { THEME_PRESETS } from './themes.js';
 import { DEFAULT_WORKFLOW, WORKFLOW_TEMPLATES, workflowFor, workflowTemplate, isValidWorkflow } from './thread-workflow.js';
+import { captureWorkflowAgents, validateTeamAgents } from './thread-agents.js';
 import { normalizeThreadLayout } from './thread-layout.js';
 import { authConfig, serverOrigin } from './thread-auth.js';
 
@@ -50,9 +51,10 @@ export class ThreadClient {
     this.directory=new DirectoryConnection(root,this.store.clientId);this.jobs=new Map();this.finishing=new Set();this.options=options;
     if(!this.store.preference('defaultTeam'))this.store.preference('defaultTeam',this.store.create('Default',this.directory.user?.id??'local',DEFAULT_WORKFLOW,undefined,'team').id);
     for(const row of this.store.list())if(row.kind!=='team'&&!row.teamId)this.store.preference(`team:${row.id}`,this.store.preference('defaultTeam'));
+    this.memory=options.memory?.(this.store);
     this.roster={threads:[],participants:[],clients:[],invitations:[]};
   }
-  async start(){this.identity=await peerCertificate(this.store.root);this.peer=await new ThreadPeer(this.directory,this.identity,(grant,input)=>this.receive(grant,input)).start();if(process.env.BEES_THREAD_SESSION&&!this.directory.token)await this.directory.resume(process.env.BEES_THREAD_SESSION,this.identity.cert,this.peer.endpoints);delete process.env.BEES_THREAD_SESSION;this.timer=setInterval(()=>{void this.refresh().then(()=>this.replicate()).catch(e=>{this.connectionError=e.message;});void this.scheduled();},5000);this.timer.unref();if(this.directory.token)await this.refresh().catch(e=>{this.connectionError=e.message;});return this;}
+  async start(){this.memory?.start();this.identity=await peerCertificate(this.store.root);this.peer=await new ThreadPeer(this.directory,this.identity,(grant,input)=>this.receive(grant,input)).start();if(process.env.BEES_THREAD_SESSION&&!this.directory.token)await this.directory.resume(process.env.BEES_THREAD_SESSION,this.identity.cert,this.peer.endpoints);delete process.env.BEES_THREAD_SESSION;this.timer=setInterval(()=>{void this.refresh().then(()=>this.replicate()).catch(e=>{this.connectionError=e.message;});void this.scheduled();},5000);this.timer.unref();if(this.directory.token)await this.refresh().catch(e=>{this.connectionError=e.message;});return this;}
   async refresh(){if(!this.directory.token||this.closing)return;const heartbeat=await this.directory.request('/heartbeat',{endpoints:this.peer.endpoints});if(heartbeat.user)this.directory.user=heartbeat.user;
     // a thread shared while the roster was in flight is missing from it, so only judge threads shared before the fetch
     const sharedBefore=new Set(this.store.list().filter(t=>t.shared).map(t=>t.id));this.roster=await this.directory.request('/');if(this.closing)return;this.connectionError=null;
@@ -60,11 +62,12 @@ export class ThreadClient {
     for(const local of this.store.list())if(sharedBefore.has(local.id)&&!this.roster.threads.some(t=>t.id===local.id)){this.jobs.get(local.id)?.abort();if(local.ownerClientId!==this.store.clientId&&!local.staged)this.store.drop(local.id);else this.store.preference(`frozen:${local.id}`,true);}
     for(const authority of this.roster.threads){const local=this.store.list().find(t=>t.id===authority.id);if(local?.ownerClientId===this.store.clientId&&authority.owner_client_id!==this.store.clientId){this.store.preference(`frozen:${authority.id}`,true);this.jobs.get(authority.id)?.abort();}if(local?.staged&&authority.owner_client_id===this.store.clientId){const doc=this.store.document(local.id);this.store.activateTransfer(local.id,authority,checkpointDigest(doc));this.store.preference(`frozen:${local.id}`,false);}}
     await this.command({action:'organizations'}).catch(error=>{this.organizationError=error.message;});
+    await this.options.credits?.sync(this);
     this.options.notify?.();
   }
   async authority(id){await this.refresh();const t=this.roster.threads.find(t=>t.id===id);if(!t)throw threadError('Thread access is unavailable',403);return t;}
   async fence(id){const doc=this.store.get(id);this.store.writable(doc);if(doc.shared){const t=await this.authority(id);if(t.owner_client_id!==this.store.clientId||Number(t.epoch)!==doc.epoch)throw threadError('This client no longer owns the thread',409);}return doc;}
-  async snapshot(){const rows=this.store.list();return {product:'Bees Client',clientId:this.store.clientId,user:this.directory.user??null,organizations:this.organizations(),organizationError:this.organizationError??null,serverUrl:this.directory.url,connectionError:this.connectionError??null,threads:rows.filter(t=>t.kind!=='team'),teams:rows.filter(t=>t.kind==='team'&&(!t.shared||!this.directory.token||this.connectionError||this.roster.threads.some(row=>row.id===t.id))),defaultTeamId:this.store.preference('defaultTeam'),directory:this.roster,models:await this.options.models?.()??[],defaultModel:this.store.preference('model'),settings:this.store.preference('settings')??{}};}
+  async snapshot(){const rows=this.store.list();return {product:'Bees Client',clientId:this.store.clientId,user:this.directory.user??null,organizations:this.organizations(),organizationError:this.organizationError??null,serverUrl:this.directory.url,connectionError:this.connectionError??null,threads:rows.filter(t=>t.kind!=='team'),teams:rows.filter(t=>t.kind==='team'&&(!t.shared||!this.directory.token||this.connectionError||this.roster.threads.some(row=>row.id===t.id))),defaultTeamId:this.store.preference('defaultTeam'),directory:this.roster,models:await this.options.models?.(this.store)??[],credits:this.options.credits?.view(this.store),agentPresets:await this.options.agentPresets?.()??[],defaultModel:this.store.preference('model'),settings:this.store.preference('settings')??{}};}
   async registerThread(id,input={}){await this.fence(id);let doc=this.store.document(id);if(!this.directory.token)throw threadError('Sign in to share or transfer a thread',401);
     const team=this.store.teamFor(id);
     if(team&&!team.shared)await this.registerThread(team.id);
@@ -170,6 +173,9 @@ export class ThreadClient {
       this.store.preference('organizationAppearance',{...this.store.preference('organizationAppearance'),[id]:input.appearance});
       this.options.notify?.();return this.organizations().find(org=>org.id===id);
     }
+    if(input.action==='credits'){await this.options.credits?.sync(this,true);return this.options.credits?.view(this.store)??null;}
+    if(input.action==='purchaseCredits')return this.directory.request('/credits/checkout',{id:input.id,autoRenew:input.autoRenew,amountCents:input.amountCents});
+    if(input.action==='creditAutoRenew'){const result=await this.directory.request('/credits/auto-renew',{enabled:input.enabled,amountCents:input.amountCents});await this.options.credits?.sync(this,true);return result;}
     if(input.action==='createOrganization'){const org=await this.directory.request('/organizations',{name:input.name});this.ensureOrganizationTeam(org);this.options.notify?.();return org;}
     if(input.action==='organizationMembers')return this.directory.request(`/organizations/${validId(input.organizationId)}/members`);
     if(input.action==='inviteOrganization')return this.directory.request(`/organizations/${validId(input.organizationId)}/invitations`,{email:input.email,role:input.role??'member'});
@@ -188,6 +194,13 @@ export class ThreadClient {
       }
       if(!this.options.integrations)throw threadError('Add-ons are not available on this client');
       return this.options.integrations.command(this.store,id,input);
+    }
+    if(input.action.startsWith('memory_')){
+      const doc=this.store.get(id);if(doc.kind!=='team')throw threadError('Choose a team for memory');
+      if(doc.shared){await this.authority(id);if(input.action!=='memory_status'&&doc.ownerUserId!==this.directory.user?.id)throw threadError('Only the team owner can manage memory',403);}
+      if(this.store.preference(`frozen:${id}`))throw threadError('Team access is unavailable',403);
+      if(!this.memory)throw threadError('Memory is unavailable on this client');
+      return this.memory.command(input.action,input);
     }
     if(input.action==='read'){
       let doc;
@@ -242,6 +255,10 @@ export class ThreadClient {
     else if(input.action==='folder')result=this.store.mutate(id,input.operationId,d=>{d.folders??=[];if(!d.folders.includes(input.path))d.folders.push(input.path);});
     else if(input.action==='configure'){
       const doc=this.store.document(id);if(doc.shared&&actor!==doc.ownerUserId)throw threadError('Only the thread owner may configure execution',403);
+      if(input.agents!==undefined){
+        if(doc.kind!=='team')throw threadError('Agents belong to a team');validateTeamAgents(input.agents);
+        const presets=await this.options.agentPresets?.();if(presets&&input.agents.some(agent=>!presets.some(preset=>preset.id===agent.presetId)))throw threadError('Choose a preset available on this client');
+      }
       const workflow=input.workflow??doc.workflow??DEFAULT_WORKFLOW;
       if(!isValidWorkflow(workflow))throw threadError('Invalid workflow stages');
       if(input.processId!==undefined){const process=[...WORKFLOW_TEMPLATES,...(this.store.teamFor(id)?.processes??[])].find(p=>p.id===input.processId);if(doc.kind==='team'||!process||canonical(process.workflow)!==canonical(workflow))throw threadError('Choose a valid team process');}
@@ -251,7 +268,7 @@ export class ThreadClient {
       // a schedule switched off keeps its prompt and time for when it comes back on
       if(fresh&&input.schedule.enabled===false)fresh.enabled=false;
       const recurrence=fresh===undefined||same(fresh)===same(doc.schedule)?doc.schedule:fresh;
-      result=this.store.mutate(id,input.operationId,d=>{if(input.processes!==undefined)d.processes=input.processes;if(input.workflow!==undefined&&d.kind!=='team')d.processId=input.processId??workflowTemplate(workflow)?.id??'custom';if(input.title!==undefined)d.title=text(input.title,180);if(input.instructions!==undefined){if(typeof input.instructions!=='string'||input.instructions.length>20000)throw threadError('Invalid instructions');d.instructions=input.instructions.trim();}d.workflow=workflow.map(s=>({name:s.name,kind:s.kind,...(s.model?{model:s.model}:{})}));if(input.workflow!==undefined&&d.kind==='team')d.workflowConfigured=true;if(input.memory!==undefined)d.memory=input.memory;d.schedule=recurrence;});
+      result=this.store.mutate(id,input.operationId,d=>{if(input.agents!==undefined)d.agents=input.agents;if(input.processes!==undefined)d.processes=input.processes;if(input.workflow!==undefined&&d.kind!=='team')d.processId=input.processId??workflowTemplate(workflow)?.id??'custom';if(input.title!==undefined)d.title=text(input.title,180);if(input.instructions!==undefined){if(typeof input.instructions!=='string'||input.instructions.length>20000)throw threadError('Invalid instructions');d.instructions=input.instructions.trim();}d.workflow=workflow.map(s=>({name:s.name,kind:s.kind,...(s.model?{model:s.model}:{}),...(s.agentId?{agentId:s.agentId}:{})}));if(input.workflow!==undefined&&d.kind==='team')d.workflowConfigured=true;if(input.memory!==undefined)d.memory=input.memory;d.schedule=recurrence;});
     }
     else if(input.action==='answer'){
       const pending=this.options.pending?.(input.questionId);const doc=this.store.document(id);
@@ -271,14 +288,18 @@ export class ThreadClient {
       if(this.jobs.has(id))throw threadError('Work is already running in this thread',409);
       const quota=Number(process.env.BEES_HOSTED_RUNS_PER_DAY??0),day=new Date().toISOString().slice(0,10);
       const admissions=this.store.preference('admissions:'+day)??[];if(quota&&admissions.length>=quota)throw threadError('Daily hosted workflow allowance reached. Use a local client or try again tomorrow.',429);
-      const prompt=text(input.text);const run={id:input.operationId,prompt,status:'running',createdAt:new Date().toISOString(),model:this.store.preference('model'),instructions:[this.store.preference('settings')?.systemInstructions,team?.instructions,configuration.instructions].filter(Boolean).join('\n\n'),workflow:workflowFor(configuration,team)};
+      const prompt=text(input.text);const run={id:input.operationId,prompt,status:'running',createdAt:new Date().toISOString(),model:this.store.preference('model'),instructions:[this.store.preference('settings')?.systemInstructions,team?.instructions,configuration.instructions].filter(Boolean).join('\n\n'),workflow:captureWorkflowAgents(workflowFor(configuration,team),team)};
       result=this.store.mutate(id,input.operationId,doc=>{doc.runs.push(run);});
       if(!result.runs.some(r=>r.id===run.id))throw threadError('This operation identity was already used',409);
       if(quota)this.store.preference('admissions:'+day,[...admissions,run.id]);
       const abort=new AbortController();this.jobs.set(id,abort);
       const names=new Map(this.roster.participants.map(p=>[p.user_id,p.name??p.email])),doc=this.store.document(id);
       const executionThread={...doc,messages:doc.messages.map(m=>({...m,authorId:names.get(m.authorId)??m.authorId})),memory:[...(team?.memory??[]),...(configuration.memory??[])]};
-      const finished=(async()=>{try{const output=await this.options.execute({thread:executionThread,team,run,signal:abort.signal,store:this.store});await this.fence(id);this.store.mutate(id,randomUUID(),doc=>{const r=doc.runs.find(r=>r.id===run.id);delete r.partial;r.status='completed';r.completedAt=new Date().toISOString();doc.messages.push({id:randomUUID(),authorId:'bees',kind:'assistant',text:output||'Work completed.',createdAt:r.completedAt});});}catch(e){try{this.store.mutate(id,randomUUID(),doc=>{const r=doc.runs.find(r=>r.id===run.id);
+      const finished=(async()=>{try{
+        if(team&&this.memory){try{const recalled=await this.memory.recall(team.id,prompt);executionThread.memory.push(...recalled.map(row=>'Past outcome (may be outdated): '+row.text));}catch{/* Memory outages must not stop work. The settings screen shows the service status. */}}
+        const output=await this.options.execute({thread:executionThread,team,run,signal:abort.signal,store:this.store});await this.fence(id);this.store.mutate(id,randomUUID(),doc=>{const r=doc.runs.find(r=>r.id===run.id);delete r.partial;r.status='completed';r.completedAt=new Date().toISOString();doc.messages.push({id:randomUUID(),authorId:'bees',kind:'assistant',text:output||'Work completed.',createdAt:r.completedAt});});
+        if(team&&this.memory&&!run.workflow.some(stage=>stage.kind==='chat')){try{this.memory.remember(team.id,String(output||'Work completed.').slice(0,12000),`Thread: ${doc.title}\nRequest: ${prompt}\nExecution: ${run.id}`.slice(0,6000),run.id);void this.memory.flush(team.id).catch(()=>{});}catch{/* Recording memory must not change a completed run to failed. */}}
+      }catch(e){try{this.store.mutate(id,randomUUID(),doc=>{const r=doc.runs.find(r=>r.id===run.id);
         // words already on screen stay as the reply, like a stopped answer anywhere else
         if(r.partial?.trim())doc.messages.push({id:randomUUID(),authorId:'bees',kind:'assistant',text:r.partial,createdAt:new Date().toISOString()});delete r.partial;r.status=abort.signal.aborted?'cancelled':'failed';r.error=abort.signal.aborted?'Stopped before it finished.':e.message;});}catch(write){console.error(`Bees Client could not record the end of run ${run.id}: ${write.message}`);}}finally{this.jobs.delete(id);this.options.notify?.();}})();
       this.finishing.add(finished);void finished.finally(()=>this.finishing.delete(finished));
@@ -312,5 +333,5 @@ export class ThreadClient {
       catch(e){try{this.store.mutate(row.id,randomUUID(),d=>{d.schedule.error=e.message;d.schedule.attemptAt=new Date().toISOString();});}catch{}}
     }}finally{this.scheduling=false;}
   }
-  async close(){this.closing=true;clearInterval(this.timer);this.directory.stop.abort();for(const abort of this.jobs.values())abort.abort();await Promise.allSettled([...this.finishing]);await this.peer.close();this.store.close();}
+  async close(){this.closing=true;clearInterval(this.timer);this.directory.stop.abort();for(const abort of this.jobs.values())abort.abort();await Promise.allSettled([...this.finishing]);this.options.credits?.close(this);await this.memory?.close();await this.peer?.close();this.store.close();}
 }

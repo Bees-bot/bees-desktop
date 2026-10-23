@@ -5,14 +5,14 @@ import { ThreadClient } from './thread-client.js';
 import { threadError } from './thread-store.js';
 import { authConfig, desktopSignIn, serverOrigin } from './thread-auth.js';
 
-/** Account content and peer credentials never share a client database. AI connections belong to this machine. */
+/** Account content and peer credentials never share a client database. User-added AI connections belong to this machine. */
 export class ClientProfiles {
-  constructor(root,options={}){this.root=root;this.options=options;this.clients=new Map();mkdirSync(root,{recursive:true,mode:0o700});this.path=join(root,'accounts.json');this.state=existsSync(this.path)?JSON.parse(readFileSync(this.path,'utf8')):{anonymous:'personal',active:'personal',accounts:{}};}
+  constructor(root,options={}){this.root=root;this.options=options;this.clients=new Map();mkdirSync(root,{recursive:true,mode:0o700});this.path=join(root,'accounts.json');this.state=existsSync(this.path)?JSON.parse(readFileSync(this.path,'utf8')):{anonymous:'personal',active:'personal',accounts:{},onboarding:null};}
   save(){if(this.active){this.state.servers??={};this.state.servers[this.active.directory.url]=this.state.active;}const temporary=this.path+'.tmp';writeFileSync(temporary,JSON.stringify(this.state),{mode:0o600});renameSync(temporary,this.path);}
   async open(slot){if(!/^[a-zA-Z0-9-]+$/.test(slot))throw threadError('Invalid client profile');if(!this.clients.has(slot))this.clients.set(slot,await new ThreadClient(join(this.root,slot),this.options).start());return this.clients.get(slot);}
   savedDirectory(slot){if(!/^[a-zA-Z0-9-]+$/.test(slot))throw threadError('Invalid client profile');const path=join(this.root,slot,'directory.json');return this.clients.get(slot)?.directory??(existsSync(path)?JSON.parse(readFileSync(path,'utf8')):{});}
   accounts(){return Object.entries(this.state.accounts).flatMap(([id,slot])=>{const directory=this.savedDirectory(slot);return directory.token&&directory.user?[{id,user:directory.user,url:directory.url,active:slot===this.state.active}]:[];}).sort((a,b)=>(a.user.email??'').localeCompare(b.user.email??''));}
-  async snapshot(){return {...await this.active.snapshot(),localActive:this.state.active===this.state.anonymous,accounts:this.accounts().map(account=>{const client=this.clients.get(this.state.accounts[account.id]);return {...account,organizations:client?.organizations()??[],organizationError:client?.organizationError??null};})};}
+  async snapshot(){return {...await this.active.snapshot(),onboarding:this.state.onboarding===undefined?'existing':this.state.onboarding,localActive:this.state.active===this.state.anonymous,folders:this.options.folders?.snapshot(this.active.store,this.active.organizations()),accounts:this.accounts().map(account=>{const client=this.clients.get(this.state.accounts[account.id]);return {...account,organizations:client?.organizations()??[],organizationError:client?.organizationError??null};})};}
   async start(){
     const url=process.env.BEES_ACCOUNT_API_URL&&serverOrigin(process.env.BEES_ACCOUNT_API_URL);
     this.state.servers??={};const prior=this.savedDirectory(this.state.active);if(prior.url)this.state.servers[prior.url]=this.state.active;
@@ -38,6 +38,24 @@ export class ClientProfiles {
     // Signed-out accounts must stop syncing, serving peers, and running schedules.
     if(prior!==this.state.active){this.clients.delete(prior);client.directory.token=null;client.directory.save();await client.close();}return {ok:true};}
   async command(input){
+    if(input.action==='completeOnboarding'){
+      if(input.mode==='local'){
+        if(process.env.BEES_HOSTED_CLIENT)throw threadError('Open Bees Desktop to use models running on your computer');
+        if(this.savedDirectory(this.state.anonymous).user||Object.values(this.state.accounts).includes(this.state.anonymous))this.state.anonymous='personal-'+randomUUID();
+        await this.command({action:'selectOrganization',accountId:null,organizationId:null});
+      }else if(input.mode==='cloud'){
+        if(!this.active.directory.user||!this.active.directory.token)throw threadError('Sign in to create an organization',401);
+        const org=input.organizationId?this.active.organizations().find(org=>org.id===input.organizationId):await this.active.command({action:'createOrganization',name:input.name});
+        if(!org)throw threadError('Organization membership required',403);
+        await this.active.command({action:'organizations'});
+        await this.active.command({action:'preferences',values:{selectedOrganizationId:org.id}});
+      }else throw threadError('Choose a Bees or local organization');
+      this.state.onboarding=input.mode;this.save();return {ok:true};
+    }
+    if(input.action==='setRootFolder'){
+      if(!this.options.folders)throw threadError('Folder settings are unavailable');
+      return this.options.folders.set(input.directory,[...this.clients.values()],this.active,input.organizationId);
+    }
     if(input.action==='switchAccount'||input.action==='selectOrganization'){
       const account=this.accounts().find(account=>account.id===input.accountId);
       if(!account&&!(input.action==='selectOrganization'&&input.accountId==null))throw threadError('Sign in to this account again',401);

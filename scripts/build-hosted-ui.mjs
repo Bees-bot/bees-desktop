@@ -44,11 +44,11 @@ await writeFile(
   JSON.stringify({
     package: "@bees/desktop",
     entry: "dsh-runtime/plugin/client/thread-app.js",
-    revision: execFileSync("git", ["rev-parse", "HEAD"], {
+    revision: process.env.BEES_BUILD_REVISION || execFileSync("git", ["rev-parse", "HEAD"], {
       cwd: root,
       encoding: "utf8",
     }).trim(),
-    dirty: Boolean(
+    dirty: process.env.BEES_BUILD_DIRTY !== undefined ? process.env.BEES_BUILD_DIRTY === 'true' : Boolean(
       execFileSync("git", ["status", "--porcelain"], {
         cwd: root,
         encoding: "utf8",

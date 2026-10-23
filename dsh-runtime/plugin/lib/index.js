@@ -13,6 +13,7 @@ const ModelPreference = z.object({
 
 export const Config = z.object({
   themePreset: z.string().default("corporate").volatile(),
+  memoryModel: z.string().default("").volatile(),
   colorMode: z.string().default("light").volatile(),
   darkThemePreset: z.string().default("halloween").volatile(),
   lightThemePreset: z.string().default("corporate").volatile(),

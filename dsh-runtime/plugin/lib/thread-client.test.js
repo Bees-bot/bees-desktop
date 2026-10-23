@@ -72,7 +72,7 @@ test('scheduled occurrences execute once, retain quota across restart, and never
 
 test('stopped runs retain team execution context and report a readable cancellation',async()=>{
  const root=await mkdtemp(join(tmpdir(),'bees-stop-run-'));let executed;
- const client=new ThreadClient(root,{execute:async options=>{executed=options;await new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>reject(options.signal.reason),{once:true}));}});
+ const client=new ThreadClient(root,{execute:async options=>{executed=options;options.store.mutate(options.thread.id,randomUUID(),doc=>{doc.runs.at(-1).partial='Reply so far';});await new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>reject(options.signal.reason),{once:true}));}});
  try{
   const doc=await client.command({action:'create'});
   await client.command({action:'run',threadId:doc.id,operationId:randomUUID(),text:'Work'});
@@ -80,5 +80,6 @@ test('stopped runs retain team execution context and report a readable cancellat
   await client.command({action:'stop',threadId:doc.id,operationId:randomUUID()});await Promise.all([...client.finishing]);
   const run=client.store.document(doc.id).runs.at(-1);
   assert.equal(run.status,'cancelled');assert.equal(run.error,'Stopped before it finished.');
+  assert.equal(run.partial,undefined);assert.equal(client.store.document(doc.id).messages.at(-1).text,'Reply so far');
  }finally{client.store.close();await rm(root,{recursive:true,force:true});}
 });
