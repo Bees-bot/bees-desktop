@@ -10,8 +10,9 @@ export async function prepareMemoryInstaller(directory, target, stageExecutable)
   const binary = join(directory, windows ? 'uv.exe' : 'uv'), marker = join(directory, '.prepared');
   const hash = bytes => createHash('sha256').update(bytes).digest('hex');
   if (existsSync(marker) && existsSync(binary)) {
-    const saved = JSON.parse(readFileSync(marker, 'utf8'));
-    if (saved.version === `${release}-${target}` && saved.digest === hash(readFileSync(binary))) return;
+    let saved;
+    try { saved = JSON.parse(readFileSync(marker, 'utf8')); } catch { /* Older plain-text marker: refresh the installer. */ }
+    if (saved?.version === `${release}-${target}` && saved.digest === hash(readFileSync(binary))) return;
   }
   const archive = `uv-${target}.${windows ? 'zip' : 'tar.gz'}`;
   const base = `https://github.com/astral-sh/uv/releases/download/${release}`;

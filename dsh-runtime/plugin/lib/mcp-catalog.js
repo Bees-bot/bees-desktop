@@ -131,6 +131,19 @@ const ENTRIES = [
     headers: []
   },
   {
+    id: "composio",
+    serverName: "composio", icon: "🔗",
+    label: "Composio apps",
+    publisher: "Composio",
+    homepage: "https://composio.dev/",
+    summary: "Browse apps, connect accounts, and use their tools in your threads.",
+    access: "Composio sign-in links connect accounts to the Bees account running this team. In a shared team, other participants can request access through them; Bees asks the thread owner to approve actions. Removing this add-on does not disconnect accounts in Composio.",
+    prerequisite: "Sign in to Bees. Its server needs COMPOSIO_API_KEY. Once enabled, browse apps and connect accounts below.",
+    transport: "streamable-http",
+    env: [],
+    headers: []
+  },
+  {
     id: "github",
     serverName: "github", icon: "🐙",
     label: "GitHub",

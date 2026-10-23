@@ -26,8 +26,18 @@ export class ThreadIntegrations {
       personalAvailable: !process.env.BEES_HOSTED_CLIENT && !!defaultBrowser(),
     } };
   }
-  async command(store, id, input) {
+  async command(store, id, input, directory) {
     if (input.action === 'integrations') return this.snapshot(store, id);
+    if (['composioApps', 'connectComposioApp'].includes(input.action)) {
+      if (!directory?.token || directory.authRequired) throw threadError('Sign in to Bees to connect your apps', 401);
+      if (input.action === 'composioApps') {
+        const query = new URLSearchParams({ search: input.search ?? '' });
+        if (input.cursor) query.set('cursor', input.cursor);
+        return directory.request('/composio/toolkits?' + query);
+      }
+      if (!rows(store, id).some(server => server.catalogId === 'composio' && server.enabled)) throw threadError('Enable app access for this team first');
+      return directory.request('/composio/link', { toolkit: input.toolkit });
+    }
     if (input.action === 'setBrowser') {
       if (!['own', 'personal'].includes(input.mode) || input.mode === 'personal' && (process.env.BEES_HOSTED_CLIENT || !defaultBrowser())) throw threadError('Personal browser is unavailable on this client');
       store.preference(`browser:${id}`, input.mode);
@@ -86,7 +96,7 @@ export class ThreadIntegrations {
     for (const key of [...(entry?.env ?? []), ...(entry?.headers ?? [])]) if (!key.optional && !secrets[key.name]?.trim()) throw threadError(`Enter ${key.label}`);
     const server = { id: randomUUID(), serverName, label: text(input.label || entry?.label || serverName, 120), catalogId: entry?.id ?? '', transport,
       command: transport === 'stdio' ? text(entry?.command || input.command, 1000) : '', args,
-      url: transport === 'streamable-http' ? this.url(entry?.url || input.url) : '',
+      url: transport === 'streamable-http' && entry?.id !== 'composio' ? this.url(entry?.url || input.url) : '',
       secretNames: Object.keys(secrets).filter(key => secrets[key]), enabled: true };
     for (const key of server.secretNames) await this.ctx.credentials.set(secretRef(store, id, server.id, key), secrets[key]);
     store.preference(`integrations:${id}`, [...current, server]);
@@ -96,7 +106,13 @@ export class ThreadIntegrations {
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw threadError('Use HTTP or HTTPS; put credentials in the credential fields');
     return url.href;
   }
-  async config(store, id, server, cwd, browserId=id) {
+  async config(store, id, server, cwd, browserId=id, directory) {
+    if (server.catalogId === 'composio') {
+      if (!directory?.token || directory.authRequired) throw threadError('Sign in to Bees to use connected apps', 401);
+      const { token } = await directory.request('/composio/session', {});
+      return { transport: 'streamable-http', serverName: server.serverName,
+        url: directory.url + '/api/composio/mcp', headers: { Authorization: `Bearer ${token}` }, failOnStartupError: true };
+    }
     const credentials = {};
     for (const key of server.secretNames) {
       const hit = await this.ctx.credentials.resolve(secretRef(store, id, server.id, key));
@@ -122,12 +138,12 @@ export class ThreadIntegrations {
     return { transport: 'stdio', serverName: server.serverName, command: server.command === '{node}' ? process.execPath : server.command,
       args, env: credentials, cwd, failOnStartupError: true };
   }
-  async mount(agentCtx, store, id, cwd, agent) {
+  async mount(agentCtx, store, id, cwd, agent, directory) {
     const team=store.teamFor(id),teamServers=team?rows(store,team.id):[];
     const connections=[...teamServers.map(server=>({server,scope:team.id})),...rows(store,id).filter(server=>!teamServers.some(row=>row.serverName===server.serverName)).map(server=>({server,scope:id}))];
     for (const {server,scope} of connections.filter(({server}) => server.enabled && agentAllowsServer(agent, server.serverName))) {
       const browserId=team&&store.preference(`browser:${team.id}`)!==null?team.id:scope;
-      const fiber = agentCtx.plugin(mcpClient, await this.config(store, scope, server, cwd, browserId));
+      const fiber = agentCtx.plugin(mcpClient, await this.config(store, scope, server, cwd, browserId, directory));
       let timer;
       try { await Promise.race([Promise.resolve(fiber), new Promise((_, reject) => { timer = setTimeout(() => reject(threadError(`${server.label} did not start within 30 seconds`)), 30000); })]); }
       catch (error) { await fiber.dispose(); throw error; }

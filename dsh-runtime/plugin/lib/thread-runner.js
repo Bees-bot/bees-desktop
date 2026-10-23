@@ -43,7 +43,7 @@ export class ThreadRunner {
       this.pending.set(id,{threadId,kind,resolve:value=>finish(value)});signal.addEventListener('abort',abort,{once:true});if(signal.aborted)abort();
     });
   }
-  async execute({thread,team,run,signal,store}){
+  async execute({thread,team,run,signal,store,directory}){
     signal.throwIfAborted();
     const cwd=this.folders?.runDirectory(store,thread,team,run)??join(store.root,'runs',thread.id,run.id);mkdirSync(join(cwd,'inputs'),{recursive:true,mode:0o700});mkdirSync(join(cwd,'outputs'),{recursive:true,mode:0o700});
     store.preference('executionFolder:' + run.id, cwd);
@@ -107,7 +107,7 @@ export class ThreadRunner {
         let steps=0;
         agentCtx.on('agent/pre-step',(_input,next)=>{if(++steps>100)throw threadError('Bees stopped after 100 steps so this would not run forever. Try asking for a smaller piece of work.');return next();});
         agentCtx.tools.guard(exec=>guardThreadTool(exec,cwd,stage.agent));
-        await this.integrations?.mount(agentCtx,store,thread.id,cwd,stage.agent);
+        await this.integrations?.mount(agentCtx,store,thread.id,cwd,stage.agent,directory);
         agentCtx.on('tools/pre-execute',async(exec,next)=>{
           if(exec.name.startsWith('mcp__')&&!/^(get|list|read|search|fetch|inspect|snapshot|find|query)([_-]|$)/i.test(exec.name.slice(exec.name.indexOf('__',5)+2).replace(/^browser_/,''))){
             if(stage.kind==='review')throw threadError('Review stages cannot perform integration actions');
