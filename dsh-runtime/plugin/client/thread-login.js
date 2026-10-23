@@ -24,6 +24,7 @@ export function Login({server,request,onComplete}) {
         timer=setTimeout(()=>finish({error:'Sign in timed out. Try again.'}),5*60_000);
         const started=await request('startLogin',{provider,email,state});popup.location.href=started.url;
         const value=await result;if(value.error)throw Error(value.error);if(!value.token)throw Error('Sign in failed. Try again.');
+        setWaiting(false);
         await request('login',{session:value.token});
       }else{
         const started=await request('startLogin',{url,provider,email});
@@ -32,15 +33,15 @@ export function Login({server,request,onComplete}) {
         // Webviews can suspend a long request while the person signs in in another browser.
         while((await request('finishLogin',{id:started.id})).pending)await new Promise(resolve=>setTimeout(resolve,1000));
       }
-      await onComplete();
+      setWaiting(false);await onComplete();
     }catch(e){setError(e.message);}finally{cancel.current?.();cancel.current=null;clearTimeout(timer);channel?.close();popup?.close();setBusy(false);setWaiting(false);}
   };
-  return h('form',{className:'bc-form',onSubmit:e=>{e.preventDefault();void submit({url,email,password,...(signup?{name}:{})});}},
+  return h('form',{className:'bc-form','aria-busy':busy,onSubmit:e=>{e.preventDefault();void submit({url,email,password,...(signup?{name}:{})});}},
     h('p',{className:'bc-muted'},'Sign in to share threads and connect your machines.'),
     !hosted?field('Bees Server',{value:url,type:'url',required:true,disabled:busy,onChange:e=>setUrl(e.target.value)}):null,
     (config?.socialProviders??[]).filter(p=>['google','github'].includes(p)).map(provider=>h('button',{key:provider,type:'button',disabled:busy,onClick:()=>social(provider)},'Continue with '+({google:'Google',github:'GitHub'}[provider]))),
     error?h('p',{className:'bc-error',role:'alert'},error):null,
-    waiting?h('p',{role:'status'},'Finish signing in in your browser.'):null,
+    busy?h('p',{role:'status'},waiting?'Finish signing in in your browser.':'Signing in…'):null,
     waiting?h('button',{type:'button',onClick:()=>cancel.current?.()},'Cancel sign in'):null,
     signup?field('Name',{value:name,required:true,pattern:'.*\\S.*',title:'Enter your name.',disabled:busy,autoComplete:'name',onChange:e=>setName(e.target.value)}):null,
     field('Email',{value:email,type:'email',required:true,disabled:busy,autoComplete:'email',onChange:e=>setEmail(e.target.value)}),

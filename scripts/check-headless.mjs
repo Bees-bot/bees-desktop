@@ -10,8 +10,10 @@ import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import { DatabaseSync } from 'node:sqlite';
 import { freePort, launchConfig } from "../dsh-runtime/headless.mjs";
+import { createHostedGateway } from "../dsh-runtime/hosted-clients.mjs";
 
 const desktop = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const web = process.argv.includes('--web');
 const token = randomBytes(32).toString("hex");
 const root = await mkdtemp(join(tmpdir(), "bees-headless-proof-"));
 const port = await freePort(), modelPort = await freePort();
@@ -27,6 +29,7 @@ const model = createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/v1/models') { res.writeHead(200, { 'content-type': 'application/json' }).end('{"data":[]}'); return; }
     const chunks = []; for await (const chunk of req) chunks.push(chunk);
     const body = JSON.parse(Buffer.concat(chunks));
+    if(!modelCalls)assert(Buffer.byteLength(JSON.stringify(body))+body.messages.length*32+1024+8192<100000,'A starter task must fit the 100,000-token credit reservation');
     assert.equal(req.url, "/v1/chat/completions");
     modelCalls++;
     if(body.messages.some(message=>message.role==='system'&&JSON.stringify(message.content).includes('TEAM_AGENT_PRIMARY_SOURCES')))namedAgentCalls++;
@@ -101,9 +104,25 @@ const model = createServer(async (req, res) => {
   } catch (error) { modelError=error;res.writeHead(500).end(JSON.stringify({ error: error.message })); }
 });
 await new Promise((done) => model.listen(modelPort, "127.0.0.1", done));
+let gateway, directory, webUrl, gatewayRequests=0;
+const webSession='synthetic-web-proof-session';
+if(web){
+  directory=createServer((req,res)=>{
+    res.setHeader('content-type','application/json');
+    if(req.url!=='/api/me'||req.headers.authorization!=='Bearer '+webSession)return res.writeHead(401).end('{}');
+    res.end(JSON.stringify({user:{id:'local',name:'Web proof',email:'proof@example.invalid',emailVerified:true}}));
+  });
+  await new Promise(done=>directory.listen(0,'127.0.0.1',done));
+  gateway=createHostedGateway({directoryUrl:'http://127.0.0.1:'+directory.address().port,assets:join(desktop,'dist/hosted'),provision:async(user,session)=>{
+    assert.equal(user.id,'local');assert.equal(session,webSession);gatewayRequests++;
+    return {url:'http://127.0.0.1:'+port,token};
+  }});
+  await new Promise(done=>gateway.listen(0,'127.0.0.1',done));webUrl='http://127.0.0.1:'+gateway.address().port;
+}
 const api = async (path, value) => {
-  const response = await fetch(`http://127.0.0.1:${port}${path}`, {
-    headers: { authorization: `Bearer ${token}`, ...(value ? { "content-type": "application/json" } : {}) },
+  const throughWeb=web&&path.startsWith('/bees-api/');
+  const response = await fetch(throughWeb?webUrl+(path==='/bees-api/snapshot'?'/bees-api/threads':path):`http://127.0.0.1:${port}${path}`, {
+    headers: { ...(throughWeb?{cookie:'bees_hosted_session='+webSession,origin:webUrl}:{authorization:`Bearer ${token}`}), ...(value ? { "content-type": "application/json" } : {}) },
     ...(value ? { method: "POST", body: JSON.stringify(value) } : {}), signal: AbortSignal.timeout(5000) });
   const result = await response.json();
   assert(response.ok, JSON.stringify(result)); return result;
@@ -130,6 +149,7 @@ const start = async (reusedPid = false) => {
   `] : [entry, config];
   child = spawn(process.execPath, args,
     { env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, BEES_DSH_TOKEN: token,
+      ...(web?{BEES_HOSTED_CLIENT:'1'}:{}),
       HOME: root, TMPDIR: process.env.TMPDIR }, stdio: ["ignore", "pipe", "pipe"] });
   child.stdout.on("data", (chunk) => { logs = (logs + chunk).slice(-20000); });
   child.stderr.on("data", (chunk) => { logs = (logs + chunk).slice(-20000); });
@@ -147,7 +167,7 @@ const stop = async () => {
 };
 try {
   await writeFile(join(root,'private-other-thread.txt'),'DO_NOT_LEAK_FROM_OTHER_THREAD');
-  const config = { stateDir: join(root, "state"), port, host: process.env.BEES_PROOF_HOST ?? '127.0.0.1' };
+  const config = { stateDir: join(root, "state"), port, host: web?'0.0.0.0':process.env.BEES_PROOF_HOST ?? '127.0.0.1' };
   assert.throws(() => launchConfig(config, {}), /BEES_DSH_TOKEN/);
   for (const invalid of [{ stateDir: "/" }, { stateDir: "relative" }, { port: 0 }, { host: "example.com" }, { typo: true }])
     assert.throws(() => launchConfig({ ...config, ...invalid }, { BEES_DSH_TOKEN: token }));
@@ -167,6 +187,14 @@ try {
   const wrongOrigin = await fetch(`http://127.0.0.1:${port}/bees-api/snapshot`,
     { headers: { authorization: `Bearer ${token}`, origin: "http://other.example" } });
   assert.equal(wrongOrigin.status, 401);
+  if(web){
+    assert.equal((await fetch(webUrl+'/bees-api/threads')).status,401);
+    assert.equal((await fetch(webUrl+'/bees-api/threads',{headers:{authorization:'Bearer '+token}})).status,401);
+    assert.equal((await fetch(webUrl+'/bees-api/threads',{headers:{cookie:'bees_hosted_session=revoked'}})).status,401);
+    assert.equal((await fetch(webUrl+'/bees-api/threads',{method:'POST',headers:{cookie:'bees_hosted_session='+webSession,origin:'https://attacker.example'},body:'{}'})).status,403);
+    assert.equal((await fetch(webUrl+'/api/credentials',{headers:{cookie:'bees_hosted_session='+webSession}})).status,404);
+    assert.equal((await fetch(webUrl+'/api/shell',{headers:{cookie:'bees_hosted_session='+webSession}})).status,404);
+  }
   const duplicate = spawn(process.execPath, [join(desktop, "dsh-runtime/headless.mjs"), join(root, "config.json")],
     { env: { ...process.env, BEES_DSH_TOKEN: token }, stdio: "ignore" });
   assert.equal(await new Promise((done) => duplicate.once("exit", done)), 1, "Reject two launchers using one state folder");
@@ -175,9 +203,13 @@ try {
   assert.equal(snapshot.threads.length, 0);
   assert.equal(snapshot.teams.length,1);assert.equal(snapshot.teams[0].title,"Default");assert(!Object.hasOwn(snapshot,"workspaces"));
   const command = input => api("/bees-api/threads", {operationId: crypto.randomUUID(), ...input});
+  assert.equal(snapshot.onboarding,null);
+  if(web)await assert.rejects(command({action:'completeOnboarding',mode:'local'}),/Open Bees Desktop/);
+  else await command({action:'completeOnboarding',mode:'local'});
   assert(existsSync(snapshot.folders.root), 'A work root is assigned automatically');
   const workRoot=join(root,'Run files');await mkdir(workRoot);
-  const changedFolders=await command({action:'setRootFolder',directory:workRoot});
+  if(web)await assert.rejects(command({action:'setRootFolder',directory:workRoot}),/managed by the hosted client/);
+  const changedFolders=web?snapshot.folders:await command({action:'setRootFolder',directory:workRoot});
   assert(existsSync(changedFolders.root));
   const runFolder=(threadId,runId)=>join(changedFolders.root,snapshot.clientId,'Local','teams',snapshot.defaultTeamId,'threads',threadId,'runs',runId);
   const namedAgent={id:crypto.randomUUID(),name:'Researcher',presetId:'standard',instructions:'TEAM_AGENT_PRIMARY_SOURCES: cite primary sources.',model:'stage1/proof',reasoningEffort:'',enabled:true,mcpAccess:'selected',mcpServers:['proof']};
@@ -266,9 +298,11 @@ try {
   assert.equal(restarted.runs[0].status, "completed");
   assert.match(restarted.messages.at(-1).text, /STAGE1_COMPLETE/);
   await stop();
-  console.log(JSON.stringify({ok: true, checks: ["client boot", "authentication", "exclusive state", "real agent work and review", "two-turn AI chat loop", "actual tool file denial", "nested thread files and folders", "automatic and configurable root folder", "named team agents", "automatic team memory queue", "scoped MCP calls and approvals", "run deduplication", "human approval and attribution", "five parallel subagents and shared counter", "restart persistence", "no team/workspace database"], modelCalls}));
+  if(web)assert(gatewayRequests>0,'The proof must exercise the hosted gateway');
+  console.log(JSON.stringify({ok: true, transport:web?'hosted-gateway':'desktop', ...(web?{gatewayRequests}:{}), checks: ["client boot", "authentication", "exclusive state", "real agent work and review", "two-turn AI chat loop", "actual tool file denial", "nested thread files and folders", "automatic and configurable root folder", "named team agents", "automatic team memory queue", "scoped MCP calls and approvals", "run deduplication", "human approval and attribution", "five parallel subagents and shared counter", "restart persistence", "no team/workspace database"], modelCalls}));
 } finally {
   await stop();
+  for(const server of [gateway,directory].filter(Boolean)){server.closeAllConnections();await new Promise(done=>server.close(done));}
   model.closeAllConnections(); await new Promise((done) => model.close(done));
   await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }

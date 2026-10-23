@@ -66,7 +66,7 @@ export function kubernetesClients({ image, directoryUrl, namespace = 'bees-clien
             securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ['ALL'] } },
             ports: [{ containerPort: 8080 }], envFrom: [{ secretRef: { name } }, { secretRef: { name: 'bees-hosted-model', optional: true } }],
             env: [{ name: 'BEES_ACCOUNT_API_URL', value: directoryUrl }, { name: 'BEES_HOSTED_CLIENT', value: '1' }, { name: 'BEES_CLIENT_NAME', value: 'Bees Cloud' },
-              { name: 'BEES_HOSTED_RUNS_PER_DAY', value: process.env.BEES_HOSTED_RUNS_PER_DAY ?? '1' }],
+              { name: 'BEES_HOSTED_RUNS_PER_DAY', value: process.env.BEES_HOSTED_RUNS_PER_DAY ?? '0' }],
             resources: { requests: { cpu: '100m', memory: '384Mi' }, limits: { cpu: '2', memory: '2Gi' } },
             volumeMounts: [{ name: 'state', mountPath: '/var/lib/bees' }, { name: 'temporary', mountPath: '/tmp' }],
             startupProbe: { httpGet: { path: '/healthz', port: 8080 }, periodSeconds: 5, failureThreshold: 60 },
@@ -74,11 +74,12 @@ export function kubernetesClients({ image, directoryUrl, namespace = 'bees-clien
             livenessProbe: { httpGet: { path: '/healthz', port: 8080 }, periodSeconds: 20, failureThreshold: 3 } }],
           volumes: [{ name: 'state', persistentVolumeClaim: { claimName: name } }, { name: 'temporary', emptyDir: { sizeLimit: '512Mi' } }],
         } } } });
-      if (deployment.spec.template.spec.containers[0].image !== image || deployment.spec.template.spec.securityContext?.fsGroupChangePolicy !== 'OnRootMismatch') {
+      const container=deployment.spec.template.spec.containers[0],runsPerDay=process.env.BEES_HOSTED_RUNS_PER_DAY??'0';
+      if (container.image !== image || container.env?.find(row=>row.name==='BEES_HOSTED_RUNS_PER_DAY')?.value!==runsPerDay || deployment.spec.template.spec.securityContext?.fsGroupChangePolicy !== 'OnRootMismatch') {
         const activity = await fetcher(client.url + '/bees-api/active-runs', { headers: { authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(5000) });
         if (!activity.ok) throw Error('Could not verify active work before updating this hosted client');
         if (await activity.json() === 0) deployment = await api('PATCH', apps + '/deployments/' + name,
-          { spec: { template: { spec: { securityContext: { ...deployment.spec.template.spec.securityContext, fsGroupChangePolicy: 'OnRootMismatch' }, containers: [{ ...deployment.spec.template.spec.containers[0], image }] } } } });
+          { spec: { template: { spec: { securityContext: { ...deployment.spec.template.spec.securityContext, fsGroupChangePolicy: 'OnRootMismatch' }, containers: [{ ...container, image,env:[...(container.env??[]).filter(row=>row.name!=='BEES_HOSTED_RUNS_PER_DAY'),{name:'BEES_HOSTED_RUNS_PER_DAY',value:runsPerDay}] }] } } } });
       }
       const deadline = Date.now() + 300000;
       while (Date.now() < deadline) {

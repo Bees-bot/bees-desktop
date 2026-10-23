@@ -13,6 +13,7 @@
     "build": "vite build",
     "start:headless": "node dsh-runtime/headless.mjs",
     "check:headless": "node scripts/check-headless.mjs",
+    "check:web": "npm run check && node scripts/check-headless.mjs --web",
     "check:page-fetch": "node scripts/check-page-fetch.mjs",
     "typecheck": "tsc --noEmit",
     "sbom": "npm sbom --sbom-format cyclonedx --package-lock-only --omit dev > docs/sbom/desktop-runtime.cdx.json && cd dsh-runtime && npm sbom --sbom-format cyclonedx --package-lock-only --omit dev --legacy-peer-deps > ../docs/sbom/dsh-runtime.cdx.json",

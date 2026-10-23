@@ -13,7 +13,7 @@ export const TEAM_SETTINGS = [
   ['folders', 'Files & folders'], ['addons', 'Add-ons'], ['browser', 'Browser'],
 ];
 export const GLOBAL_SETTINGS = [
-  ['ai', 'AI connections'], ['appearance', 'Appearance'], ['instructions', 'System instructions'],
+  ['ai', 'AI connections'], ['credits', 'Credits & billing'], ['appearance', 'Appearance'], ['instructions', 'System instructions'],
   ['storage', 'Root folder'], ['organizations', 'Org settings'], ['account', 'Accounts'],
 ];
 
