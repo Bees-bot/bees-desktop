@@ -1,6 +1,40 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { authConfig, serverOrigin, browserSignInUrl, desktopSignIn } from './thread-auth.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { ThreadClient } from './thread-client.js';
+import { composioConnectionError } from '../client/thread-integrations.js';
+
+test('an unsupported Composio route does not ask a valid account to sign in again',async()=>{
+  const denied=Object.assign(Error('Sign in required'),{status:401});
+  const unsupported=await composioConnectionError(denied,async action=>{assert.equal(action,'organizations');return {organizations:[]};});
+  assert.equal(unsupported.status,424);assert.match(unsupported.message,/signed in.*Server does not support/);
+  assert.equal(await composioConnectionError(denied,async()=>{throw denied;}),denied);
+  const unavailable=Object.assign(Error('Unavailable'),{status:503});
+  assert.equal(await composioConnectionError(unavailable,()=>assert.fail('Only authentication errors need verification')),unavailable);
+});
+
+test('rejected device credentials require sign-in even with a saved user, and re-enrollment restores access',async()=>{
+  const root=mkdtempSync(join(tmpdir(),'bees-expired-account-')),client=new ThreadClient(root),original=globalThis.fetch;
+  const directory=client.directory,user={id:'alice',email:'alice@example.com'};
+  directory.token='expired';directory.user=user;
+  try{
+    globalThis.fetch=async()=>Response.json({error:{message:'Sign in required'}},{status:401});
+    await assert.rejects(directory.request('/composio/toolkits'),{status:401});
+    assert.equal((await client.snapshot()).signedIn,true,'An unsupported app route must not sign out a valid account');
+    await assert.rejects(directory.request('/organizations'),{status:401});
+    assert.equal((await client.snapshot()).signedIn,false);assert.equal((await client.snapshot()).user.id,'alice');
+    globalThis.fetch=async url=>Response.json(new URL(url).pathname==='/api/me'?{user}:{token:'renewed'});
+    await directory.resume('session','certificate',[]);
+    assert.equal((await client.snapshot()).signedIn,true);
+    let finish;globalThis.fetch=()=>new Promise(resolve=>{finish=resolve;});
+    const stale=directory.request('/organizations');directory.token='newer';
+    finish(Response.json({error:{message:'Sign in required'}},{status:401}));
+    await assert.rejects(stale,{status:401});assert.equal((await client.snapshot()).signedIn,true);
+  }finally{globalThis.fetch=original;client.store.close();rmSync(root,{recursive:true,force:true});}
+});
 
 test('sign-in validates the server and routes Google, GitHub and company SSO',()=>{
   assert.equal(serverOrigin('https://bees.example/'),'https://bees.example');

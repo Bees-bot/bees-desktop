@@ -37,7 +37,7 @@ export function Login({server,request,onComplete}) {
     }catch(e){setError(e.message);}finally{cancel.current?.();cancel.current=null;clearTimeout(timer);channel?.close();popup?.close();setBusy(false);setWaiting(false);}
   };
   return h('form',{className:'bc-form','aria-busy':busy,onSubmit:e=>{e.preventDefault();void submit({url,email,password,...(signup?{name}:{})});}},
-    h('p',{className:'bc-muted'},'Sign in to share threads and connect your machines.'),
+    h('p',{className:'bc-muted'},'Sign in to connect apps, share threads, and use Bees on your other machines.'),
     !hosted?field('Bees Server',{value:url,type:'url',required:true,disabled:busy,onChange:e=>setUrl(e.target.value)}):null,
     (config?.socialProviders??[]).filter(p=>['google','github'].includes(p)).map(provider=>h('button',{key:provider,type:'button',disabled:busy,onClick:()=>social(provider)},'Continue with '+({google:'Google',github:'GitHub'}[provider]))),
     error?h('p',{className:'bc-error',role:'alert'},error):null,
