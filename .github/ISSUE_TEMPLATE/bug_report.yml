@@ -10,7 +10,7 @@ body:
     id: version
     attributes:
       label: Bees version
-      description: Right-click Bees in Applications, choose Get Info, and check Version. Or the file name of the installer you ran.
+      description: On a Mac, right-click Bees in Applications, choose Get Info, and check Version. On Windows, find Bees under Settings, Apps, Installed apps. On any system, the file name of the installer you ran works too.
     validations:
       required: true
   - type: input

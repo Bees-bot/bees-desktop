@@ -73,7 +73,7 @@ export async function openExternal(url) {
   opened.opener = null;
 }
 
-function dialogValue(label, initial, confirmOnly = false, inputType = "text", placeholder = "") {
+function dialogValue(label, initial, confirmOnly = false, inputType = "text", placeholder = "", action = "Confirm") {
   return new Promise((resolve) => {
     const dialog = document.createElement("dialog");
     dialog.className = "bees-prompt";
@@ -113,7 +113,7 @@ function dialogValue(label, initial, confirmOnly = false, inputType = "text", pl
     submit.className = "bees-btn primary";
     // escape closes a dialog with an empty return value too, so only this button may confirm
     submit.value = "ok";
-    submit.textContent = confirmOnly ? "Confirm" : "Continue";
+    submit.textContent = confirmOnly ? action : "Continue";
     actions.append(cancel, submit);
     form.append(actions);
     dialog.append(form);
@@ -132,6 +132,6 @@ export const droppedFiles = event => [...(event.dataTransfer?.items ?? [])].filt
 // spreadsheets copy a picture next to the text, so a paste with text stays text. every screenshot is image.png, so each gets its own name
 export const pastedFiles = event => event.clipboardData?.types.includes('text/plain') ? [] : [...(event.clipboardData?.files ?? [])].map((file, i) => /^image\.\w+$/.test(file.name) ? new File([file], `pasted-${new Date().toTimeString().slice(0, 8).replaceAll(':', '')}${i ? '-' + (i + 1) : ''}.${file.name.split('.').pop()}`, { type: file.type }) : file);
 export const when = value => new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-export const confirmAction = (label) => dialogValue(label, "", true);
+export const confirmAction = (label, action) => dialogValue(label, "", true, "text", "", action);
 export const Button = ({ children, className = "", ...props }) =>
   h("button", { type: "button", className: `bees-btn ${className}`, ...props }, children);

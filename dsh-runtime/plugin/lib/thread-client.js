@@ -61,7 +61,8 @@ export class ThreadClient {
   async refresh(){if(!this.directory.token||this.closing)return;const heartbeat=await this.directory.request('/heartbeat',{endpoints:this.peer.endpoints});if(heartbeat.user)this.directory.user=heartbeat.user;
     // a thread shared while the roster was in flight is missing from it, so only judge threads shared before the fetch
     const sharedBefore=new Set(this.store.list().filter(t=>t.shared).map(t=>t.id));this.roster=await this.directory.request('/');if(this.closing)return;this.connectionError=null;
-    for(const local of this.store.list())if(sharedBefore.has(local.id)&&!this.roster.threads.some(t=>t.id===local.id)){this.store.preference(`frozen:${local.id}`,true);this.jobs.get(local.id)?.abort();}
+    // a copy of someone else's thread that left the roster was deleted or taken from us, so it goes too
+    for(const local of this.store.list())if(sharedBefore.has(local.id)&&!this.roster.threads.some(t=>t.id===local.id)){this.jobs.get(local.id)?.abort();if(local.ownerClientId!==this.store.clientId&&!local.staged)this.store.drop(local.id);else this.store.preference(`frozen:${local.id}`,true);}
     for(const authority of this.roster.threads){const local=this.store.list().find(t=>t.id===authority.id);if(local?.ownerClientId===this.store.clientId&&authority.owner_client_id!==this.store.clientId){this.store.preference(`frozen:${authority.id}`,true);this.jobs.get(authority.id)?.abort();}if(local?.staged&&authority.owner_client_id===this.store.clientId){const doc=this.store.document(local.id);this.store.activateTransfer(local.id,authority,checkpointDigest(doc));this.store.preference(`frozen:${local.id}`,false);}}
     await this.command({action:'organizations'}).catch(error=>{this.organizationError=error.message;});
     await this.options.credits?.sync(this);
@@ -210,6 +211,21 @@ export class ThreadClient {
       await this.options.recoverActivity?.(this.store,doc);
       return {...this.store.get(id),teamId:doc.teamId??this.store.preference(`team:${id}`),...(doc.unavailable?{unavailable:doc.unavailable}:{}),frozen:doc.ownerClientId===this.store.clientId&&!!this.store.preference(`frozen:${id}`)};
     }
+    if(input.action==='leave'){
+      // the roster row, since a team whose owner never came online has no copy here
+      const me=this.directory.user?.id,team=this.roster.threads.find(t=>t.id===id);if(!me)throw threadError('Sign in to leave this team',401);
+      if(team?.kind!=='team'||team.owner_client_id===this.store.clientId)throw threadError('Only a team someone else owns can be left');
+      await this.directory.request(`/threads/${id}/participants/${encodeURIComponent(me)}`,{},'DELETE');
+      // threads made on this laptop stay, they are still yours
+      for(const t of this.store.list())if((t.id===id||t.teamId===id)&&t.ownerClientId!==this.store.clientId){this.jobs.get(t.id)?.abort();this.store.drop(t.id);}
+      await this.refresh().catch(()=>{});return {ok:true};
+    }
+    if(input.action==='delete'){
+      const doc=await this.fence(id);if(doc.kind==='team')throw threadError('Only a thread can be deleted');
+      if(this.jobs.has(id)||doc.runs.some(r=>['running','waiting'].includes(r.status)))throw threadError('Stop the work running in this thread before you delete it',409);
+      if(doc.shared)await this.directory.request(`/threads/${id}`,{},'DELETE');
+      this.store.drop(id);this.options.notify?.();return {ok:true};
+    }
     if(['share','remove'].includes(input.action)){const authority=await this.authority(id).catch(e=>{if(this.store.get(id).shared)throw e;return null;});if(authority&&authority.owner_client_id!==this.store.clientId)return this.peer.send(id,authority.owner_client_id,{kind:'command',command:input});}
     if(input.action==='share')return this.share(id,input);
     if(input.action==='remove'){await this.fence(id);await this.directory.request(`/threads/${id}/participants/${encodeURIComponent(input.userId)}`,{},'DELETE');const authority=await this.authority(id);this.store.mutate(id,randomUUID(),d=>{d.epoch=Number(authority.epoch);});return this.store.document(id);}
@@ -237,7 +253,7 @@ export class ThreadClient {
   async localCommand(id,input,actor){
     await this.fence(id);validId(input.operationId);
     let result;
-    if(input.action==='message'||input.action==='discussion')result=this.store.message(id,input.operationId,input.text,actor,input.action==='discussion'?'discussion':'user');
+    if(input.action==='message'||input.action==='discussion')result=this.store.message(id,input.operationId,input.text,actor,input.action==='discussion'?'discussion':'user',input.files);
     else if(input.action==='attach'){const bytes=typeof input.content==='string'&&input.content.length<=13_333_336?Buffer.from(input.content,'base64'):null;if(!bytes||bytes.toString('base64')!==input.content)throw threadError('Invalid attachment');result=this.store.attach(id,input.operationId,input.name,bytes,actor,input.path);}
     else if(input.action==='folder')result=this.store.mutate(id,input.operationId,d=>{d.folders??=[];if(!d.folders.includes(input.path))d.folders.push(input.path);});
     else if(input.action==='configure'){
@@ -252,6 +268,8 @@ export class ThreadClient {
       if(input.memory!==undefined&&(!Array.isArray(input.memory)||input.memory.length>100||input.memory.some(m=>typeof m!=='string'||m.length>10000)))throw threadError('Invalid thread memory');
       // Preserve the next occurrence when an unchanged schedule is saved.
       const fresh=input.schedule===undefined?undefined:schedule(input.schedule),same=s=>s&&checkpointDigest({...s,nextAt:0,error:0,attemptAt:0});
+      // a schedule switched off keeps its prompt and time for when it comes back on
+      if(fresh&&input.schedule.enabled===false)fresh.enabled=false;
       const recurrence=fresh===undefined||same(fresh)===same(doc.schedule)?doc.schedule:fresh;
       result=this.store.mutate(id,input.operationId,d=>{if(input.agents!==undefined)d.agents=input.agents;if(input.processes!==undefined)d.processes=input.processes;if(input.workflow!==undefined&&d.kind!=='team')d.processId=input.processId??workflowTemplate(workflow)?.id??'custom';if(input.title!==undefined)d.title=text(input.title,180);if(input.instructions!==undefined){if(typeof input.instructions!=='string'||input.instructions.length>20000)throw threadError('Invalid instructions');d.instructions=input.instructions.trim();}d.workflow=workflow.map(s=>({name:s.name,kind:s.kind,...(s.model?{model:s.model}:{}),...(s.agentId?{agentId:s.agentId}:{})}));if(input.workflow!==undefined&&d.kind==='team')d.workflowConfigured=true;if(input.memory!==undefined)d.memory=input.memory;d.schedule=recurrence;});
     }
@@ -282,9 +300,11 @@ export class ThreadClient {
       const executionThread={...doc,messages:doc.messages.map(m=>({...m,authorId:names.get(m.authorId)??m.authorId})),memory:[...(team?.memory??[]),...(configuration.memory??[])]};
       const finished=(async()=>{try{
         if(team&&this.memory){try{const recalled=await this.memory.recall(team.id,prompt);executionThread.memory.push(...recalled.map(row=>'Past outcome (may be outdated): '+row.text));}catch{/* Memory outages must not stop work. The settings screen shows the service status. */}}
-        const output=await this.options.execute({thread:executionThread,team,run,signal:abort.signal,store:this.store,directory:this.directory});await this.fence(id);this.store.mutate(id,randomUUID(),doc=>{const r=doc.runs.find(r=>r.id===run.id);r.status='completed';r.completedAt=new Date().toISOString();doc.messages.push({id:randomUUID(),authorId:'bees',kind:'assistant',text:output||'Work completed.',createdAt:r.completedAt});});
+        const output=await this.options.execute({thread:executionThread,team,run,signal:abort.signal,store:this.store,directory:this.directory});await this.fence(id);this.store.mutate(id,randomUUID(),doc=>{const r=doc.runs.find(r=>r.id===run.id);delete r.partial;r.status='completed';r.completedAt=new Date().toISOString();doc.messages.push({id:randomUUID(),authorId:'bees',kind:'assistant',text:output||'Work completed.',createdAt:r.completedAt});});
         if(team&&this.memory&&!run.workflow.some(stage=>stage.kind==='chat')){try{this.memory.remember(team.id,String(output||'Work completed.').slice(0,12000),`Thread: ${doc.title}\nRequest: ${prompt}\nExecution: ${run.id}`.slice(0,6000),run.id);void this.memory.flush(team.id).catch(()=>{});}catch{/* Recording memory must not change a completed run to failed. */}}
-      }catch(e){try{this.store.mutate(id,randomUUID(),doc=>{const r=doc.runs.find(r=>r.id===run.id);r.status=abort.signal.aborted?'cancelled':'failed';r.error=abort.signal.aborted?'Stopped before it finished.':e.message;});}catch(write){console.error(`Bees Client could not record the end of run ${run.id}: ${write.message}`);}}finally{this.jobs.delete(id);this.options.notify?.();}})();
+      }catch(e){try{this.store.mutate(id,randomUUID(),doc=>{const r=doc.runs.find(r=>r.id===run.id);
+        // words already on screen stay as the reply, like a stopped answer anywhere else
+        if(r.partial?.trim())doc.messages.push({id:randomUUID(),authorId:'bees',kind:'assistant',text:r.partial,createdAt:new Date().toISOString()});delete r.partial;r.status=abort.signal.aborted?'cancelled':'failed';r.error=abort.signal.aborted?'Stopped before it finished.':e.message;});}catch(write){console.error(`Bees Client could not record the end of run ${run.id}: ${write.message}`);}}finally{this.jobs.delete(id);this.options.notify?.();}})();
       this.finishing.add(finished);void finished.finally(()=>this.finishing.delete(finished));
     } else if(input.action==='stop'){this.jobs.get(id)?.abort();result=this.store.document(id);}
     else throw threadError('Unknown thread command');
@@ -295,19 +315,23 @@ export class ThreadClient {
     try{for(const row of this.store.list()){
       if(row.ownerClientId!==this.store.clientId||row.staged||this.jobs.has(row.id)||this.store.preference(`frozen:${row.id}`))continue;
       const doc=this.store.document(row.id),s=doc.schedule;if(!s?.enabled||Date.parse(s.nextAt)>Date.now()||Date.parse(s.attemptAt??0)>Date.now()-60000)continue;
-      const hash=checkpointDigest({thread:row.id,occurrence:s.nextAt});const operationId=`${hash.slice(0,8)}-${hash.slice(8,12)}-4${hash.slice(13,16)}-8${hash.slice(17,20)}-${hash.slice(20,32)}`;
+      const uuid=value=>{const hash=checkpointDigest(value);return `${hash.slice(0,8)}-${hash.slice(8,12)}-4${hash.slice(13,16)}-8${hash.slice(17,20)}-${hash.slice(20,32)}`;};
+      const operationId=uuid({thread:row.id,occurrence:s.nextAt});
       try{
         let target=row.id;
         if(doc.kind==='team'){
           await this.fence(doc.id);
-          const key=`scheduled-thread:${doc.id}:${s.nextAt}`;
+          // one thread per team schedule, so each run sees the files the last one made
+          const key=`scheduled-thread:${doc.id}`;
           target=this.store.preference(key);
-          if(!target){
+          if(!this.store.list().some(t=>t.id===target&&t.ownerClientId===this.store.clientId&&!t.staged&&!this.store.preference(`frozen:${t.id}`))){
             this.store.db.exec('BEGIN IMMEDIATE');
             try{target=this.store.create(s.prompt.slice(0,80),doc.ownerUserId,doc.workflow,doc.id).id;this.store.preference(key,target);this.store.db.exec('COMMIT');}catch(e){this.store.db.exec('ROLLBACK');throw e;}
           }
           if(doc.shared)await this.registerThread(target);
         }
+        if(this.jobs.has(target))continue;
+        await this.localCommand(target,{action:'message',operationId:uuid({thread:row.id,occurrence:s.nextAt,kind:'message'}),text:s.prompt},doc.ownerUserId);
         await this.localCommand(target,{action:'run',operationId,text:s.prompt},doc.ownerUserId);this.store.mutate(row.id,randomUUID(),d=>{d.schedule.nextAt=nextOccurrence(s,new Date()).toISOString();delete d.schedule.error;});}
       catch(e){try{this.store.mutate(row.id,randomUUID(),d=>{d.schedule.error=e.message;d.schedule.attemptAt=new Date().toISOString();});}catch{}}
     }}finally{this.scheduling=false;}

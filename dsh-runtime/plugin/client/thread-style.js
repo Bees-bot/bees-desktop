@@ -35,6 +35,7 @@ body:has(.bc-app) :has(> [data-shell-overlay]) > :not([data-shell-overlay]){disp
 .bc-chat-widget.bc-empty-chat .bc-composer textarea{min-height:min(300px,30vh);max-height:540px}.bc-welcome-view .bc-empty-chat .bc-composer textarea{min-height:min(160px,18vh)}.bc-template{display:flex;align-items:center;gap:10px;margin:8px 0;font-size:12px;color:var(--muted)}.bc-template select{padding:5px 8px;min-width:0}
 .bc-invitations small{display:block;color:var(--muted)}.bc-invitations p{margin:0}
 .bc-pending-files{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}.bc-pending-files span{display:inline-flex;align-items:center;gap:2px;max-width:100%;padding:2px 2px 2px 10px;border:1px solid var(--line);border-radius:12px;font-size:12px;overflow-wrap:anywhere}.bc-pending-files .bc-icon{width:22px;height:22px;flex:none}
+.bc-app .bc-message-files button{padding:2px 10px;border-radius:12px;font-size:12px;overflow-wrap:anywhere;max-width:100%}
 .bc-theme-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(115px,1fr));gap:10px}.bc-theme-card{flex-direction:column}.bc-theme-card[aria-pressed=true]{outline:2px solid var(--accent);outline-offset:1px}
 .bc-theme-swatches{display:flex;width:100%;height:22px;border-radius:6px;overflow:hidden}.bc-theme-swatches>span{flex:1}.bc-breadcrumbs{flex-wrap:wrap}.bc-thread-header h2{overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
 .bc-dialog .bees-box,.bc-dialog .bees-stack{min-width:0}.bc-dialog .bees-btn{font:inherit}.bc-dialog .bees-muted{color:var(--muted)}

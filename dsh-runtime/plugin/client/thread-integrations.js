@@ -1,5 +1,5 @@
 import { h, useEffect, useRef, useState, hosted } from './runtime.js';
-import { openExternal } from './common.js';
+import { openExternal, confirmAction } from './common.js';
 
 export async function composioConnectionError(error, request) {
   if (error.status !== 401) return error;
@@ -63,7 +63,7 @@ export function IntegrationSettings({ threadId, canManage, signedIn, onSignIn, r
       h('div', null, h('strong', null, server.label), h('small', null, server.serverName)),
       h('div', { className: 'bc-actions' }, h('label', { className: 'bc-check' }, h('input', {
         type: 'checkbox', checked: server.enabled, onChange: event => change('toggleIntegration', { serverId: server.id, enabled: event.target.checked }),
-      }), 'Enabled'), h('button', { onClick: () => change('removeIntegration', { serverId: server.id }) }, 'Remove')))),
+      }), 'Enabled'), h('button', { onClick: async () => { if (await confirmAction(`Remove ${server.label}? Bees stops using it here.`, 'Remove')) change('removeIntegration', { serverId: server.id }); } }, 'Remove')))),
     h('details', { className: 'bc-form bc-mcp-add' }, h('summary', null, 'Add an MCP add-on'),
     h('label', { className: 'bc-field' }, h('span', null, 'Add-on'),
       h('select', { value: catalogId, onChange: event => setCatalogId(event.target.value) },

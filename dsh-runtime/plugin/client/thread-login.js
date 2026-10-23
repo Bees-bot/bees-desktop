@@ -6,6 +6,8 @@ export function Login({server,request,onComplete}) {
   const [url,setUrl]=useState(server??location.origin),[email,setEmail]=useState(''),[password,setPassword]=useState(''),[name,setName]=useState(''),[signup,setSignup]=useState(false);
   const [config,setConfig]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[waiting,setWaiting]=useState(false);
   const cancel=useRef(null);
+  // the server sends a verify link here, and adds error= when the link is stale
+  const [verified]=useState(()=>{const q=new URLSearchParams(location.search);return q.get('verified')!=='1'?'':q.has('error')?'That verification link has expired or was already used. Sign in and send a new one from Account.':'Your email is verified. Sign in to continue.';});
   useEffect(()=>{let alive=true;setConfig(null);const timer=setTimeout(()=>{request('authConfig',{url}).then(value=>{if(alive){setConfig(value);setError('');}},e=>{if(alive)setError(e.message);});},250);return()=>{alive=false;clearTimeout(timer);};},[url]);
   useEffect(()=>()=>cancel.current?.(),[]);
   const submit=async values=>{setBusy(true);setError('');try{await request('login',values);await onComplete();}catch(e){setError(e.message);}finally{setBusy(false);}};
@@ -37,7 +39,7 @@ export function Login({server,request,onComplete}) {
     }catch(e){setError(e.message);}finally{cancel.current?.();cancel.current=null;clearTimeout(timer);channel?.close();popup?.close();setBusy(false);setWaiting(false);}
   };
   return h('form',{className:'bc-form','aria-busy':busy,onSubmit:e=>{e.preventDefault();void submit({url,email,password,...(signup?{name}:{})});}},
-    h('p',{className:'bc-muted'},'Sign in to connect apps, share threads, and use Bees on your other machines.'),
+    verified?h('p',{role:'status'},verified):h('p',{className:'bc-muted'},'Sign in to connect apps, share threads, and use Bees on your other machines.'),
     !hosted?field('Bees Server',{value:url,type:'url',required:true,disabled:busy,onChange:e=>setUrl(e.target.value)}):null,
     (config?.socialProviders??[]).filter(p=>['google','github'].includes(p)).map(provider=>h('button',{key:provider,type:'button',disabled:busy,onClick:()=>social(provider)},'Continue with '+({google:'Google',github:'GitHub'}[provider]))),
     error?h('p',{className:'bc-error',role:'alert'},error):null,

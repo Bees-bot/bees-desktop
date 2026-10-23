@@ -69,11 +69,13 @@ export class ThreadRunner {
       if(!resolve(path).startsWith(outputRoot+sep))throw threadError('Output escaped this run');
       if(stat.size>10_000_000)throw threadError('A generated file exceeds the 10 MB limit');
       const bytes=readFileSync(path),digest=createHash('sha256').update(bytes).digest('hex');
-      const artifactPath='results/'+run.id+'/'+relative(outputRoot,path).split(sep).join('/');
+      // swap out characters windows refuses so a name like "notes: 20 oct.md" keeps the work instead of failing the run
+      const parts=relative(outputRoot,path).split(sep).map(part=>{part=part.replace(/[\x00-\x1f\\:*?"<>|]/g,'-').replace(/[. ]+$/,'')||'_';return /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part)?'_'+part:part;});
+      const artifactPath='results/'+run.id+'/'+parts.join('/');
       const prior=store.document(thread.id).artifacts.find(a=>a.path===artifactPath);
       if(prior?.digest===digest)continue;
       if(prior){const hash=store.putObject(bytes);store.mutate(thread.id,randomUUID(),d=>{Object.assign(d.artifacts.find(a=>a.id===prior.id),{digest:hash,size:bytes.length});});}
-      else{const id=randomUUID();store.attach(thread.id,id,basename(path),bytes,'bees',artifactPath);added.add(id);}
+      else{const id=randomUUID();store.attach(thread.id,id,parts.at(-1),bytes,'bees',artifactPath);added.add(id);}
     }};
     try{for(let index=0;index<workflow.length;index++){
       signal.throwIfAborted();const stage=workflow[index];
@@ -92,6 +94,11 @@ export class ThreadRunner {
         const owner=scopeOf(agentCtx);
         this.credits?.mount(agentCtx,store);
         trackThreadAgent(agentCtx,{agent:owner,store,threadId:thread.id,runId:run.id,stageIndex:index,parentId});
+        // the stage agent's reply as it streams, so the screen shows words before the stage ends
+        if(!parentId){let live='',timer;
+          const flush=()=>{timer=undefined;try{store.mutate(thread.id,randomUUID(),d=>{d.runs.find(r=>r.id===run.id).partial=live.slice(-20000);});}catch{}};
+          agentCtx.effect(()=>agentCtx.on('agent/assistant-stream',({agent,frame})=>{if(agent!==owner)return;if(frame.type==='start')live='';else if(frame.chunk?.type==='text-delta'){live+=frame.chunk.text;timer??=setTimeout(flush,1500);}}),'Thread live reply');
+          agentCtx.effect(()=>()=>clearTimeout(timer),'Thread live reply timer');}
         // Preset inheritance excludes thread-specific tools and guards.
         agentCtx.effect(()=>this.ctx.on('agent/created',({agent})=>{if(this.ctx.agents.isOwnedBy(agent.id,owner))return setup(agent.ctx,owner.id);}), 'Thread child setup');
         mountFileLocks(agentCtx,owner,locks,this.ctx.fs,this.ctx.get('sandboxPolicy'));
@@ -137,7 +144,7 @@ export class ThreadRunner {
         const messages=events.filter(e=>e.type==='assistant/message').map(e=>(e.data.message.content??[]).filter(b=>b.type==='text').map(b=>b.text).join('\n')).filter(Boolean);
         summary=messages.at(-1)??'Work completed.';
         if(stage.kind==='review')reviews.push(stage.name+': '+summary);else deliverable=summary;
-        store.mutate(thread.id,randomUUID(),d=>{const r=d.runs.find(r=>r.id===run.id);r.stages??=[];r.stages.push({index,name:stage.name,summary,completedAt:new Date().toISOString(),tools:events.filter(e=>e.type==='tool/call').map(e=>({id:e.data.callId,name:e.data.name}))});});
+        store.mutate(thread.id,randomUUID(),d=>{const r=d.runs.find(r=>r.id===run.id);delete r.partial;r.stages??=[];r.stages.push({index,name:stage.name,summary,completedAt:new Date().toISOString(),tools:events.filter(e=>e.type==='tool/call').map(e=>({id:e.data.callId,name:e.data.name}))});});
       }finally{signal.removeEventListener('abort',abort);await handle.dispose();}
     }
     collect(outputRoot);}catch(e){

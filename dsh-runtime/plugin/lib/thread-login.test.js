@@ -4,11 +4,13 @@ import { configureRuntime } from '../client/runtime.js';
 import { Login } from '../client/thread-login.js';
 
 test('desktop sign-in polls while Google is open and keeps the attempt until enrollment completes',async t=>{
+  const priorLocation=globalThis.location;globalThis.location={search:''};
+  t.after(()=>{if(priorLocation===undefined)delete globalThis.location;else globalThis.location=priorLocation;});
   let cursor=0,completed=0,polls=0;
   const state=[],dependencies=[],effects=[],calls=[];
   const React={
     createElement:(type,props,...children)=>({type,props,children}),createContext:()=>({}),
-    useState(initial){const i=cursor++;if(!(i in state))state[i]=initial;return [state[i],value=>{state[i]=value;}];},
+    useState(initial){const i=cursor++;if(!(i in state))state[i]=typeof initial==='function'?initial():initial;return [state[i],value=>{state[i]=value;}];},
     useRef(initial){const i=cursor++;return state[i]??=( {current:initial} );},
     useEffect(fn,deps){const i=cursor++;if(!dependencies[i]||deps.some((v,j)=>v!==dependencies[i][j]))effects.push(fn);dependencies[i]=deps;}
   };
@@ -39,11 +41,13 @@ test('desktop sign-in polls while Google is open and keeps the attempt until enr
 });
 
 test('hosted sign-in shows progress after Google returns until the account is ready, and clears it on failure',async t=>{
+  const priorLocation=globalThis.location;globalThis.location={search:''};
+  t.after(()=>{if(priorLocation===undefined)delete globalThis.location;else globalThis.location=priorLocation;});
   let cursor=0,channel,login,ready;
   const state=[],dependencies=[],effects=[];
   const React={
     createElement:(type,props,...children)=>({type,props,children}),createContext:()=>({}),
-    useState(initial){const i=cursor++;if(!(i in state))state[i]=initial;return [state[i],value=>{state[i]=value;}];},
+    useState(initial){const i=cursor++;if(!(i in state))state[i]=typeof initial==='function'?initial():initial;return [state[i],value=>{state[i]=value;}];},
     useRef(initial){const i=cursor++;return state[i]??={current:initial};},
     useEffect(fn,deps){const i=cursor++;if(!dependencies[i]||deps.some((v,j)=>v!==dependencies[i][j]))effects.push(fn);dependencies[i]=deps;}
   };

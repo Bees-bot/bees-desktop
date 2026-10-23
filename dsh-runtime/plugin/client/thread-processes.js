@@ -1,5 +1,6 @@
 import { h, useState, useRef, useEffect } from './runtime.js';
 import { DEFAULT_WORKFLOW, WORKFLOW_TEMPLATES, isChatWorkflow } from '../lib/thread-workflow.js';
+import { confirmAction } from './common.js';
 
 export function WorkflowStages({stages,onChange,disabled=false,agents=[]}){
   return h('fieldset',{className:'bc-form bc-fieldset',disabled},
@@ -26,7 +27,7 @@ export function TeamProcesses({team,canManage,canCreate,busy,onSave,onStart}){
       h('strong',null,process.name),h('small',null,describe(process.workflow)),
       h('div',{className:'bc-actions'},h('button',{disabled:busy||!canCreate,onClick:()=>onStart(process.id)},process.id==='chat'?'New Chat':process.id==='goals'?'New Goal':'Start thread'),
         canManage&&!WORKFLOW_TEMPLATES.some(t=>t.id===process.id)?h('button',{disabled:busy,onClick:()=>edit(process)},'Edit'):null,
-        canManage&&!WORKFLOW_TEMPLATES.some(t=>t.id===process.id)?h('button',{disabled:busy,onClick:async()=>{if(await onSave((team.processes??[]).filter(p=>p.id!==process.id)))setEditing(null);}},'Delete'):null)))),
+        canManage&&!WORKFLOW_TEMPLATES.some(t=>t.id===process.id)?h('button',{disabled:busy,onClick:async()=>{if(await confirmAction(`Delete the ${process.name} process? Threads already using it keep their stages.`,'Delete')&&await onSave((team.processes??[]).filter(p=>p.id!==process.id)))setEditing(null);}},'Delete'):null)))),
     canManage?h('button',{className:'bc-primary',disabled:busy,onClick:()=>edit(null)},'Create process'):null,
     editing?h('form',{key:editing,ref:editor,className:'bc-form bc-process-editor',onSubmit:async event=>{
       event.preventDefault();if(busy||!canManage)return;

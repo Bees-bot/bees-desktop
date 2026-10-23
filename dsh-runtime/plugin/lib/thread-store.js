@@ -47,6 +47,8 @@ export class ThreadStore {
     return doc;}
   preference(key,value){if(value!==undefined)this.db.prepare('INSERT INTO preferences VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key,JSON.stringify(value));return JSON.parse(this.db.prepare('SELECT value FROM preferences WHERE key=?').get(key)?.value??'null');}
   list(){return this.db.prepare('SELECT document,staged FROM threads ORDER BY json_extract(document,\'$.updatedAt\') DESC').all().map(({document,staged})=>{const d=JSON.parse(document);return {id:d.id,kind:d.kind??'thread',teamId:d.teamId??this.preference(`team:${d.id}`),processId:d.processId,organizationId:d.organizationId,title:d.title,legacySettings:d.kind!=='team'&&(d.kind===undefined||!!d.instructions||!!d.memory?.length||!!d.schedule||this.preference(`integrations:${d.id}`)!==null||this.preference(`browser:${d.id}`)!==null),ownerClientId:d.ownerClientId,ownerUserId:d.ownerUserId,shared:d.shared,revision:d.revision,updatedAt:d.updatedAt,preview:d.messages.at(-1)?.text?.slice(0,120)??'',runs:d.runs.map(r=>({id:r.id,status:r.status})),staged:!!staged};});}
+  // its files go on the next start, when no thread lists them
+  drop(id){validId(id);this.db.prepare('DELETE FROM threads WHERE id=?').run(id);for(const key of ['team','frozen','browser','integrations','scheduled-thread'])this.db.prepare('DELETE FROM preferences WHERE key=?').run(`${key}:${id}`);rmSync(join(this.root,'runs',id),{recursive:true,force:true});}
   teamFor(id){const doc=this.get(id),teamId=doc.teamId??this.preference(`team:${id}`);return teamId&&this.db.prepare('SELECT 1 FROM threads WHERE id=?').get(teamId)?this.get(teamId):null;}
   get(id){const row=this.db.prepare('SELECT document,staged FROM threads WHERE id=?').get(validId(id));if(!row)throw threadError('Thread is not available on this client',404);return {...JSON.parse(row.document),staged:!!row.staged};}
   document(id){const {staged,...doc}=this.get(id);return doc;}
@@ -88,10 +90,10 @@ export class ThreadStore {
     this.db.exec('BEGIN IMMEDIATE');
     try{fn(doc);doc.operations.push(operation);this.trim(doc);doc.revision++;doc.updatedAt=now();this.save(doc);this.db.exec('COMMIT');return doc;}catch(e){this.db.exec('ROLLBACK');throw e;}
   }
-  message(id,operation,body,authorId,kind='user'){return this.mutate(id,operation,doc=>{
-    const messageText=text(body,100000);
+  message(id,operation,body,authorId,kind='user',files){return this.mutate(id,operation,doc=>{
+    const messageText=text(body,100000),attached=Array.isArray(files)?files.filter(f=>doc.artifacts.some(a=>a.id===f)).slice(0,20):[];
     if(['New thread','New goal','New chat'].includes(doc.title)&&!doc.messages.length&&(kind==='user'||kind==='discussion'))doc.title=messageText.slice(0,80).trim();
-    doc.messages.push({id:operation,authorId,text:messageText,kind,createdAt:now()});
+    doc.messages.push({id:operation,authorId,text:messageText,kind,createdAt:now(),...(attached.length?{files:attached}:{})});
   });}
   objectPath(hash){if(!/^[a-f0-9]{64}$/.test(hash))throw threadError('Invalid file digest');return join(this.root,'objects',hash);}
   putObject(bytes,expected){if(!Buffer.isBuffer(bytes)||bytes.length>10_000_000)throw threadError('Files must be 10 MB or smaller');const hash=digest(bytes);if(expected&&expected!==hash)throw threadError('File integrity check failed');const path=this.objectPath(hash);if(existsSync(path)){if(lstatSync(path).isSymbolicLink()||digest(readFileSync(path))!==hash)throw threadError('Stored file failed verification');}else writeFileSync(path,bytes,{flag:'wx',mode:0o600});return hash;}

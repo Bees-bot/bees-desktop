@@ -271,9 +271,9 @@ function directArguments(input) {
   return inner && typeof inner === "object" && !Array.isArray(inner) ? inner : input;
 }
 
-function runClaude(command, model, effort, input, signal, schema, system) {
+function runClaude(command, model, effort, input, signal, schema, system, onText) {
   const args = [
-    "--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--safe-mode", "--no-session-persistence",
+    "--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--safe-mode", "--no-session-persistence",
     "--setting-sources", "", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}",
     "--tools", "", "--permission-mode", "dontAsk",
     ...(claudeSystemInArgv(system) ? ["--system-prompt", system] : []),
@@ -293,10 +293,29 @@ function runClaude(command, model, effort, input, signal, schema, system) {
     let stderr = "";
     let overflow = false;
     let timedOut = false;
+    let kind = null, raw = "", shown = "";
+    // the answer's words while the cli writes them; only a text answer streams, never tool arguments
+    const partial = (e) => {
+      if (e?.type === "content_block_start") {
+        kind = e.content_block?.type === "text" ? "text" : e.content_block?.name === "StructuredOutput" ? "json" : null; raw = ""; return;
+      }
+      if (e?.type !== "content_block_delta" || !kind) return;
+      raw += (kind === "text" ? e.delta?.text : e.delta?.partial_json) ?? "";
+      let text = raw;
+      if (kind === "json") {
+        const head = raw.match(/^\s*\{\s*"tool"\s*:\s*""\s*,\s*"arguments"\s*:\s*\{\s*\}\s*,\s*"text"\s*:\s*"((?:[^"\\]|\\.)*)/);
+        if (!head) { if (raw.length > 200) kind = null; return; }
+        try { text = JSON.parse(`"${head[1].replace(/\\u[0-9a-fA-F]{0,3}$/, "")}"`); } catch { return; }
+      }
+      text = text.trimStart();
+      if (text.length > shown.length && text.startsWith(shown)) { onText(text.slice(shown.length)); shown = text; }
+    };
     // the cli keeps its loop going after a structured answer, so the first one is the answer
     const consume = (line) => {
       let event;
       try { event = JSON.parse(line); } catch { return; }
+      // live pieces repeat what the final message holds, so they don't count toward the output limit
+      if (event.type === "stream_event") { bytes -= Buffer.byteLength(line) + 1; return partial(event.event); }
       if (event.type === "result") final = event;
       const block = event.type === "assistant" && event.message?.content?.find?.((part) => part.type === "tool_use");
       // a dsh tool called by its own name gets "No such tool available" from the cli, and the model then reports every tool as down
@@ -366,7 +385,7 @@ function typedArguments(args, parameters) {
   }));
 }
 
-function claudeChunks(result, tools = []) {
+function claudeChunks(result, tools = [], shown = "") {
   const usage = { type: "usage", usage: {
     inputTokens: Number(result.usage.input_tokens ?? 0),
     outputTokens: Number(result.usage.output_tokens ?? 0),
@@ -382,10 +401,12 @@ function claudeChunks(result, tools = []) {
       throw new LlmError("Claude Code returned invalid DSH tool arguments", "CLAUDE_CODE");
     const id = randomUUID();
     const argumentsText = JSON.stringify(typedArguments(args, tools.find((tool) => tool.name === name)?.parameters));
+    const at = shown ? 1 : 0;
     return [
-      { type: "block-start", index: 0, blockType: "tool-call" },
-      { type: "tool-call-delta", index: 0, id, name, argumentsDelta: argumentsText },
-      { type: "block-end", index: 0, block: { type: "tool-call", id, name, arguments: argumentsText } },
+      ...shown ? [{ type: "block-end", index: 0, block: { type: "text", text: shown } }] : [],
+      { type: "block-start", index: at, blockType: "tool-call" },
+      { type: "tool-call-delta", index: at, id, name, argumentsDelta: argumentsText },
+      { type: "block-end", index: at, block: { type: "tool-call", id, name, arguments: argumentsText } },
       usage,
       { type: "finish", reason: { kind: "tool-calls" } }
     ];
@@ -393,8 +414,8 @@ function claudeChunks(result, tools = []) {
   const text = String(result.structured?.text ?? result.text ?? "").trim();
   if (!text) throw new LlmError("Claude Code returned an empty response", "CLAUDE_CODE");
   return [
-    { type: "block-start", index: 0, blockType: "text" },
-    { type: "text-delta", index: 0, text },
+    // words already streamed stay as they are; the closing block carries the whole answer
+    ...shown ? [] : [{ type: "block-start", index: 0, blockType: "text" }, { type: "text-delta", index: 0, text }],
     { type: "block-end", index: 0, block: { type: "text", text } },
     usage,
     { type: "finish", reason: { kind: result.stopReason === "max_tokens" ? "max-tokens" : "stop" } }
@@ -421,13 +442,31 @@ class ClaudeCodeAdapter extends LlmAdapter {
     const mode = claudeProtocolMode(prompt);
     const options = { ...prompt, system: [prompt.system, claudeModeLine(tools, mode)].filter(Boolean).join("\n\n") };
     const schema = tools.length ? claudeResponseSchema(tools, mode) : undefined;
+    const queue = [];
+    let wake = () => {}, shown = "", result;
     const run = () => runClaude(
-      command, options.model, options.reasoningEffort, claudeInput(options), options.signal, schema, options.system
+      command, options.model, options.reasoningEffort, claudeInput(options), options.signal, schema, options.system,
+      (text) => { queue.push(text); wake(); }
     );
-    let result = await run();
-    // an empty reply now and then is a cli hiccup, so one more try before it fails the whole run
-    if (!result.structured?.tool && !String(result.structured?.text ?? result.text ?? "").trim() && !options.signal?.aborted) result = await run();
-    for (const chunk of claudeChunks(result, tools)) yield chunk;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const pending = run();
+      let done = false;
+      pending.catch(() => {}).finally(() => { done = true; wake(); });
+      for (;;) {
+        while (queue.length) {
+          const text = queue.shift();
+          if (!shown) yield { type: "block-start", index: 0, blockType: "text" };
+          shown += text;
+          yield { type: "text-delta", index: 0, text };
+        }
+        if (done) break;
+        await new Promise((resolve) => { wake = resolve; });
+      }
+      result = await pending;
+      // an empty reply now and then is a cli hiccup, so one more try before it fails the whole run
+      if (result.structured?.tool || String(result.structured?.text ?? result.text ?? "").trim() || options.signal?.aborted) break;
+    }
+    for (const chunk of claudeChunks(result, tools, shown)) yield chunk;
   }
 }
 

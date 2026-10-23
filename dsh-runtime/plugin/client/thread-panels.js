@@ -37,12 +37,12 @@ export function ThreadDetails({ thread, page, peerNames, userId, onSettings, onF
       h('p', { key: i }, `${i + 1}. ${stage.name}`)),
     h('button', { onClick: () => onSettings('general') }, 'Thread settings'));
   if (page === 'context') return h('section', { className: 'bc-form' },
-    h('h3', null, 'Context'), h('p', thread.instructions ? null : { className: 'bc-muted' }, thread.instructions || 'This thread has no instructions of its own. Team and system instructions still apply.'),
+    h('h3', null, 'Instructions'), h('p', thread.instructions ? null : { className: 'bc-muted' }, thread.instructions || 'This thread has no instructions of its own. Team and system instructions still apply.'),
     h('p', { className: 'bc-muted' }, 'Bees uses this thread’s recent conversation, memory, and attached files for each run.'),
     h('h3', null, 'Memory'), ...(thread.memory?.length ? thread.memory.map((note, i) => h('p', { key: i }, note)) : [h('p', { key: 'none', className: 'bc-muted' }, 'Nothing saved yet.')]),
     h('button', { onClick: onFiles }, `Files (${thread.artifacts.length})`));
-  return h('section', { className: 'bc-form' }, h('h3', null, page === 'traces' ? 'Traces' : 'Executions'),
-    !thread.runs.length ? h('p', { className: 'bc-muted' }, 'No executions yet. Ask Bees to start work in Conversation.') : null,
+  return h('section', { className: 'bc-form' }, h('h3', null, page === 'traces' ? 'Activity' : 'Run history'),
+    !thread.runs.length ? h('p', { className: 'bc-muted' }, 'No runs yet. Ask Bees to start work in Conversation.') : null,
     ...[...thread.runs].reverse().map(run => h('article', { className: 'bc-card bc-form', key: run.id },
       h('strong', null, run.prompt), h('small', null, `${labels[run.status] ?? run.status} · ${when(run.createdAt)}`),
       run.error ? h('p', { role: 'status' }, run.error) : null,

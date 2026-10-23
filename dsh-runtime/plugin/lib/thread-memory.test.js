@@ -66,11 +66,14 @@ test('memory queue survives outages and restart, isolates banks, and hides corre
 test('new work recalls team outcomes and completed goals are queued, while failures and chats are not retained', async () => {
   const root = mkdtempSync(join(tmpdir(), 'bees-memory-runs-')), remembered = [], seen = [];
   const service = { recall: async () => [{ text: 'Earlier lesson' }], remember: (...args) => remembered.push(args), flush: async () => {}, close: async () => {} };
-  const client = new ThreadClient(root, { memory: () => service, execute: async input => { seen.push(input); if (input.run.prompt === 'Fail') throw Error('Model offline'); return 'Finished result'; } });
+  const client = new ThreadClient(root, { memory: () => service, execute: async input => { seen.push(input); input.store.mutate(input.thread.id, randomUUID(), doc => { doc.runs.at(-1).partial = 'Partial result'; }); if (input.run.prompt === 'Fail') throw Error('Model offline'); return 'Finished result'; } });
   try {
     const goal = await client.command({ action: 'create' }), chat = await client.command({ action: 'create', templateId: 'chat' });
     for (const [threadId, text] of [[goal.id, 'Goal'], [chat.id, 'Chat'], [goal.id, 'Fail']]) {
       await client.command({ action: 'run', threadId, operationId: randomUUID(), text }); await Promise.all(client.finishing);
+      const doc = client.store.document(threadId);
+      assert.equal(doc.runs.at(-1).partial, undefined);
+      assert.equal(doc.messages.at(-1).text, text === 'Fail' ? 'Partial result' : 'Finished result');
     }
     assert.equal(remembered.length, 1); assert.equal(remembered[0][0], goal.teamId); assert.equal(remembered[0][1], 'Finished result');
     assert(seen[0].thread.memory.some(note => note.includes('Earlier lesson')));
