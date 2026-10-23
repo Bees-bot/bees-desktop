@@ -85,6 +85,12 @@ test('MCP connections are per thread, credentials never enter thread documents, 
     assert.equal(remote.url,'https://bees.example/api/composio/mcp');
     assert.equal(remote.headers.Authorization,'Bearer run-token');
     assert(!JSON.stringify(composio).includes('run-token'));
+    const requests=[];
+    const browseDirectory={token:'client-token',request:async(path,body)=>{requests.push({path,body});return body?{url:'https://connect.composio.dev/link/lt_test'}:{items:[{slug:'gmail',name:'Gmail'}]};}};
+    assert.deepEqual(await integrations.command(store,first.id,{action:'composioApps',search:'gmail'},browseDirectory),{items:[{slug:'gmail',name:'Gmail'}]});
+    assert.deepEqual(await integrations.command(store,first.id,{action:'connectComposioApp',toolkit:'gmail'},browseDirectory),{url:'https://connect.composio.dev/link/lt_test'});
+    assert.deepEqual(requests,[{path:'/composio/toolkits?search=gmail',body:undefined},{path:'/composio/link',body:{toolkit:'gmail'}}]);
+    await assert.rejects(integrations.command(store,first.id,{action:'composioApps'},{}),/Sign in to Bees/);
     await assert.rejects(integrations.config(store,first.id,composio,root),/Sign in to Bees/);
     await assert.rejects(integrations.save(store,first.id,{serverName:'bad',transport:'stdio',command:'node',args:{},secrets:{}}),/arguments/);
     await assert.rejects(client.localCommand(first.id,{action:'saveIntegration',operationId:randomUUID()},'remote-user'),/Unknown thread command/);

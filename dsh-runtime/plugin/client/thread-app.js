@@ -149,7 +149,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const saveTeam=values=>perform(async()=>{await command('configure',currentTeamId,values);await refresh();await readTeam(currentTeamId);setNotice(values.processes!==undefined?'Processes saved. Start a new thread to use them.':'Team settings saved. Changes apply to new runs in every thread.');return true;});
   const teamAction=(action,values)=>perform(async()=>{await command(action,currentTeamId,values);await refresh();await readTeam(currentTeamId);});
   const files=thread?h(ThreadFiles,{key:selected,thread,canWrite,busy,onAttach:attach,onPreview:previewFile,preview,onClosePreview:()=>setPreview(null)}):null;
-  const integrations=section=>team?h(IntegrationSettings,{key:currentTeamId+section,threadId:currentTeamId,canManage:(teamOwn||['owner','editor'].includes(teamRole))&&!team.unavailable&&!team.frozen,request:command,perform,page:section}):null;
+  const integrations=section=>team?h(IntegrationSettings,{key:currentTeamId+section,threadId:currentTeamId,canManage:(teamOwn||['owner','editor'].includes(teamRole))&&!team.unavailable&&!team.frozen,signedIn:!!data?.user,request:command,perform,page:section}):null;
   const configuration=(section,note)=>team?h(React.Fragment,null,canConfigureTeam||!note?null:h('p',{className:'bc-muted'},'Only the team owner can change shared settings.'),h(WorkflowSettings,{key:currentTeamId+section+(canConfigureTeam?'':team.revision),thread:team,agents:team.agents??[],scope:'team',section,disabled:!canConfigureTeam,busy,onSave:saveTeam})):h('p',{role:'status'},'Loading team settings…');
   const members=h('section',{className:'bc-form'},h('h3',null,'Members'),
     !teamParticipants.length?h('p',null,'Only you have access to this private team.'):null,
@@ -338,7 +338,7 @@ function LegacyOverrides({rows,section,perform,busy}){
   return h('details',{className:'bc-legacy-settings'},h('summary',null,'Existing thread settings'),
     h('p',{className:'bc-muted'},'Settings saved before teams are preserved for these threads. Team instructions and memory are added to them; a saved team workflow takes priority.'),
     h('select',{'aria-label':'Existing thread settings',value:id,onChange:e=>setId(e.target.value)},rows.map(row=>h('option',{key:row.id,value:row.id},row.title))),
-    doc?['addons','browser'].includes(section)?h(IntegrationSettings,{key:id+section,threadId:id,scope:'thread',canManage:!doc.frozen&&!doc.unavailable,request:command,perform,page:section})
+    doc?['addons','browser'].includes(section)?h(IntegrationSettings,{key:id+section,threadId:id,scope:'thread',canManage:!doc.frozen&&!doc.unavailable,signedIn:!!data?.user,request:command,perform,page:section})
       :h(WorkflowSettings,{key:id+section,thread:doc,scope:'legacy',section,busy,disabled:doc.frozen||!!doc.unavailable,onSave:values=>perform(async()=>{setDoc(await command('configure',id,values));})}):null);
 }
 

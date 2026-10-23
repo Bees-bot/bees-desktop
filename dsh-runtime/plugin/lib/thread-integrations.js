@@ -26,8 +26,18 @@ export class ThreadIntegrations {
       personalAvailable: !process.env.BEES_HOSTED_CLIENT && !!defaultBrowser(),
     } };
   }
-  async command(store, id, input) {
+  async command(store, id, input, directory) {
     if (input.action === 'integrations') return this.snapshot(store, id);
+    if (['composioApps', 'connectComposioApp'].includes(input.action)) {
+      if (!rows(store, id).some(server => server.catalogId === 'composio' && server.enabled)) throw threadError('Enable Composio first');
+      if (!directory?.token) throw threadError('Sign in to Bees to browse Composio apps', 401);
+      if (input.action === 'composioApps') {
+        const query = new URLSearchParams({ search: input.search ?? '' });
+        if (input.cursor) query.set('cursor', input.cursor);
+        return directory.request('/composio/toolkits?' + query);
+      }
+      return directory.request('/composio/link', { toolkit: input.toolkit });
+    }
     if (input.action === 'setBrowser') {
       if (!['own', 'personal'].includes(input.mode) || input.mode === 'personal' && (process.env.BEES_HOSTED_CLIENT || !defaultBrowser())) throw threadError('Personal browser is unavailable on this client');
       store.preference(`browser:${id}`, input.mode);

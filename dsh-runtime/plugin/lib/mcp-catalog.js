@@ -136,9 +136,9 @@ const ENTRIES = [
     label: "Composio apps",
     publisher: "Composio",
     homepage: "https://composio.dev/",
-    summary: "Find tools across connected apps and connect more accounts when a task needs them.",
+    summary: "Browse apps, connect accounts, and use their tools in your threads.",
     access: "Composio sign-in links connect accounts to the Bees account running this team. In a shared team, other participants can request access through them; Bees asks the thread owner to approve actions. Removing this add-on does not disconnect accounts in Composio.",
-    prerequisite: "Sign in to Bees. Its server needs COMPOSIO_API_KEY. Connect each app through the link the agent provides during a run.",
+    prerequisite: "Sign in to Bees. Its server needs COMPOSIO_API_KEY. Once enabled, browse apps and connect accounts below.",
     transport: "streamable-http",
     env: [],
     headers: []

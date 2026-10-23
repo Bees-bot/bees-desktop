@@ -180,7 +180,7 @@ export class ThreadClient {
     if(input.action==='verifyEmail'){const r=await fetch(this.directory.url+'/api/auth/send-verification-email',{method:'POST',headers:{'content-type':'application/json',origin:this.directory.url},body:JSON.stringify({email:this.directory.user.email,callbackURL:this.directory.url+'/app'}),signal:AbortSignal.timeout(20000)});if(!r.ok)throw threadError('Could not send verification email');return {ok:true};}
     if(input.action==='acceptInvitation'){const result=await this.directory.request('/invitations/'+validId(input.invitationId)+'/accept',{});await this.refresh();return result;}
     const id=validId(input.threadId);
-    if(['integrations','saveIntegration','toggleIntegration','removeIntegration','setBrowser','openBrowser','connectGoogle'].includes(input.action)){
+    if(['integrations','saveIntegration','toggleIntegration','removeIntegration','setBrowser','openBrowser','connectGoogle','composioApps','connectComposioApp'].includes(input.action)){
       const doc=this.store.get(id);
       if(doc.kind==='team'){
         if(doc.shared){await this.authority(id);const role=this.roster.participants.find(p=>p.thread_id===id&&p.user_id===this.directory.user?.id)?.role;if(!['owner','editor'].includes(role))throw threadError('Team editor access required',403);}
@@ -189,7 +189,7 @@ export class ThreadClient {
         if(doc.shared&&doc.ownerUserId!==this.directory.user?.id)throw threadError('Only the thread owner can manage add-ons',403);
       }
       if(!this.options.integrations)throw threadError('Add-ons are not available on this client');
-      return this.options.integrations.command(this.store,id,input);
+      return this.options.integrations.command(this.store,id,input,this.directory);
     }
     if(input.action.startsWith('memory_')){
       const doc=this.store.get(id);if(doc.kind!=='team')throw threadError('Choose a team for memory');

@@ -1,11 +1,31 @@
-import { h, useEffect, useState, hosted } from './runtime.js';
+import { h, React, useEffect, useState, hosted } from './runtime.js';
 import { openExternal } from './common.js';
 
-export function IntegrationSettings({ threadId, canManage, request, perform, page = 'addons', scope='team' }) {
+export function IntegrationSettings({ threadId, canManage, signedIn, request, perform, page = 'addons', scope='team' }) {
   const [data, setData] = useState(null), [catalogId, setCatalogId] = useState('playwright');
   const [transport, setTransport] = useState('stdio'), [notice, setNotice] = useState('');
+  const [search, setSearch] = useState(''), [apps, setApps] = useState(null), [appsBusy, setAppsBusy] = useState(false), [connecting, setConnecting] = useState(null);
   const load = async () => setData(await request('integrations', threadId));
   useEffect(() => { if (canManage) void perform(load); }, [threadId, canManage]);
+  const composioEnabled = data?.servers.some(server => server.catalogId === 'composio' && server.enabled);
+  const browse = cursor => void perform(async () => {
+    setAppsBusy(true);
+    try {
+      const query = cursor ? apps?.query ?? search : search;
+      const page = await request('composioApps', threadId, { search: query, cursor });
+      setApps(previous => cursor ? { items: [...(previous?.items ?? []), ...page.items], nextCursor: page.nextCursor, query }
+        : { ...page, query });
+    } finally { setAppsBusy(false); }
+  });
+  useEffect(() => { if (page === 'addons' && composioEnabled && signedIn) browse(); else setApps(null); }, [page, composioEnabled, signedIn, threadId]);
+  const connectApp = app => void perform(async () => {
+    setConnecting(app.slug);
+    try {
+      const { url } = await request('connectComposioApp', threadId, { toolkit: app.slug });
+      await openExternal(url);
+      setNotice(`Finish connecting ${app.name} in your browser, then refresh apps.`);
+    } finally { setConnecting(null); }
+  });
   if (!canManage) return h('p', { className: 'bc-muted' }, 'Team owners and editors can manage add-ons on their own computers.');
   if (!data) return h('p', { role: 'status' }, 'Loading add-ons…');
   const entry = data.catalog.find(row => row.id === catalogId);
@@ -48,11 +68,26 @@ export function IntegrationSettings({ threadId, canManage, request, perform, pag
       h('div', { className: 'bc-actions' }, h('label', { className: 'bc-check' }, h('input', {
         type: 'checkbox', checked: server.enabled, onChange: event => change('toggleIntegration', { serverId: server.id, enabled: event.target.checked }),
       }), 'Enabled'), h('button', { onClick: () => change('removeIntegration', { serverId: server.id }) }, 'Remove')))),
+    composioEnabled ? h('section', { className: 'bc-form' }, h('h3', null, 'Composio apps'),
+      signedIn ? h(React.Fragment, null,
+        h('form', { className: 'bc-actions', onSubmit: event => { event.preventDefault(); browse(); } },
+          h('input', { type: 'search', 'aria-label': 'Search Composio apps', placeholder: 'Search Gmail, Slack, Notion…', maxLength: 80,
+            value: search, onChange: event => setSearch(event.target.value) }),
+          h('button', { type: 'submit', disabled: appsBusy }, 'Search'),
+          h('button', { type: 'button', disabled: appsBusy, onClick: () => browse() }, 'Refresh apps')),
+        appsBusy && !apps ? h('p', { role: 'status' }, 'Loading Composio apps…') : null,
+        apps && !apps.items.length ? h('p', { className: 'bc-muted' }, 'No apps found. Try another search.') : null,
+        apps ? h('div', { className: 'bc-composio-grid' }, apps.items.map(app => h('div', { className: 'bc-card bc-composio-app', key: app.slug },
+          h('div', null, h('strong', null, app.name), app.description ? h('p', { className: 'bc-muted' }, app.description) : null),
+          app.connected ? h('small', null, 'Connected') : app.noAuth ? h('small', null, 'Ready to use')
+            : h('button', { disabled: !!connecting, onClick: () => connectApp(app) }, connecting === app.slug ? 'Opening…' : 'Connect')))) : null,
+        apps?.nextCursor ? h('button', { disabled: appsBusy, onClick: () => browse(apps.nextCursor) }, 'Show more apps') : null)
+        : h('p', { className: 'bc-muted' }, 'Sign in to Bees to browse and connect Composio apps.')) : null,
     h('h3', null, 'Connect an add-on'),
     h('label', { className: 'bc-field' }, h('span', null, 'Add-on'),
       h('select', { value: catalogId, onChange: event => setCatalogId(event.target.value) },
         data.catalog.map(row => h('option', { value: row.id, key: row.id }, row.label)), h('option', { value: '' }, 'Custom MCP server'))),
-    h('form', { key: catalogId, className: 'bc-form', onSubmit: save },
+    entry?.id === 'composio' && composioEnabled ? h('p', { className: 'bc-muted' }, 'Composio is enabled. Browse its apps above.') : h('form', { key: catalogId, className: 'bc-form', onSubmit: save },
       entry ? h('p', { className: 'bc-muted' }, entry.summary) : null,
       entry ? h('p', { className: 'bc-muted' }, entry.access) : null,
       entry?.prerequisite ? h('p', { className: 'bc-muted' }, entry.prerequisite) : null,
