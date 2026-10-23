@@ -9,12 +9,12 @@ export const THREAD_SETTINGS = [
 ];
 export const TEAM_SETTINGS = [
   ['general', 'General'], ['members', 'Members'], ['invitations', 'Invitations'],
-  ['memory', 'Memory'], ['processes', 'Processes'], ['workflow', 'Workflow'], ['schedule', 'Schedules'],
+  ['agents', 'Agents'], ['memory', 'Memory'], ['processes', 'Processes'], ['workflow', 'Workflow'], ['schedule', 'Schedules'],
   ['folders', 'Files & folders'], ['addons', 'Add-ons'], ['browser', 'Browser'],
 ];
 export const GLOBAL_SETTINGS = [
   ['ai', 'AI connections'], ['appearance', 'Appearance'], ['instructions', 'System instructions'],
-  ['storage', 'Data & files'], ['organizations', 'Org settings'], ['account', 'Accounts'],
+  ['storage', 'Root folder'], ['organizations', 'Org settings'], ['account', 'Accounts'],
 ];
 
 export function SettingsNav({ items, selected, onSelect, label }) {

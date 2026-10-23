@@ -10,6 +10,7 @@ export function TeamMenu({team,icon,busy,canCreate,onCreate,onSettings,onHide}){
     h('nav',{'aria-label':`${team.title} actions`},
       h('button',{disabled:busy||!canCreate,onClick:choose(()=>onCreate('goals',team.id))},icon('goal'),'New Goal'),
       h('button',{disabled:busy||!canCreate,onClick:choose(()=>onCreate('chat',team.id))},icon('chat'),'New Chat'),
+      h('button',{onClick:choose(()=>onSettings('agents',team.id))},icon('team'),'Agents'),
       h('button',{onClick:choose(()=>onSettings('processes',team.id))},icon('process'),'Processes'),
       h('button',{onClick:choose(()=>onSettings('general',team.id))},icon('gear'),'Settings'),
       h('hr'),h('button',{disabled:busy,onClick:choose(()=>onHide(team.id))},icon('hide'),'Hide')));

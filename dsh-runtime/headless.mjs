@@ -7,6 +7,7 @@ import { homedir } from 'node:os';
 import { createInterface } from 'node:readline';
 import { setTimeout as delay } from "node:timers/promises";
 import { withFileLock } from "@deepseek-ai/dsh-atomic-write";
+import { createClientProxy } from './hosted-api.mjs';
 
 const runtime = dirname(fileURLToPath(import.meta.url));
 const profilePackages = [
@@ -83,6 +84,8 @@ export async function launch(config, signal, runtimeEnvironment = {}) {
     await prepareProfile(home);
     const controller = new AbortController();
     const stopped = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+    const runtimePort = config.host === '0.0.0.0' ? await freePort() : config.port;
+    const proxy = config.host === '0.0.0.0' ? createClientProxy({ port: runtimePort, token: config.token }) : null;
     const children = [];
     const start = (command, args, options) => {
       const privateLogs=!!runtimeEnvironment.BEES_FLEET_JOB;
@@ -103,8 +106,9 @@ export async function launch(config, signal, runtimeEnvironment = {}) {
     };
     try {
       stopped.throwIfAborted();
+      if (proxy) await new Promise((resolve, reject) => proxy.once('error', reject).listen(config.port, config.host, resolve));
       start(process.execPath, ["--max-http-header-size=65536", join(runtime, "start.mjs"),
-        "--profile", "bees", "--host", config.host, "--port", String(config.port), "--no-open"], {
+        "--profile", "bees", "--host", '127.0.0.1', "--port", String(runtimePort), "--no-open"], {
         cwd: workspace,
         env: { ...process.env, ...runtimeEnvironment, BEES_HOST_HOME: process.env.BEES_HOST_HOME || homedir(), HOME: config.stateDir, USERPROFILE: config.stateDir,
           BEES_HEADLESS: "1", BEES_FLEET_JOB: "client", DSH_HOME: home, DSH_TELEMETRY_DISABLED: "1",
@@ -115,7 +119,7 @@ export async function launch(config, signal, runtimeEnvironment = {}) {
       });
       await waitUntil(async () => {
         try {
-          const response = await fetch(`http://127.0.0.1:${config.port}/bees-api/snapshot`,
+          const response = await fetch(`http://127.0.0.1:${runtimePort}/bees-api/snapshot`,
             { headers: { authorization: `Bearer ${config.token}` }, signal: AbortSignal.timeout(1000) });
           await response.body?.cancel(); return response.ok;
         } catch { return false; }
@@ -126,6 +130,7 @@ export async function launch(config, signal, runtimeEnvironment = {}) {
       });
       if (!signal?.aborted) throw stopped.reason;
     } finally {
+      if (proxy) { proxy.closeAllConnections(); await new Promise(resolve => proxy.close(resolve)); }
       for (const { child, exit } of children.reverse()) {
         if (!child.pid) continue;
         kill(child, "SIGTERM");

@@ -29,7 +29,7 @@ export function IntegrationSettings({ threadId, canManage, request, perform, pag
   if (page === 'browser') return h('section', { className: 'bc-form' },
     h('h3', null, 'Browser'), h('label', { className: 'bc-check' },
       h('input', { type: 'checkbox', role: 'switch', checked: data.browser.mode === 'personal', disabled: !data.browser.personalAvailable,
-        onChange: event => change('setBrowser', { mode: event.target.checked ? 'personal' : 'own' }) }), 'Use your personal browser'),
+        onChange: event => change('setBrowser', { mode: event.target.checked ? 'personal' : 'own' }) }), 'Use your own browser'),
     h('p', { className: 'bc-muted' }, data.browser.mode === 'personal'
       ? `Runs use their own tabs in ${data.browser.name}, with your existing sign-ins. ${data.browser.setup}`
       : 'Runs use an isolated browser. Your personal browser and sign-ins stay separate.'),
