@@ -2,7 +2,7 @@
 
 - id: session-query-sqlite
   config:
-    path: !!js process.env.BEES_DSH_QUERY_PATH
+    path: !!js process.env.DSH_HOME + "/session-query.sqlite"
     openAt: startup
 
 - id: sandbox-policy

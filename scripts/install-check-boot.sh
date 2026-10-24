@@ -26,7 +26,7 @@ EOF
 
 cd "$C/workspaces"
 DSH_HOME="$C/dsh" DSH_TELEMETRY_DISABLED=1 BEES_DSH_TOKEN=install-check \
-BEES_DSH_QUERY_PATH="$C/dsh/session-query.sqlite" BEES_DEFAULT_WORKSPACE="$C/workspaces" BEES_STATE_DIR="$C/dsh-state" \
+BEES_DEFAULT_WORKSPACE="$C/workspaces" BEES_STATE_DIR="$C/dsh-state" \
 BEES_STARTUP_LOG="$C/dsh-state/startup.log" BEES_RUNTIME_ROOT="$RT" \
   "$BIN/bees-node$X" --max-http-header-size=65536 "$RT/start.mjs" --profile bees --host 127.0.0.1 \
   --port 4317 --no-open > "$C/dsh.log" 2>&1 &
