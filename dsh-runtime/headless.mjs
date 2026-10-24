@@ -112,8 +112,7 @@ export async function launch(config, signal, runtimeEnvironment = {}) {
         cwd: workspace,
         env: { ...process.env, ...runtimeEnvironment, BEES_HOST_HOME: process.env.BEES_HOST_HOME || homedir(), HOME: config.stateDir, USERPROFILE: config.stateDir,
           BEES_HEADLESS: "1", BEES_FLEET_JOB: "client", DSH_HOME: home, DSH_TELEMETRY_DISABLED: "1",
-          BEES_DSH_TOKEN: config.token, BEES_DSH_QUERY_PATH: join(home, "session-query.sqlite"),
-          BEES_DEFAULT_WORKSPACE: workspace,
+          BEES_DSH_TOKEN: config.token, BEES_DEFAULT_WORKSPACE: workspace,
           BEES_STATE_DIR: join(config.stateDir, "state"), BEES_STARTUP_LOG: join(config.stateDir, "state", "startup.log"),
           BEES_RUNTIME_ROOT: runtime }
       });
