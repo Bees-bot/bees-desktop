@@ -126,20 +126,17 @@
               provider: spawn
               toolName: subagent
               modelSelectionSettings: true
-              backgroundMode: continuable
           - id: tool-subagent-fork
             name: '@deepseek-ai/dsh-tool-subagent'
             config:
               provider: fork
               toolName: subagent_fork
-              backgroundMode: continuable
           - id: tool-subagent-codex
             name: '@deepseek-ai/dsh-tool-subagent'
             disabled: true
             config:
               provider: codex
               toolName: subagent_codex
-              backgroundMode: one-shot
               maxDepth: provider-managed
           - id: tool-subagent-claude-code
             name: '@deepseek-ai/dsh-tool-subagent'
@@ -147,7 +144,6 @@
             config:
               provider: claude-code
               toolName: subagent_claude_code
-              backgroundMode: one-shot
               maxDepth: provider-managed
           - id: workflow-ptc
             name: '@deepseek-ai/dsh-workflow-ptc'
@@ -207,9 +203,7 @@
     provider: ""
     model: ""
 
-# DSH Agent Teams replaces the old parent/child control surface with a
-# durable peer mailbox and shared task board. One-shot delegation remains mounted
-# for non-Bees sessions; the Bees plugin scopes it out of managed work runs.
+# Native subagents deliver results asynchronously. Bees waits for progressing children.
 - id: tool-subagent-control
   disabled: false
 
@@ -221,14 +215,12 @@
   config:
     provider: spawn
     toolName: subagent
-    backgroundMode: one-shot
 
 - id: tool-subagent-fork
   disabled: false
   config:
     provider: fork
     toolName: subagent_fork
-    backgroundMode: one-shot
 
 # Provider transport remains in DSH's llm-pi-ai plugin. The Bees feature
 # plugins own their setup UI and lifecycle without registering duplicate routes.
@@ -267,6 +259,7 @@
         - webServer
         - connection
         - agents
+        - subagents
         - agentPresets
         - sessionPersistence
         - approval

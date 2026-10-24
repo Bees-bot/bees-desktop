@@ -13,7 +13,9 @@ const session = (rows, header = {}) => ({ header, inheritedEventCount: 0, snapsh
 
 test('agent tracking records exact parentage and lifecycle without including unrelated agents', () => {
   const run = { id: 'run' }, listeners = new Set();
-  const store = { mutate: (_thread, _operation, fn) => fn({ runs: [run] }) };
+  const preferences = new Map();
+  const store = { mutate: (_thread, _operation, fn) => fn({ runs: [run] }),
+    preference: (key, value) => value === undefined ? preferences.get(key) : preferences.set(key, value) };
   const ctx = { effect: fn => fn(), on: (_event, fn) => { listeners.add(fn); return () => listeners.delete(fn); } };
   const makeAgent = id => ({ id, status: 'idle', options: { model: 'example-model' }, session: session([]) });
   const parent = makeAgent('parent'), child = makeAgent('child');
@@ -77,6 +79,22 @@ test('execution evidence distinguishes a completed turn from a successful file c
   assert(snapshot.tools[2].completedAt >= snapshot.tools[2].startedAt);
   assert.equal(snapshot.tools[3].completedAt, undefined);
   assert.deepEqual(threadAgentSnapshot(session([['turn/end', { reason: { kind: 'completed' } }]])).tools, []);
+});
+
+test('a resumed chat reports only the activity and tools belonging to the current reply', () => {
+  const value = session([
+    ['tool/call', { callId: 'old', name: 'read', arguments: '{}' }],
+    ['assistant/message', { message: { content: [{ type: 'text', text: 'Old reply' }] } }],
+    ['turn/end', { reason: { kind: 'completed' } }],
+    ['turn/start', {}],
+    ['tool/call', { callId: 'new', name: 'glob', arguments: '{}' }],
+    ['assistant/message', { message: { content: [{ type: 'text', text: 'New reply' }] } }],
+    ['turn/end', { reason: { kind: 'completed' } }],
+    ['assistant/message', { message: { content: [{ type: 'text', text: 'Later reply' }] } }],
+  ]);
+  const snapshot = threadAgentSnapshot(value, 'idle', 'model', 3, 7);
+  assert.deepEqual(snapshot.tools.map(tool => tool.id), ['new']);
+  assert.equal(snapshot.summary, 'New reply'); assert.equal(snapshot.status, 'completed');
 });
 
 test('private thread reads recover durable child history once, with validated lineage and no model calls', async () => {

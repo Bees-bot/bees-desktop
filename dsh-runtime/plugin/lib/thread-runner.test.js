@@ -25,6 +25,8 @@ test('tool paths use actual DSH arguments and cannot escape through traversal or
     assert.match(guardThreadTool({name:'read',arguments:{file_path:'../secret'}},cwd),/Attach/);
     assert.match(guardThreadTool({name:'write',arguments:{file_path:'escape/new/secret'}},cwd),/Attach/);
     assert.match(guardThreadTool({name:'bash',arguments:{sandbox_permissions:'danger-full-access'}},cwd),/widen/);
+    assert.equal(guardThreadTool({name:'working_directory',arguments:{}},cwd),undefined);
+    assert.match(guardThreadTool({name:'working_directory',arguments:{cd:root}},cwd),/keep the run workspace/);
     assert.equal(guardThreadTool({name:'mcp__mail__get',arguments:{path:'/api/messages'}},cwd),undefined);
     assert.match(guardThreadTool({name:'mcp__mail__get'},cwd,{mcpAccess:'none'}),/disabled/);
     assert.match(guardThreadTool({name:'mcp__mail__get'},cwd,{mcpAccess:'selected',mcpServers:['docs']}),/disabled/);
@@ -47,4 +49,23 @@ test('run inputs preserve legacy names, resolve clashes, and retain team folders
     assert.equal(read('inputs/notes_.txt'),'sanitized');assert.equal(read('inputs/folder/nested.txt'),'nested');
     assert.equal(read('inputs/'+clash+'-folder'),'legacy');assert.equal(read('team-inputs/shared/team.txt'),'team');
   }finally{store.close();rmSync(root,{recursive:true,force:true});}
+});
+
+test('parallel helpers queue human decisions without replacing another pending approval',async()=>{
+  const run={id:'run'},store={mutate:(_thread,_operation,change)=>change({runs:[run]})},runner=new ThreadRunner({});
+  const signal=new AbortController(),cancelled=new AbortController();
+  const first=runner.wait(store,'thread','run',signal.signal,'approval',{text:'First helper'});
+  const second=runner.wait(store,'thread','run',signal.signal,'approval',{text:'Second helper'});
+  const third=runner.wait(store,'thread','run',cancelled.signal,'questions',{questions:[]});
+  const rejected=assert.rejects(third,/Work stopped/);cancelled.abort();await rejected;
+  assert.equal(run.pending.text,'First helper');
+  runner.answer(run.pending.id,{approved:true,actorId:'owner'});await first;
+  assert.equal(run.pending.text,'Second helper');
+  runner.answer(run.pending.id,{approved:false,actorId:'owner'});await second;
+  assert.equal(run.pending,undefined);assert.equal(runner.pending.size,0);
+  assert.deepEqual(run.decisions.map(decision=>decision.approved),[true,false]);
+  const active=runner.wait(store,'thread','run',signal.signal,'approval',{text:'Active'});
+  const queued=runner.wait(store,'thread','run',signal.signal,'approval',{text:'Queued'});
+  const stopped=Promise.all([assert.rejects(active,/Work stopped/),assert.rejects(queued,/Work stopped/)]);
+  signal.abort();await stopped;assert.equal(run.pending,undefined);assert.equal(runner.pending.size,0);
 });

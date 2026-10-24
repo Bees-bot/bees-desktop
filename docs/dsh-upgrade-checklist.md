@@ -1,7 +1,7 @@
 # DSH upgrade checklist
 
 Bees ships one DeepSeek Harness release at a time. The current release is
-`0.1.7-rc.2`; every `@deepseek-ai/dsh*` runtime dependency and plugin peer must
+`0.2.1-rc.3`; every `@deepseek-ai/dsh*` runtime dependency and plugin peer must
 use that exact version.
 
 ## Prepare a candidate
@@ -34,18 +34,19 @@ npm run tauri:build
 The candidate is proven by running the app: sign in through loopback, one agent
 turn, a restart that keeps the run, and a clean quit.
 
-Review new licenses and native artifacts, and run `npm run sbom` to rebuild the two
+Review new licenses and native artifacts, and run `npm run sbom` with npm 11.12 or
+newer to rebuild the two
 checked-in CycloneDX files under `docs/sbom/` from the lockfiles. Finally,
 exercise this packaged critical flow without a network connection:
 
-1. launch with no account and create a team plus two workspaces;
-2. map one team folder and reference it from work in both workspaces;
-3. navigate between sections and switch team/workspace scope;
-4. use Ask Bees to create and apply a process proposal;
-5. run and schedule the process with two configured provider routes;
-6. approve publication to a granted location;
-7. interrupt a run, restart Bees, and recover it from its safe checkpoint;
-8. confirm no Bees or DSH metadata appeared in the mapped company folder.
+1. launch with no account, choose local mode, and create a team with Goals and Chat threads;
+2. choose a work root, attach team/thread files, and confirm the generated results;
+3. configure three team agents and exercise A → B → C with a local model;
+4. confirm C cannot invoke A, B or itself, and helpers respect their add-on permissions;
+5. continue Chat, restart Bees, and confirm history and output files remain available;
+6. run and schedule a Goals process and answer its approval stage;
+7. stop work and restart Bees; unfinished actions must not execute automatically;
+8. confirm no Bees credentials or database files appeared in the work folder.
 
 ## Accept or roll back
 
@@ -58,7 +59,8 @@ If any check fails, restore both DSH package manifests and
 partial compatibility layer. Add compatibility code only when Bees intentionally
 supports two public DSH ABIs at once.
 
-## RC2 candidate status
+## 0.2.1 candidate status
 
-The two-workspaces-per-team scenario above predates the one-default-workspace-per-team
-command surface. It needs a product-owned replacement scenario and is not counted as passed.
+See [the upgrade record](dsh-0.2.1-upgrade.md) for automated evidence and remaining
+installer/manual release checks. npm 11.5.1 incorrectly marks valid sibling
+overrides as invalid during SBOM generation; npm 11.12 fixes that resolver bug.

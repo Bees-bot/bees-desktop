@@ -55,7 +55,7 @@ export class ThreadFolders {
     })) };
   }
   runPath(store, thread, team, run, state = this.state) {
-    return join(this.organization(store, team?.organizationId, state), 'teams', team?.id ?? 'Default', 'threads', thread.id, 'runs', run.id);
+    return join(this.organization(store, team?.organizationId, state), 'teams', team?.id ?? 'Default', 'threads', thread.id, 'runs', validId(run.workspaceRunId ?? run.id));
   }
   runDirectory(store, thread, team, run) {
     const anchor = team?.organizationId && this.state.organizations[this.key(store, team.organizationId)] || this.state.root;

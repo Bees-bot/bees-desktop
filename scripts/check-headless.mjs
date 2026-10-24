@@ -13,11 +13,14 @@ import { freePort, launchConfig } from "../dsh-runtime/headless.mjs";
 import { createHostedGateway } from "../dsh-runtime/hosted-clients.mjs";
 
 const desktop = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const runtime = resolve(process.env.BEES_PROOF_RUNTIME ?? join(desktop, 'dsh-runtime'));
+const node = process.env.BEES_PROOF_NODE ?? process.execPath;
 const web = process.argv.includes('--web');
 const token = randomBytes(32).toString("hex");
 const root = await mkdtemp(join(tmpdir(), "bees-headless-proof-"));
 const port = await freePort(), modelPort = await freePort();
 let namedAgentCalls = 0;
+const chainFinished = new Set(); let chainRootId, cancelChildStarted = false;
 let modelCalls = 0, deniedReads = 0, integrationReads = 0, integrationWrites = 0, deniedIntegrationWrites = 0, child, exited, modelError, logs = "", trace = [];
 const counterWords=['first','second','third','fourth','fifth'],counterChildren=new Set(),counterCompleted=new Set();
 const counterName='counter-'+new Date().toISOString().replace(/\D/g,'-').slice(0,19)+'.txt';
@@ -86,14 +89,51 @@ const model = createServer(async (req, res) => {
       else counterDelta=!attemptedTool('subagent')?{role:'assistant',tool_calls:counterWords.map((word,index)=>({index,id:'counter-'+word,type:'function',function:{name:'subagent',arguments:JSON.stringify({description:'Append '+word+' to counter',prompt:'COUNTER_CHILD_'+word+'. Append your word followed by a newline to outputs/'+counterName+'. Do not launch subtasks.',run_in_background:false})}}))}:{role:'assistant',content:'Counter complete'};
     }
     const chatting=body.messages.some(m=>m.role==='system'&&JSON.stringify(m.content).includes('conversational AI assistant'));
-    let chatReply;
+    let chatDelta;
     if(chatting){
       assert(!reviewing);
-      const context=body.messages.filter(m=>m.role==='user').map(m=>m.content).join('\n');
-      if(context.includes('CHAT_LOOP_SECOND')){assert(context.includes('FIRST_CHAT_REPLY'),'Chat must retain its previous AI reply');assert(context.includes('CHAT_LOOP_FIRST'),'Chat must retain its previous user message');chatReply='SECOND_CHAT_REPLY';}
-      else{assert(context.includes('CHAT_LOOP_FIRST'));chatReply='FIRST_CHAT_REPLY';}
+      const context=JSON.stringify(body.messages),latest=body.messages.filter(m=>m.role==='user').at(-1).content;
+      assert.equal(context.split('CHAT_LOOP_FIRST').length-1,1,'The original request must not be replayed');
+      assert(context.includes('CHAT_SEED_0'),'Bootstrap keeps history older than forty messages');
+      if(context.includes('CHAT_LOOP_SECOND')){
+        assert(body.messages.some(m=>m.role==='assistant'&&m.content==='FIRST_CHAT_REPLY'),'The prior AI reply must be restored as an assistant message');
+        assert(!latest.includes('FIRST_CHAT_REPLY')&&!latest.includes('CHAT_LOOP_FIRST'),'The follow-up must not paste old history into new input');
+        assert.equal(context.split('FIRST_CHAT_REPLY').length-1,1);
+        assert(context.includes('CHAT_NEW_CONTEXT_0')&&context.includes('CHAT_NEW_CONTEXT_44'),'All new discussion messages reach the resumed session');
+        if(context.includes('CHAT_LOOP_THIRD')){
+          assert(body.messages.some(m=>m.role==='assistant'&&m.content==='SECOND_CHAT_REPLY'),'Restart must retain the second reply');
+          if(!attemptedTool('read'))chatDelta=call('read',{file_path:'outputs/chat.txt'});
+          else{assert(results.some(m=>JSON.stringify(m.content).includes('CHAT_FILE_PRESERVED')));chatDelta={role:'assistant',content:'THIRD_CHAT_REPLY'};}
+        }else chatDelta={role:'assistant',content:'SECOND_CHAT_REPLY'};
+      }else chatDelta=!attemptedTool('bees_append_file')?call('bees_append_file',{file_path:'outputs/chat.txt',content:'CHAT_FILE_PRESERVED'}):{role:'assistant',content:'FIRST_CHAT_REPLY'};
     }
-    const delta=chatting?{role:'assistant',content:chatReply}:counterDelta??(read&&!attempted?call('read',{file_path:join(root,'private-other-thread.txt')})
+    let chainDelta;
+    const userText=JSON.stringify(body.messages.filter(message=>message.role==='user'));
+    if(userText.includes('TEAM_CANCEL_CHILD')){cancelChildStarted=true;await new Promise(done=>res.once('close',done));return;}
+    const role=body.messages.filter(m=>m.role==='system').map(m=>m.content).join('\n').match(/TEAM_CHAIN_ROLE_([ABC])/ )?.[1];
+    if(userText.includes('TEAM_CANCEL_TEST')){
+      chainDelta=attemptedTool('bees_delegate_agent')?{role:'assistant',content:'Waiting for the requested helper.'}:call('bees_delegate_agent',{agent_name:'Agent B',prompt:'TEAM_CANCEL_CHILD. Wait for cancellation.'});
+    }else if(role&&!reviewing){
+      const expected={A:'proof',B:'proof-b',C:'proof-c'};assert.equal(body.model,expected[role]);
+      const requested=name=>body.messages.some(m=>m.tool_calls?.some(({function:fn})=>fn.name==='bees_delegate_agent'&&JSON.parse(fn.arguments).agent_name===name));
+      if(role==='B')assert(!calendar&&!update,'Helpers use their own add-on restrictions');
+      assert(body.tools.some(({function:fn})=>fn.name==='bees_delegate_agent'));
+      const forbidden=role==='A'?['Disabled','Other team','Agent A']:role==='B'?['Agent A','Agent B']:['Agent A','Agent B','Agent C'];
+      const next=forbidden.find(name=>!requested(name));
+      if(next)chainDelta=call('bees_delegate_agent',{agent_name:next,prompt:'This call must be denied.'});
+      else if(role==='C'&&!attemptedTool('send_message'))chainDelta=call('send_message',{agent_id:chainRootId,message:'This ancestor must not be invoked.'});
+      else if(role==='C'&&!attemptedTool('working_directory'))chainDelta=call('working_directory',{cd:root});
+      else if(role==='C'&&!attemptedTool('read'))chainDelta=call('read',{file_path:join(root,'private-other-thread.txt')});
+      else if(role==='C'&&body.tools.some(({function:fn})=>fn.name==='bash')&&!attemptedTool('bash'))chainDelta=call('bash',{command:'printf BEES_SHELL_OK',description:'Verify the bundled shell runtime'});
+      else if(role==='C'&&calendar&&!attemptedTool(calendar.function.name))chainDelta=call(calendar.function.name,{});
+      else if(role!=='C'&&!requested('Agent '+(role==='A'?'B':'C')))chainDelta=call('bees_delegate_agent',{agent_name:'Agent '+(role==='A'?'B':'C'),prompt:'Complete TEAM_CHAIN_HELPER work using your own role. Delegate further if appropriate.'});
+      else{
+        assert(results.filter(m=>JSON.stringify(m.content).includes('ancestor')).length>= (role==='A'?1:role==='B'?2:3),'Every ancestor and self call must be rejected');
+        if(role==='C'){assert(results.some(m=>JSON.stringify(m.content).includes('keep the run workspace')));assert(results.some(m=>JSON.stringify(m.content).includes('Attach this file')));assert(results.some(m=>JSON.stringify(m.content).includes('STAGE1_CALENDAR:')));if(attemptedTool('bash'))assert(results.some(m=>JSON.stringify(m.content).includes('BEES_SHELL_OK')));}
+        chainFinished.add(role);chainDelta={role:'assistant',content:'TEAM_CHAIN_DONE_'+role};
+      }
+    }
+    const delta=chainDelta??chatDelta??counterDelta??(read&&!attempted?call('read',{file_path:join(root,'private-other-thread.txt')})
       :calendar&&!attemptedTool(calendar.function.name)?call(calendar.function.name,{})
       :update&&!attemptedTool(update.function.name)?call(update.function.name,{title:'Synthetic meeting'})
       :{role:'assistant',content:'STAGE1_COMPLETE.'});
@@ -139,7 +179,7 @@ const until = async (check, timeout = 120_000) => {
 };
 const start = async (reusedPid = false) => {
   exited = false; logs = "";
-  const entry = join(desktop, "dsh-runtime/headless.mjs"), config = join(root, "config.json");
+  const entry = join(runtime, "headless.mjs"), config = join(root, "config.json");
   // Simulate the previous container leaving a lock with our replacement process's PID.
   const args = reusedPid ? ["--input-type=module", "--eval", `
     import { writeFile } from 'node:fs/promises';
@@ -147,7 +187,7 @@ const start = async (reusedPid = false) => {
     process.argv = [process.execPath, ${JSON.stringify(entry)}, ${JSON.stringify(config)}];
     await import(${JSON.stringify(entry)});
   `] : [entry, config];
-  child = spawn(process.execPath, args,
+  child = spawn(node, args,
     { env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, BEES_DSH_TOKEN: token,
       ...(web?{BEES_HOSTED_CLIENT:'1'}:{}),
       HOME: root, TMPDIR: process.env.TMPDIR }, stdio: ["ignore", "pipe", "pipe"] });
@@ -177,7 +217,7 @@ try {
   const overlay = JSON.stringify([
     { id: "llm-pi-ai", config: { providers: { stage1: { api: "openai-completions",
       baseURL: `http://127.0.0.1:${modelPort}/v1`, headers: { authorization: "Bearer synthetic" },
-      models: [{ id: "proof", name: "Stage 1 fixture", contextWindow: 32768, maxTokens: 1024 }] } } } }
+      models: ['proof','proof-b','proof-c'].map(id=>({ id, name: "Stage 1 fixture", contextWindow: 32768, maxTokens: 1024 })) } } } }
   ]);
   await writeFile(join(profile, "cordis.patch.yml"), overlay);
   await start(true);
@@ -195,7 +235,7 @@ try {
     assert.equal((await fetch(webUrl+'/api/credentials',{headers:{cookie:'bees_hosted_session='+webSession}})).status,404);
     assert.equal((await fetch(webUrl+'/api/shell',{headers:{cookie:'bees_hosted_session='+webSession}})).status,404);
   }
-  const duplicate = spawn(process.execPath, [join(desktop, "dsh-runtime/headless.mjs"), join(root, "config.json")],
+  const duplicate = spawn(node, [join(runtime, "headless.mjs"), join(root, "config.json")],
     { env: { ...process.env, BEES_DSH_TOKEN: token }, stdio: "ignore" });
   assert.equal(await new Promise((done) => duplicate.once("exit", done)), 1, "Reject two launchers using one state folder");
   const snapshot = await api("/bees-api/snapshot");
@@ -215,7 +255,7 @@ try {
   const namedAgent={id:crypto.randomUUID(),name:'Researcher',presetId:'standard',instructions:'TEAM_AGENT_PRIMARY_SOURCES: cite primary sources.',model:'stage1/proof',reasoningEffort:'',enabled:true,mcpAccess:'selected',mcpServers:['proof']};
   await command({action:'configure',threadId:snapshot.defaultTeamId,agents:[namedAgent],workflow:[{name:'Work',kind:'work',agentId:namedAgent.id},{name:'Review',kind:'review',agentId:namedAgent.id}]});
   const thread = await command({action: "create", title: "Synthetic thread"});
-  const integration = await command({action:'saveIntegration',threadId:thread.id,serverName:'proof',transport:'stdio',command:process.execPath,args:[join(desktop,'scripts/fixtures/headless-mcp.mjs')],secrets:{BEES_PROOF_SECRET:'synthetic-mcp-credential'}});
+  const integration = await command({action:'saveIntegration',threadId:thread.id,serverName:'proof',transport:'stdio',command:node,args:[join(desktop,'scripts/fixtures/headless-mcp.mjs')],secrets:{BEES_PROOF_SECRET:'synthetic-mcp-credential'}});
   assert(!JSON.stringify(integration).includes('synthetic-mcp-credential'));
   await command({action:'folder',threadId:thread.id,path:'Research/empty'});
   await command({action:'attach',threadId:thread.id,name:'brief.txt',path:'Research/brief.txt',content:Buffer.from('Synthetic brief').toString('base64')});
@@ -253,7 +293,9 @@ try {
   await command({action:'run',threadId:isolated.id,operationId:isolatedRun,text:'NO_MCP_EXPECTED. Reply STAGE1_COMPLETE.'});
   await until(async()=>{const doc=await command({action:'read',threadId:isolated.id});const run=doc.runs.find(r=>r.id===isolatedRun);assert.notEqual(run.status,'failed',run.error);return run.status==='completed';});
   const chat=await command({action:'create',title:'New chat',templateId:'chat'});
+  for(let index=0;index<45;index++)await command({action:'discussion',threadId:chat.id,text:'CHAT_SEED_'+index});
   for(const [prompt,reply] of [['CHAT_LOOP_FIRST','FIRST_CHAT_REPLY'],['CHAT_LOOP_SECOND','SECOND_CHAT_REPLY']]){
+    if(prompt==='CHAT_LOOP_SECOND')for(let index=0;index<45;index++)await command({action:'discussion',threadId:chat.id,text:'CHAT_NEW_CONTEXT_'+index});
     await command({action:'message',threadId:chat.id,text:prompt});
     const operationId=crypto.randomUUID();await command({action:'run',threadId:chat.id,operationId,text:prompt});
     await until(async()=>{const doc=await command({action:'read',threadId:chat.id});const run=doc.runs.find(r=>r.id===operationId);assert.notEqual(run.status,'failed',run.error);return run.status==='completed';});
@@ -262,6 +304,9 @@ try {
   const chatHistory=await command({action:'read',threadId:chat.id});
   assert.equal(chatHistory.messages.filter(m=>m.kind==='assistant').length,2,'Each chat turn records one reply');
   assert(chatHistory.runs.every(run=>run.stages.length===1&&run.agents.length===1),'Chat has one agent stage per reply without a review stage');
+  assert.equal(new Set(chatHistory.runs.map(run=>run.agents[0].id)).size,1,'Chat replies reuse one DSH session');
+  assert.equal(chatHistory.runs[0].agents[0].tools.length,1);assert.equal(chatHistory.runs[1].agents[0].tools.length,0,'Activity is limited to the current reply');
+  assert.equal(chatHistory.artifacts.length,1,'An unchanged chat output is not attached again');
   await command({action:'configure',threadId:thread.id,workflow:[{name:'Work',kind:'work'},{name:'Approve result',kind:'approval'}]});
   const approvalRun=crypto.randomUUID();await command({action:'run',threadId:thread.id,operationId:approvalRun,text:'Prepare a fictional result for my approval.'});
   const pending=await until(async()=>{const current=await command({action:'read',threadId:thread.id});const run=current.runs.find(r=>r.id===approvalRun);assert.notEqual(run.status,'failed',run.error);return run.pending;});
@@ -282,6 +327,24 @@ try {
   await command({action:'configure',threadId:counter.id,workflow:[{name:'Work',kind:'work',model:'stage1/missing-model'}]});
   await command({action:'run',threadId:counter.id,text:'This run must report the underlying model error.'});
   await until(async()=>{const doc=await command({action:'read',threadId:counter.id});const run=doc.runs.at(-1);if(run.status==='running')return false;assert.equal(run.status,'failed');assert.match(run.error,/no configured model "missing-model"/);return true;});
+  const chainAgents=['A','B','C'].map((name,index)=>({...namedAgent,id:crypto.randomUUID(),name:'Agent '+name,instructions:'TEAM_CHAIN_ROLE_'+name,model:'stage1/'+['proof','proof-b','proof-c'][index],mcpAccess:name==='B'?'none':'selected'}));
+  await command({action:'configure',threadId:snapshot.defaultTeamId,agents:[...chainAgents,{...namedAgent,id:crypto.randomUUID(),name:'Disabled',enabled:false}]});
+  const chain=await command({action:'create',title:'Team delegation chain'}),chainRun=crypto.randomUUID();chainRootId=chainRun+'-0';
+  await command({action:'configure',threadId:chain.id,workflow:[{name:'Work',kind:'work',agentId:chainAgents[0].id}]});
+  await command({action:'saveIntegration',threadId:chain.id,serverName:'proof',transport:'stdio',command:node,args:[join(desktop,'scripts/fixtures/headless-mcp.mjs')],secrets:{BEES_PROOF_SECRET:'synthetic-mcp-credential'}});
+  await command({action:'run',threadId:chain.id,operationId:chainRun,text:'TEAM_CHAIN_TEST. Ask Agent B to help, who should ask Agent C.'});
+  await until(async()=>{const doc=await command({action:'read',threadId:chain.id});const run=doc.runs.at(-1);assert.notEqual(run.status,'failed',run.error);return run.status==='completed';});
+  const chainHistory=(await command({action:'read',threadId:chain.id})).runs[0].agents;
+  assert.deepEqual([...chainFinished].sort(),['A','B','C'],JSON.stringify({chainHistory,logs:logs.slice(-4000)}));
+  assert.equal(chainHistory.length,3,'Denied cycles must not create agents');assert(chainHistory.every(agent=>agent.status==='completed'));
+  assert.equal(chainHistory.find(agent=>agent.title==='Agent C').parentId,chainHistory.find(agent=>agent.title==='Agent B').id);
+  const cancelled=await command({action:'create',title:'Stop a running helper'});
+  await command({action:'configure',threadId:cancelled.id,workflow:[{name:'Work',kind:'work',agentId:chainAgents[0].id}]});
+  await command({action:'run',threadId:cancelled.id,text:'TEAM_CANCEL_TEST. Start Agent B and wait.'});
+  await until(()=>cancelChildStarted);await command({action:'stop',threadId:cancelled.id});
+  const stopped=await until(async()=>{const doc=await command({action:'read',threadId:cancelled.id});return doc.runs.at(-1).status==='cancelled'&&doc.runs.at(-1);});
+  assert(stopped.agents.every(agent=>agent.status!=='running'),'Stopping a run must stop its children');
+  const callsAtStop=modelCalls;await delay(100);assert.equal(modelCalls,callsAtStop,'Child completion must not start another model call after Stop');
   assert(!existsSync(join(config.stateDir, "bees-stage1.db")), "No team/workspace database is created");
   await stop();
   const legacyStore=new DatabaseSync(join(config.stateDir,'state/client-v3/personal/threads.db'));
@@ -294,12 +357,16 @@ try {
   assert.equal(recovered.activityError,undefined);
   assert.equal(recovered.agents.filter(agent=>agent.parentId&&agent.status==='completed').length,5);
   for(const agent of recovered.agents.filter(agent=>agent.parentId))assert(agent.tools.some(tool=>tool.name==='bees_append_file'&&tool.status==='succeeded'),'Successful child appends must survive restart and history recovery');
+  await command({action:'message',threadId:chat.id,text:'CHAT_LOOP_THIRD'});
+  await command({action:'run',threadId:chat.id,text:'CHAT_LOOP_THIRD'});
+  const resumed=await until(async()=>{const doc=await command({action:'read',threadId:chat.id});const run=doc.runs.at(-1);assert.notEqual(run.status,'failed',run.error);return run.status==='completed'&&doc;});
+  assert.equal(resumed.messages.at(-1).text,'THIRD_CHAT_REPLY');assert.equal(resumed.runs.at(-1).agents[0].id,chatHistory.runs[0].agents[0].id);
   const restarted = await command({action: "read", threadId: thread.id});
   assert.equal(restarted.runs[0].status, "completed");
   assert.match(restarted.messages.at(-1).text, /STAGE1_COMPLETE/);
   await stop();
   if(web)assert(gatewayRequests>0,'The proof must exercise the hosted gateway');
-  console.log(JSON.stringify({ok: true, transport:web?'hosted-gateway':'desktop', ...(web?{gatewayRequests}:{}), checks: ["client boot", "authentication", "exclusive state", "real agent work and review", "two-turn AI chat loop", "actual tool file denial", "nested thread files and folders", "automatic and configurable root folder", "named team agents", "automatic team memory queue", "scoped MCP calls and approvals", "run deduplication", "human approval and attribution", "five parallel subagents and shared counter", "restart persistence", "no team/workspace database"], modelCalls}));
+  console.log(JSON.stringify({ok: true, transport:web?'hosted-gateway':'desktop', ...(web?{gatewayRequests}:{}), checks: ["client boot", "authentication", "exclusive state", "real agent work and review", "resumed chat without history replay", "chat files and history after restart", "nested team helpers with cycle prevention", "actual tool file denial", "nested thread files and folders", "automatic and configurable root folder", "named team agents", "automatic team memory queue", "scoped MCP calls and approvals", "run deduplication", "human approval and attribution", "five parallel subagents and shared counter", "restart persistence", "no team/workspace database"], modelCalls}));
 } finally {
   await stop();
   for(const server of [gateway,directory].filter(Boolean)){server.closeAllConnections();await new Promise(done=>server.close(done));}

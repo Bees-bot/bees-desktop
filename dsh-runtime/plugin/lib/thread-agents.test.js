@@ -21,8 +21,10 @@ test('team agents persist and each execution captures its agent before later edi
     const thread = await client.command({ action: 'create' });
     await client.command({ action: 'run', threadId: thread.id, operationId: randomUUID(), text: 'Research' });
     assert.deepEqual(captured.run.workflow[0].agent, researcher);
+    assert.deepEqual(captured.team.agents, [researcher]);
     await configure({ agents: [{ ...researcher, instructions: 'Changed later' }] });
     assert.equal(captured.run.workflow[0].agent.instructions, 'Cite primary sources.');
+    assert.equal(captured.team.agents[0].instructions, 'Cite primary sources.');
     release(); await Promise.all(client.finishing);
     const runId = captured.run.id;
     client.store.close(); client = new ThreadClient(root);
