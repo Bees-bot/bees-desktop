@@ -4,6 +4,8 @@ Notable changes, newest first. Dates are release dates.
 
 ## Unreleased
 
+- Upgraded DeepSeek Harness to 0.2.1-rc.3. Chats resume their saved conversation and files across replies and restarts.
+- Agents can ask any enabled agent in their team for help, using that agent's instructions, model and add-ons. Helpers cannot call themselves or an agent above them in the delegation chain.
 - Bees no longer ships its own local model engine or a separate workflow server, so the installed app is at least 130 MB smaller. Local models still work through LM Studio, Ollama or llama.cpp in Settings.
 
 ## 0.2.2

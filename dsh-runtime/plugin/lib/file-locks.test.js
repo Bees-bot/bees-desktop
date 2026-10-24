@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
-import { Context } from "@deepseek-ai/cordis";
+import { Context, Service } from "@deepseek-ai/cordis";
 import { LocalFileSystem } from "@deepseek-ai/dsh-fs-local";
 import { SystemPrompt } from "@deepseek-ai/dsh-system-prompt";
 import { ToolRuntime } from "@deepseek-ai/dsh-tools";
@@ -21,6 +21,8 @@ async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "bees-file-locks-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const ctx = new Context();
+  const workingDirectory = new Service(ctx, 'workingDirectory');
+  workingDirectory.ensure = async (owner, signal) => { signal?.throwIfAborted(); return owner.session.header.cwd; };
   const fiber = await ctx.plugin(LocalFileSystem, { cwd: root, diffBasisMaxBytes: 1_000_000 });
   t.after(() => fiber.dispose());
   const locks = new FileLocks(join(root, ".locks"));
@@ -32,7 +34,8 @@ function agent(root, fs, locks) {
   const owner = { session: { header: { cwd: root } } };
   const tools = new Map(), hooks = new Map();
   const ctx = {
-    fs, tools: { register: (tool) => tools.set(tool.name, tool) },
+    fs, workingDirectory: { ensure: async (owner, signal) => { signal?.throwIfAborted(); return owner.session.header.cwd; } },
+    tools: { register: (tool) => tools.set(tool.name, tool) },
     sandboxPolicy: { resolve: () => ({ mode: "read-only" }) },
     get: (name) => ctx[name],
     on: (name, fn) => hooks.set(name, fn),
@@ -205,7 +208,8 @@ test("a parent must release its file locks before delegating or waiting", async 
   const { token } = await parent.lock([path]);
   await parent.call("write", { file_path: path, content: "" });
   let calls = 0;
-  const handoffs = ["bees_delegate_work", "bees_revise_work", "bees_resolve_failed_work", "bees_wait_for_peers",
+  const handoffs = ["bees_delegate_agent", "subagent", "subagent_fork", "send_message", "wait_agent", "spawn_teammate",
+    "bees_delegate_work", "bees_revise_work", "bees_resolve_failed_work", "bees_wait_for_peers",
     "ask_user_question", "bees_ask_team", "bees_request_work_review", "bees_publish_outputs", "bees_submit_stage_result"];
   for (const name of handoffs) {
     const tool = { name, execute: () => { calls++; return {}; } };

@@ -9,6 +9,7 @@ import { validOrganizationAppearance } from './organization-appearance.js';
 import { THEME_PRESETS } from './themes.js';
 import { DEFAULT_WORKFLOW, WORKFLOW_TEMPLATES, workflowFor, workflowTemplate, isValidWorkflow } from './thread-workflow.js';
 import { captureWorkflowAgents, validateTeamAgents } from './thread-agents.js';
+import { recordChatReply } from './thread-session.js';
 import { normalizeThreadLayout } from './thread-layout.js';
 import { authConfig, serverOrigin } from './thread-auth.js';
 
@@ -300,11 +301,11 @@ export class ThreadClient {
       const executionThread={...doc,messages:doc.messages.map(m=>({...m,authorId:names.get(m.authorId)??m.authorId})),memory:[...(team?.memory??[]),...(configuration.memory??[])]};
       const finished=(async()=>{try{
         if(team&&this.memory){try{const recalled=await this.memory.recall(team.id,prompt);executionThread.memory.push(...recalled.map(row=>'Past outcome (may be outdated): '+row.text));}catch{/* Memory outages must not stop work. The settings screen shows the service status. */}}
-        const output=await this.options.execute({thread:executionThread,team,run,signal:abort.signal,store:this.store,directory:this.directory});await this.fence(id);this.store.mutate(id,randomUUID(),doc=>{const r=doc.runs.find(r=>r.id===run.id);delete r.partial;r.status='completed';r.completedAt=new Date().toISOString();doc.messages.push({id:randomUUID(),authorId:'bees',kind:'assistant',text:output||'Work completed.',createdAt:r.completedAt});});
+        const output=await this.options.execute({thread:executionThread,team,run,signal:abort.signal,store:this.store,directory:this.directory});await this.fence(id);this.store.mutate(id,randomUUID(),doc=>{const r=doc.runs.find(r=>r.id===run.id);delete r.partial;r.status='completed';r.completedAt=new Date().toISOString();doc.messages.push({id:randomUUID(),authorId:'bees',kind:'assistant',text:output||'Work completed.',createdAt:r.completedAt});});recordChatReply(this.store,id,run.id,this.store.document(id).messages.at(-1).id);
         if(team&&this.memory&&!run.workflow.some(stage=>stage.kind==='chat')){try{this.memory.remember(team.id,String(output||'Work completed.').slice(0,12000),`Thread: ${doc.title}\nRequest: ${prompt}\nExecution: ${run.id}`.slice(0,6000),run.id);void this.memory.flush(team.id).catch(()=>{});}catch{/* Recording memory must not change a completed run to failed. */}}
       }catch(e){try{this.store.mutate(id,randomUUID(),doc=>{const r=doc.runs.find(r=>r.id===run.id);
         // words already on screen stay as the reply, like a stopped answer anywhere else
-        if(r.partial?.trim())doc.messages.push({id:randomUUID(),authorId:'bees',kind:'assistant',text:r.partial,createdAt:new Date().toISOString()});delete r.partial;r.status=abort.signal.aborted?'cancelled':'failed';r.error=abort.signal.aborted?'Stopped before it finished.':e.message;});}catch(write){console.error(`Bees Client could not record the end of run ${run.id}: ${write.message}`);}}finally{this.jobs.delete(id);this.options.notify?.();}})();
+        if(r.partial?.trim()){const messageId=randomUUID();doc.messages.push({id:messageId,authorId:'bees',kind:'assistant',text:r.partial,createdAt:new Date().toISOString()});recordChatReply(this.store,id,run.id,messageId);}delete r.partial;r.status=abort.signal.aborted?'cancelled':'failed';r.error=abort.signal.aborted?'Stopped before it finished.':e.message;});}catch(write){console.error(`Bees Client could not record the end of run ${run.id}: ${write.message}`);}}finally{this.jobs.delete(id);this.options.notify?.();}})();
       this.finishing.add(finished);void finished.finally(()=>this.finishing.delete(finished));
     } else if(input.action==='stop'){this.jobs.get(id)?.abort();result=this.store.document(id);}
     else throw threadError('Unknown thread command');

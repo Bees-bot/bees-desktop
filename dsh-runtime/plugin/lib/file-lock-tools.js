@@ -133,7 +133,8 @@ export function mountFileLocks(ctx, owner, locks, fs = ctx.fs, sandboxPolicy = c
     if (exec.agent !== owner) return next();
     const held = locks.owners.get(owner);
     // A waiting tool keeps the agent running, so idle cleanup cannot break a parent/peer deadlock.
-    if (held && ["bees_delegate_work", "bees_revise_work", "bees_resolve_failed_work", "bees_wait_for_peers",
+    if (held && ["bees_delegate_agent", "subagent", "subagent_fork", "send_message", "wait_agent", "spawn_teammate",
+      "bees_delegate_work", "bees_revise_work", "bees_resolve_failed_work", "bees_wait_for_peers",
       "ask_user_question", "bees_ask_team", "bees_request_work_review", "bees_publish_outputs",
       "bees_submit_stage_result"].includes(exec.name))
       throw new Error(`Finish your file work and call bees_release_file_locks with ${JSON.stringify({ token: held.token })} before ${exec.name}. Holding file locks while delegating or waiting can block the agents you are waiting for.`);
