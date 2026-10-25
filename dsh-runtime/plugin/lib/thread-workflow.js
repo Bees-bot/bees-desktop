@@ -25,6 +25,31 @@ export const WORKFLOW_TEMPLATES = [
     { name: 'Build', kind: 'work', instructions: 'Build outputs/plan.md one phase at a time, with the code under outputs/. After each phase, ask the person to follow that phase\'s test steps, including how to open the app, and to say which steps failed. Fix what they report and ask again until the phase passes, then start the next phase.' },
     { name: 'Review', kind: 'review', instructions: 'Check that every phase in outputs/plan.md was built and that the person confirmed its test steps passed. Name any phase that was skipped or still fails.' },
   ] },
+  { id: 'news-summary', name: 'News summary', workflow: [
+    { name: 'Pick topics', kind: 'work', instructions: 'If the request does not name the topics, ask the person which ones they want, with these options: science, technology, business, finance, politics, sports, entertainment. Write the chosen topics to outputs/topics.md.' },
+    { name: 'Read the news', kind: 'work', instructions: 'Read outputs/topics.md. For each topic, read today\'s news from at least three different news sources. Note each story with its source name and link in outputs/sources.md.' },
+    { name: 'Summarize news', kind: 'work', instructions: 'Read outputs/sources.md. Write a short summary for each topic to outputs/news-summary.md, a few bullets per topic with a link to each story. Reply with the top story of each topic. The person can put this thread on a schedule in its settings to get the summary every day.' },
+  ] },
+  { id: 'sales-meeting-prep', name: 'Sales meeting prep', workflow: [
+    { name: 'Find meetings', kind: 'work', instructions: 'Find the person\'s upcoming sales meetings. Use a connected calendar add-on if there is one, otherwise ask the person to paste the meetings. Write each meeting\'s time, company and attendees to outputs/meetings.md.' },
+    { name: 'Research accounts', kind: 'work', instructions: 'Read outputs/meetings.md. For each company, research the company, its attendees, its main competitors and what those competitors are doing lately. Write the findings with links to outputs/research.md.' },
+    { name: 'Talking points', kind: 'work', instructions: 'Read outputs/meetings.md and outputs/research.md. For each meeting, explain why the company needs Bees to stay competitive, then list talking points ranked by how likely each is to make the sale, with a one-line reason each. Write it to outputs/meeting-prep.md and reply with the top three points per meeting.' },
+  ] },
+  { id: 'email-replies', name: 'Email replies with approval', workflow: [
+    { name: 'Find emails', kind: 'work', instructions: 'Find emails that need a reply. Use a connected mail add-on if there is one, otherwise ask the person to paste them. For each one, read the earlier conversation with the same sender. List each email with its sender, subject and what it asks for in outputs/emails.md. Do not send anything.' },
+    { name: 'Draft replies', kind: 'work', instructions: 'Read outputs/emails.md and draft a reply to each email in outputs/drafts.md. Show the person each draft and ask them to approve it, change it or skip it, and revise until they approve or skip. Do not send anything. End with a list of the approved drafts.' },
+    { name: 'Approve sending', kind: 'approval' },
+    { name: 'Send replies', kind: 'work', instructions: 'Read outputs/drafts.md and send only the drafts the person approved, through the connected mail add-on. Never send a draft they changed their mind on or skipped. If no mail add-on is connected, give the person the approved drafts to send themselves. Write what was sent to outputs/sent.md.' },
+  ] },
+  { id: 'ceo-daily-brief', name: 'CEO daily brief', workflow: [
+    { name: 'Collect numbers', kind: 'work', instructions: 'Pull the latest numbers from the sources the person names, such as a sheet, a dashboard or a connected add-on. If no sources are named, ask the person which ones to use and which numbers matter. Add today\'s numbers with the date to the running table in outputs/daily-numbers.md, and keep earlier days.' },
+    { name: 'Write brief', kind: 'work', instructions: 'Read outputs/daily-numbers.md and compare today with earlier days. Write a short brief to outputs/daily-brief.md: what changed, what looks off, and what needs the person\'s attention. Reply with the brief in five bullets or fewer. The person can put this thread on a schedule in its settings to get the brief every day.' },
+  ] },
+  { id: 'founder-thinking-partner', name: 'Founder thinking partner', workflow: [
+    { name: 'Understand the company', kind: 'work', instructions: 'Learn what the company does, its customers, its numbers and the founder\'s goals from the request and the shared files. Ask the person at most 5 short questions for what is missing. Write a short company summary to outputs/company.md.' },
+    { name: 'Generate ideas', kind: 'work', instructions: 'Read outputs/company.md. Answer four questions: what is the founder not thinking of, how could the company grow 10x, how can the founder improve themself, and which new processes or markets to try. Rank the ideas under each question by impact, each with a short reason and a first step. Write them to outputs/ideas.md.' },
+    { name: 'Challenge ideas', kind: 'review', instructions: 'Read outputs/company.md and outputs/ideas.md. Name any idea that is vague, does not fit the company, or is ranked too high, and say why.' },
+  ] },
 ];
 
 export const workflowTemplate = (workflow = DEFAULT_WORKFLOW) => WORKFLOW_TEMPLATES.find(template => workflow.length === template.workflow.length
