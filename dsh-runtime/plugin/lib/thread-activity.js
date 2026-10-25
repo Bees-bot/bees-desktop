@@ -25,7 +25,8 @@ export function threadAgentSnapshot(session, status = 'idle', model, fromSeq = 0
   return { status: state, model: events.findLast(event => event.type === 'request/context')?.data.model ?? descriptor?.agentModel ?? model,
     tools,
     title: descriptor?.label,
-    task: (events.find(event => event.type === 'user/message')?.data.content.find(block => block.type === 'text')?.text ?? '').slice(0, 8000),
+    // an approval switch injects a notice ahead of a helper's real task
+    task: (events.find(event => event.type === 'user/message' && event.data.source?.kind !== 'user-approval')?.data.content.find(block => block.type === 'text')?.text ?? '').slice(0, 8000),
     summary: messageText(events.findLast(event => event.type === 'assistant/message')?.data.message).slice(0, 8000),
     ...(session.header?.createdAt !== undefined ? { createdAt: new Date(session.header.createdAt).toISOString() } : {}),
     completedAt: end && !['running', 'idle', 'uncertain'].includes(state) ? new Date(end.time).toISOString() : undefined };
