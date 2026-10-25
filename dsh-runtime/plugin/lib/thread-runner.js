@@ -189,7 +189,7 @@ export class ThreadRunner {
       const abort=()=>{for(const agent of configured)if(this.ctx.agents.get(agent.id)===agent)agent.cancel({kind:'user'});};signal.addEventListener('abort',abort,{once:true});
       try{
         signal.throwIfAborted();
-        handle.agent.followup(createUserMessage({source:{kind:'user'},content:[{type:'text',text:[run.prompt,stage.kind==='chat'?'Continue the conversation with a reply to the latest user message.':'Current workflow stage: '+stage.name+'. Complete this stage of the requested outcome.',summary?'Previous stage result:\n'+summary:'',
+        handle.agent.followup(createUserMessage({source:{kind:'user'},content:[{type:'text',text:[run.prompt,stage.kind==='chat'?'Continue the conversation with a reply to the latest user message.':'Current workflow stage: '+stage.name+'. Complete this stage of the requested outcome.',stage.instructions,summary?'Previous stage result:\n'+summary:'',
           stage.kind==='review'?'Recorded execution evidence:\n'+JSON.stringify(store.document(thread.id).runs.find(r=>r.id===run.id).agents??[]):'',
           team?'Team: '+team.title:'','Thread context:\n'+(chat?chatMessages(thread,continuation,run.prompt):thread.messages.slice(-40)).map(m=>`${m.authorId}: ${m.text}`).join('\n'),
           'Thread memory:\n'+(thread.memory??[]).join('\n')].filter(Boolean).join('\n\n')}]}));
