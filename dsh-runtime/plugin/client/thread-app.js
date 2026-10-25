@@ -47,7 +47,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const [layoutToolbar,setLayoutToolbar]=useState(null);
   const [organizationId,setOrganizationId]=useState(undefined);
   const organizations=data?.organizations??[];
-  const [newTemplate,setNewTemplate]=useState('goals');
+  const [newTemplate,setNewTemplate]=useState('goals'),[composing,setComposing]=useState(false);
   const [teamId,setTeamId]=useState(null),[team,setTeam]=useState(null),[collapsed,setCollapsed]=useState({}),[teamSection,setTeamSection]=useState('general');
   const [dialog,setDialog]=useState(null), [settingsSection,setSettingsSection]=useState('ai'), [threadSection,setThreadSection]=useState('general');
   const [error,setError]=useState(''), [notice,setNotice]=useState(''), [busy,setBusy]=useState(false), [preview,setPreview]=useState(null);
@@ -67,7 +67,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const readTeam=async id=>{const epoch=profileEpoch.current;const value=await command('read',id);if(epoch===profileEpoch.current&&teamRef.current===id)setTeam(value);return value;};
   const perform=async fn=>{setBusy(true);setError('');setNotice('');try{return await fn();}catch(e){setError(e.message);}finally{setBusy(false);}};
   const act=(action,values={})=>perform(async()=>{const id=selected;const result=await command(action,id,values);await refresh();if(id)await read(id);return result;});
-  const select=id=>{if(id!==selected){setThread(null);setError(e=>e===offline?e:'');}const row=data?.threads.find(t=>t.id===id)??data?.directory?.threads.find(t=>t.id===id);const parent=row?.teamId??row?.team_id;if(parent&&allTeams.some(t=>t.id===parent))setTeamId(parent);selectedRef.current=id;setSelected(id);setNewTemplate('goals');setSuggestion(null);setNavigation({id:'conversation'});setDialog(null);setInviteLink('');setNotice('');};
+  const select=id=>{if(id!==selected){setThread(null);setError(e=>e===offline?e:'');}const row=data?.threads.find(t=>t.id===id)??data?.directory?.threads.find(t=>t.id===id);const parent=row?.teamId??row?.team_id;if(parent&&allTeams.some(t=>t.id===parent))setTeamId(parent);selectedRef.current=id;setSelected(id);setComposing(false);setNewTemplate('goals');setSuggestion(null);setNavigation({id:'conversation'});setDialog(null);setInviteLink('');setNotice('');};
   const navigate=next=>{setNavigation({id:next});setDialog(null);};
   const closeDialog=()=>{const returnTo=loginReturn.current;loginReturn.current=null;setDialog(returnTo?'team':null);setError('');setNotice('');};
   const openSettings=(section,id=selected)=>{if(id!==selected)select(id);setThreadSection(section);setInviteLink('');setNotice('');setDialog('thread');};
@@ -112,7 +112,8 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   });
   const clearAccount=()=>{profileEpoch.current++;select(null);setOrganizationId(undefined);setTeamId(null);setTeam(null);setCollapsed({});setThread(null);setPreview(null);setSuggestion(null);setData(null);};
   // the thread is saved on its first message, so an unused New Goal or New Chat leaves nothing behind
-  const create=(templateId='goals',id=currentTeamId)=>{select(null);setTeamId(id);setNewTemplate(templateId);setCollapsed(values=>({...values,[id]:false}));requestAnimationFrame(()=>document.querySelector('.bc-composer textarea')?.focus());};
+  // composing keeps the empty thread on screen on a phone, where the list and the thread take turns
+  const create=(templateId='goals',id=currentTeamId)=>{select(null);setComposing(true);setTeamId(id);setNewTemplate(templateId);setCollapsed(values=>({...values,[id]:false}));requestAnimationFrame(()=>document.querySelector('.bc-composer textarea')?.focus());};
   const deleteThread=t=>perform(async()=>{if(!await confirmAction(`Delete “${t.title}”? Its messages, runs and files are removed for everyone in it. This can’t be undone.`,'Delete'))return;await command('delete',t.id);if(selectedRef.current===t.id)select(null);await refresh();});
   const chooseTeam=id=>perform(async()=>{select(null);setTeamId(id);setTeam(null);setCollapsed(values=>({...values,[id]:false}));await command('preferences',null,{values:{selectedTeamId:id,hiddenTeamIds:hiddenTeamIds.filter(hidden=>hidden!==id)}});await refresh();});
   const hideTeam=id=>perform(async()=>{if(threads.some(t=>t.id===selected&&threadTeamId(t)===id)||currentTeamId===id){select(null);setTeamId(null);setTeam(null);}await command('preferences',null,{values:{hiddenTeamIds:[...new Set([...hiddenTeamIds,id])]}});await refresh();});
@@ -251,7 +252,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
       onLocal:()=>void perform(async()=>{await command('completeOnboarding',null,{mode:'local'});clearAccount();await refresh();openGlobal('ai');})}),
     notice?h('p',{role:'status'},notice):null,
     dialog==='login'?h(Dialog,{title:'Sign in',onClose:closeDialog},h(Login,{server:data.serverUrl,request:(action,values)=>command(action,null,values),onComplete:async()=>{await refresh();closeDialog();}})):null);
-  return h('div',{className:'bc-app '+(selected||settingsOpen?'has-thread':''),'data-bees-theme':theme.id,style:themeStyle(theme)},
+  return h('div',{className:'bc-app '+(selected||composing||settingsOpen?'has-thread':''),'data-bees-theme':theme.id,style:themeStyle(theme)},
     h(BeesNavigation,{brandMark,icon,organizations,accounts:data?.accounts??[],user:data?.user,localActive:data?.localActive,organizationId:selectedOrganizationId,theme,busy:busy||!data,
       onOrganization:chooseOrganization,onCreateOrganization:createOrganization,onGlobal:openGlobal,
       onTheme:()=>{const next=nextThemePreset(preference);void saveAppearance({themePreset:next.id,colorMode:next.dark?'dark':'light'});},onAccount:()=>openGlobal('account')}),

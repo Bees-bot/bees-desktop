@@ -51,6 +51,18 @@ npm run check:headless
 
 Account profiles separate threads, certificates and device credentials. First startup offers a Bees organization with $0.01 of provider-cost starter credit (once per Bees user id, with no starter token quota), or a local organization using your own AI. Local mode needs no account. User-configured AI connections remain machine-scoped. Bees Credits is account-scoped and uses one personal balance across organizations, desktop, and web. Credits are metered through the Server using its LLM_MODEL, LLM_BASE_URL, LLM_REASONING_EFFORT, and private LLM_API_KEY; provider credentials are never sent to a Client. Existing explicit model choices are preserved, and operator changes to the credit model refresh within 30 seconds. Root and child agents keep account-scoped billing credentials isolated. Hosted users get separate containers and persistent volumes.
 
+## Open headless Bees from your other devices
+
+Headless Bees works behind `tailscale serve`, so your phone or another laptop on your tailnet can use it while Bees itself still listens only on 127.0.0.1. Add the machine's tailnet name to the config, start Bees, then serve its port:
+
+```sh
+echo '{"stateDir":"/srv/bees","port":8080,"trustedHosts":["mymac.tailnet-name.ts.net"]}' > bees.json
+BEES_DSH_TOKEN=<random 32+ characters> node dsh-runtime/headless.mjs bees.json
+tailscale serve --bg 8080
+```
+
+Open `https://mymac.tailnet-name.ts.net/bees-auth?token=<that token>` once on each device. That link gives the whole agent, shell included, so keep it private, never use `tailscale funnel`, and limit the port to your own devices in your tailnet access rules.
+
 ## Hosted Clients
 
 Build the Client image with `docker build -f deploy/headless/Dockerfile -t bees-client:main-3 .`. Run `npm run build:hosted` for browser assets. On a dedicated Docker host, run `node dsh-runtime/hosted-clients.mjs` behind HTTPS using the environment template and service in `deploy/hosted`.
