@@ -19,17 +19,21 @@ export function launchConfig(config, env = process.env) {
   const [major, minor] = process.versions.node.split(".").map(Number);
   if (major !== 24 || minor < 7) throw new Error("Bees requires Node 24.7 or newer 24.x");
   if (!config || typeof config !== "object" || Array.isArray(config)) throw new Error("Expected a JSON configuration object");
-  const keys = ["stateDir", "host", "port"];
+  const keys = ["stateDir", "host", "port", "trustedHosts"];
   if (Object.keys(config).some((key) => !keys.includes(key))) throw new Error(`Supported configuration: ${keys.join(", ")}`);
   if (typeof config.stateDir !== "string" || !isAbsolute(config.stateDir) || resolve(config.stateDir) === dirname(resolve(config.stateDir)))
     throw new Error("stateDir must be an absolute, dedicated directory, not a filesystem root");
   const host = config.host ?? "127.0.0.1", port = config.port ?? 8080;
   if (!["127.0.0.1", "0.0.0.0"].includes(host)) throw new Error("host must be 127.0.0.1 or 0.0.0.0");
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("port must be an integer from 1 to 65535");
+  // names a proxy such as tailscale serve forwards as the Host, e.g. mymac.tailnet-name.ts.net
+  const trustedHosts = config.trustedHosts ?? [];
+  if (!Array.isArray(trustedHosts) || trustedHosts.length > 16 || !trustedHosts.every((name) => typeof name === "string" && /^[a-z0-9.-]{1,253}(:\d{1,5})?$/i.test(name)))
+    throw new Error("trustedHosts must be a list of host names, like mymac.tailnet-name.ts.net");
   const token = env.BEES_DSH_TOKEN;
   if (typeof token !== "string" || token.length < 32 || /[\s\x00-\x1f\x7f]/.test(token))
     throw new Error("Set BEES_DSH_TOKEN to a random token of at least 32 characters, without whitespace");
-  return { stateDir: resolve(config.stateDir), host, port, token };
+  return { stateDir: resolve(config.stateDir), host, port, trustedHosts, token };
 }
 
 async function createOnce(path, content) {
@@ -108,7 +112,8 @@ export async function launch(config, signal, runtimeEnvironment = {}) {
       stopped.throwIfAborted();
       if (proxy) await new Promise((resolve, reject) => proxy.once('error', reject).listen(config.port, config.host, resolve));
       start(process.execPath, ["--max-http-header-size=65536", join(runtime, "start.mjs"),
-        "--profile", "bees", "--host", '127.0.0.1', "--port", String(runtimePort), "--no-open"], {
+        "--profile", "bees", "--host", '127.0.0.1', "--port", String(runtimePort), "--no-open",
+        ...config.trustedHosts.flatMap((name) => ["--trusted-host", name])], {
         cwd: workspace,
         env: { ...process.env, ...runtimeEnvironment, BEES_HOST_HOME: process.env.BEES_HOST_HOME || homedir(), HOME: config.stateDir, USERPROFILE: config.stateDir,
           BEES_HEADLESS: "1", BEES_FLEET_JOB: "client", DSH_HOME: home, DSH_TELEMETRY_DISABLED: "1",
