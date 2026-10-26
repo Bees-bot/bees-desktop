@@ -20,6 +20,7 @@ const CLAUDE_PATH_REF = "BEES_CLAUDE_CODE_PATH";
 const CLAUDE_ENABLED_REF = "BEES_CLAUDE_CODE_ENABLED";
 const CLAUDE_MODELS_REF = "BEES_CLAUDE_CODE_MODELS";
 const DEFAULT_CLAUDE_MODELS = ["default", "sonnet", "opus", "haiku"];
+const CLAUDE_SIGNED_OUT = "Claude Code is not signed in. Open Terminal, run claude, sign in, then try again.";
 export const Config = z.object({
   models: z.array(z.string()).default(DEFAULT_CLAUDE_MODELS).volatile(),
   codexExcludedModels: z.array(z.string()).default([]).volatile()
@@ -245,11 +246,14 @@ function claudeInput(options) {
   return `${JSON.stringify({ type: "user", message: { role: "user", content } })}\n`;
 }
 
+// headless points HOME at its state folder, but claude keeps its sign-in under the real one
+const userHome = process.env.BEES_HOST_HOME || homedir();
+
 function safeEnvironment() {
   const secret = /(?:^|_)(?:API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS?)(?:_|$)/i;
-  return Object.fromEntries(Object.entries(process.env).filter(([key, value]) =>
+  return { ...Object.fromEntries(Object.entries(process.env).filter(([key, value]) =>
     value !== undefined && !key.startsWith("BEES_") && !secret.test(key) &&
-    !["NODE_OPTIONS", "BASH_ENV", "ENV"].includes(key)));
+    !["NODE_OPTIONS", "BASH_ENV", "ENV"].includes(key))), HOME: userHome, USERPROFILE: userHome };
 }
 
 function structuredOutput(parsed) {
@@ -289,7 +293,7 @@ function runClaude(command, model, effort, input, signal, schema, system, onText
       stdio: ["pipe", "pipe", "pipe"]
     });
     const decoder = new StringDecoder("utf8");
-    let pending = "", bytes = 0, early = null, final = null;
+    let pending = "", bytes = 0, early = null, final = null, signedOut = false;
     let stderr = "";
     let overflow = false;
     let timedOut = false;
@@ -317,6 +321,8 @@ function runClaude(command, model, effort, input, signal, schema, system, onText
       // live pieces repeat what the final message holds, so they don't count toward the output limit
       if (event.type === "stream_event") { bytes -= Buffer.byteLength(line) + 1; return partial(event.event); }
       if (event.type === "result") final = event;
+      // every sign-in failure (no login, expired, revoked) carries this tag; its wording changes between versions
+      if (event.error === "authentication_failed") signedOut = true;
       const block = event.type === "assistant" && event.message?.content?.find?.((part) => part.type === "tool_use");
       // a dsh tool called by its own name gets "No such tool available" from the cli, and the model then reports every tool as down
       const structured = block?.name === "StructuredOutput" ? typeof block.input?.tool === "string" && block.input
@@ -345,6 +351,7 @@ function runClaude(command, model, effort, input, signal, schema, system, onText
       if (overflow) return reject(new LlmError("Claude Code returned too much output", "OUTPUT_LIMIT"));
       if (timedOut) return reject(new LlmError("Claude Code timed out after 15 minutes", "CLAUDE_CODE_TIMEOUT"));
       try {
+        if (signedOut) throw new Error(CLAUDE_SIGNED_OUT);
         if (!final) throw new Error(stderr.trim() || `Claude Code exited with code ${code} without JSON output`);
         const structured = schema ? structuredOutput(final) : null;
         const said = String(final.result ?? "").trim();
@@ -480,10 +487,15 @@ async function claudeStdout(path, args) {
     const { stdout } = await execFileAsync(path, args, { env: safeEnvironment(), timeout: 5_000,
       killSignal: "SIGKILL", maxBuffer: 64 * 1024, windowsHide: true });
     return stdout.trim();
-  } catch {
+  } catch (error) {
+    // auth status exits 1 when signed out but still prints its json
+    if (error.stdout?.trim()) return error.stdout.trim();
     throw new Error("Could not run Claude Code at this path. Choose a working Claude Code executable.");
   }
 }
+
+// null when the cli can't say (missing, too old, slow to start), so only its own "no" reads as signed out
+const claudeSignedIn = (path) => claudeStdout(path, ["auth", "status"]).then((out) => JSON.parse(out).loggedIn ?? null).catch(() => null);
 
 async function claudeVersion(path) {
   const version = (await claudeStdout(path, ["--version"])).split("\n")[0];
@@ -497,7 +509,7 @@ async function findClaude(ctx) {
     configured,
     process.env.BEES_CLAUDE_CLI,
     ...String(process.env.PATH ?? "").split(delimiter).map((path) => join(path, "claude")),
-    join(homedir(), ".local", "bin", "claude"),
+    join(userHome, ".local", "bin", "claude"),
     "/usr/local/bin/claude",
     "/opt/homebrew/bin/claude"
   ].filter(Boolean);
@@ -578,10 +590,9 @@ export async function apply(ctx, config) {
         const path = (await ctx.credentials.resolve(CLAUDE_PATH_REF))?.value ?? "";
         const enabled = Boolean((await ctx.credentials.resolve(CLAUDE_ENABLED_REF))?.value);
         const models = await configuredClaudeModels(ctx, config.models.get());
-        let version = "";
-        if (path) version = await claudeVersion(path).catch(() => "Unavailable");
+        const [version, signedIn] = path ? await Promise.all([claudeVersion(path).catch(() => "Unavailable"), claudeSignedIn(path)]) : ["", null];
         return json(res, 200, { codex, codexModels: codexModels.filter(({ id }) => !config.codexExcludedModels.get().includes(id)), codexModelError: codexModelError || codexSyncError,
-          claude: { configured: Boolean(path), enabled, path, version, models } });
+          claude: { configured: Boolean(path), enabled, signedIn, path, version, models } });
       }
       if (req.method !== "POST") return json(res, 405, { error: "method not allowed" });
       const input = await requestBody(req);
@@ -635,7 +646,7 @@ export async function apply(ctx, config) {
       if (input.action === "claude_configure") {
         if (input.path != null && typeof input.path !== "string") throw new Error("Enter the full path to the Claude Code executable.");
         let path = (input.path ?? "").trim();
-        if (path.startsWith("~/") || path.startsWith("~\\")) path = join(homedir(), path.slice(2));
+        if (path.startsWith("~/") || path.startsWith("~\\")) path = join(userHome, path.slice(2));
         if (!path) path = await findClaude(ctx);
         if (!path) throw new Error("Claude Code was not found. Browse for its executable or enter its full path.");
         if (!isAbsolute(path) || !await executable(path)) throw new Error("Choose an executable file using its full path, not a folder or command.");
@@ -650,8 +661,7 @@ export async function apply(ctx, config) {
       if (input.action === "claude_test") {
         const path = (await ctx.credentials.resolve(CLAUDE_PATH_REF))?.value;
         if (!path) throw new Error("Connect Claude Code first");
-        const status = await claudeStdout(path, ["auth", "status"]).then(JSON.parse).catch(() => ({}));
-        if (!status.loggedIn) throw new Error("Claude Code is not signed in. Open Terminal, run claude, sign in, then test again.");
+        if (await claudeSignedIn(path) !== true) throw new Error(CLAUDE_SIGNED_OUT);
         return json(res, 200, { ok: true });
       }
       if (input.action === "claude_toggle") {

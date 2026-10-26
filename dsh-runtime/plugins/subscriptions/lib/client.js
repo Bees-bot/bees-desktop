@@ -161,9 +161,9 @@ window.__ModuleLoader__.load({
               status.codex ? h(Button, { className: "danger", disabled: Boolean(busy), onClick: disconnectCodex }, "Disconnect") : null)),
           h("section", { className: "bees-box bees-subscription", "data-subscription": "claude-code" },
             h("div", { className: "bees-subscription-main" }, h("h3", null, "Claude Code"),
-              h("p", { className: "bees-muted" }, claude.configured
-                ? claude.version || "Claude Code is ready"
-                : "Uses the Claude Code already installed on this computer."),
+              h("p", { className: "bees-muted" }, !claude.configured ? "Uses the Claude Code already installed on this computer."
+                : claude.signedIn === false ? "Not signed in. Open Terminal, run claude and sign in."
+                  : claude.version || "Claude Code is ready"),
               claude.configured ? h("div", { className: "bees-subscription-models", style: { display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center", marginTop: "8px" } },
                 ...claude.models.map((id) => h("span", { className: "bees-badge", key: id, style: { display: "inline-flex", alignItems: "center", gap: "4px" } }, id,
                   h(Button, { title: `Remove ${id}`, "aria-label": `Remove ${id}`,
@@ -171,8 +171,8 @@ window.__ModuleLoader__.load({
                     onClick: () => saveClaudeModels(claude.models.filter((model) => model !== id)) }, "×"))),
                 h(Button, { disabled: Boolean(busy), onClick: addClaudeModel }, "Add model")) : null),
             h("div", { className: "bees-subscription-actions" },
-              h("span", { className: `bees-status ${claude.enabled ? "bees-running" : ""}` },
-                claude.enabled ? "Connected" : claude.configured ? "Off" : "Not configured"),
+              h("span", { className: `bees-status ${claude.enabled && claude.signedIn !== false ? "bees-running" : ""}` },
+                !claude.configured ? "Not configured" : !claude.enabled ? "Off" : claude.signedIn === false ? "Signed out" : "Connected"),
               claude.configured ? h("label", { className: "bees-sub-toggle" },
                 h("input", { type: "checkbox", role: "switch", checked: Boolean(claude.enabled),
                   disabled: Boolean(busy),
