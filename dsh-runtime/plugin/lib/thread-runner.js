@@ -86,12 +86,14 @@ export class ThreadRunner {
       }
     }
     let summary='',deliverable='';const reviews=[];
-    // return only what changed since this folder's last finished run, so a failed run's files still come back
-    const outputRoot=resolve(cwd,'outputs'),added=new Set(),returnedKey='returned:'+run.workspaceRunId,returned=new Map(Object.entries(store.preference(returnedKey)??{}));
+    // skip a file the thread already holds unchanged, so a follow-up returns only what changed and a failed run's files still come back
+    const outputRoot=resolve(cwd,'outputs'),added=new Set(),returned=new Map(store.document(thread.id).artifacts.flatMap(a=>a.path?.startsWith('results/')?[[a.path.split('/').slice(2).join('/'),a.digest]]:[]));
     const collect=directory=>{for(const entry of readdirSync(directory,{withFileTypes:true})){
       const path=join(directory,entry.name),stat=lstatSync(path);if(stat.isSymbolicLink())continue;
       // a built app's installed packages and build cache are not results, and one 150 MB cache file failed a finished run
       if(entry.isDirectory()){if(!['node_modules','.next','.git'].includes(entry.name))collect(path);continue;}if(!entry.isFile())continue;
+      // a built app's .env holds its keys, which must not become thread files
+      if(/^\.env($|\.)/.test(entry.name)&&!/\.(example|sample|template)$/.test(entry.name))continue;
       if(!resolve(path).startsWith(outputRoot+sep))throw threadError('Output escaped this run');
       if(stat.size>10_000_000)continue;
       const bytes=readFileSync(path),digest=createHash('sha256').update(bytes).digest('hex');
@@ -206,7 +208,7 @@ export class ThreadRunner {
         store.mutate(thread.id,randomUUID(),d=>{const r=d.runs.find(r=>r.id===run.id);delete r.partial;r.stages??=[];r.stages.push({index,name:stage.name,summary,completedAt:new Date().toISOString(),tools:events.filter(e=>e.type==='tool/call').map(e=>({id:e.data.callId,name:e.data.name}))});});
       }finally{signal.removeEventListener('abort',abort);await handle.dispose();}
     }
-    collect(outputRoot);store.preference(returnedKey,Object.fromEntries(returned));}catch(e){
+    collect(outputRoot);}catch(e){
       // Remove provisional approval files if the run fails.
       if(added.size)try{store.mutate(thread.id,randomUUID(),d=>{d.artifacts=d.artifacts.filter(a=>!added.has(a.id));});}catch{}throw e;}
     return deliverable?[deliverable,...reviews].join('\n\n'):summary;
