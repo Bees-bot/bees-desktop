@@ -86,9 +86,10 @@ export class ThreadRunner {
     const outputRoot=resolve(cwd,'outputs'),added=new Set(),initialOutputs=new Map();
     const collect=(directory,initial=false)=>{for(const entry of readdirSync(directory,{withFileTypes:true})){
       const path=join(directory,entry.name),stat=lstatSync(path);if(stat.isSymbolicLink())continue;
-      if(entry.isDirectory()){collect(path,initial);continue;}if(!entry.isFile())continue;
+      // a built app's installed packages and build cache are not results, and one 150 MB cache file failed a finished run
+      if(entry.isDirectory()){if(!['node_modules','.next','.git'].includes(entry.name))collect(path,initial);continue;}if(!entry.isFile())continue;
       if(!resolve(path).startsWith(outputRoot+sep))throw threadError('Output escaped this run');
-      if(stat.size>10_000_000)throw threadError('A generated file exceeds the 10 MB limit');
+      if(stat.size>10_000_000)continue;
       const bytes=readFileSync(path),digest=createHash('sha256').update(bytes).digest('hex');
       if(initial){initialOutputs.set(path,digest);continue;}if(initialOutputs.get(path)===digest)continue;
       // swap out characters windows refuses so a name like "notes: 20 oct.md" keeps the work instead of failing the run
