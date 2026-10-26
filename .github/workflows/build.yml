@@ -76,6 +76,19 @@ jobs:
       # verbose, or a failed linuxdeploy prints nothing but its name
       - run: npx tauri build --verbose --bundles ${{ matrix.bundles }}
 
+      # the bundled libwayland-client breaks EGL on newer mesa (fedora 44 aborts on start), the system one works.
+      # tauri can't pass linuxdeploy --exclude-library, so rerun the copy it cached on the app folder it left behind
+      - name: Repack the AppImage without libwayland-client
+        if: runner.os == 'Linux'
+        working-directory: src-tauri/target/release/bundle/appimage
+        env:
+          ARCH: x86_64
+          APPIMAGE_EXTRACT_AND_RUN: 1
+        run: |
+          export OUTPUT=$(echo *.AppImage)
+          rm "$OUTPUT" *.AppDir/usr/lib/libwayland-client.so.0
+          ~/.cache/tauri/linuxdeploy-x86_64.AppImage --appimage-extract-and-run --appdir *.AppDir --exclude-library 'libwayland-client.so*' --output appimage
+
       # artifacts drop symlinks and execute bits, which an app bundle needs. the release script notarizes it.
       - name: Pack the Mac app
         if: runner.os == 'macOS'

@@ -49,7 +49,6 @@ export class ThreadRunner {
     });
   }
   async execute({thread,team,run,signal,store,directory}){
-    signal.throwIfAborted();
     const workflow=run.workflow??DEFAULT_WORKFLOW;
     const chat=workflow.length===1&&workflow[0].kind==='chat',chatKey=chatSessionKey(thread.id);
     const identity=JSON.stringify([team?.id,workflow[0]?.agent?.id,workflow[0]?.agent?.presetId??'standard']);
@@ -60,12 +59,16 @@ export class ThreadRunner {
       // A moved workspace needs a fresh sandbox root; seed it from the visible conversation once.
       if(path!==continuation.cwd)continuation=null;
     }
-    if(chat){run.workspaceRunId=continuation?.workspaceRunId??run.id;store.mutate(thread.id,randomUUID(),doc=>{doc.runs.find(r=>r.id===run.id).workspaceRunId=run.workspaceRunId;});}
-    const cwd=this.folders?.runDirectory(store,thread,team,run)??join(store.root,'runs',thread.id,run.workspaceRunId??run.id);
+    // every run keeps working in the thread's last folder, recorded before a stop so the next run still finds it
+    const previous=thread.runs.findLast(r=>r.id!==run.id);
+    run.workspaceRunId=continuation?.workspaceRunId??previous?.workspaceRunId??previous?.id??run.id;
+    if(run.workspaceRunId!==run.id)store.mutate(thread.id,randomUUID(),doc=>{doc.runs.find(r=>r.id===run.id).workspaceRunId=run.workspaceRunId;});
+    signal.throwIfAborted();
+    const cwd=this.folders?.runDirectory(store,thread,team,run)??join(store.root,'runs',thread.id,run.workspaceRunId);
     for(const name of ['inputs','team-inputs','outputs']){
       const path=join(cwd,name);
       if(existsSync(path)&&lstatSync(path).isSymbolicLink())throw threadError('Run folders cannot contain symbolic links');
-      if(chat&&name!=='outputs')rmSync(path,{recursive:true,force:true});
+      if(name!=='outputs')rmSync(path,{recursive:true,force:true});
       mkdirSync(path,{recursive:true,mode:0o700});
     }
     store.preference('executionFolder:' + run.id, cwd);
@@ -83,23 +86,25 @@ export class ThreadRunner {
       }
     }
     let summary='',deliverable='';const reviews=[];
-    const outputRoot=resolve(cwd,'outputs'),added=new Set(),initialOutputs=new Map();
-    const collect=(directory,initial=false)=>{for(const entry of readdirSync(directory,{withFileTypes:true})){
+    // skip a file the thread already holds unchanged, so a follow-up returns only what changed and a failed run's files still come back
+    const outputRoot=resolve(cwd,'outputs'),added=new Set(),returned=new Map(store.document(thread.id).artifacts.flatMap(a=>a.path?.startsWith('results/')?[[a.path.split('/').slice(2).join('/'),a.digest]]:[]));
+    const collect=directory=>{for(const entry of readdirSync(directory,{withFileTypes:true})){
       const path=join(directory,entry.name),stat=lstatSync(path);if(stat.isSymbolicLink())continue;
-      if(entry.isDirectory()){collect(path,initial);continue;}if(!entry.isFile())continue;
+      // a built app's installed packages and build cache are not results, and one 150 MB cache file failed a finished run
+      if(entry.isDirectory()){if(!['node_modules','.next','.git'].includes(entry.name))collect(path);continue;}if(!entry.isFile())continue;
+      // a built app's .env holds its keys, which must not become thread files
+      if(/^\.env($|\.)/.test(entry.name)&&!/\.(example|sample|template)$/.test(entry.name))continue;
       if(!resolve(path).startsWith(outputRoot+sep))throw threadError('Output escaped this run');
-      if(stat.size>10_000_000)throw threadError('A generated file exceeds the 10 MB limit');
+      if(stat.size>10_000_000)continue;
       const bytes=readFileSync(path),digest=createHash('sha256').update(bytes).digest('hex');
-      if(initial){initialOutputs.set(path,digest);continue;}if(initialOutputs.get(path)===digest)continue;
       // swap out characters windows refuses so a name like "notes: 20 oct.md" keeps the work instead of failing the run
       const parts=relative(outputRoot,path).split(sep).map(part=>{part=part.replace(/[\x00-\x1f\\:*?"<>|]/g,'-').replace(/[. ]+$/,'')||'_';return /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part)?'_'+part:part;});
-      const artifactPath='results/'+run.id+'/'+parts.join('/');
+      const file=parts.join('/');if(returned.get(file)===digest)continue;returned.set(file,digest);
+      const artifactPath='results/'+run.id+'/'+file;
       const prior=store.document(thread.id).artifacts.find(a=>a.path===artifactPath);
-      if(prior?.digest===digest)continue;
       if(prior){const hash=store.putObject(bytes);store.mutate(thread.id,randomUUID(),d=>{Object.assign(d.artifacts.find(a=>a.id===prior.id),{digest:hash,size:bytes.length});});}
       else{const id=randomUUID();store.attach(thread.id,id,parts.at(-1),bytes,'bees',artifactPath);added.add(id);}
     }};
-    if(chat)collect(outputRoot,true);
     const modelFor=async(agent,fallback)=>{
       const selection=agent?.model||fallback;
       let model=await resolveThreadModel(typeof selection==='string'?{provider:selection.slice(0,selection.indexOf('/')),model:selection.slice(selection.indexOf('/')+1)}:selection,this.ctx.llm);

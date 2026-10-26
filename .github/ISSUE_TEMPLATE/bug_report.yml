@@ -31,6 +31,6 @@ body:
     id: log
     attributes:
       label: Log lines
-      description: The app writes runtime.log and startup.log to a dsh-state folder inside its data folder (Settings → Removing Bees names that folder). Paste the lines around the failure and remove any keys, tokens or personal file paths first.
+      description: The app writes runtime.log and startup.log to a dsh-state folder inside its data folder (~/Library/Application Support/bot.bees.desktop on a Mac, %APPDATA%\bot.bees.desktop on Windows, ~/.local/share/bot.bees.desktop on Linux). Paste the lines around the failure and remove any keys, tokens or personal file paths first.
     validations:
       required: false

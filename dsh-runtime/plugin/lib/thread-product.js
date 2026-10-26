@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { timingSafeEqual } from 'node:crypto';
+import { get } from 'node:http';
 import { homedir, tmpdir } from 'node:os';
 import { ClientProfiles } from './client-profiles.js';
 import { ThreadRunner } from './thread-runner.js';
@@ -22,7 +23,8 @@ export async function applyThreadProduct(ctx,config){
   globalThis.__beesReadFence=workspaceRoot=>({closed:[homedir(),process.env.BEES_HOST_HOME,root,process.env.DSH_HOME,...(folders?.closedRoots()??[])].filter(Boolean),open:[workspaceRoot,tmpdir(),process.env.BEES_RUNTIME_ROOT].filter(Boolean)});
   ctx.effect(()=>ctx.settings.configure({auto:false},ctx.fiber),'Bees Client settings');
   // Install authentication before asynchronous profile startup.
-  const allowed=req=>(!req.headers.origin||req.headers.origin===`http://${req.headers.host}`)&&equal(tokenOf(req),token);
+  // tailscale serve and other https proxies keep the Host but the page origin is https
+  const allowed=req=>(!req.headers.origin||[`http://${req.headers.host}`,`https://${req.headers.host}`].includes(req.headers.origin))&&equal(tokenOf(req),token);
   const guard=req=>{const path=new URL(req.url??'/','http://client').pathname;if(!['/bees-auth','/healthz'].includes(path)&&!allowed(req))req.url='/_bees_unauthorized';};
   const guardUpgrade=(req,socket)=>{if(!allowed(req))socket.destroy();};
   ctx.webServer.server.prependListener('request',guard);ctx.webServer.server.prependListener('upgrade',guardUpgrade);
@@ -47,9 +49,10 @@ export async function applyThreadProduct(ctx,config){
   register('/bees-api/active-runs',(_req,res)=>{const count=[...profiles.clients.values()].reduce((n,c)=>n+c.jobs.size,0);reply(res,200,count);});
   register('/bees-auth',async(req,res)=>{
     const offered=new URL(req.url,'http://client').searchParams.get('token');if(!equal(offered,token))return reply(res,401,{error:'Unauthorized'});
-    const base=`http://127.0.0.1:${req.socket.localPort}`;const url=ctx.connection.authenticatedUrl(base);
-    const response=await fetch(url,{headers:{authorization:`Bearer ${token}`},redirect:'manual',signal:AbortSignal.timeout(5000)});
-    res.writeHead(302,{location:response.headers.get('location')??base+'/', 'set-cookie':[`bees_dsh=${token}; HttpOnly; SameSite=Lax; Path=/`,...response.headers.getSetCookie()]});res.end();
+    // DSH names its cookie after the Host, so ask with the browser's Host; fetch would send 127.0.0.1
+    const response=await new Promise((done,fail)=>get(ctx.connection.authenticatedUrl(`http://127.0.0.1:${req.socket.localPort}/`),{headers:{host:req.headers.host??'',authorization:`Bearer ${token}`},timeout:5000},done).on('error',fail).on('timeout',function(){this.destroy(Error('Bees sign-in timed out'));}));response.resume();
+    // DSH's cookie is SameSite=Strict, so a redirect started by a link on another site would land without it; a refresh from this page counts as same-site
+    res.writeHead(200,{'content-type':'text/html','set-cookie':[`bees_dsh=${token}; HttpOnly; SameSite=Lax; Path=/`,...response.headers['set-cookie']??[]]});res.end('<meta http-equiv="refresh" content="0;url=/">');
   });
   const api=handler=>async(req,res)=>{try{reply(res,200,await handler(req));}catch(e){reply(res,e.status??400,{error:e.message});}};
   register('/bees-api/threads',api(async req=>{
