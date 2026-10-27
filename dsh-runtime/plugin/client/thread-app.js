@@ -19,7 +19,9 @@ import { RootFolderSettings } from './thread-folders.js';
 import { OrganizationAppearance } from './thread-organization-appearance.js';
 import { BeesNavigation, TeamMenu, TeamSection, TeamManagement, closeHoverMenu, initials } from './thread-navigation.js';
 
-async function api(input){const response=await fetch('/bees-api/threads',{...(input?{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(input)}:{}),credentials:'same-origin'}).catch(()=>{throw Object.assign(Error(offline),{status:503});});const value=await response.json().catch(()=>({error:offline}));if(!response.ok)throw Object.assign(Error(response.status>=500?offline:typeof value.error==='string'?value.error:value.error?.message??'Could not complete this request'),{status:response.status});return value;}
+async function api(input){const response=await fetch('/bees-api/threads',{...(input?{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(input)}:{}),credentials:'same-origin'}).catch(()=>{throw Object.assign(Error(offline),{status:503});});const value=await response.json().catch(()=>({error:offline}));
+  // the gateway sends real 503s (at capacity, enrollment failed) with a message; show it instead of burying it under the generic offline text
+  if(!response.ok)throw Object.assign(Error(typeof value.error==='string'&&value.error?value.error:response.status>=500?offline:value.error?.message??'Could not complete this request'),{status:response.status});return value;}
 const offline="Bees can't be reached right now.";
 const command=(action,threadId,values={})=>api({action,threadId,operationId:crypto.randomUUID(),...values});
 const icon=(name,props={})=>h('svg',{width:20,height:20,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:1.7,strokeLinecap:'round',strokeLinejoin:'round','aria-hidden':true,...props},
