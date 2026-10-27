@@ -8,32 +8,55 @@ export const THREAD_SETTINGS = [
   ['general', 'General'], ['transfer', 'Transfer'],
 ];
 export const TEAM_SETTINGS = [
-  ['general', 'General'], ['members', 'Members'], ['invitations', 'Invitations'],
-  ['agents', 'Agents'], ['memory', 'Memory'], ['processes', 'Processes'], ['workflow', 'Workflow'], ['schedule', 'Schedules'],
+  ['general', 'General'], ['members', 'Members & Invites'], ['processes', 'Processes'],
+  ['agents', 'Agents'], ['memory', 'Memory'], ['schedule', 'Schedules'],
   ['folders', 'Files & folders'], ['addons', 'Add-ons'], ['browser', 'Browser'],
 ];
 export const GLOBAL_SETTINGS = [
   ['ai', 'AI connections'], ['credits', 'Credits & billing'], ['appearance', 'Appearance'], ['instructions', 'System instructions'],
-  ['storage', 'Root folder'], ['organizations', 'Org settings'], ['account', 'Accounts'],
+  ['storage', 'Root folder'], ['organizations', 'Organization'],
 ];
 
-export function SettingsNav({ items, selected, onSelect, label }) {
-  return h('nav', { className: 'bc-settings-nav', 'aria-label': label }, items.map(([id, title]) =>
+export function SettingsNav({ items, groups, selected, onSelect, label }) {
+  if (groups) {
+    return h('nav', { className: 'bc-settings-nav', 'aria-label': label },
+      groups.map((group, gIdx) => h('div', { key: group.title || gIdx, className: 'bc-settings-nav-group' },
+        h('div', { className: 'bc-settings-group-header' },
+          h('span', null, group.title),
+          group.extra || null
+        ),
+        group.items.map(([id, title]) =>
+          h('button', {
+            key: id,
+            type: 'button',
+            'aria-current': selected === id ? 'page' : undefined,
+            onClick: () => onSelect(id, group.scope)
+          }, title)
+        )
+      ))
+    );
+  }
+  return h('nav', { className: 'bc-settings-nav', 'aria-label': label }, (items ?? []).map(([id, title]) =>
     h('button', { key: id, type: 'button', 'aria-current': selected === id ? 'page' : undefined,
       onClick: () => onSelect(id) }, title)));
 }
 
-export function SettingsPage({title,items,selected,onSelect,onClose,children}){
+export function SettingsPage({title,items,groups,selected,onSelect,onClose,children}){
+  const hasNav = !!(groups?.length || items?.length);
   return h('section',{className:'bc-settings-page','aria-label':title},
-    h('header',{className:'bc-thread-header'},h('h2',null,title),h('button',{className:'bc-icon','aria-label':'Close settings',onClick:onClose},'×')),
-    h('div',{className:'bc-settings-layout'},h(SettingsNav,{items,selected,onSelect,label:`${title} sections`}),h('div',{className:'bc-settings-content'},children)));
+    h('header',{className:'bc-thread-header bc-settings-header'},
+      h('h2',null,title),
+      h('button',{className:'bc-icon','aria-label':'Close settings',onClick:onClose},'×')),
+    h('div',{className:`bc-settings-layout${hasNav?'':' bc-no-nav'}`},
+      hasNav?h(SettingsNav,{items,groups,selected,onSelect,label:`${title} sections`}):null,
+      h('div',{className:'bc-settings-content'},children)));
 }
 
 export function ThreadDetails({ thread, page, peerNames, userId, onSettings, onFiles }) {
   if (page === 'details') return h('section', { className: 'bc-form' },
     h('h3', null, 'Details'), h('p', null, thread.title), h('p', { className: 'bc-muted' }, 'Thread ID ', h('code', null, thread.id)),
     h('p', { className: 'bc-muted' }, `Created ${when(thread.createdAt)}`),
-    h('h3', null, processName(thread.workflow)), [...(thread.workflow ?? DEFAULT_WORKFLOW), { name: isChatWorkflow(thread.workflow)?'Your turn → Chat ↻':'Done' }].map((stage, i) =>
+    h('h3', null, `Process: ${processName(thread.workflow)}`), [...(thread.workflow ?? DEFAULT_WORKFLOW), { name: isChatWorkflow(thread.workflow)?'Your turn → Chat ↻':'Done' }].map((stage, i) =>
       h('p', { key: i }, `${i + 1}. ${stage.name}`)),
     h('button', { onClick: () => onSettings('general') }, 'Thread settings'));
   if (page === 'context') return h('section', { className: 'bc-form' },

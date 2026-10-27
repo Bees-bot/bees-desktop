@@ -77,10 +77,10 @@ test('logo is inert, menu actions have icons, and bottom controls use the reques
   assert.match(markup,/class="bc-account-count">2<\/small>/);
   assert.doesNotMatch(markup,/bc-avatar|Hidden teams/);
   const bottom=markup.slice(markup.indexOf('class="bc-rail-bottom"'));
-  const labels=['Switch to light theme','Org settings','Global settings','Account settings'];
+  const labels=['Switch to light theme','Settings','Account settings'];
   for(let i=1;i<labels.length;i++)assert(bottom.indexOf(labels[i-1])<bottom.indexOf(labels[i]),labels[i]);
   assert.match(markup,/data-icon="plus"/);
-  for(const name of ['accounts','gear','sun'])assert(icons.includes(name),name);
+  for(const name of ['accounts','settings','sun'])assert(icons.includes(name),name);
 });
 
 test('single-team thread lists stay visible without a team heading, including previously collapsed teams',()=>{

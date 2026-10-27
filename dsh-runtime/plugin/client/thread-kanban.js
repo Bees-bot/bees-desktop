@@ -79,7 +79,7 @@ export function ThreadKanban({ thread, onConversation, onWorkflow }) {
       run.status === 'running' && run.pending ? h('button', { onClick: onConversation }, 'Respond in Conversation') : null) : null,
     run?.error ? h('p', { role: 'status' }, run.error) : null,
     run?.activityError ? h('p', { role: 'status', className: 'bc-muted' }, run.activityError) : null,
-    h('div', { className: 'bc-kanban-board', role: 'region', 'aria-label': 'Workflow board', tabIndex: 0 },
+    h('div', { className: 'bc-kanban-board', role: 'region', 'aria-label': 'Process board', tabIndex: 0 },
       columns.map(stage => h('section', { key: stage.index, className: 'bc-kanban-column', 'aria-label': stage.name },
         h('header', null, h('h3', null, stage.name), h('small', null, count(stage.cards.length, 'work item'))),
         stage.cards.length ? h('ul', { className: 'bc-kanban-items', 'aria-label': `${stage.name} work items` },
