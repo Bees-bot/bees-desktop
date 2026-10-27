@@ -53,15 +53,13 @@ Account profiles separate threads, certificates and device credentials. First st
 
 ## Open headless Bees from your other devices
 
-Headless Bees works behind `tailscale serve`, so your phone or another laptop on your tailnet can use it while Bees itself still listens only on 127.0.0.1. Add the machine's tailnet name to the config, start Bees, then serve its port:
+With Tailscale running and MagicDNS plus HTTPS turned on for your tailnet, run:
 
 ```sh
-echo '{"stateDir":"/srv/bees","port":8080,"trustedHosts":["mymac.tailnet-name.ts.net"]}' > bees.json
-BEES_DSH_TOKEN=<random 32+ characters> node dsh-runtime/headless.mjs bees.json
-tailscale serve --bg 8080
+npm run start:phone
 ```
 
-Open `https://mymac.tailnet-name.ts.net/bees-auth?token=<that token>` once on each device. That link gives the whole agent, shell included, so keep it private, never use `tailscale funnel`, and limit the port to your own devices in your tailnet access rules.
+It starts headless Bees on 127.0.0.1:8090 with its state in `~/.bees-headless`, serves it to your tailnet on port 8443 with `tailscale serve`, and prints a sign-in link. Open that link once on each device. The link gives the whole agent, shell included, so keep it private and limit the port to your own devices in your tailnet access rules. It refuses to start if port 8443 is public through `tailscale funnel`. Delete `~/.bees-headless/phone-token` to sign every device out, and run `tailscale serve --https=8443 off` to stop serving.
 
 ## Hosted Clients
 
