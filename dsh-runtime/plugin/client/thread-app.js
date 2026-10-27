@@ -19,7 +19,9 @@ import { RootFolderSettings } from './thread-folders.js';
 import { OrganizationAppearance } from './thread-organization-appearance.js';
 import { BeesNavigation, TeamMenu, TeamSection, TeamManagement, closeHoverMenu, initials } from './thread-navigation.js';
 
-async function api(input){const response=await fetch('/bees-api/threads',{...(input?{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(input)}:{}),credentials:'same-origin'}).catch(()=>{throw Object.assign(Error(offline),{status:503});});const value=await response.json().catch(()=>({error:offline}));if(!response.ok)throw Object.assign(Error(response.status>=500?offline:typeof value.error==='string'?value.error:value.error?.message??'Could not complete this request'),{status:response.status});return value;}
+async function api(input){const response=await fetch('/bees-api/threads',{...(input?{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(input)}:{}),credentials:'same-origin'}).catch(()=>{throw Object.assign(Error(offline),{status:503});});const value=await response.json().catch(()=>({error:offline}));
+  // the gateway sends real 503s (at capacity, enrollment failed) with a message; show it instead of burying it under the generic offline text
+  if(!response.ok)throw Object.assign(Error(typeof value.error==='string'&&value.error?value.error:response.status>=500?offline:value.error?.message??'Could not complete this request'),{status:response.status});return value;}
 const offline="Bees can't be reached right now.";
 const command=(action,threadId,values={})=>api({action,threadId,operationId:crypto.randomUUID(),...values});
 const icon=(name,props={})=>h('svg',{width:20,height:20,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:1.7,strokeLinecap:'round',strokeLinejoin:'round','aria-hidden':true,...props},
@@ -265,7 +267,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
       h('div',{className:'bc-thread-list'},visibleTeams.map(row=>h(TeamSection,{key:row.id,team:row,grouped:teams.length>1,active:currentTeamId===row.id,expanded:!!query||!collapsed[row.id],count:teamThreads(row.id).length,
         onToggle:()=>{if(currentTeamId!==row.id)void chooseTeam(row.id);else setCollapsed(values=>({...values,[row.id]:!values[row.id]}));},
         menu:h(TeamMenu,{team:row,icon,busy,canCreate:!row.shared||roster.participants.some(p=>p.thread_id===row.id&&p.user_id===data?.user?.id&&['owner','editor'].includes(p.role)),onCreate:create,onSettings:openTeamSettings,onHide:hideTeam})},
-        teamThreads(row.id).map(renderThread),!teamThreads(row.id).length?h('p',{className:'bc-muted bc-empty-list'},query?'No matching threads.':'No threads yet.'):null)),
+        teamThreads(row.id).map(renderThread),!teamThreads(row.id).length?h('p',{className:'bc-muted bc-empty-list'},query?'No matching threads.':'No threads yet. Start one with New Chat or New Goal.'):null)),
         !visibleTeams.length?h('p',{className:'bc-muted bc-empty-list'},teams.length?'Choose a hidden team from Manage teams to show it here.':'Create a team from Manage teams to get started.'):null),
       roster.invitations?.length?h('section',{className:'bc-invitations'},h('strong',null,'Invitations'),
         roster.invitations.map(i=>h('div',{key:i.id,className:'bc-person'},h('span',null,`${i.invited_by_name??'Someone'} invited you`,h('small',null,i.role==='viewer'?'Can view':'Can contribute and run work')),
@@ -285,6 +287,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
           h('button',{'aria-label':'Thread settings',onClick:()=>openSettings('general')},icon('more')),h('button',{title:'Invite to team',onClick:()=>openTeamSettings('invitations')},icon('share'),'Share'),h('span',{className:'bc-layout-toolbar',ref:setLayoutToolbar})):null),
       error&&!modalOpen?h('div',{className:'bc-error',role:'alert'},error,h('button',{className:'bc-icon','aria-label':'Dismiss error',onClick:()=>setError('')},icon('close'))):null,
       notice&&!modalOpen?h('div',{className:'bc-notice',role:'status'},notice):null,
+      !hosted&&data&&!data.models?.length&&!data.credits?.available?h('div',{className:'bc-notice'},'Connect an AI model so Bees can reply. ',h('button',{className:'bc-primary',onClick:()=>{setSettingsSection('ai');setDialog('settings');}},'Open AI connections')):null,
       thread?.frozen?h('div',{className:'bc-notice'},'This thread is frozen for transfer. The recipient must accept, or you can cancel the offer.'):null,
       thread?.unavailable?h('div',{className:'bc-notice'},'Showing the copy saved here. ',thread.unavailable):null,
       authority?.transfer_client_id&&authority.transfer_client_id===data?.clientId?h('div',{className:'bc-notice'},'A thread transfer is waiting for you. ',h('button',{className:'bc-primary',onClick:()=>act('acceptTransfer')},'Accept transfer')):null,
