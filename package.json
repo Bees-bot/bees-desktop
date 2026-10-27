@@ -12,6 +12,7 @@
     "prepare:dsh": "node scripts/install-dsh-runtime.mjs && node scripts/stage-dsh-plugin.mjs && node scripts/prepare-dsh-runtime.mjs",
     "build": "vite build",
     "start:headless": "node dsh-runtime/headless.mjs",
+    "start:phone": "node dsh-runtime/phone.mjs",
     "check:headless": "node scripts/check-headless.mjs",
     "check:web": "npm run check && node scripts/check-headless.mjs --web",
     "check:page-fetch": "node scripts/check-page-fetch.mjs",
