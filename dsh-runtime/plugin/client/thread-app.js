@@ -22,7 +22,7 @@ import { BeesNavigation, TeamMenu, TeamSection, TeamManagement, closeHoverMenu, 
 async function api(input){const response=await fetch('/bees-api/threads',{...(input?{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(input)}:{}),credentials:'same-origin'}).catch(()=>{throw Object.assign(Error(offline),{status:503});});const value=await response.json().catch(()=>({error:offline}));if(!response.ok)throw Object.assign(Error(response.status>=500?offline:typeof value.error==='string'?value.error:value.error?.message??'Could not complete this request'),{status:response.status});return value;}
 const offline="Bees can't be reached right now.";
 const command=(action,threadId,values={})=>api({action,threadId,operationId:crypto.randomUUID(),...values});
-const gearIconPaths=()=>[h('path',{key:1,d:'m9 3 1-1h4l1 3 3 1 3 1 1 4-2 2-1 3-1 3-4 1-2-2-3-1-3-1-1-4 2-2 1-3Z'}),h('circle',{key:2,cx:12,cy:11,r:3})];
+const gearIconPaths=()=>[h('circle',{key:1,cx:12,cy:12,r:3}),h('path',{key:2,d:'M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z'})];
 const icon=(name,props={})=>h('svg',{width:20,height:20,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:1.7,strokeLinecap:'round',strokeLinejoin:'round','aria-hidden':true,...props},
   ...( {star:[h('path',{key:1,d:'m12 2 3 6 7 1-5 5 1 8-6-4-6 4 1-8-5-5 7-1Z'})],edit:[h('path',{key:1,d:'M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z'}),h('path',{key:2,d:'m15 5 4 4'})],organization:[h('path',{key:1,d:'M4 21V5h11v16M15 11h5v10M2 21h20M8 9h3M8 13h3M8 17h3M17 15h1M17 18h1'})],team:[h('circle',{key:1,cx:9,cy:7,r:3}),h('path',{key:2,d:'M3 21v-3a6 6 0 0 1 12 0v3M16 4a3 3 0 0 1 0 6M18 14a5 5 0 0 1 3 5v2'})],personal:[h('path',{key:1,d:'m3 10 9-7 9 7v11h-6v-7H9v7H3Z'})],accounts:[h('rect',{key:1,x:3,y:6,width:16,height:15,rx:3}),h('path',{key:2,d:'M7 3h12a3 3 0 0 1 3 3v11M7 18a4 4 0 0 1 8 0'}),h('circle',{key:3,cx:11,cy:12,r:2})],gear:gearIconPaths(),sun:[h('circle',{key:1,cx:12,cy:12,r:4}),h('path',{key:2,d:'M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M5 19l1.5-1.5M17.5 6.5 19 5'})],moon:[h('path',{key:1,d:'M21 13a9 9 0 0 1-10-10A9 9 0 1 0 21 13Z'})],check:[h('path',{key:1,d:'m5 12 4 4L19 6'})],hide:[h('path',{key:1,d:'m3 3 18 18M10 5l2-.2c5 0 9 7.2 9 7.2a19 19 0 0 1-3 4M6 6a22 22 0 0 0-3 6s4 7 9 7a11 11 0 0 0 5-1M10 10a3 3 0 0 0 4 4'})],process:[h('rect',{key:1,x:3,y:3,width:6,height:6,rx:1}),h('rect',{key:2,x:15,y:15,width:6,height:6,rx:1}),h('path',{key:3,d:'M9 6h6a3 3 0 0 1 3 3v6M3 18h6M6 15v6'})],goal:[h('circle',{key:1,cx:12,cy:12,r:9}),h('circle',{key:2,cx:12,cy:12,r:4})],plus:[h('path',{key:1,d:'M12 5v14M5 12h14'})],chat:[h('path',{key:1,d:'M21 11a8 8 0 0 1-8 8H6l-4 3 1-7A8 8 0 1 1 21 11Z'})],search:[h('circle',{key:1,cx:10,cy:10,r:6}),h('path',{key:2,d:'m15 15 5 5'})],file:[h('path',{key:1,d:'M14 2H5v20h14V7Z M14 2v6h5 M8 13h8 M8 17h6'})],send:[h('path',{key:1,d:'m3 3 18 9-18 9 4-9Z M7 12h14'})],share:[h('path',{key:1,d:'M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M16 4a4 4 0 0 1 0 8 M20 15v6 M17 18h6'}),h('circle',{key:2,cx:8.5,cy:7,r:4})],settings:gearIconPaths(),transfer:[h('path',{key:1,d:'M4 7h15l-4-4 M20 17H5l4 4 M19 7l-4 4 M5 17l4-4'})],more:[h('circle',{key:1,cx:5,cy:12,r:1}),h('circle',{key:2,cx:12,cy:12,r:1}),h('circle',{key:3,cx:19,cy:12,r:1})],close:[h('path',{key:1,d:'m6 6 12 12 M18 6 6 18'})]}[name]??[]));
 function Field({label,...props}){return h('label',{className:'bc-field'},h('span',null,label),h('input',props));}
@@ -200,7 +200,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     h('button',{disabled:busy,onClick:()=>setDialog('login')},data?.user?'Add account':'Sign in'),
     data?.user?h('button',{disabled:busy,onClick:()=>perform(async()=>{await command('logout');clearAccount();await refresh();setDialog(hosted?'login':'account');})},'Sign out of this account'):null);
   const threadContent=!thread?h('p',{role:'status'},'Loading thread settings…')
-    :threadSection==='transfer'?transfer:h(React.Fragment,null,manage?null:h('p',{className:'bc-muted'},'Only the person who started this thread can rename it.'),h(WorkflowSettings,{key:selected,thread,scope:'thread',section:'general',disabled:!canConfigure,busy,onSave:saveThread}));
+    :threadSection==='transfer'?transfer:h(React.Fragment,null,manage?null:h('p',{className:'bc-muted'},'Only the person who started this thread can rename it.'),h(WorkflowSettings,{key:selected,thread,scope:'thread',section:'general',disabled:!canConfigure,busy,onSave:saveThread,onDelete:()=>deleteThread(thread),canDelete:thread.ownerClientId===data?.clientId&&!thread.runs?.some(r=>r.status==='running')}));
   const teamFiles=team?h(ThreadFiles,{key:currentTeamId,thread:team,canWrite:canConfigureTeam,busy,onAttach:(files,prefix)=>attach(files,prefix,currentTeamId),onPreview:file=>setPreview({...file,url:`/bees-api/thread-file?thread=${currentTeamId}&artifact=${file.id}`}),preview,onClosePreview:()=>setPreview(null)}):null;
   const legacyRows=(data?.threads??[]).filter(t=>t.teamId===currentTeamId&&t.legacySettings&&t.ownerClientId===data?.clientId);
   const teamContent=!team?h('p',{role:'status'},'Loading team settings…')
@@ -284,7 +284,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
         h('div',{className:'bc-thread-create-buttons'},
           h('button',{'aria-label':'New Goal',title:currentTeam?`New Goal in ${currentTeam.title}`:'New Goal',disabled:busy||!canCreateInTeam,onClick:()=>create('goals')},icon('goal'),'New Goal'),
           h('button',{'aria-label':'New Chat',title:currentTeam?`New Chat in ${currentTeam.title}`:'New Chat',disabled:busy||!canCreateInTeam,onClick:()=>create('chat')},icon('chat'),'New Chat'))),
-      h('div',{className:'bc-search'},icon('search'),h('input',{'aria-label':'Search threads',placeholder:'Find a thread…',value:query,autoCorrect:'off',autoCapitalize:'off',spellCheck:false,onChange:e=>setQuery(e.target.value)}),query?h('button',{type:'button',className:'bc-search-clear','aria-label':'Clear search',title:'Clear search',onClick:()=>setQuery('')},icon('close')):null),
+      h('div',{className:'bc-search'},icon('search'),h('input',{'aria-label':'Search threads',placeholder:'Find a thread…',value:query,autoCorrect:'off',autoCapitalize:'off',spellCheck:false,onChange:e=>setQuery(e.target.value),onKeyDown:e=>{if(e.key==='Escape'){setQuery('');e.currentTarget.blur();}}}),query?h('button',{type:'button',className:'bc-search-clear','aria-label':'Clear search',title:'Clear search',onClick:()=>setQuery('')},icon('close')):null),
       h('div',{className:'bc-thread-list'},visibleTeams.map(row=>h(TeamSection,{key:row.id,team:row,grouped:teams.length>1,active:currentTeamId===row.id,expanded:!!query||!collapsed[row.id],count:teamThreads(row.id).length,
         onToggle:()=>{if(currentTeamId!==row.id)void chooseTeam(row.id);else setCollapsed(values=>({...values,[row.id]:!values[row.id]}));},
         menu:h(TeamMenu,{team:row,icon,busy,canCreate:!row.shared||roster.participants.some(p=>p.thread_id===row.id&&p.user_id===data?.user?.id&&['owner','editor'].includes(p.role)),onCreate:create,onSettings:openTeamSettings,onHide:hideTeam})},
@@ -337,8 +337,14 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
       selected?h(ThreadWorkspace,{key:data.clientId,initialLayout:data.settings?.threadLayout,toolbar:layoutToolbar,navigation,renderWidget,
         onSave:async threadLayout=>{await command('preferences',null,{values:{threadLayout}});await refresh();}})
       :h('div',{className:'bc-welcome-view'},h('section',{className:'bc-conversation'},
-        h('div',{className:'bc-welcome'},h('span',{className:'bc-welcome-mark'},'✳'),h('h2',null,'What would you like to get done?'),h('p',null,'Start with an idea. Add files and people as you go.'),
-          h('div',{className:'bc-suggestions'},['Research a topic','Make sense of my files','Prepare a weekly update'].map(s=>h('button',{key:s,disabled:!canCreateInTeam,onClick:()=>setSuggestion({text:s})},s))))),conversation(false)))),
+        h('div',{className:'bc-welcome'},h('span',{className:'bc-welcome-mark'},'✳'),
+          h('div',{className:'bc-welcome-context'},
+            icon('team'),
+            h('span',null,currentTeam?.title||'Default'),
+            h('span',{className:'bc-welcome-mode-badge'},newTemplate==='chat'?'Chat':'Goal')),
+          h('h2',null,newTemplate==='chat'?'What would you like to discuss?':'What would you like to get done?'),
+          h('p',null,`Start a ${newTemplate==='chat'?'chat':'goal'} in ${currentTeam?.title||'Default'}. Add files and people as you go.`),
+          h('div',{className:'bc-suggestions'},(newTemplate==='chat'?['Brainstorm ideas','Explain a concept','Draft a message']:['Research a topic','Make sense of my files','Prepare a weekly update']).map(s=>h('button',{key:s,disabled:!canCreateInTeam,onClick:()=>setSuggestion({text:s})},s))))),conversation(false)))),
     modalOpen?h(Dialog,{wide:dialog==='thread',title:dialog==='thread'?`Thread settings${thread?' · '+thread.title:''}`:'Welcome to Bees',onClose:closeDialog},
       error?h('p',{className:'bc-error',role:'alert'},error):null,notice?h('p',{className:'bc-notice',role:'status'},notice):null,
       dialog==='thread'?h('div',{className:'bc-settings-layout'},h(SettingsNav,{items:THREAD_SETTINGS,selected:threadSection,onSelect:section=>{setThreadSection(section);setNotice('');},label:'Thread settings sections'}),h('div',{className:'bc-settings-content'},threadContent))
@@ -352,6 +358,8 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
 
 export function ThreadConversation({thread,discussion,peerNames,userId,userName,canWrite,viewOnly,manage,run,active,busy,act,onSend,onAttach,onFiles,onOpenFile,suggestion,templateId='goals',onTemplateChange,templates=WORKFLOW_TEMPLATES}){
   const [draft,setDraft]=useState(''),[pending,setPending]=useState([]),end=useRef(),picker=useRef(),pinned=useRef(true);
+  const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent);
+  const sendShortcut = isMac ? '⌘ Enter to send' : 'Ctrl+Enter to send';
   const addPending=picked=>setPending(current=>[...current.filter(f=>!picked.some(p=>p.name===f.name)),...picked]);
   const take=files=>thread?void onAttach(files):addPending(files);
   const chatting=isChatWorkflow(thread?.workflow)||templateId==='chat';
@@ -379,21 +387,21 @@ export function ThreadConversation({thread,discussion,peerNames,userId,userName,
       !discussion&&run?.pending?h('fieldset',{disabled:!canWrite||run.pending.kind==='approval'&&!manage,className:'bc-fieldset'},h(Question,{key:run.pending.id,run,threadId:thread.id,act})):null,h('div',{ref:end})):null,
     h('form',{className:'bc-composer',onSubmit:e=>{e.preventDefault();const sent=draft;void onSend(sent,discussion,()=>{setDraft(current=>current===sent?'':current);setPending([]);},pending);}},
       h('textarea',{placeholder:viewOnly?'You can view this but not send messages. Ask the owner for edit access.':discussion?'Message the people in this thread…':active?'You can send once Bees finishes.':chatting?'Chat with Bees…':'Ask Bees to get something done…','aria-label':discussion?'Discussion message':'Message',disabled:!canWrite,value:draft,onChange:e=>setDraft(e.target.value),onPaste:e=>{const files=busy?[]:pastedFiles(e);if(files.length){e.preventDefault();take(files);}},onKeyDown:e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();e.currentTarget.form.requestSubmit();}}}),
-      !discussion&&!messages.length&&!thread?.runs?.length?h('label',{className:'bc-template'},h('span',null,'Process'),h('select',{'aria-label':'Thread template',value:templateId,disabled:busy||!canWrite||!!thread&&!manage,onChange:e=>onTemplateChange(e.target.value)},
-        templateId==='custom'?h('option',{value:'custom'},'Custom process'):null,
-        templates.map(t=>h('option',{key:t.id,value:t.id},t.name+(t.id==='goals'?' (default)':''))))):null,
       pending.length?h('div',{className:'bc-pending-files'},pending.map(file=>h('span',{key:file.name},file.name,
         h('button',{type:'button',className:'bc-icon','aria-label':'Remove '+file.name,disabled:busy,onClick:()=>setPending(current=>current.filter(f=>f!==file))},icon('close'))))):null,
       h('div',{className:'bc-composer-footer'},h('button',{type:'button',className:'bc-icon','aria-label':'Attach files',title:'Attach files',disabled:busy||!canWrite,onClick:()=>picker.current?.click()},icon('plus')),
         h('input',{type:'file',multiple:true,hidden:true,ref:picker,onChange:e=>{const picked=[...e.target.files];e.target.value='';take(picked);}}),
         h('span',{className:'bc-spacer'}),
         h('div',{className:'bc-composer-status'},
-          h('span',{className:'bc-composer-mode'},discussion?'Discussion':chatting?'Chat with AI':'Ask Bees'),
-          h('small',null,active?(chatting?'Bees is replying…':'Working on this machine'):chatting?'Your turn · ⌘ Enter to send':'⌘ Enter to send')),
-        h('button',{className:'bc-send',type:'submit','aria-label':discussion?'Send discussion message':'Send message',disabled:busy||!canWrite||!draft.trim()||active&&!discussion},icon('send')))));
+          !discussion&&!messages.length&&!thread?.runs?.length?h('label',{className:'bc-template'},h('span',null,'Process'),h('select',{'aria-label':'Thread template',className:'bc-composer-process-select',value:templateId,disabled:busy||!canWrite||!!thread&&!manage,onChange:e=>onTemplateChange(e.target.value)},
+            templateId==='custom'?h('option',{value:'custom'},'Custom process'):null,
+            templates.map(t=>h('option',{key:t.id,value:t.id},t.name+(t.id==='goals'?' (default)':'')))))
+          :h('span',{className:'bc-composer-mode'},discussion?'Discussion':chatting?'Chat with AI':'Ask Bees'),
+          h('small',null,active?(chatting?'Bees is replying…':'Working on this machine'):chatting?`Your turn · ${sendShortcut}`:sendShortcut)),
+        h('button',{className:'bc-send',type:'submit','aria-label':discussion?'Send discussion message':'Send message',title:active?'Waiting for Bees to finish…':`${discussion?'Send discussion message':'Send message'} (${isMac?'⌘ Enter':'Ctrl+Enter'})`,disabled:busy||!canWrite||!draft.trim()||active&&!discussion},icon('send')))));
 }
 
-function WorkflowSettings({thread,onSave,agents=[],section='general',scope='thread',disabled=false,busy=false}){
+function WorkflowSettings({thread,onSave,onDelete,canDelete,agents=[],section='general',scope='thread',disabled=false,busy=false}){
   const [title,setTitle]=useState(thread.title),[instructions,setInstructions]=useState(thread.instructions??''),[memory,setMemory]=useState((thread.memory??[]).join('\n'));
   const [stages,setStages]=useState(thread.workflow??DEFAULT_WORKFLOW);
   const [scheduled,setScheduled]=useState(!!thread.schedule?.enabled),[recurrence,setRecurrence]=useState(scheduleDraft(thread.schedule));
@@ -414,7 +422,11 @@ function WorkflowSettings({thread,onSave,agents=[],section='general',scope='thre
       recurrence.frequency==='monthly'?h(Field,{label:'Day of month',type:'number',min:1,max:31,value:recurrence.dayOfMonth,onChange:e=>update('dayOfMonth',Number(e.target.value))}):null,
       recurrence.frequency==='hourly'?h(Field,{label:'Every (minutes)',type:'number',min:1,max:525600,value:recurrence.everyMinutes,onChange:e=>update('everyMinutes',Number(e.target.value))}):recurrence.frequency==='advanced'?h(Field,{label:'Five-field cron expression',value:recurrence.cronExpression,onChange:e=>update('cronExpression',e.target.value)}):h(Field,{label:'Time',type:'time',value:String(recurrence.hour??9).padStart(2,'0')+':'+String(recurrence.minute??0).padStart(2,'0'),onChange:e=>{const [hour,minute]=e.target.value.split(':').map(Number);setRecurrence({...recurrence,hour,minute});}}),
       h(Field,{label:'Timezone',list:'bc-timezones',value:recurrence.timezone,onChange:e=>update('timezone',e.target.value)}),h('datalist',{id:'bc-timezones'},(Intl.supportedValuesOf?.('timeZone')??[]).map(z=>h('option',{key:z,value:z}))),h('small',null,scope==='team'?'Each run starts a new thread in this team. It runs on the team owner’s computer while Bees is open there.':'It runs on the computer that owns this thread while Bees is open there.')):null):null,
-    disabled?null:h('button',{className:'bc-primary',type:'submit'},busy?'Saving…':scope==='team'?'Save team settings':'Save thread settings')));
+    disabled?null:h('button',{className:'bc-primary',type:'submit'},busy?'Saving…':scope==='team'?'Save team settings':'Save thread settings')),
+    scope==='thread'&&section==='general'&&onDelete?h('div',{className:'bc-form-section bc-form-danger'},
+      h('h4',null,'Delete thread'),
+      h('p',{className:'bc-muted'},'Permanently delete this thread, its runs, files, and conversation history.'),
+      h('button',{type:'button',className:'danger',disabled:busy||!canDelete,title:!canDelete?'Stop running work before deleting':undefined,onClick:onDelete},'Delete thread')):null);
 }
 
 function LegacyOverrides({rows,section,perform,busy,signedIn,onSignIn}){

@@ -6,14 +6,15 @@ export const initials=name=>(name||'You').split(/\s|@/).filter(Boolean).slice(0,
 export function TeamMenu({team,icon,busy,canCreate,onCreate,onSettings,onHide}){
   const choose=fn=>event=>{event.currentTarget.closest('details').open=false;fn();};
   return h('details',{className:'bc-team-menu bc-thread-menu',onKeyDown:event=>{if(event.key==='Escape'){event.currentTarget.open=false;event.currentTarget.querySelector('summary').focus();}}},
-    h('summary',{'aria-label':`${team.title} menu`,title:`${team.title} menu`},icon('gear')),
+    h('summary',{'aria-label':`${team.title} menu`,title:`${team.title} menu`},icon('more')),
     h('nav',{'aria-label':`${team.title} actions`},
-      h('button',{onClick:choose(()=>onSettings('general',team.id))},icon('gear'),'Settings'),
-      h('button',{onClick:choose(()=>onSettings('processes',team.id))},icon('process'),'Processes'),
-      h('button',{onClick:choose(()=>onSettings('agents',team.id))},icon('team'),'Agents'),
       h('button',{disabled:busy||!canCreate,onClick:choose(()=>onCreate('goals',team.id))},icon('goal'),'New Goal'),
       h('button',{disabled:busy||!canCreate,onClick:choose(()=>onCreate('chat',team.id))},icon('chat'),'New Chat'),
-      h('hr'),h('button',{disabled:busy,onClick:choose(()=>onHide(team.id))},icon('hide'),'Hide')));
+      h('button',{onClick:choose(()=>onSettings('processes',team.id))},icon('process'),'Processes'),
+      h('button',{onClick:choose(()=>onSettings('agents',team.id))},icon('team'),'Agents'),
+      h('button',{disabled:busy,onClick:choose(()=>onHide(team.id))},icon('hide'),'Hide'),
+      h('hr'),
+      h('button',{onClick:choose(()=>onSettings('general',team.id))},icon('gear'),'Settings')));
 }
 
 export function TeamSection({team,grouped,expanded,active,onToggle,menu,count,children}){
@@ -33,10 +34,11 @@ export function TeamManagement({icon,busy,hasTeam,currentTeamTitle,onTeam,onCrea
   return h('details',{className:'bc-thread-menu bc-team-management',onKeyDown:event=>{if(event.key==='Escape'){event.currentTarget.open=false;event.currentTarget.querySelector('summary').focus();}}},
     h('summary',{'aria-label':label,title:label},icon('gear')),
     h('nav',{'aria-label':'Manage teams'},
-      h('button',{disabled:busy||!hasTeam,onClick:choose(onTeam)},icon('gear'),'Team settings'),
       h('button',{disabled:busy,onClick:choose(onCreateTeam)},icon('plus'),'Create team'),
       hiddenTeams.length?h('hr'):null,hiddenTeams.length?h('strong',null,'Hidden teams'):null,
-      [...hiddenTeams].sort((a,b)=>a.title.localeCompare(b.title)).map(team=>h('button',{key:team.id,disabled:busy,onClick:choose(()=>onSelectTeam(team.id))},icon('team'),team.title))));
+      [...hiddenTeams].sort((a,b)=>a.title.localeCompare(b.title)).map(team=>h('button',{key:team.id,disabled:busy,onClick:choose(()=>onSelectTeam(team.id))},icon('team'),team.title)),
+      h('hr'),
+      h('button',{disabled:busy||!hasTeam,onClick:choose(onTeam)},icon('gear'),'Team settings')));
 }
 
 export function closeHoverMenu(menu){

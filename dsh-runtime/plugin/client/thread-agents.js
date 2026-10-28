@@ -9,7 +9,7 @@ export function TeamAgents({ team, models = [], presets = [], canManage, busy, o
   const field = (label, child) => h('label', { className: 'bc-field' }, h('span', null, label), child);
   const availablePresets = presets.length ? presets : [{ id: 'standard', name: 'Standard' }];
   return h('section', { className: 'bc-form' }, h('h3', null, 'Team agents'),
-    h('p', { className: 'bc-muted' }, 'Create agents with their own instructions, AI model and add-ons. Assign them to stages in Processes or Workflow.'),
+    h('p', { className: 'bc-muted' }, 'Create agents with their own instructions, AI model and add-ons. Assign them to stages in Processes.'),
     agents.map(agent => h('article', { key: agent.id, className: 'bc-card bc-form' },
       h('strong', null, agent.name), h('small', null, `${agent.enabled ? 'Enabled' : 'Disabled'} · ${agent.model || 'Default AI'} · ${agent.presetId}`),
       agent.instructions ? h('p', null, agent.instructions) : null,
