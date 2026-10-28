@@ -276,7 +276,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
       h('footer',null,h('span',{className:'bc-dot '+(data?.connectionError?'offline':'')}),h('span',null,data?.connectionError?"Can't reach Bees right now":data?.user?'Connected to Bees':'Private on this machine',(data?.connectionError||data?.user)&&data?.serverUrl?h('small',{className:'bc-server-url'},data.serverUrl):null))),
     h('main',{className:'bc-main'},h(UpdateBar),settingsOpen?h(React.Fragment,null,
       error?h('p',{className:'bc-error',role:'alert'},error):null,notice?h('p',{className:'bc-notice',role:'status'},notice):null,
-      h(SettingsPage,{title:settingsTitle,items:dialog==='team'?TEAM_SETTINGS:hosted?GLOBAL_SETTINGS.filter(([id])=>id!=='phone'):GLOBAL_SETTINGS,selected:dialog==='team'?teamSection:settingsSection,
+      h(SettingsPage,{title:settingsTitle,items:dialog==='team'?TEAM_SETTINGS:hosted||location.hostname!=='127.0.0.1'?GLOBAL_SETTINGS.filter(([id])=>id!=='phone'):GLOBAL_SETTINGS,selected:dialog==='team'?teamSection:settingsSection,
         onSelect:section=>{if(dialog==='team')setTeamSection(section);else setSettingsSection(section);setNotice('');},onClose:closeDialog},
         dialog==='team'?h(React.Fragment,null,team&&!canConfigureTeam&&!['addons','browser'].includes(teamSection)?h('p',{className:'bc-muted'},'Only the team owner can change shared settings.'):null,teamContent,
           team&&legacyRows.length&&['general','memory','workflow','schedule','addons','browser'].includes(teamSection)?h(LegacyOverrides,{key:currentTeamId+teamSection,rows:legacyRows,section:teamSection,perform,busy,signedIn:data?.signedIn??!!data?.user,onSignIn:signInForApps}):null):globalContent))
