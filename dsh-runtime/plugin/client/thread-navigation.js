@@ -18,9 +18,12 @@ export function TeamMenu({team,icon,busy,canCreate,onCreate,onSettings,onHide}){
 
 export function TeamSection({team,grouped,expanded,active,onToggle,menu,count,children}){
   return h('section',{className:'bc-team-section'+(active?' active':'')+(!grouped?' bc-team-ungrouped':'')},
-    grouped?h('div',{className:'bc-team-heading'},
+    grouped?h('div',{className:'bc-team-heading'+(active?' active':'')},
       h('button',{className:'bc-team-toggle','aria-expanded':expanded,onClick:onToggle},
-        h('span',{'aria-hidden':true},expanded?'⌄':'›'),h('strong',{title:team.title},team.title),h('small',null,count)),menu):null,
+        h('span',{'aria-hidden':true},expanded?'⌄':'›'),
+        h('strong',{title:team.title},team.title),
+        active?h('span',{className:'bc-team-active-badge'},'Active'):null,
+        h('small',null,count)),menu):null,
     !grouped||expanded?h('div',{className:'bc-team-threads'},children):null);
 }
 

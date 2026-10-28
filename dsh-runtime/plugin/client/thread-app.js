@@ -69,11 +69,11 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const perform=async fn=>{setBusy(true);setError('');setNotice('');try{return await fn();}catch(e){setError(e.message);}finally{setBusy(false);}};
   const act=(action,values={})=>perform(async()=>{const id=selected;const result=await command(action,id,values);await refresh();if(id)await read(id);return result;});
   const saveTitle=()=>{const trimmed=titleDraft.trim();setRenamingTitle(false);if(trimmed&&trimmed!==thread?.title)void act('configure',{title:trimmed});};
-  const select=id=>{if(id!==selected){setThread(null);setError(e=>e===offline?e:'');}setRenamingTitle(false);const row=data?.threads.find(t=>t.id===id)??data?.directory?.threads.find(t=>t.id===id);const parent=row?.teamId??row?.team_id;if(parent&&allTeams.some(t=>t.id===parent))setTeamId(parent);selectedRef.current=id;setSelected(id);setComposing(false);setNewTemplate('goals');setSuggestion(null);setNavigation({id:'conversation'});setDialog(null);setInviteLink('');setNotice('');};
+  const select=(id,keepDialog=false)=>{if(id!==selected){setThread(null);setError(e=>e===offline?e:'');}setRenamingTitle(false);const row=data?.threads.find(t=>t.id===id)??data?.directory?.threads.find(t=>t.id===id);const parent=row?.teamId??row?.team_id;if(parent&&allTeams.some(t=>t.id===parent))setTeamId(parent);selectedRef.current=id;setSelected(id);setComposing(false);setNewTemplate('goals');setSuggestion(null);setNavigation({id:'conversation'});if(!keepDialog)setDialog(null);setInviteLink('');setNotice('');};
   const navigate=next=>{setNavigation({id:next});setDialog(null);};
   const closeDialog=()=>{const returnTo=loginReturn.current;loginReturn.current=null;setDialog(returnTo?'team':null);setError('');setNotice('');};
   const openSettings=(section,id=selected)=>{if(id!==selected)select(id);setThreadSection(section);setInviteLink('');setNotice('');setDialog('thread');};
-  const openTeamSettings=(section='general',id=currentTeamId)=>{if(id!==currentTeamId){select(null);setTeamId(id);setTeam(null);}const mapped=section==='workflow'?'processes':section==='invitations'?'members':section;setTeamSection(mapped);setInviteLink('');setNotice('');setDialog('team');};
+  const openTeamSettings=(section='general',id=currentTeamId)=>{const wasInSettings=settingsOpen;if(id!==currentTeamId){select(null,wasInSettings);setTeamId(id);setTeam(null);}const mapped=section==='workflow'?'processes':section==='invitations'?'members':section;setTeamSection(mapped);setInviteLink('');setNotice('');setDialog('team');};
   const openGlobal=section=>{setSettingsSection(section);setDialog('settings');setNotice('');};
   const openAccount=()=>{setDialog('account');setNotice('');};
   useEffect(()=>{
@@ -119,7 +119,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   // composing keeps the empty thread on screen on a phone, where the list and the thread take turns
   const create=(templateId='goals',id=currentTeamId)=>{select(null);setComposing(true);setTeamId(id);setNewTemplate(templateId);setCollapsed(values=>({...values,[id]:false}));requestAnimationFrame(()=>document.querySelector('.bc-composer textarea')?.focus());};
   const deleteThread=t=>perform(async()=>{if(!await confirmAction(`Delete “${t.title}”? Its messages, runs and files are removed for everyone in it. This can’t be undone.`,'Delete'))return;await command('delete',t.id);if(selectedRef.current===t.id)select(null);await refresh();});
-  const chooseTeam=id=>perform(async()=>{select(null);setTeamId(id);setTeam(null);setCollapsed(values=>({...values,[id]:false}));await command('preferences',null,{values:{selectedTeamId:id,hiddenTeamIds:hiddenTeamIds.filter(hidden=>hidden!==id)}});await refresh();});
+  const chooseTeam=id=>perform(async()=>{const wasInSettings=settingsOpen;const currentDialog=dialog;const currentTeamSec=teamSection;select(null,wasInSettings);setTeamId(id);setTeam(null);setCollapsed(values=>({...values,[id]:false}));await command('preferences',null,{values:{selectedTeamId:id,hiddenTeamIds:hiddenTeamIds.filter(hidden=>hidden!==id)}});await refresh();if(wasInSettings&&currentDialog){setDialog(currentDialog);if(currentTeamSec)setTeamSection(currentTeamSec);}});
   const hideTeam=id=>perform(async()=>{if(threads.some(t=>t.id===selected&&threadTeamId(t)===id)||currentTeamId===id){select(null);setTeamId(null);setTeam(null);}await command('preferences',null,{values:{hiddenTeamIds:[...new Set([...hiddenTeamIds,id])]}});await refresh();});
   const createTeam=()=>perform(async()=>{const name=await ask('Team name','');if(!name?.trim())return;const next=await command('createTeam',null,{name,...(selectedOrganizationId?{organizationId:selectedOrganizationId}:{})});await refresh();select(null);setTeamId(next.id);});
   const checkSize=files=>{const big=files.find(file=>file.size>10_000_000);if(big)throw Error(`${big.name} is over 10 MB. Files must be 10 MB or smaller.`);};
@@ -275,9 +275,14 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
       onTheme:()=>{const next=nextThemePreset(preference);void saveAppearance({themePreset:next.id,colorMode:next.dark?'dark':'light'});},onAccount:openAccount}),
     h('aside',{className:'bc-sidebar','aria-label':'Threads'},
       h('div',{className:'bc-thread-create'},
-        h('button',{'aria-label':'New Goal',title:currentTeam?`New Goal in ${currentTeam.title}`:'New Goal',disabled:busy||!canCreateInTeam,onClick:()=>create('goals')},icon('goal'),'New Goal'),
-        h('button',{'aria-label':'New Chat',title:currentTeam?`New Chat in ${currentTeam.title}`:'New Chat',disabled:busy||!canCreateInTeam,onClick:()=>create('chat')},icon('chat'),'New Chat'),
-        h(TeamManagement,{icon,busy:busy||!data,hasTeam:!!currentTeamId,currentTeamTitle:currentTeam?.title,onTeam:()=>openTeamSettings(),onCreateTeam:createTeam,hiddenTeams:teams.filter(team=>hiddenTeamIds.includes(team.id)),onSelectTeam:chooseTeam})),
+        h('div',{className:'bc-team-bar'},
+          h('div',{className:'bc-team-bar-name',title:`Current team: ${currentTeam?.title??'Default'}`},
+            icon('team'),
+            h('span',{className:'bc-team-bar-label'},currentTeam?.title??'Default')),
+          h(TeamManagement,{icon,busy:busy||!data,hasTeam:!!currentTeamId,currentTeamTitle:currentTeam?.title,onTeam:()=>openTeamSettings(),onCreateTeam:createTeam,hiddenTeams:teams.filter(team=>hiddenTeamIds.includes(team.id)),onSelectTeam:chooseTeam})),
+        h('div',{className:'bc-thread-create-buttons'},
+          h('button',{'aria-label':'New Goal',title:currentTeam?`New Goal in ${currentTeam.title}`:'New Goal',disabled:busy||!canCreateInTeam,onClick:()=>create('goals')},icon('goal'),'New Goal'),
+          h('button',{'aria-label':'New Chat',title:currentTeam?`New Chat in ${currentTeam.title}`:'New Chat',disabled:busy||!canCreateInTeam,onClick:()=>create('chat')},icon('chat'),'New Chat'))),
       h('div',{className:'bc-search'},icon('search'),h('input',{'aria-label':'Search threads',placeholder:'Find a thread…',value:query,autoCorrect:'off',autoCapitalize:'off',spellCheck:false,onChange:e=>setQuery(e.target.value)}),query?h('button',{type:'button',className:'bc-search-clear','aria-label':'Clear search',title:'Clear search',onClick:()=>setQuery('')},icon('close')):null),
       h('div',{className:'bc-thread-list'},visibleTeams.map(row=>h(TeamSection,{key:row.id,team:row,grouped:teams.length>1,active:currentTeamId===row.id,expanded:!!query||!collapsed[row.id],count:teamThreads(row.id).length,
         onToggle:()=>{if(currentTeamId!==row.id)void chooseTeam(row.id);else setCollapsed(values=>({...values,[row.id]:!values[row.id]}));},
