@@ -86,6 +86,7 @@ function providerFailure(status, text) {
 async function probe(definition, model, key) {
   const url = new URL(definition.url);
   const headers = { accept: "application/json", "content-type": "application/json", ...definition.headers };
+  if (url.hostname === "openrouter.ai") Object.assign(headers, { "HTTP-Referer": "https://bees.bot", "X-OpenRouter-Title": "Bees.bot" });
   if (definition.gemini) {
     // Google is not OpenAI-shaped: the model is a path segment, and the key goes in a header to stay out of logs.
     url.pathname += `/${encodeURIComponent(model.replace(/^models\//, ""))}:generateContent`;

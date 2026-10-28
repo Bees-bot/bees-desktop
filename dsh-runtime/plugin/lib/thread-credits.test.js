@@ -52,7 +52,7 @@ test('rejects legacy/untrusted configurations, handles older servers, and cannot
  alice.directory.request=async()=>({ai:null});await service.sync(alice,true);assert.equal(service.view(alice.store).available,false);
  let finish;alice.directory.request=()=>new Promise(resolve=>{finish=resolve;});const pending=service.sync(alice,true);service.close(alice);finish({ai:configuration()});await pending;assert.equal(adapters.size,0);
 });
-test('the real streaming adapter sends tools through the Bees API using only the enrolled client token',async()=>{
+for(const baseUrl of ['https://bees.test/api/directory/ai/v1','https://openrouter.ai/api/v1'])test(`the real streaming adapter preserves tools and attributes requests to ${baseUrl}`,async()=>{
  const original=globalThis.fetch,calls=[];
  globalThis.fetch=async(url,init)=>{
   calls.push({url,headers:new Headers(init.headers),body:JSON.parse(init.body)});
@@ -60,9 +60,12 @@ test('the real streaming adapter sends tools through the Bees API using only the
   return new Response(chunks.map(c=>'data: '+JSON.stringify(c)+'\n\n').join('')+'data: [DONE]\n\n',{headers:{'content-type':'text/event-stream'}});
  };
  try{
-  const adapter=creditsAdapter('bees-credits-test',{model},'https://bees.test/api/directory/ai/v1',async()=>'alice-device-token');
+  const adapter=creditsAdapter('bees-credits-test',{model},baseUrl,async()=>'alice-device-token');
+  adapter.config.profiles().get('bees-credits-test').headers={'HTTP-Referer':'https://old.example','X-OpenRouter-Title':'DeepSeek Harness'};
   const prepared=await adapter.prepareCall('bees-credits-test',model.id),chunks=[];
   for await(const chunk of prepared.stream({provider:'bees-credits-test',model:model.id,messages:[{role:'user',content:[{type:'text',text:'Read notes'}]}],maxTokens:100}))chunks.push(chunk);
-  assert.equal(calls.length,1);assert.equal(calls[0].url,'https://bees.test/api/directory/ai/v1/chat/completions');assert.equal(calls[0].headers.get('authorization'),'Bearer alice-device-token');assert.equal(calls[0].body.model,model.id);assert(JSON.stringify(chunks).includes('read_file'));
+  assert.equal(calls.length,1);assert.equal(calls[0].url,baseUrl+'/chat/completions');assert.equal(calls[0].headers.get('authorization'),'Bearer alice-device-token');assert.equal(calls[0].body.model,model.id);assert(JSON.stringify(chunks).includes('read_file'));
+  assert.equal(calls[0].headers.get('HTTP-Referer'),baseUrl.includes('openrouter.ai')?'https://bees.bot':'https://old.example');
+  assert.equal(calls[0].headers.get('X-OpenRouter-Title'),baseUrl.includes('openrouter.ai')?'Bees.bot':'DeepSeek Harness');
  }finally{globalThis.fetch=original;}
 });

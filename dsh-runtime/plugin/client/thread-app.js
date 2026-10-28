@@ -107,7 +107,6 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const chooseOrganization=(id,accountId,settings=false)=>perform(async()=>{
     profileEpoch.current++;await command('selectOrganization',null,{accountId,organizationId:id});clearAccount();setOrganizationId(id);await refresh();if(settings)openGlobal('organizations');
   });
-  const createOrganization=accountId=>{if(!data?.user&&!accountId){setDialog('login');return;}void perform(async()=>{const name=await ask('Organization name','');if(!name?.trim())return;if(accountId&&accountId!==data?.accounts?.find(account=>account.active)?.id){profileEpoch.current++;await command('switchAccount',null,{accountId});clearAccount();}const org=await command('createOrganization',null,{name});await loadOrganizations();select(null);setTeamId(null);setOrganizationId(org.id);await command('preferences',null,{values:{selectedOrganizationId:org.id}});await refresh();});};
   const saveAppearance=values=>perform(async()=>{
     if(preferences){if(preferences.getSnapshot().status!=='ready')throw Error('Settings are still loading');for(const [key,value] of Object.entries(values))await preferences.set(key,value);}
     else {await command('preferences',null,{values});await refresh();}
@@ -195,7 +194,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
       h('button',{disabled:busy||account.active,'aria-pressed':account.active,onClick:()=>perform(async()=>{await command('switchAccount',null,{accountId:account.id});clearAccount();await refresh();openGlobal('account');})},account.active?'✓ Current view':'Open'))),
     data?.user&&!data.user.emailVerified?h(React.Fragment,null,h('p',{className:'bc-muted'},'Your email isn’t verified yet. You need that to accept invitations or invite people to an organization.'),h('button',{disabled:busy,onClick:verifyEmail},'Send verification email')):null,
     h('button',{disabled:busy,onClick:()=>setDialog('login')},data?.user?'Add account':'Sign in'),
-    data?.user?h('button',{disabled:busy,onClick:()=>perform(async()=>{await command('logout');clearAccount();await refresh();setDialog(hosted?'login':'settings');setSettingsSection('account');})},'Sign out of this account'):null);
+    data?.user?h('button',{disabled:busy,onClick:()=>perform(async()=>{await command('logout');clearAccount();const next=await refresh().catch(error=>{if(!hosted||error.status!==401)throw error;});setDialog(hosted&&!next?.user?'login':'settings');setSettingsSection('account');})},'Sign out of this account'):null);
   const threadContent=!thread?h('p',{role:'status'},'Loading thread settings…')
     :threadSection==='transfer'?transfer:h(React.Fragment,null,manage?null:h('p',{className:'bc-muted'},'Only the person who started this thread can rename it.'),h(WorkflowSettings,{key:selected,thread,scope:'thread',section:'general',disabled:!canConfigure,busy,onSave:saveThread}));
   const teamFiles=team?h(ThreadFiles,{key:currentTeamId,thread:team,canWrite:canConfigureTeam,busy,onAttach:(files,prefix)=>attach(files,prefix,currentTeamId),onPreview:file=>setPreview({...file,url:`/bees-api/thread-file?thread=${currentTeamId}&artifact=${file.id}`}),preview,onClosePreview:()=>setPreview(null)}):null;
@@ -256,7 +255,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     dialog==='login'?h(Dialog,{title:'Sign in',onClose:closeDialog},h(Login,{server:data.serverUrl,request:(action,values)=>command(action,null,values),onComplete:async()=>{await refresh();closeDialog();}})):null);
   return h('div',{className:'bc-app '+(selected||composing||settingsOpen?'has-thread':''),'data-bees-theme':theme.id,style:themeStyle(theme)},
     h(BeesNavigation,{brandMark,icon,organizations,accounts:data?.accounts??[],user:data?.user,localActive:data?.localActive,organizationId:selectedOrganizationId,theme,busy:busy||!data,
-      onOrganization:chooseOrganization,onCreateOrganization:createOrganization,onGlobal:openGlobal,
+      onOrganization:chooseOrganization,onGlobal:openGlobal,
       onTheme:()=>{const next=nextThemePreset(preference);void saveAppearance({themePreset:next.id,colorMode:next.dark?'dark':'light'});},onAccount:()=>openGlobal('account')}),
     h('aside',{className:'bc-sidebar','aria-label':'Threads'},
       h('div',{className:'bc-thread-create'},
