@@ -17,6 +17,13 @@ if (manifest.version !== pinned) {
   throw new Error(`Installed DSH ${manifest.version}; expected ${pinned}`);
 }
 
+// Attribute direct OpenRouter calls, including previously saved provider profiles, to Bees.
+const piAiEntry = path.join(runtimeRoot, "node_modules", "@deepseek-ai", "dsh-llm-pi-ai", "lib", "index.js");
+await writeFile(piAiEntry, timeDshStartup(await readFile(piAiEntry, "utf8"), [[
+  'headers: requestHeaders(profile.headers)',
+  'headers: requestHeaders({ ...profile.headers, ...(new URL(model.baseUrl).hostname === "openrouter.ai" ? { "HTTP-Referer": "https://bees.bot", "X-OpenRouter-Title": "Bees.bot" } : {}) })',
+]]));
+
 const dshLib = path.join(runtimeRoot, "node_modules", "@deepseek-ai", "dsh", "lib");
 const profiles = await readdir(dshLib);
 const profile = (await Promise.all(profiles.filter((name) => name.startsWith("profile-boot-")).map(async (name) => ({

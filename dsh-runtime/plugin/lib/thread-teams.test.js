@@ -25,6 +25,7 @@ test('new and previously empty owned organizations get exactly one Default team'
   try{
     client.directory.request=async(path,input)=>{assert.equal(path,'/organizations');return input?organization:{organizations:[organization,older],invitations:[]};};
     assert.equal((await client.command({action:'createOrganization',name:'Work'})).id,organization.id);
+    assert.deepEqual((await client.snapshot()).threads,[],'Organization creation must not create AI threads');
     let teams=(await client.snapshot()).teams.filter(t=>t.organizationId===organization.id);
     assert.equal(teams.length,1);assert.equal(teams[0].title,'Default');
     await client.command({action:'configure',threadId:teams[0].id,operationId:randomUUID(),title:'Renamed'});

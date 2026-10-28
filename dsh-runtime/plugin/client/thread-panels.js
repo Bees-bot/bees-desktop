@@ -1,4 +1,4 @@
-import { h, MarkdownText } from './runtime.js';
+import { h, MarkdownText, useEffect } from './runtime.js';
 import { when } from './common.js';
 import { DEFAULT_WORKFLOW, processName, isChatWorkflow } from '../lib/thread-workflow.js';
 import { labels } from './thread-kanban.js';
@@ -43,6 +43,8 @@ export function SettingsNav({ items, groups, selected, onSelect, label }) {
 
 export function SettingsPage({title,items,groups,selected,onSelect,onClose,children}){
   const hasNav = !!(groups?.length || items?.length);
+  // escape closes settings, but not while typing in a field or when a dialog inside settings handles it
+  useEffect(()=>{const key=e=>{if(e.key==='Escape'&&!e.defaultPrevented&&!e.target.closest?.('input,textarea,select,dialog,details[open]'))onClose();};document.addEventListener('keydown',key);return()=>document.removeEventListener('keydown',key);},[onClose]);
   return h('section',{className:'bc-settings-page','aria-label':title},
     h('header',{className:'bc-thread-header bc-settings-header'},
       h('h2',null,title),

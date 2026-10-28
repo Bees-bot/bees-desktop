@@ -5,6 +5,7 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import {configureRuntime} from '../client/runtime.js';
 import {BeesNavigation,TeamMenu,TeamSection,HoverMenu,TeamManagement} from '../client/thread-navigation.js';
 import {SettingsPage} from '../client/thread-panels.js';
+import {TeamProcesses} from '../client/thread-processes.js';
 import {OrganizationAppearance,OrganizationIcon,readOrganizationImage} from '../client/thread-organization-appearance.js';
 import {ThreadApp} from '../client/thread-app.js';
 
@@ -20,7 +21,7 @@ test('desktop keeps local work visible and selectable beside signed-in organizat
     local.props.onClick();assert.deepEqual(calls,[[null,null]]);
     const markup=renderToStaticMarkup(tree);
     assert(markup.indexOf('Local Org')<markup.indexOf('alice@example.com'));assert(markup.includes('Studio'));assert(!markup.includes('Local threads'));
-    assert.equal((markup.match(/class="bc-rail-action bc-create-org"/g)??[]).length,1);
+    assert.doesNotMatch(markup,/Create org|bc-create-org/);
     const signedInLocal=renderToStaticMarkup(React.createElement(BeesNavigation,{...props,organizationId:null}));
     assert.match(signedInLocal,/title="Local Org"[^>]*aria-current="page"/);assert.equal((signedInLocal.match(/aria-current="page"/g)??[]).length,1);
     const active=renderToStaticMarkup(React.createElement(BeesNavigation,{...props,organizationId:null,accounts:props.accounts.map(account=>({...account,active:false}))}));
@@ -46,7 +47,7 @@ test('orgs form one alphabetical list with email labels and no personal account 
   for(const title of titles)assert(markup.includes(`class="bc-rail-label">${title}</span>`));
   assert.match(markup,/aria-label="Studio \(alice@example.com\)"[^>]*aria-current="page"/);
   assert.doesNotMatch(markup,/aria-label="Studio \(bob@example.com\)" aria-current/);
-  assert.equal((markup.match(/class="bc-rail-action bc-create-org"/g)??[]).length,2);
+  assert.doesNotMatch(markup,/Create org|bc-create-org/);
   assert.doesNotMatch(markup,/Personal threads|Threads outside your organizations|bc-account-switcher|bc-account-orgs/);
   assert.match(markup,/background:#7c3aed;color:#ffffff/);assert.match(markup,/data-icon="star"/);
   assert.doesNotMatch(markup,/Team settings|bc-team-switcher|Hidden teams|New Goal|New Chat|Personal \(/);
@@ -73,13 +74,13 @@ test('logo is inert, menu actions have icons, and bottom controls use the reques
   const icon=(name,props)=>{icons.push(name);return React.createElement('svg',{'data-icon':name,'aria-hidden':true,...props});};
   const markup=renderToStaticMarkup(React.createElement(BeesNavigation,{brandMark:'/brand.png',icon,accounts:[{id:'alice',active:true,user:{email:'alice@example.com'},organizations:[]},{id:'bob',user:{email:'bob@example.com'},organizations:[]}],theme:{dark:true},teams:[{id:'only',title:'Default'}]}));
   assert.match(markup,/<div class="bc-brand" title="Bees"><img src="\/brand.png" alt="Bees"\/><\/div>/);
-  assert(markup.indexOf('class="bc-brand"')<markup.indexOf('bc-create-org'));
+  assert(markup.indexOf('class="bc-brand"')<markup.indexOf('class="bc-rail-organizations"'));
   assert.match(markup,/class="bc-account-count">2<\/small>/);
   assert.doesNotMatch(markup,/bc-avatar|Hidden teams/);
   const bottom=markup.slice(markup.indexOf('class="bc-rail-bottom"'));
   const labels=['Switch to light theme','Settings','Account settings'];
   for(let i=1;i<labels.length;i++)assert(bottom.indexOf(labels[i-1])<bottom.indexOf(labels[i]),labels[i]);
-  assert.match(markup,/data-icon="plus"/);
+  assert.doesNotMatch(markup,/Create org|data-icon="plus"/);
   for(const name of ['accounts','settings','sun'])assert(icons.includes(name),name);
 });
 
@@ -173,4 +174,13 @@ test('icon uploads reject unsupported and oversized files and resize to a small 
     if(previousBitmap===undefined)delete globalThis.createImageBitmap;else globalThis.createImageBitmap=previousBitmap;
     if(previousDocument===undefined)delete globalThis.document;else globalThis.document=previousDocument;
   }
+});
+
+
+test('grouped settings keep team navigation and process import/export beside the default editor',()=>{
+  const page=renderToStaticMarkup(React.createElement(SettingsPage,{title:'Settings',groups:[{title:'Team',scope:'team',items:[['processes','Processes']]}],selected:'processes'},'Process editor'));
+  assert.match(page,/bc-settings-nav-group/);
+  assert.match(page,/aria-current="page"[^>]*>Processes/);
+  const processes=renderToStaticMarkup(React.createElement(TeamProcesses,{team:{processes:[]},canManage:true,canCreate:true}));
+  for(const label of ['Customize default','Export','Import process','Create process'])assert(processes.includes(label),label);
 });

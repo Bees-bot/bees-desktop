@@ -33,7 +33,7 @@ test('hosted gateway authenticates each request and routes only to the matching 
   assert.equal((await fetch(url+'/bees-api/threads',{method:'POST',headers:{origin:'https://attacker.example','content-type':'application/json'},body:'{}'})).status,403);
   for(const user of ['alice','bob']){
    const login=await fetch(url+'/bees-api/threads',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'login',url:'https://attacker.example',email:user+'@example.com',password:'fixture'})});assert.equal(login.status,200);assert.match(login.headers.get('set-cookie'),/HttpOnly/);
-   const r=await fetch(url+'/bees-api/threads',{headers:{cookie:login.headers.get('set-cookie').split(';')[0]}});assert.equal((await r.json()).account,user);
+   const r=await fetch(url+'/bees-api/threads',{headers:{cookie:login.headers.getSetCookie().find(value=>value.startsWith('bees_hosted_session=')).split(';')[0]}});assert.equal((await r.json()).account,user);
   }
   assert.deepEqual(calls.map(([u,s])=>[u,s]),[['alice','alice'],['alice','alice'],['bob','bob'],['bob','bob']]);
   const start=await fetch(url+'/bees-api/threads',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'startLogin',provider:'google',state:'01234567-0123-4123-8123-0123456789ab',url:'https://attacker.example'})});
@@ -45,5 +45,74 @@ test('hosted gateway authenticates each request and routes only to the matching 
   const rejected=await fetch(url+'/bees-api/threads',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'login',session:'revoked'})});
   assert.equal(rejected.status,401);assert.equal(rejected.headers.get('set-cookie'),null);
   assert.equal((await fetch(url+'/bees-api/threads',{headers:{cookie:'bees_hosted_session=revoked'}})).status,401);
+ }finally{await Promise.all(servers.map(close));}
+});
+
+test('one browser retains all accounts and organizations while commands and sign-out stay account scoped',async()=>{
+ const servers=[],revoked=new Set(),unavailable=new Set(),commands=[],provisioned=new Set();
+ const directory=createServer((req,res)=>{
+  const token=String(req.headers.authorization??'').slice(7);
+  res.setHeader('content-type','application/json');
+  if(req.url!=='/api/me'||!['alice','bob'].includes(token)||revoked.has(token)){res.statusCode=401;return res.end('{}');}
+  res.end(JSON.stringify({user:{id:token,email:token+'@example.com'}}));
+ });servers.push(directory);
+ try{
+  const directoryUrl=await listen(directory),clients={},jar=new Map();
+  for(const user of ['alice','bob']){
+   const worker=createServer(async(req,res)=>{
+    assert.equal(req.headers.authorization,'Bearer private-'+user);
+    res.setHeader('content-type','application/json');
+    if(unavailable.has(user)){res.statusCode=503;return res.end('{}');}
+    if(req.method==='POST'){
+     const chunks=[];for await(const chunk of req)chunks.push(chunk);
+     const input=JSON.parse(Buffer.concat(chunks));commands.push({user,...input});
+     if(input.action==='selectOrganization'&&input.organizationId!==user+'-org'){res.statusCode=403;return res.end(JSON.stringify({error:'Organization membership required'}));}
+     return res.end(JSON.stringify({ok:true}));
+    }
+    res.end(JSON.stringify({user:{id:user},threads:[{id:user+'-thread'}],organizations:[{id:user+'-org',name:'Studio',appearance:{icon:'star'}}],settings:{}}));
+   });servers.push(worker);clients[user]={url:await listen(worker),token:'private-'+user};
+  }
+  const provision=async user=>{provisioned.add(user.id);return clients[user.id];};
+  let gateway=createHostedGateway({directoryUrl,assets:'/unused',provision});servers.push(gateway);let url=await listen(gateway);
+  const request=async(input,path='/bees-api/threads')=>{
+   const response=await fetch(url+path,{headers:{cookie:[...jar].map(([key,value])=>key+'='+value).join('; '),...(input?{'content-type':'application/json'}:{})},...(input?{method:'POST',body:JSON.stringify(input)}:{})});
+   for(const line of response.headers.getSetCookie()){
+    assert.match(line,/HttpOnly; SameSite=Lax; Path=\//);
+    const [name,value]=line.split(';')[0].split('=');if(value)jar.set(name,value);else jar.delete(name);
+   }
+   return {status:response.status,value:await response.json()};
+  };
+  // An existing browser cookie upgrades without requiring another login.
+  jar.set('bees_hosted_session','alice');
+  assert.equal((await request({action:'login',session:'bob'})).status,200);
+  let result=await request();assert.equal(result.status,200);
+  let accounts=result.value.accounts;assert.equal(accounts.length,2);
+  const alice=accounts.find(account=>account.user.id==='alice'),bob=accounts.find(account=>account.user.id==='bob');
+  assert.equal(bob.active,true);assert.equal(alice.active,false);
+  assert.deepEqual(accounts.map(account=>account.organizations[0].id),['alice-org','bob-org']);
+  assert.equal(alice.organizations[0].appearance.icon,'star');
+  assert.deepEqual(result.value.threads,[{id:'bob-thread'}]);
+  assert.deepEqual([...provisioned].sort(),['alice','bob']);
+  assert(!JSON.stringify(accounts).includes('private-'));assert(accounts.every(account=>!('token' in account)));
+  assert.equal((await request({action:'switchAccount',accountId:'unknown'})).status,401);
+  // Renaming a cookie cannot substitute another user's credentials for an account.
+  const aliceCookie='bees_hosted_account_'+alice.id;
+  jar.set(aliceCookie,'bob');assert.equal((await request({action:'switchAccount',accountId:alice.id})).status,401);jar.set(aliceCookie,'alice');
+  assert.equal((await request({action:'selectOrganization',accountId:alice.id,organizationId:'bob-org'})).status,403);
+  assert.equal(jar.get('bees_hosted_session'),'bob','Failed selection keeps the prior view');
+  assert.equal((await request({action:'selectOrganization',accountId:alice.id,organizationId:'alice-org'})).status,200);
+  assert.deepEqual(commands.at(-1),{user:'alice',action:'selectOrganization',accountId:null,organizationId:'alice-org'});
+  result=await request();assert.deepEqual(result.value.threads,[{id:'alice-thread'}]);assert.equal(result.value.accounts.length,2);
+  unavailable.add('bob');result=await request();assert.equal(result.status,200);assert(result.value.accounts.find(account=>account.id===bob.id).organizationError);unavailable.clear();
+  // The gateway holds no in-memory login state; browser cookies restore every account.
+  await close(gateway);gateway=createHostedGateway({directoryUrl,assets:'/unused',provision});servers.push(gateway);url=await listen(gateway);
+  assert.equal((await request()).value.accounts.length,2);
+  assert.equal((await request({action:'logout'})).status,200);
+  assert(!jar.has(aliceCookie));result=await request();assert.equal(result.value.user.id,'bob');assert.equal(result.value.accounts.length,1);
+  assert.equal((await request({action:'switchAccount',accountId:alice.id})).status,401);
+  assert(!commands.some(command=>command.action==='logout'),'Browser sign-out leaves cloud work running');
+  await request({action:'login',session:'alice'});await request({action:'switchAccount',accountId:bob.id});revoked.add('bob');result=await request();assert.equal(result.status,200);assert.equal(result.value.user.id,'alice');assert.equal(result.value.accounts.length,1);
+  assert(!jar.has('bees_hosted_account_'+bob.id));
+  await request({action:'logout'});assert.equal((await request()).status,401);
  }finally{await Promise.all(servers.map(close));}
 });
