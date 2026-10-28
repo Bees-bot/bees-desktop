@@ -1,4 +1,4 @@
-import { h, MarkdownText, useEffect } from './runtime.js';
+import { h, useEffect, MarkdownText } from './runtime.js';
 import { when } from './common.js';
 import { DEFAULT_WORKFLOW, processName, isChatWorkflow } from '../lib/thread-workflow.js';
 import { labels } from './thread-kanban.js';
@@ -48,7 +48,7 @@ export function SettingsPage({title,items,groups,selected,onSelect,onClose,child
   return h('section',{className:'bc-settings-page','aria-label':title},
     h('header',{className:'bc-thread-header bc-settings-header'},
       h('h2',null,title),
-      h('button',{className:'bc-icon','aria-label':'Close settings',onClick:onClose},'×')),
+      h('button',{className:'bc-icon','aria-label':'Close settings',title:'Close settings (Esc)',onClick:onClose},'×')),
     h('div',{className:`bc-settings-layout${hasNav?'':' bc-no-nav'}`},
       hasNav?h(SettingsNav,{items,groups,selected,onSelect,label:`${title} sections`}):null,
       h('div',{className:'bc-settings-content'},children)));

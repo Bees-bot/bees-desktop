@@ -184,3 +184,25 @@ test('grouped settings keep team navigation and process import/export beside the
   const processes=renderToStaticMarkup(React.createElement(TeamProcesses,{team:{processes:[]},canManage:true,canCreate:true}));
   for(const label of ['Customize default','Export','Import process','Create process'])assert(processes.includes(label),label);
 });
+
+
+test('settings Escape closes once and leaves fields and handled events alone',()=>{
+  const previousDocument=globalThis.document,previousWindow=globalThis.window;
+  const listeners=new Set(),cleanup=[];let closed=0;
+  const target={addEventListener:(_name,fn)=>listeners.add(fn),removeEventListener:(_name,fn)=>listeners.delete(fn)};
+  globalThis.document=target;globalThis.window=target;
+  configureRuntime(name=>({react:{...React,useEffect:fn=>cleanup.push(fn())},'react-dom':{},'@deepseek-ai/dsh-client-ui-primitives':{}})[name],{hosted:true});
+  try{
+    SettingsPage({title:'Settings',onClose:()=>closed++});
+    const press=event=>{for(const listener of listeners)listener({key:'Escape',target:{closest:()=>null},...event});};
+    press({target:{closest:()=>({})}});assert.equal(closed,0,'fields and open dialogs keep Escape');
+    press({defaultPrevented:true});assert.equal(closed,0,'handled events stay handled');
+    press({});assert.equal(closed,1);
+  }finally{
+    for(const dispose of cleanup)dispose?.();
+    if(previousDocument===undefined)delete globalThis.document;else globalThis.document=previousDocument;
+    if(previousWindow===undefined)delete globalThis.window;else globalThis.window=previousWindow;
+    configure(true);
+  }
+  assert.equal(listeners.size,0);
+});

@@ -10,8 +10,42 @@ window.__ModuleLoader__.load({
     const CODEX_ACCESS_REF = "BEES_CODEX_ACCESS_TOKEN";
     const CLAUDE_INSTALL_URL = "https://claude.com/product/claude-code";
     const css = `
-      .bees-subscription{flex-wrap:wrap}.bees-cli-path{flex-basis:100%;min-width:0}.bees-cli-path-controls{display:flex;gap:7px;flex-wrap:wrap;margin-top:6px}.bees-cli-path-controls input{flex:1 1 240px;min-width:0}.bees-cli-path p{margin:6px 0 0}
-      .bees-subscriptions{display:grid;gap:10px}.bees-subscription{display:flex;align-items:center;justify-content:space-between;gap:16px}.bees-subscription-main{min-width:0}.bees-subscription-models{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px}.bees-subscription-models .bees-badge{gap:4px;text-transform:none}.bees-subscription-models .bees-badge .bees-btn{padding:0;border:0;background:transparent;font-size:14px;line-height:1}.bees-subscription-actions{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap}.bees-sub-toggle{display:inline-flex;align-items:center;gap:7px;cursor:pointer}.bees-sub-toggle input{appearance:none;width:34px;height:20px;margin:0;border:1px solid var(--dsw-alias-border-l1);border-radius:999px;background:var(--dsw-specific-sidebar-fill);position:relative}.bees-sub-toggle input:after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:var(--dsw-alias-label-secondary);transition:.15s}.bees-sub-toggle input:checked{border-color:#f2b84b;background:#f2b84b}.bees-sub-toggle input:checked:after{left:16px;background:#151515}
+      .bees-subscriptions{display:grid;gap:16px}
+      .bees-subscription{display:flex;flex-direction:column;gap:16px;padding:20px;border:1px solid var(--line,#e9ebe5);border-radius:14px;background:var(--surface,#fff);box-sizing:border-box}
+      .bees-subscription-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}
+      .bees-subscription-header-info{flex:1 1 280px;min-width:0}
+      .bees-subscription-header-info h3{margin:0 0 4px;font-size:16px;font-weight:650;color:var(--ink,#242820)}
+      .bees-subscription-header-info p{margin:0;font-size:13px;line-height:1.45;color:var(--muted,#787d72)}
+      .bees-subscription-header-actions{display:flex;align-items:center;gap:10px;flex-shrink:0}
+      .bees-subscription-models-section{display:flex;flex-direction:column;gap:8px}
+      .bees-subscription-models-header{display:flex;align-items:center;justify-content:space-between;font-size:12px}
+      .bees-subscription-models-header strong{font-weight:600;color:var(--ink,#242820)}
+      .bees-subscription-models{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+      .bees-subscription-models .bees-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:8px;background:var(--surface-alt,#f4f5f1);border:1px solid var(--line,#e9ebe5);color:var(--ink,#242820);font-size:12px;font-weight:550;text-transform:none}
+      .bees-subscription-models .bees-badge .bees-btn{padding:0 2px;border:0;background:transparent;color:var(--muted,#787d72);font-size:14px;line-height:1;min-height:auto;cursor:pointer}
+      .bees-subscription-models .bees-badge .bees-btn:hover{color:var(--ink,#242820)}
+      .bees-subscription-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding-top:14px;border-top:1px solid var(--line,#e9ebe5);margin-top:2px}
+      .bees-subscription-footer-left{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+      .bees-cli-path{flex-basis:100%;min-width:0;margin-top:2px}
+      .bees-cli-path label{display:block;font-size:12px;font-weight:600;color:var(--ink,#242820);margin-bottom:6px}
+      .bees-cli-path-controls{display:flex;gap:8px;flex-wrap:wrap}
+      .bees-cli-path-controls input{flex:1 1 240px;min-width:0}
+      .bees-cli-path p{margin:6px 0 0;font-size:12px;color:var(--muted,#787d72)}
+
+      /* Modern Toggle Switch */
+      .bees-sub-toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;user-select:none}
+      .bees-sub-toggle .bees-sub-toggle-label{font-size:12px;font-weight:600;color:var(--ink,#242820)}
+      .bees-sub-toggle input{appearance:none;-webkit-appearance:none;width:38px;height:22px;margin:0;border:1px solid var(--line,#d4d7ce);border-radius:999px;background:color-mix(in srgb,var(--ink,#242820) 14%,var(--surface,#fff));position:relative;cursor:pointer;transition:background-color .2s cubic-bezier(.4,0,.2,1),border-color .2s cubic-bezier(.4,0,.2,1);flex-shrink:0}
+      .bees-sub-toggle input:hover:not(:disabled){border-color:color-mix(in srgb,var(--ink,#242820) 30%,var(--line,#d4d7ce))}
+      .bees-sub-toggle input:focus-visible{outline:2px solid var(--accent,#717d4b);outline-offset:2px}
+      .bees-sub-toggle input:after{content:"";position:absolute;left:2px;top:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2),0 1px 1px rgba(0,0,0,.1);transition:transform .2s cubic-bezier(.4,0,.2,1)}
+      .bees-sub-toggle input:checked{background:var(--accent,#717d4b);border-color:var(--accent,#717d4b)}
+      .bees-sub-toggle input:checked:after{transform:translateX(16px);background:#fff}
+      .bees-sub-toggle input:disabled{opacity:.45;cursor:not-allowed}
+
+      /* Status badge */
+      .bees-status{font-size:11px;font-weight:650;text-transform:uppercase;letter-spacing:.04em;padding:3px 8px;border-radius:6px;background:var(--surface-alt,#f4f5f1);color:var(--muted,#787d72);border:1px solid var(--line,#e9ebe5);display:inline-flex;align-items:center}
+      .bees-status.bees-running{background:var(--soft,#f0f7e6);color:var(--accent,#717d4b);border-color:color-mix(in srgb,var(--accent,#717d4b) 30%,transparent)}
     `;
 
     function usePreference(scope) {
@@ -134,54 +168,84 @@ window.__ModuleLoader__.load({
         ),
         h("div", { className: "bees-subscriptions" },
           h("section", { className: "bees-box bees-subscription", "data-subscription": "codex" },
-            h("div", { className: "bees-subscription-main" }, h("h3", null, "Codex"),
-              h("p", { className: "bees-muted" }, busy === "codex" ? "Finish signing in in the browser window."
-                : status.codex ? "Available models refresh automatically. Models you remove stay hidden."
-                  : "Sign in with ChatGPT; no CLI installation or API key is required."),
-              status.codexModelError ? h("p", { className: "bees-muted", role: "status" }, status.codexModelError) : null,
-              status.codex ? h("div", { className: "bees-subscription-models", style: { display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center", marginTop: "8px" } },
-                ...(codexModels.length ? codexModels.map((model) => h("span", { className: "bees-badge", key: model.id, style: { display: "inline-flex", alignItems: "center", gap: "4px" } }, model.id,
+            h("div", { className: "bees-subscription-header" },
+              h("div", { className: "bees-subscription-header-info bees-subscription-main" },
+                h("h3", null, "Codex"),
+                h("p", { className: "bees-muted" }, busy === "codex" ? "Finish signing in in the browser window."
+                  : status.codex ? "Available models refresh automatically. Models you remove stay hidden."
+                    : "Sign in with ChatGPT; no CLI installation or API key is required."),
+                status.codexModelError ? h("p", { className: "bees-muted", role: "status" }, status.codexModelError) : null
+              ),
+              h("div", { className: "bees-subscription-header-actions" },
+                h("span", { className: `bees-status ${status.codex && codexEnabled ? "bees-running" : ""}` },
+                  status.codex && codexEnabled ? "Connected" : status.codex ? "Off" : "Not connected"),
+                status.codex ? h("label", { className: "bees-sub-toggle", title: codexEnabled ? "Codex is enabled" : "Codex is disabled" },
+                  h("input", { type: "checkbox", role: "switch", checked: codexEnabled,
+                    disabled: Boolean(busy),
+                    "aria-label": "Enable Codex", onChange: (event) => toggleCodex(event.target.checked) }),
+                  h("span", { className: "bees-sub-toggle-label" }, codexEnabled ? "On" : "Off")) : null,
+                !status.codex ? h(Button, { className: "primary", disabled: Boolean(busy), onClick: connectCodex },
+                  busy === "codex" ? "Waiting for sign-in…" : "Sign in") : null
+              )
+            ),
+            status.codex ? h("div", { className: "bees-subscription-models-section" },
+              h("div", { className: "bees-subscription-models-header" },
+                h("strong", null, "Available models"),
+                h("span", { className: "bees-muted" }, `${codexModels.length} models`)
+              ),
+              h("div", { className: "bees-subscription-models" },
+                ...(codexModels.length ? codexModels.map((model) => h("span", { className: "bees-badge", key: model.id }, model.id,
                   h(Button, { title: `Remove ${model.id}`,
                     "aria-label": `Remove ${model.id}`, disabled: Boolean(busy) || codexModels.length <= 1,
                     onClick: () => removeCodexModel(model.id) }, "×")))
                   : [h("span", { className: "bees-muted", key: "all" }, "All available models")]),
-                h(Button, { disabled: Boolean(busy), onClick: addCodexModel }, "Add model")) : null),
-            h("div", { className: "bees-subscription-actions" },
-              h("span", { className: `bees-status ${status.codex && codexEnabled ? "bees-running" : ""}` },
-                status.codex && codexEnabled ? "Connected" : status.codex ? "Signed in · off" : "Not connected"),
-              status.codex ? h("label", { className: "bees-sub-toggle" },
-                h("input", { type: "checkbox", role: "switch", checked: codexEnabled,
-                  disabled: Boolean(busy),
-                  "aria-label": "Enable Codex", onChange: (event) => toggleCodex(event.target.checked) }),
-                h("span", null, codexEnabled ? "On" : "Off")) : null,
-              h(Button, { className: status.codex ? "" : "primary", disabled: Boolean(busy), onClick: connectCodex },
-                busy === "codex" ? "Waiting for sign-in…" : status.codex ? "Reconnect" : "Sign in"),
-              status.codex ? h(Button, { disabled: Boolean(busy), onClick: testCodex },
-                busy === "codex-test" ? "Testing…" : "Test") : null,
-              status.codex ? h(Button, { className: "danger", disabled: Boolean(busy), onClick: disconnectCodex }, "Disconnect") : null)),
+                h(Button, { disabled: Boolean(busy), onClick: addCodexModel }, "+ Add model")
+              )
+            ) : null,
+            status.codex ? h("div", { className: "bees-subscription-footer bees-subscription-actions" },
+              h("div", { className: "bees-subscription-footer-left" },
+                h(Button, { disabled: Boolean(busy), onClick: connectCodex },
+                  busy === "codex" ? "Waiting for sign-in…" : "Reconnect"),
+                h(Button, { disabled: Boolean(busy), onClick: testCodex },
+                  busy === "codex-test" ? "Testing…" : "Test connection")
+              ),
+              h(Button, { className: "danger", disabled: Boolean(busy), onClick: disconnectCodex }, "Disconnect")
+            ) : null
+          ),
           h("section", { className: "bees-box bees-subscription", "data-subscription": "claude-code" },
-            h("div", { className: "bees-subscription-main" }, h("h3", null, "Claude Code"),
-              h("p", { className: "bees-muted" }, !claude.configured ? "Uses the Claude Code already installed on this computer."
-                : claude.signedIn === false ? "Not signed in. Open Terminal, run claude and sign in."
-                  : claude.version || "Claude Code is ready"),
-              claude.configured ? h("div", { className: "bees-subscription-models", style: { display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center", marginTop: "8px" } },
-                ...claude.models.map((id) => h("span", { className: "bees-badge", key: id, style: { display: "inline-flex", alignItems: "center", gap: "4px" } }, id,
+            h("div", { className: "bees-subscription-header" },
+              h("div", { className: "bees-subscription-header-info bees-subscription-main" },
+                h("h3", null, "Claude Code"),
+                h("p", { className: "bees-muted" }, !claude.configured ? "Uses the Claude Code already installed on this computer."
+                  : claude.signedIn === false ? "Not signed in. Open Terminal, run claude and sign in."
+                    : claude.version || "Claude Code is ready")
+              ),
+              h("div", { className: "bees-subscription-header-actions" },
+                h("span", { className: `bees-status ${claude.enabled && claude.signedIn !== false ? "bees-running" : ""}` },
+                  !claude.configured ? "Not configured" : !claude.enabled ? "Off" : claude.signedIn === false ? "Signed out" : "Connected"),
+                claude.configured ? h("label", { className: "bees-sub-toggle", title: claude.enabled ? "Claude Code is enabled" : "Claude Code is disabled" },
+                  h("input", { type: "checkbox", role: "switch", checked: Boolean(claude.enabled),
+                    disabled: Boolean(busy),
+                    "aria-label": "Enable Claude Code", onChange: (event) => toggleClaude(event.target.checked) }),
+                  h("span", { className: "bees-sub-toggle-label" }, claude.enabled ? "On" : "Off")) : null,
+                !claude.configured
+                  ? h(Button, { disabled: Boolean(busy), onClick: () => perform("claude-link", () => openExternal(CLAUDE_INSTALL_URL)) }, "Get Claude Code")
+                  : null
+              )
+            ),
+            claude.configured && claude.models?.length ? h("div", { className: "bees-subscription-models-section" },
+              h("div", { className: "bees-subscription-models-header" },
+                h("strong", null, "Available models"),
+                h("span", { className: "bees-muted" }, `${claude.models.length} models`)
+              ),
+              h("div", { className: "bees-subscription-models" },
+                ...claude.models.map((id) => h("span", { className: "bees-badge", key: id }, id,
                   h(Button, { title: `Remove ${id}`, "aria-label": `Remove ${id}`,
                     disabled: Boolean(busy) || claude.models.length <= 1,
                     onClick: () => saveClaudeModels(claude.models.filter((model) => model !== id)) }, "×"))),
-                h(Button, { disabled: Boolean(busy), onClick: addClaudeModel }, "Add model")) : null),
-            h("div", { className: "bees-subscription-actions" },
-              h("span", { className: `bees-status ${claude.enabled && claude.signedIn !== false ? "bees-running" : ""}` },
-                !claude.configured ? "Not configured" : !claude.enabled ? "Off" : claude.signedIn === false ? "Signed out" : "Connected"),
-              claude.configured ? h("label", { className: "bees-sub-toggle" },
-                h("input", { type: "checkbox", role: "switch", checked: Boolean(claude.enabled),
-                  disabled: Boolean(busy),
-                  "aria-label": "Enable Claude Code", onChange: (event) => toggleClaude(event.target.checked) }),
-                h("span", null, claude.enabled ? "On" : "Off")) : null,
-              claude.configured
-                ? h(Button, { disabled: Boolean(busy), onClick: testClaude }, busy === "claude" ? "Testing…" : "Test")
-                : h(Button, { disabled: Boolean(busy), onClick: () => perform("claude-link", () => openExternal(CLAUDE_INSTALL_URL)) }, "Get Claude Code"),
-              claude.configured ? h(Button, { className: "danger", disabled: Boolean(busy), onClick: disconnectClaude }, "Disconnect") : null),
+                h(Button, { disabled: Boolean(busy), onClick: addClaudeModel }, "+ Add model")
+              )
+            ) : null,
             h("form", { className: "bees-cli-path", onSubmit: (event) => { event.preventDefault(); if (!busy) void configureClaude(); } },
               h("label", { htmlFor: "bees-claude-path" }, "Claude Code CLI path"),
               h("div", { className: "bees-cli-path-controls" },
@@ -194,7 +258,16 @@ window.__ModuleLoader__.load({
                 h(Button, { type: "submit", className: "primary", disabled: Boolean(busy) },
                   busy === "claude-path" ? "Checking…" : claude.configured ? "Save path" : "Connect")),
               h("p", { id: "bees-claude-path-help", className: "bees-muted" },
-                "Choose the claude executable file. Leave the path blank to find it automatically.")))),
+                "Choose the claude executable file. Leave the path blank to find it automatically.")
+            ),
+            claude.configured ? h("div", { className: "bees-subscription-footer bees-subscription-actions" },
+              h("div", { className: "bees-subscription-footer-left" },
+                h(Button, { disabled: Boolean(busy), onClick: testClaude }, busy === "claude" ? "Testing…" : "Test connection")
+              ),
+              h(Button, { className: "danger", disabled: Boolean(busy), onClick: disconnectClaude }, "Disconnect")
+            ) : null
+          )
+        ),
         notice ? h("div", { className: "bees-callout", role: "status" }, notice) : null,
         error ? h("div", { className: "bees-error", role: "alert" }, error) : null);
     }

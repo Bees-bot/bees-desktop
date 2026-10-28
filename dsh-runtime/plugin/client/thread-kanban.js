@@ -40,17 +40,20 @@ function WorkCard({ card, selected, onSelect }) {
 }
 
 function WorkDetails({ card, run, onSelect, onClose }) {
-  return h('section', { className: 'bc-kanban-details bc-card bc-form', 'aria-label': 'Work item details' },
+  return h('section', { className: 'bc-kanban-details bc-form', 'aria-label': 'Work item details' },
     h('div', { className: 'bc-kanban-details-header' },
       h('div', { className: 'bc-kanban-card-heading' }, h('h3', null, card.title), badge(card.status)),
       onClose ? h('button', { type: 'button', className: 'bc-icon bc-kanban-close', 'aria-label': 'Close details', title: 'Close details', onClick: onClose }, '×') : null),
     card.parentTitle ? h('button', { className: 'bc-kanban-parent-link', onClick: () => onSelect(card.parentCardId) }, `Parent: ${card.parentTitle}`) : null,
     card.task && card.task !== card.title ? h('p', { className: 'bc-preserve' }, card.task) : null,
-    h('div', { className: 'bc-kanban-agent-details' }, card.agents.map(agent => h('article', { key: agent.id, className: 'bc-card bc-form' },
-      h('div', { className: 'bc-kanban-card-heading' }, h('strong', null, agent.title || (agent.parentId ? 'Subagent' : `${(run?.workflow ?? DEFAULT_WORKFLOW)[agent.stageIndex]?.name ?? 'Work'} agent`)), badge(agentStatus(agent, run))),
-      h('small', { className: 'bc-muted' }, 'Agent ID ', h('code', null, agent.id)), agent.model ? h('small', null, agent.model) : null,
+    h('div', { className: 'bc-kanban-agent-details' }, card.agents.map(agent => h('article', { key: agent.id, className: 'bc-kanban-agent-card' },
+      h('div', { className: 'bc-kanban-card-heading' },
+        h('strong', null, agent.title || (agent.parentId ? 'Subagent' : `${(run?.workflow ?? DEFAULT_WORKFLOW)[agent.stageIndex]?.name ?? 'Work'} agent`)),
+        card.agents.length > 1 ? badge(agentStatus(agent, run)) : null),
+      h('small', { className: 'bc-muted' }, 'Agent ID ', h('code', null, agent.id)),
+      agent.model ? h('small', null, agent.model) : null,
       agent.completedAt ? h('small', null, `Finished ${when(agent.completedAt)}`) : null))),
-    card.kind === 'Root work item' ? (run?.stages ?? []).map((stage, index) => h('details', { key: index },
+    card.kind === 'Root work item' ? (run?.stages ?? []).map((stage, index) => h('details', { key: index, className: 'bc-kanban-stage-result' },
       h('summary', null, `${stage.name} result`), stage.summary ? h(MarkdownText, { text: stage.summary, content: stage.summary }) : null,
       stage.tools?.length ? h('small', null, 'Tools: ' + stage.tools.map(tool => tool.name).join(', ')) : null))
       : card.summary ? h(MarkdownText, { text: card.summary, content: card.summary }) : null);
@@ -69,12 +72,13 @@ export function ThreadKanban({ thread, onConversation, onWorkflow, icon }) {
     h('header', { className: 'bc-kanban-toolbar' },
       h('div', null, h('h3', null, processName((run ? run.workflow : thread.workflow) ?? DEFAULT_WORKFLOW)),
         h('p', { className: 'bc-muted' }, columns.map(stage => stage.name).join(' → '))),
-      runs.length ? h('label', { className: 'bc-field' }, h('span', null, 'Execution'),
-        h('select', { value: runId, onChange: event => { setRunId(event.target.value); setCardId(''); } },
-          h('option', { value: '' }, 'Latest execution'),
-          [...runs].reverse().map(entry => h('option', { key: entry.id, value: entry.id },
-            `${when(entry.createdAt)} · ${entry.prompt.slice(0, 60)}`)))) : null,
-      h('button', { onClick: onWorkflow, title: 'Process settings' }, icon ? icon('gear') : null, 'Process settings')),
+      h('div', { className: 'bc-kanban-actions' },
+        runs.length ? h('label', { className: 'bc-field bc-kanban-execution-field' }, h('span', null, 'Execution'),
+          h('select', { value: runId, onChange: event => { setRunId(event.target.value); setCardId(''); } },
+            h('option', { value: '' }, 'Latest execution'),
+            [...runs].reverse().map(entry => h('option', { key: entry.id, value: entry.id },
+              `${when(entry.createdAt)} · ${entry.prompt.slice(0, 60)}`)))) : null,
+        h('button', { className: 'bc-kanban-settings-btn', onClick: onWorkflow, title: 'Process settings' }, icon ? icon('gear') : null, 'Process settings'))),
     run ? h('p', { className: 'bc-muted', role: 'status' },
       `Execution: ${labels[run.status] ?? run.status} · ` + (!run.agents || !run.agents.length && run.activityError
         ? 'Agent history unavailable' : `${run.agents.length - subagents.length} agents · ${subagents.length} subagents`),
@@ -93,5 +97,7 @@ export function ThreadKanban({ thread, onConversation, onWorkflow, icon }) {
           })))
           : h('p', { className: 'bc-muted bc-kanban-empty' }, 'No work')))),
     selected ? h(WorkDetails, { card: selected, run, onSelect: setCardId, onClose: () => setCardId('none') }) : null,
-    !run ? h('button', { className: 'bc-primary', onClick: onConversation }, 'Start work in Conversation') : null);
+    !run ? h('div', { className: 'bc-kanban-empty-footer' },
+      h('p', { className: 'bc-muted bc-kanban-empty-note' }, 'Stages and subagent tasks will track here once you start work in Conversation.'),
+      h('button', { className: 'bc-primary', onClick: onConversation }, 'Start work in Conversation')) : null);
 }

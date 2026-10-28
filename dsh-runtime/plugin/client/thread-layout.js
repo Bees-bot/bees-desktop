@@ -111,6 +111,7 @@ export function ThreadWorkspace({ initialLayout, toolbar, navigation, renderWidg
   }
   return h(React.Fragment, null,
     toolbar ? createPortal(h('button', { className: 'bc-customize-layout', disabled: saving, 'aria-pressed': editing,
+      title: editing ? 'Done customizing layout' : 'Customize panel layout (drag to split/group)',
       onClick: () => editing ? finish() : setEditing(true) }, saving ? 'Saving…' : editing ? 'Done customizing' : 'Customize layout'), toolbar) : null,
     editing ? h('section', { className: 'bc-layout-tools', 'aria-label': 'Customize layout' },
       h('p', null, 'Drag tabs onto a panel edge to split, or onto another tab to group. Drag dividers to resize. Your layout applies to all threads on this computer.'),
