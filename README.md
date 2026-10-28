@@ -53,15 +53,13 @@ Account profiles separate threads, certificates and device credentials. First st
 
 ## Open headless Bees from your other devices
 
-Headless Bees works behind `tailscale serve`, so your phone or another laptop on your tailnet can use it while Bees itself still listens only on 127.0.0.1. Add the machine's tailnet name to the config, start Bees, then serve its port:
+With Tailscale running and MagicDNS plus HTTPS turned on for your tailnet, run:
 
 ```sh
-echo '{"stateDir":"/srv/bees","port":8080,"trustedHosts":["mymac.tailnet-name.ts.net"]}' > bees.json
-BEES_DSH_TOKEN=<random 32+ characters> node dsh-runtime/headless.mjs bees.json
-tailscale serve --bg 8080
+npm run start:phone
 ```
 
-Open `https://mymac.tailnet-name.ts.net/bees-auth?token=<that token>` once on each device. That link gives the whole agent, shell included, so keep it private, never use `tailscale funnel`, and limit the port to your own devices in your tailnet access rules.
+It starts headless Bees on 127.0.0.1:8090 with its state in `~/.bees-headless`, serves it to your tailnet on port 8443 with `tailscale serve`, and prints a sign-in link. Open that link once on each device. The link gives the whole agent, shell included, so keep it private and limit the port to your own devices in your tailnet access rules. It refuses to start if port 8443 is public through `tailscale funnel`, already serves something else, or if port 8090 is busy. Stopping it with Ctrl+C also stops serving 8443. If your tailscaled uses its own socket, set `TAILSCALE_SOCKET` to that path. Delete `~/.bees-headless/phone-token` to sign every device out.
 
 ## Hosted Clients
 
@@ -69,7 +67,7 @@ Build the Client image with `docker build -f deploy/headless/Dockerfile -t bees-
 
 The gateway binds loopback behind your HTTPS reverse proxy. It verifies the account session on every request and proxies only the thread and file APIs. It starts one container and named durable volume per `(Server origin, account ID)`. Containers have read-only roots, private loopback HTTP ports, bounded CPU/memory/processes, no extra capabilities and no Docker socket. Only the trusted gateway can control Docker. Set `BEES_CLIENT_IMAGE` to a reviewed registry digest (or immutable local `sha256:` image ID).
 
-Hosted Clients use the same Bees Credits connection as desktop. In Global settings → Credits & billing, choose any USD amount of at least $10 at $1 per million input plus output tokens. The chosen amount also becomes the auto-renew amount when opted in. Refills occur at 100,000 tokens remaining; balances and payment settings belong to the user, never an organization. Stripe Checkout collects card details and explicit recharge consent. Users can update the refill amount or turn auto-renew off in either Client. Starter requests use a server-held per-user OpenRouter key with a lifetime $0.01 cap and do not reserve or deduct purchased tokens. After starter credit is exhausted, purchased packs retain token metering. Model rejection returns purchased-token reservations; unconfirmed purchased-token requests retain a hold for provider reconciliation. BEES_HOSTED_RUNS_PER_DAY=0 disables the separate daily run cap by default, so purchased credits are not limited to one run a day; operators can set an explicit cap. An optional private hosted provider profile remains separate from credit-backed AI. Browser sign-out ends its session while owned work can continue in the hosted Client. Persistent volumes need independent backups.
+Hosted Clients use the same Bees Credits connection as desktop. In Global settings → Credits & billing, choose any USD amount of at least $10 at $1 per million input plus output tokens. The chosen amount also becomes the auto-renew amount when opted in. Refills occur at 100,000 tokens remaining; balances and payment settings belong to the user, never an organization. Stripe Checkout collects card details and explicit recharge consent. Users can update the refill amount or turn auto-renew off in either Client. Starter requests use a server-held per-user OpenRouter key with a lifetime $0.01 cap and do not reserve or deduct purchased tokens. After starter credit is exhausted, purchased packs retain token metering. Model rejection returns purchased-token reservations; unconfirmed purchased-token requests retain a hold for provider reconciliation. BEES_HOSTED_RUNS_PER_DAY=0 disables the separate daily run cap by default, so purchased credits are not limited to one run a day; operators can set an explicit cap. An optional private hosted provider profile remains separate from credit-backed AI. Web keeps every added account signed in and shows their organizations together in the sidebar, with emails distinguishing accounts. Switching organizations changes the current view while the other hosted Clients keep running. Browser sign-out removes only the current account from that browser while owned work can continue in the hosted Client. Persistent volumes need independent backups.
 
 For the production GKE cluster, `deploy/hosted/kubernetes.yaml` runs the same gateway with the Kubernetes backend. Build for `linux/amd64`, push the tested image, replace both `__CLIENT_IMAGE__` placeholders with its full registry `@sha256:` digest, and apply the manifest. The existing `app.bees.bot` API ingress owns TLS; the new ingress routes `/app`, `/bees-api`, and `/bees-auth` to the Client gateway. Keep the API at one replica with `Recreate` while its relay registry is in memory.
 

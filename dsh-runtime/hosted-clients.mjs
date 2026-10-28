@@ -66,7 +66,7 @@ if(state){const channel=new BroadcastChannel('bees-sign-in-'+state);channel.post
       }
       if(url.pathname.startsWith('/app/assets/')){const name=url.pathname.slice('/app/assets/'.length);if(!/^[a-zA-Z0-9_.-]+$/.test(name))return json(res,404,{error:'Unavailable'});let content;try{content=await readFile(join(assets,name));}catch(error){if(error.code==='ENOENT')return json(res,404,{error:'Unavailable'});throw error;}res.writeHead(200,{'content-type':name.endsWith('.js')?'text/javascript':name.endsWith('.css')?'text/css':'application/octet-stream','cache-control':'no-cache','x-content-type-options':'nosniff'});return res.end(content);}
       if(!['/bees-api/threads','/bees-api/thread-file'].includes(url.pathname))return json(res,404,{error:'Unavailable'});
-      const bytes=req.method==='POST'?await body(req):undefined;
+      let bytes=req.method==='POST'?await body(req):undefined;
       const input=bytes&&url.pathname==='/bees-api/threads'?JSON.parse(bytes.toString()):null;
       if(input?.action==='authConfig')return json(res,200,await authConfig(directory.origin));
       if(input?.action==='startLogin'){
@@ -75,27 +75,74 @@ if(state){const channel=new BroadcastChannel('bees-sign-in-'+state);channel.post
         return json(res,200,{url:browserSignInUrl(directory.origin,input,redirect.toString())});
       }
       if(['finishLogin','cancelLogin'].includes(input?.action))return json(res,400,{error:'Sign in through Bees Cloud'});
-      let token=decodeURIComponent(String(req.headers.cookie??'').split(';').map(p=>p.trim().split('=')).find(([k])=>k==='bees_hosted_session')?.[1]??'');
-      if(input?.action==='logout')return json(res,200,{ok:true},{'set-cookie':'bees_hosted_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0'});
+      const cookies=new Map(String(req.headers.cookie??'').split(';').map(part=>{const index=part.indexOf('=');return [part.slice(0,index).trim(),decodeURIComponent(part.slice(index+1))];}));
+      const accountPrefix='bees_hosted_account_';
+      const sessions=new Map([...cookies].filter(([name])=>new RegExp('^'+accountPrefix+'[a-f0-9]{64}$').test(name)).map(([name,token])=>[name.slice(accountPrefix.length),token]));
+      const cookie=(name,value)=>res.setHeader('set-cookie',[...(res.getHeader('set-cookie')??[]),`${name}=${encodeURIComponent(value)}; HttpOnly; SameSite=Lax; Path=/${publicUrl?.startsWith('https:')?'; Secure':''}${value?'':'; Max-Age=0'}`]);
+      const identify=async token=>{
+        const response=await fetch(directory.origin+'/api/me',{headers:{authorization:'Bearer '+token},signal:AbortSignal.timeout(10000)});
+        if(response.status===401)return null;
+        if(!response.ok)throw Error("Bees can't be reached right now.");
+        const {user}=await response.json();return {id:hash(directory.origin+'\n'+user.id),user,token};
+      };
+      const switching=['switchAccount','selectOrganization'].includes(input?.action);
+      let token=cookies.get('bees_hosted_session')||sessions.values().next().value;
+      if(switching&&input.accountId!=null){token=sessions.get(input.accountId);if(!token)return json(res,401,{error:'Sign in to this account again'});}
+      if(input?.action==='logout'){
+        for(const [id,session] of sessions)if(session===token)cookie(accountPrefix+id,'');
+        cookie('bees_hosted_session','');return json(res,200,{ok:true});
+      }
       if(input?.action==='login'){
+        // Preserve an existing single-account browser session when adding its first extra account.
+        if(token){const prior=await identify(token);if(prior)cookie(accountPrefix+prior.id,token);}
         if(input.session)token=String(input.session);
         else {
-        const r=await fetch(directory.origin+'/api/auth/'+(input.name?'sign-up/email':'sign-in/email'),{method:'POST',headers:{'content-type':'application/json',origin:directory.origin,'x-forwarded-for':String(req.headers['x-real-ip']??req.socket.remoteAddress??'')},body:JSON.stringify({email:input.email,password:input.password,...(input.name?{name:input.name}:{})}),signal:AbortSignal.timeout(20000)});
-        const value=await r.json();if(!r.ok)return json(res,r.status,{error:value.message??'Sign in failed'});token=r.headers.get('set-auth-token')??value.token;
+          const r=await fetch(directory.origin+'/api/auth/'+(input.name?'sign-up/email':'sign-in/email'),{method:'POST',headers:{'content-type':'application/json',origin:directory.origin,'x-forwarded-for':String(req.headers['x-real-ip']??req.socket.remoteAddress??'')},body:JSON.stringify({email:input.email,password:input.password,...(input.name?{name:input.name}:{})}),signal:AbortSignal.timeout(20000)});
+          const value=await r.json();if(!r.ok)return json(res,r.status,{error:value.message??'Sign in failed'});token=r.headers.get('set-auth-token')??value.token;
         }
       }
       if(!token)return json(res,401,{error:'Sign in to Bees Client'});
-      const auth=await fetch(directory.origin+'/api/me',{headers:{authorization:'Bearer '+token},signal:AbortSignal.timeout(10000)});if(!auth.ok)return json(res,401,{error:'Sign in again'});
-      const {user}=await auth.json();const client=await provision(user,token);
+      let account=await identify(token);
+      if(!account&&req.method==='GET'&&url.pathname==='/bees-api/threads'){
+        for(const [id,session] of sessions){
+          const candidate=await identify(session);if(!candidate||candidate.id!==id){cookie(accountPrefix+id,'');continue;}
+          account=candidate;token=session;cookie('bees_hosted_session',token);break;
+        }
+      }
+      if(!account)return json(res,401,{error:'Sign in again'});
+      if(switching&&input.accountId!=null&&input.accountId!==account.id)return json(res,401,{error:'Sign in to this account again'});
+      const client=await provision(account.user,token);
       if(input?.action==='login'){
         const resumed=await fetch(client.url+'/bees-api/threads',{method:'POST',headers:{authorization:'Bearer '+client.token,'content-type':'application/json'},body:JSON.stringify({action:'resumeSession',session:token}),signal:AbortSignal.timeout(20000)});
         if(!resumed.ok)throw Error('Hosted client account enrollment failed');
-        return json(res,200,{user},{'set-cookie':`bees_hosted_session=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/${publicUrl?.startsWith('https:')?'; Secure':''}`});
+        cookie(accountPrefix+account.id,token);cookie('bees_hosted_session',token);
+        return json(res,200,{user:account.user});
       }
       if(input?.action==='resumeSession')return json(res,403,{error:'Sign in through Bees Cloud'});
+      if(input?.action==='switchAccount'){cookie('bees_hosted_session',token);return json(res,200,{ok:true});}
+      if(input?.action==='selectOrganization')bytes=Buffer.from(JSON.stringify({...input,accountId:null}));
+      if(req.method==='GET'&&url.pathname==='/bees-api/threads'){
+        const snapshot=await fetch(client.url+'/bees-api/threads',{headers:{authorization:'Bearer '+client.token},signal:AbortSignal.timeout(60000)});
+        if(!snapshot.ok)return json(res,snapshot.status,{error:'Could not load this account'});
+        const value=await snapshot.json();
+        const accounts=await Promise.all([...sessions].filter(([id])=>id!==account.id).map(async([id,session])=>{
+          const other=await identify(session).catch(()=>undefined);if(other===undefined)return null;if(!other||other.id!==id){cookie(accountPrefix+id,'');return null;}
+          try{
+            const target=await provision(other.user,session);
+            const response=await fetch(target.url+'/bees-api/snapshot',{headers:{authorization:'Bearer '+target.token},signal:AbortSignal.timeout(10000)});
+            if(!response.ok)throw Error('Could not load organizations');
+            const state=await response.json();return {id,user:other.user,url:directory.origin,active:false,organizations:state.organizations??[],organizationError:state.organizationError??null};
+          }catch(error){return {id,user:other.user,url:directory.origin,active:false,organizations:[],organizationError:error.message};}
+        }));
+        accounts.push({id:account.id,user:account.user,url:directory.origin,active:true,organizations:value.organizations??[],organizationError:value.organizationError??null});
+        if(sessions.get(account.id)!==token)cookie(accountPrefix+account.id,token);
+        if(!cookies.get('bees_hosted_session'))cookie('bees_hosted_session',token);
+        return json(res,200,{...value,localActive:false,accounts:accounts.filter(Boolean).sort((a,b)=>(a.user.email??'').localeCompare(b.user.email??''))});
+      }
       const response=await fetch(client.url+url.pathname+url.search,{method:req.method,headers:{authorization:'Bearer '+client.token,'content-type':'application/json'},...(bytes?{body:bytes}:{}),signal:AbortSignal.timeout(60000)});
       const headers={'content-type':response.headers.get('content-type')??'application/octet-stream','cache-control':'no-store','x-content-type-options':'nosniff'};
       if(response.headers.get('content-disposition'))headers['content-disposition']=response.headers.get('content-disposition');
+      if(response.ok&&input?.action==='selectOrganization')cookie('bees_hosted_session',token);
       res.writeHead(response.status,headers);for await(const chunk of response.body??[])if(!res.write(chunk))await once(res,'drain');res.end();
     }catch(e){if(!res.headersSent)json(res,503,{error:e.message});else res.destroy();}
   });

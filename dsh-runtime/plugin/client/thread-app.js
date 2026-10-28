@@ -19,7 +19,9 @@ import { RootFolderSettings } from './thread-folders.js';
 import { OrganizationAppearance } from './thread-organization-appearance.js';
 import { BeesNavigation, TeamMenu, TeamSection, TeamManagement, closeHoverMenu, initials } from './thread-navigation.js';
 
-async function api(input){const response=await fetch('/bees-api/threads',{...(input?{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(input)}:{}),credentials:'same-origin'}).catch(()=>{throw Object.assign(Error(offline),{status:503});});const value=await response.json().catch(()=>({error:offline}));if(!response.ok)throw Object.assign(Error(response.status>=500?offline:typeof value.error==='string'?value.error:value.error?.message??'Could not complete this request'),{status:response.status});return value;}
+async function api(input){const response=await fetch('/bees-api/threads',{...(input?{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(input)}:{}),credentials:'same-origin'}).catch(()=>{throw Object.assign(Error(offline),{status:503});});const value=await response.json().catch(()=>({error:offline}));
+  // the gateway sends real 503s (at capacity, enrollment failed) with a message; show it instead of burying it under the generic offline text
+  if(!response.ok)throw Object.assign(Error(typeof value.error==='string'&&value.error?value.error:response.status>=500?offline:value.error?.message??'Could not complete this request'),{status:response.status});return value;}
 const offline="Bees can't be reached right now.";
 const command=(action,threadId,values={})=>api({action,threadId,operationId:crypto.randomUUID(),...values});
 const gearIconPaths=()=>[h('circle',{key:1,cx:12,cy:12,r:3}),h('path',{key:2,d:'M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z'})];
@@ -110,7 +112,6 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const chooseOrganization=(id,accountId,settings=false)=>perform(async()=>{
     profileEpoch.current++;await command('selectOrganization',null,{accountId,organizationId:id});clearAccount();setOrganizationId(id);await refresh();if(settings)openGlobal('organizations');
   });
-  const createOrganization=accountId=>{if(!data?.user&&!accountId){setDialog('login');return;}void perform(async()=>{const name=await ask('Organization name','');if(!name?.trim())return;if(accountId&&accountId!==data?.accounts?.find(account=>account.active)?.id){profileEpoch.current++;await command('switchAccount',null,{accountId});clearAccount();}const org=await command('createOrganization',null,{name});await loadOrganizations();select(null);setTeamId(null);setOrganizationId(org.id);await command('preferences',null,{values:{selectedOrganizationId:org.id}});await refresh();});};
   const saveAppearance=values=>perform(async()=>{
     if(preferences){if(preferences.getSnapshot().status!=='ready')throw Error('Settings are still loading');for(const [key,value] of Object.entries(values))await preferences.set(key,value);}
     else {await command('preferences',null,{values});await refresh();}
@@ -198,7 +199,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
       h('button',{disabled:busy||account.active,'aria-pressed':account.active,onClick:()=>perform(async()=>{await command('switchAccount',null,{accountId:account.id});clearAccount();await refresh();openAccount();})},account.active?'✓ Current view':'Open'))),
     data?.user&&!data.user.emailVerified?h(React.Fragment,null,h('p',{className:'bc-muted'},'Your email isn’t verified yet. You need that to accept invitations or invite people to an organization.'),h('button',{disabled:busy,onClick:verifyEmail},'Send verification email')):null,
     h('button',{disabled:busy,onClick:()=>setDialog('login')},data?.user?'Add account':'Sign in'),
-    data?.user?h('button',{disabled:busy,onClick:()=>perform(async()=>{await command('logout');clearAccount();await refresh();setDialog(hosted?'login':'account');})},'Sign out of this account'):null);
+    data?.user?h('button',{disabled:busy,onClick:()=>perform(async()=>{await command('logout');clearAccount();const next=await refresh().catch(error=>{if(!hosted||error.status!==401)throw error;});setDialog(hosted&&!next?.user?'login':'account');})},'Sign out of this account'):null);
   const threadContent=!thread?h('p',{role:'status'},'Loading thread settings…')
     :threadSection==='transfer'?transfer:h(React.Fragment,null,manage?null:h('p',{className:'bc-muted'},'Only the person who started this thread can rename it.'),h(WorkflowSettings,{key:selected,thread,scope:'thread',section:'general',disabled:!canConfigure,busy,onSave:saveThread,onDelete:()=>deleteThread(thread),canDelete:thread.ownerClientId===data?.clientId&&!thread.runs?.some(r=>r.status==='running')}));
   const teamFiles=team?h(ThreadFiles,{key:currentTeamId,thread:team,canWrite:canConfigureTeam,busy,onAttach:(files,prefix)=>attach(files,prefix,currentTeamId),onPreview:file=>setPreview({...file,url:`/bees-api/thread-file?thread=${currentTeamId}&artifact=${file.id}`}),preview,onClosePreview:()=>setPreview(null)}):null;
@@ -272,7 +273,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     dialog==='login'?h(Dialog,{title:'Sign in',onClose:closeDialog},h(Login,{server:data.serverUrl,request:(action,values)=>command(action,null,values),onComplete:async()=>{await refresh();closeDialog();}})):null);
   return h('div',{className:'bc-app '+(selected||composing||settingsOpen?'has-thread':''),'data-bees-theme':theme.id,style:themeStyle(theme)},
     h(BeesNavigation,{brandMark,icon,organizations,accounts:data?.accounts??[],user:data?.user,localActive:data?.localActive,organizationId:selectedOrganizationId,theme,busy:busy||!data,
-      onOrganization:chooseOrganization,onCreateOrganization:createOrganization,onGlobal:openGlobal,
+      onOrganization:chooseOrganization,onGlobal:openGlobal,
       onTheme:()=>{const next=nextThemePreset(preference);void saveAppearance({themePreset:next.id,colorMode:next.dark?'dark':'light'});},onAccount:openAccount}),
     h('aside',{className:'bc-sidebar','aria-label':'Threads'},
       h('div',{className:'bc-thread-create'},
@@ -288,7 +289,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
       h('div',{className:'bc-thread-list'},visibleTeams.map(row=>h(TeamSection,{key:row.id,team:row,grouped:teams.length>1,active:currentTeamId===row.id,expanded:!!query||!collapsed[row.id],count:teamThreads(row.id).length,
         onToggle:()=>{if(currentTeamId!==row.id)void chooseTeam(row.id);else setCollapsed(values=>({...values,[row.id]:!values[row.id]}));},
         menu:h(TeamMenu,{team:row,icon,busy,canCreate:!row.shared||roster.participants.some(p=>p.thread_id===row.id&&p.user_id===data?.user?.id&&['owner','editor'].includes(p.role)),onCreate:create,onSettings:openTeamSettings,onHide:hideTeam})},
-        teamThreads(row.id).map(renderThread),!teamThreads(row.id).length?h('p',{className:'bc-muted bc-empty-list'},query?'No matching threads.':'No threads yet.'):null)),
+        teamThreads(row.id).map(renderThread),!teamThreads(row.id).length?h('p',{className:'bc-muted bc-empty-list'},query?'No matching threads.':'No threads yet. Start one with New Chat or New Goal.'):null)),
         !visibleTeams.length?h('p',{className:'bc-muted bc-empty-list'},teams.length?'Choose a hidden team from Manage teams to show it here.':'Create a team from Manage teams to get started.'):null),
       roster.invitations?.length?h('section',{className:'bc-invitations'},h('strong',null,'Invitations'),
         roster.invitations.map(i=>h('div',{key:i.id,className:'bc-person'},h('span',null,`${i.invited_by_name??'Someone'} invited you`,h('small',null,i.role==='viewer'?'Can view':'Can contribute and run work')),
@@ -331,6 +332,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
           h('button',{'aria-label':'Thread settings',title:'Thread settings',onClick:()=>openSettings('general')},icon('gear'))):null),
       error&&!modalOpen?h('div',{className:'bc-error',role:'alert'},error,h('button',{className:'bc-icon','aria-label':'Dismiss error',onClick:()=>setError('')},icon('close'))):null,
       notice&&!modalOpen?h('div',{className:'bc-notice',role:'status'},notice):null,
+      !hosted&&data&&!data.models?.length&&!data.credits?.available?h('div',{className:'bc-notice'},'Connect an AI model so Bees can reply. ',h('button',{className:'bc-primary',onClick:()=>{setSettingsSection('ai');setDialog('settings');}},'Open AI connections')):null,
       thread?.frozen?h('div',{className:'bc-notice'},'This thread is frozen for transfer. The recipient must accept, or you can cancel the offer.'):null,
       thread?.unavailable?h('div',{className:'bc-notice'},'Showing the copy saved here. ',thread.unavailable):null,
       authority?.transfer_client_id&&authority.transfer_client_id===data?.clientId?h('div',{className:'bc-notice'},'A thread transfer is waiting for you. ',h('button',{className:'bc-primary',onClick:()=>act('acceptTransfer')},'Accept transfer')):null,
