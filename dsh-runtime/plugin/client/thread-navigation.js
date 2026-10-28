@@ -24,10 +24,11 @@ export function TeamSection({team,grouped,expanded,active,onToggle,menu,count,ch
     !grouped||expanded?h('div',{className:'bc-team-threads'},children):null);
 }
 
-export function TeamManagement({icon,busy,hasTeam,onTeam,onCreateTeam,hiddenTeams=[],onSelectTeam}){
+export function TeamManagement({icon,busy,hasTeam,currentTeamTitle,onTeam,onCreateTeam,hiddenTeams=[],onSelectTeam}){
   const choose=fn=>event=>{event.currentTarget.closest('details').open=false;fn();};
+  const label=currentTeamTitle?`Manage teams · ${currentTeamTitle}`:'Manage teams';
   return h('details',{className:'bc-thread-menu bc-team-management',onKeyDown:event=>{if(event.key==='Escape'){event.currentTarget.open=false;event.currentTarget.querySelector('summary').focus();}}},
-    h('summary',{'aria-label':'Manage teams',title:'Manage teams'},icon('more')),
+    h('summary',{'aria-label':label,title:label},icon('more')),
     h('nav',{'aria-label':'Manage teams'},
       h('button',{disabled:busy||!hasTeam,onClick:choose(onTeam)},icon('gear'),'Team settings'),
       h('button',{disabled:busy,onClick:choose(onCreateTeam)},icon('plus'),'Create team'),
