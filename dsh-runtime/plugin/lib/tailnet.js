@@ -6,7 +6,8 @@ import { promisify } from 'node:util';
 const cli=['/Applications/Tailscale.app/Contents/MacOS/Tailscale','/opt/homebrew/bin/tailscale','/usr/local/bin/tailscale','C:\\Program Files\\Tailscale\\tailscale.exe'].find(existsSync)??'tailscale';
 // some installs run tailscaled on a non-default socket, which the cli only finds through --socket
 const socket=process.env.TAILSCALE_SOCKET?[`--socket=${process.env.TAILSCALE_SOCKET}`]:[];
-export const unshareCommand=[cli,...socket,'serve','--https=8443','off'];
+const off=['serve','--https=8443','off'];
+export const unshareCommand=[cli,...socket,...off];
 const tailscale=async(...args)=>(await promisify(execFile)(cli,[...socket,...args],{encoding:'utf8',timeout:20_000,windowsHide:true})).stdout;
 const fail=message=>error=>{throw Error(error.code==='ENOENT'?'Tailscale is not installed on this computer. Get it from https://tailscale.com/download and sign in.':message??(error.stderr.trim()||error.message));};
 
@@ -15,8 +16,8 @@ export async function share(port){
   const status=JSON.parse(await tailscale('status','--json').catch(fail('Tailscale is not running. Open the Tailscale app on this computer and sign in.')));
   if(status.BackendState!=='Running')throw Error('Tailscale is not connected. Open the Tailscale app on this computer and sign in.');
   // without https certs serve stops to print an enable link, and may even exit 0 having served nothing
-  const name=status.CertDomains?.[0];
-  if(!name)throw Error('Turn on MagicDNS and HTTPS Certificates at https://login.tailscale.com/admin/dns');
+  const name=status.Self?.DNSName?.replace(/\.$/,'');
+  if(!name||!status.CertDomains?.includes(name))throw Error('Turn on MagicDNS and HTTPS Certificates at https://login.tailscale.com/admin/dns');
   const served=JSON.parse(await tailscale('serve','status','--json')||'{}'),target=`http://127.0.0.1:${port}`;
   // serve --bg silently replaces whatever 8443 already proxied, and funnel would make it public
   if(served.AllowFunnel?.[`${name}:8443`]||served.TCP?.['8443']&&served.Web?.[`${name}:8443`]?.Handlers?.['/']?.Proxy!==target)
@@ -25,4 +26,4 @@ export async function share(port){
   return name;
 }
 
-export const unshare=()=>tailscale('serve','--https=8443','off');
+export const unshare=()=>tailscale(...off);

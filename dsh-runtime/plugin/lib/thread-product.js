@@ -66,12 +66,14 @@ export async function applyThreadProduct(ctx,config){
     // the app kills this process outright on quit, so a child that outlives it turns sharing off
     const watcher=spawn(process.execPath,['-e',"process.stdin.resume().on('close',()=>require('node:child_process').execFileSync(process.argv[1],process.argv.slice(2)))",...unshareCommand],{detached:true,windowsHide:true,stdio:['pipe','ignore','ignore']});watcher.unref();
     const url=`https://${name}:8443/bees-auth?token=${token}`,code=qrcode(0,'L');code.addData(url);code.make();
-    return {qr:code.createSvgTag(5,4),stop:async()=>{watcher.kill();if(added)hosts.splice(hosts.indexOf(name),1);await unshare();}};
+    return {qr:code.createSvgTag(5,4),stop:async()=>{await unshare();watcher.kill();if(added)hosts.splice(hosts.indexOf(name),1);}};
   }
   register('/bees-api/phone',api(async req=>{
+    // a phone signed in over the tailnet must not be able to stop or restart sharing
+    if(req.headers.host!==`127.0.0.1:${req.socket.localPort}`)throw Object.assign(Error('Only this computer can turn phone sharing on or off'),{status:403});
     const on=req.method==='POST'?(await body(req)).on:undefined;
-    if(on===true)phone??=sharePhone(req.socket.localPort).catch(error=>{phone=undefined;throw error;});
-    if(on===false&&phone){const shared=phone;phone=undefined;await (await shared).stop();}
+    if(on===true&&!phone){const sharing=sharePhone(req.socket.localPort).catch(error=>{if(phone===sharing)phone=undefined;throw error;});phone=sharing;}
+    if(on===false&&phone){await (await phone).stop();phone=undefined;}
     return {qr:(await phone)?.qr};
   }));
   ctx.effect(()=>()=>phone?.then(shared=>shared.stop()).catch(()=>{}),'Bees phone sharing');
