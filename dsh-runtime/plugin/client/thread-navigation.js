@@ -6,7 +6,7 @@ export const initials=name=>(name||'You').split(/\s|@/).filter(Boolean).slice(0,
 export function TeamMenu({team,icon,busy,canCreate,onCreate,onSettings,onHide}){
   const choose=fn=>event=>{event.currentTarget.closest('details').open=false;fn();};
   return h('details',{className:'bc-team-menu bc-thread-menu',onKeyDown:event=>{if(event.key==='Escape'){event.currentTarget.open=false;event.currentTarget.querySelector('summary').focus();}}},
-    h('summary',{'aria-label':`${team.title} menu`,title:`${team.title} menu`},icon('more')),
+    h('summary',{'aria-label':`${team.title} menu`,title:`${team.title} menu`},icon('gear')),
     h('nav',{'aria-label':`${team.title} actions`},
       h('button',{onClick:choose(()=>onSettings('general',team.id))},icon('gear'),'Settings'),
       h('button',{onClick:choose(()=>onSettings('processes',team.id))},icon('process'),'Processes'),
@@ -31,7 +31,7 @@ export function TeamManagement({icon,busy,hasTeam,currentTeamTitle,onTeam,onCrea
   const choose=fn=>event=>{event.currentTarget.closest('details').open=false;fn();};
   const label=currentTeamTitle?`Manage teams · ${currentTeamTitle}`:'Manage teams';
   return h('details',{className:'bc-thread-menu bc-team-management',onKeyDown:event=>{if(event.key==='Escape'){event.currentTarget.open=false;event.currentTarget.querySelector('summary').focus();}}},
-    h('summary',{'aria-label':label,title:label},icon('more')),
+    h('summary',{'aria-label':label,title:label},icon('gear')),
     h('nav',{'aria-label':'Manage teams'},
       h('button',{disabled:busy||!hasTeam,onClick:choose(onTeam)},icon('gear'),'Team settings'),
       h('button',{disabled:busy,onClick:choose(onCreateTeam)},icon('plus'),'Create team'),
