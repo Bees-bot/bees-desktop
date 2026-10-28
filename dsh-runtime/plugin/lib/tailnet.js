@@ -7,7 +7,7 @@ const cli=['/Applications/Tailscale.app/Contents/MacOS/Tailscale','/opt/homebrew
 // some installs run tailscaled on a non-default socket, which the cli only finds through --socket
 const socket=process.env.TAILSCALE_SOCKET?[`--socket=${process.env.TAILSCALE_SOCKET}`]:[];
 export const unshareCommand=[cli,...socket,'serve','--https=8443','off'];
-const tailscale=async(...args)=>(await promisify(execFile)(cli,[...socket,...args],{encoding:'utf8',timeout:20_000})).stdout;
+const tailscale=async(...args)=>(await promisify(execFile)(cli,[...socket,...args],{encoding:'utf8',timeout:20_000,windowsHide:true})).stdout;
 const fail=message=>error=>{throw Error(error.code==='ENOENT'?'Tailscale is not installed on this computer. Get it from https://tailscale.com/download and sign in.':message);};
 
 // serves 127.0.0.1:port on https://<this computer's tailnet name>:8443 and returns that name

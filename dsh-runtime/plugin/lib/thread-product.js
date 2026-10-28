@@ -64,7 +64,7 @@ export async function applyThreadProduct(ctx,config){
     // dsh reads its trusted hosts on every request, so adding the tailnet name here spares a restart
     if(added)hosts.push(name);
     // the app kills this process outright on quit, so a child that outlives it turns sharing off
-    const watcher=spawn(process.execPath,['-e',"process.stdin.resume().on('close',()=>require('node:child_process').execFileSync(process.argv[1],process.argv.slice(2)))",...unshareCommand],{detached:true,stdio:['pipe','ignore','ignore']});watcher.unref();
+    const watcher=spawn(process.execPath,['-e',"process.stdin.resume().on('close',()=>require('node:child_process').execFileSync(process.argv[1],process.argv.slice(2)))",...unshareCommand],{detached:true,windowsHide:true,stdio:['pipe','ignore','ignore']});watcher.unref();
     const url=`https://${name}:8443/bees-auth?token=${token}`,code=qrcode(0,'L');code.addData(url);code.make();
     return {qr:code.createSvgTag(5,4),stop:async()=>{watcher.kill();if(added)hosts.splice(hosts.indexOf(name),1);await unshare();}};
   }
