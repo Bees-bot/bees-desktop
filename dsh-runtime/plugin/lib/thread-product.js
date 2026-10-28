@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { timingSafeEqual } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { get } from 'node:http';
 import { homedir, tmpdir } from 'node:os';
 import { ClientProfiles } from './client-profiles.js';
@@ -10,6 +11,8 @@ import { ThreadMemory } from './thread-memory.js';
 import { LocalMemory } from './local-memory.js';
 import { recoverThreadActivity } from './thread-activity.js';
 import { ThreadCredits, isAccountAIProvider } from './thread-credits.js';
+import { share, unshare, unshareCommand } from './tailnet.js';
+import qrcode from 'qrcode-generator';
 
 const equal=(a,b)=>{const x=Buffer.from(String(a??'')),y=Buffer.from(String(b??''));return x.length===y.length&&x.length>0&&timingSafeEqual(x,y);};
 const tokenOf=req=>String(req.headers.authorization??'').replace(/^Bearer\s+/i,'')||String(req.headers.cookie??'').split(';').map(x=>x.trim().split('=')).find(([k])=>k==='bees_dsh')?.[1];
@@ -55,6 +58,23 @@ export async function applyThreadProduct(ctx,config){
     res.writeHead(200,{'content-type':'text/html','set-cookie':[`bees_dsh=${token}; HttpOnly; SameSite=Lax; Path=/`,...response.headers['set-cookie']??[]]});res.end('<meta http-equiv="refresh" content="0;url=/">');
   });
   const api=handler=>async(req,res)=>{try{reply(res,200,await handler(req));}catch(e){reply(res,e.status??400,{error:e.message});}};
+  let phone;
+  async function sharePhone(port){
+    const name=await share(port),hosts=ctx.connection.trustedHosts,added=!hosts.includes(name);
+    // dsh reads its trusted hosts on every request, so adding the tailnet name here spares a restart
+    if(added)hosts.push(name);
+    // the app kills this process outright on quit, so a child that outlives it turns sharing off
+    const watcher=spawn(process.execPath,['-e',"process.stdin.resume().on('close',()=>require('node:child_process').execFileSync(process.argv[1],process.argv.slice(2)))",...unshareCommand],{detached:true,stdio:['pipe','ignore','ignore']});watcher.unref();
+    const url=`https://${name}:8443/bees-auth?token=${token}`,code=qrcode(0,'L');code.addData(url);code.make();
+    return {qr:code.createSvgTag(5,4),stop:async()=>{watcher.kill();if(added)hosts.splice(hosts.indexOf(name),1);await unshare();}};
+  }
+  register('/bees-api/phone',api(async req=>{
+    const on=req.method==='POST'?(await body(req)).on:undefined;
+    if(on===true)phone??=sharePhone(req.socket.localPort).catch(error=>{phone=undefined;throw error;});
+    if(on===false&&phone){const shared=phone;phone=undefined;await (await shared).stop();}
+    return {qr:(await phone)?.qr};
+  }));
+  ctx.effect(()=>()=>phone?.then(shared=>shared.stop()).catch(()=>{}),'Bees phone sharing');
   register('/bees-api/threads',api(async req=>{
     if(req.method==='GET')return await profiles.snapshot();if(req.method!=='POST')throw Error('Method not allowed');
     const input=await body(req);

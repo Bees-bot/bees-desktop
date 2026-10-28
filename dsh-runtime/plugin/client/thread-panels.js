@@ -1,5 +1,5 @@
-import { h, MarkdownText, useEffect } from './runtime.js';
-import { when } from './common.js';
+import { h, MarkdownText, useEffect, useState } from './runtime.js';
+import { when, openExternal } from './common.js';
 import { DEFAULT_WORKFLOW, processName, isChatWorkflow } from '../lib/thread-workflow.js';
 import { labels } from './thread-kanban.js';
 
@@ -14,8 +14,22 @@ export const TEAM_SETTINGS = [
 ];
 export const GLOBAL_SETTINGS = [
   ['ai', 'AI connections'], ['credits', 'Credits & billing'], ['appearance', 'Appearance'], ['instructions', 'System instructions'],
-  ['storage', 'Root folder'], ['organizations', 'Org settings'], ['account', 'Accounts'],
+  ['storage', 'Root folder'], ['organizations', 'Org settings'], ['account', 'Accounts'], ['phone', 'Use on your phone'],
 ];
+
+const linked=text=>text.split(/(https:\/\/\S*[^\s.])/).map((part,i)=>i%2?h('a',{key:i,href:part,onClick:e=>{e.preventDefault();void openExternal(part);}},part):part);
+export function PhoneSettings(){
+  const [qr,setQr]=useState(),[error,setError]=useState(''),[busy,setBusy]=useState(true);
+  const call=async on=>{setBusy(true);setError('');try{const response=await fetch('/bees-api/phone',on===undefined?{}:{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({on})});const value=await response.json();if(!response.ok)throw Error(value.error);setQr(value.qr);}catch(e){setError(e.message||String(e));}finally{setBusy(false);}};
+  useEffect(()=>{void call();},[]);
+  return h('section',{className:'bc-form'},h('h3',null,'Use on your phone'),
+    h('p',{className:'bc-muted'},linked('Install Tailscale on this computer and on your phone from https://tailscale.com/download and sign in to the same account on both. Then share Bees and scan the code with your phone camera.')),
+    qr?h('div',{'aria-label':'Code to open Bees on your phone',role:'img',dangerouslySetInnerHTML:{__html:qr}}):null,
+    qr?h('p',{className:'bc-muted'},'The code works until you stop sharing or quit Bees. After Bees restarts, scan it again.'):null,
+    h('button',{className:qr?undefined:'bc-primary',disabled:busy,onClick:()=>call(!qr)},qr?'Stop sharing':'Share with my phone'),
+    error?h('p',{className:'bc-error',role:'alert'},linked(error)):null,
+    error?h('p',{className:'bc-muted'},linked('You can also open https://app.bees.bot/app on any phone, with no setup.')):null);
+}
 
 export function SettingsNav({ items, selected, onSelect, label }) {
   return h('nav', { className: 'bc-settings-nav', 'aria-label': label }, items.map(([id, title]) =>
