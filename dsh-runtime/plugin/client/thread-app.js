@@ -3,7 +3,7 @@ import { ask, confirmAction, openExternal, Button, when, droppedFiles, pastedFil
 import { threadCss } from './thread-style.js';
 import { THEME_PRESETS, nextThemePreset } from '../lib/themes.js';
 import { AppearanceSettings, themeStyle, useAppearance } from './thread-appearance.js';
-import { GLOBAL_SETTINGS, THREAD_SETTINGS, TEAM_SETTINGS, SettingsNav, ThreadDetails, SettingsPage } from './thread-panels.js';
+import { GLOBAL_SETTINGS, THREAD_SETTINGS, TEAM_SETTINGS, SettingsNav, ThreadDetails, SettingsPage, PhoneSettings } from './thread-panels.js';
 import { scheduleDraft } from './thread-schedule-form.js';
 import { ThreadFiles } from './thread-files.js';
 import { ThreadKanban } from './thread-kanban.js';
@@ -212,6 +212,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     :settingsSection==='organizations'?(data?.user?h(OrganizationsPanel,{key:data.user.id+selectedOrganizationId,perform,busy,icon,ctx,folders:data?.folders,onSaveFolder:saveFolder,organizationId:selectedOrganizationId,onChanged:loadOrganizations,onNotice:setNotice}):h('button',{onClick:()=>setDialog('login')},'Sign in to manage organizations'))
     :settingsSection==='storage'?h(RootFolderSettings,{ctx,folders:data?.folders,busy,onSave:saveFolder})
     :settingsSection==='account'?account
+    :settingsSection==='phone'?h(PhoneSettings)
     :settingsSection==='instructions'?h('form',{className:'bc-form',key:data?.clientId,onSubmit:event=>{event.preventDefault();const systemInstructions=new FormData(event.currentTarget).get('instructions');void perform(async()=>{await command('preferences',null,{values:{systemInstructions}});await refresh();setNotice('System instructions saved.');});}},
       h('h3',null,'System instructions'),h('p',{className:'bc-muted'},'Used for new runs in every thread on this computer.'),h('textarea',{'aria-label':'System instructions',name:'instructions',rows:10,maxLength:20000,defaultValue:data?.settings?.systemInstructions??''}),h('button',{className:'bc-primary',disabled:busy||!data},'Save instructions'))
     :h('section',{className:'bc-form'},h('h3',null,'Data & files'),h('p',null,'Threads keep their own files and folders. Add files or whole folders from a thread’s Files tab.'),h('p',{className:'bc-muted'},'Files and results travel with a shared or transferred thread. AI connections, browser access and add-on keys and sign-ins stay on the computer where you set them up.'));
@@ -275,7 +276,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
       h('footer',null,h('span',{className:'bc-dot '+(data?.connectionError?'offline':'')}),h('span',null,data?.connectionError?"Can't reach Bees right now":data?.user?'Connected to Bees':'Private on this machine',(data?.connectionError||data?.user)&&data?.serverUrl?h('small',{className:'bc-server-url'},data.serverUrl):null))),
     h('main',{className:'bc-main'},h(UpdateBar),settingsOpen?h(React.Fragment,null,
       error?h('p',{className:'bc-error',role:'alert'},error):null,notice?h('p',{className:'bc-notice',role:'status'},notice):null,
-      h(SettingsPage,{title:settingsTitle,items:dialog==='team'?TEAM_SETTINGS:GLOBAL_SETTINGS,selected:dialog==='team'?teamSection:settingsSection,
+      h(SettingsPage,{title:settingsTitle,items:dialog==='team'?TEAM_SETTINGS:window.__TAURI__&&location.hostname==='127.0.0.1'?GLOBAL_SETTINGS:GLOBAL_SETTINGS.filter(([id])=>id!=='phone'),selected:dialog==='team'?teamSection:settingsSection,
         onSelect:section=>{if(dialog==='team')setTeamSection(section);else setSettingsSection(section);setNotice('');},onClose:closeDialog},
         dialog==='team'?h(React.Fragment,null,team&&!canConfigureTeam&&!['addons','browser'].includes(teamSection)?h('p',{className:'bc-muted'},'Only the team owner can change shared settings.'):null,teamContent,
           team&&legacyRows.length&&['general','memory','workflow','schedule','addons','browser'].includes(teamSection)?h(LegacyOverrides,{key:currentTeamId+teamSection,rows:legacyRows,section:teamSection,perform,busy,signedIn:data?.signedIn??!!data?.user,onSignIn:signInForApps}):null):globalContent))

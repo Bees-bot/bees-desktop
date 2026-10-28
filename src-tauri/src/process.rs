@@ -47,7 +47,8 @@ pub fn reap_orphaned_sidecars(executable: &Path) {
         let orphaned = process
             .parent()
             .is_none_or(|parent| parent.as_u32() == 1 || system.process(parent).is_none());
-        orphaned && process.exe() == Some(executable)
+        // phone sharing's `node -e` watcher outlives the sidecar on purpose, to turn sharing off
+        orphaned && process.exe() == Some(executable) && !process.cmd().iter().any(|arg| arg == "-e")
     });
 }
 
