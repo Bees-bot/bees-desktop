@@ -59,7 +59,7 @@ With Tailscale running and MagicDNS plus HTTPS turned on for your tailnet, run:
 npm run start:phone
 ```
 
-It starts headless Bees on 127.0.0.1:8090 with its state in `~/.bees-headless`, serves it to your tailnet on port 8443 with `tailscale serve`, and prints a sign-in link. Open that link once on each device. The link gives the whole agent, shell included, so keep it private and limit the port to your own devices in your tailnet access rules. It refuses to start if port 8443 is public through `tailscale funnel`. Delete `~/.bees-headless/phone-token` to sign every device out, and run `tailscale serve --https=8443 off` to stop serving.
+It starts headless Bees on 127.0.0.1:8090 with its state in `~/.bees-headless`, serves it to your tailnet on port 8443 with `tailscale serve`, and prints a sign-in link. Open that link once on each device. The link gives the whole agent, shell included, so keep it private and limit the port to your own devices in your tailnet access rules. It refuses to start if port 8443 is public through `tailscale funnel`, already serves something else, or if port 8090 is busy. Stopping it with Ctrl+C also stops serving 8443. If your tailscaled uses its own socket, set `TAILSCALE_SOCKET` to that path. Delete `~/.bees-headless/phone-token` to sign every device out.
 
 ## Hosted Clients
 
