@@ -32,7 +32,7 @@ export function TeamManagement({icon,busy,hasTeam,currentTeamTitle,onTeam,onCrea
   const choose=fn=>event=>{event.currentTarget.closest('details').open=false;fn();};
   const label=currentTeamTitle?`Manage teams · ${currentTeamTitle}`:'Manage teams';
   return h('details',{className:'bc-thread-menu bc-team-management',onKeyDown:event=>{if(event.key==='Escape'){event.currentTarget.open=false;event.currentTarget.querySelector('summary').focus();}}},
-    h('summary',{'aria-label':label,title:label},icon('gear')),
+    h('summary',{'aria-label':label,title:label},icon('more')),
     h('nav',{'aria-label':'Manage teams'},
       h('button',{disabled:busy,onClick:choose(onCreateTeam)},icon('plus'),'Create team'),
       hiddenTeams.length?h('hr'):null,hiddenTeams.length?h('strong',null,'Hidden teams'):null,
