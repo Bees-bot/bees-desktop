@@ -51,8 +51,11 @@ async function prepareProfile(home) {
     const source = await realpath(join(runtime, "node_modules", name));
     const destination = join(profile, "node_modules", name);
     await mkdir(dirname(destination), { recursive: true });
-    try { await symlink(source, destination, process.platform === "win32" ? "junction" : "dir"); }
+    const link = () => symlink(source, destination, process.platform === "win32" ? "junction" : "dir");
+    try { await link(); }
     catch (error) {
+      // a link left by a checkout that was since deleted points nowhere, so take it over
+      if (error.code === "EEXIST" && !await realpath(destination).catch(() => "")) { await unlink(destination); await link(); continue; }
       if (error.code !== "EEXIST" || await realpath(destination) !== source)
         throw new Error(`Profile package ${name} points at another runtime; use a dedicated state directory`, { cause: error });
     }
