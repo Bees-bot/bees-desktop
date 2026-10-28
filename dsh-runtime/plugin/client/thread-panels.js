@@ -20,7 +20,7 @@ export const GLOBAL_SETTINGS = [
 const linked=text=>text.split(/(https:\/\/\S*[^\s.])/).map((part,i)=>i%2?h('a',{key:i,href:part,onClick:e=>{e.preventDefault();void openExternal(part);}},part):part);
 export function PhoneSettings(){
   const [qr,setQr]=useState(),[error,setError]=useState(''),[busy,setBusy]=useState(true);
-  const call=async on=>{setBusy(true);setError('');try{const response=await fetch('/bees-api/phone',on===undefined?{}:{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({on})});const value=await response.json();if(!response.ok)throw Error(value.error);setQr(value.qr);}catch(e){setError(e.message||String(e));}finally{setBusy(false);}};
+  const call=async on=>{setBusy(true);setError('');try{const response=await fetch('/bees-api/phone',on===undefined?{}:{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({on})});const value=await response.json().catch(()=>({error:'Bees did not answer. Try again in a moment.'}));if(!response.ok)throw Error(value.error);setQr(value.qr);}catch(e){setError(e.message||String(e));}finally{setBusy(false);}};
   useEffect(()=>{void call();},[]);
   return h('section',{className:'bc-form'},h('h3',null,'Use on your phone'),
     h('p',{className:'bc-muted'},linked('Install Tailscale on this computer and on your phone from https://tailscale.com/download and sign in to the same account on both. Then share Bees and scan the code with your phone camera.')),

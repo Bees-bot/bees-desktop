@@ -60,16 +60,18 @@ export async function applyThreadProduct(ctx,config){
   const api=handler=>async(req,res)=>{try{reply(res,200,await handler(req));}catch(e){reply(res,e.status??400,{error:e.message});}};
   let phone;
   async function sharePhone(port){
-    const name=await share(port),hosts=ctx.connection.trustedHosts,added=!hosts.includes(name);
+    // the app kills this process outright on quit, so a child that outlives it turns sharing off
+    const watcher=spawn(process.execPath,['-e',"process.stdin.resume().on('close',()=>require('node:child_process').execFileSync(process.argv[1],process.argv.slice(2),{timeout:20000,windowsHide:true}))",...unshareCommand],{detached:true,windowsHide:true,stdio:['pipe','ignore','ignore']});watcher.unref();
+    const name=await share(port).catch(error=>{watcher.kill();throw error;}),hosts=ctx.connection.trustedHosts,added=!hosts.includes(name);
     // dsh reads its trusted hosts on every request, so adding the tailnet name here spares a restart
     if(added)hosts.push(name);
-    // the app kills this process outright on quit, so a child that outlives it turns sharing off
-    const watcher=spawn(process.execPath,['-e',"process.stdin.resume().on('close',()=>require('node:child_process').execFileSync(process.argv[1],process.argv.slice(2)))",...unshareCommand],{detached:true,windowsHide:true,stdio:['pipe','ignore','ignore']});watcher.unref();
     const url=`https://${name}:8443/bees-auth?token=${token}`,code=qrcode(0,'L');code.addData(url);code.make();
-    return {qr:code.createSvgTag(5,4),stop:async()=>{await unshare();watcher.kill();if(added)hosts.splice(hosts.indexOf(name),1);}};
+    let stopping;
+    // two windows can press stop at once, so the second waits on the first
+    return {qr:code.createSvgTag(5,4),stop:()=>stopping??=unshare().then(()=>{watcher.kill();if(added)hosts.splice(hosts.indexOf(name),1);},error=>{stopping=undefined;throw error;})};
   }
   register('/bees-api/phone',api(async req=>{
-    // a phone signed in over the tailnet must not be able to stop or restart sharing
+    // only this computer's window shows the phone page, so a signed-in phone can't switch sharing from its browser
     if(req.headers.host!==`127.0.0.1:${req.socket.localPort}`)throw Object.assign(Error('Only this computer can turn phone sharing on or off'),{status:403});
     const on=req.method==='POST'?(await body(req)).on:undefined;
     if(on===true&&!phone){const sharing=sharePhone(req.socket.localPort).catch(error=>{if(phone===sharing)phone=undefined;throw error;});phone=sharing;}
