@@ -5,6 +5,7 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import {configureRuntime} from '../client/runtime.js';
 import {BeesNavigation,TeamMenu,TeamSection,HoverMenu,TeamManagement} from '../client/thread-navigation.js';
 import {SettingsPage} from '../client/thread-panels.js';
+import {TeamProcesses} from '../client/thread-processes.js';
 import {OrganizationAppearance,OrganizationIcon,readOrganizationImage} from '../client/thread-organization-appearance.js';
 import {ThreadApp} from '../client/thread-app.js';
 
@@ -77,10 +78,10 @@ test('logo is inert, menu actions have icons, and bottom controls use the reques
   assert.match(markup,/class="bc-account-count">2<\/small>/);
   assert.doesNotMatch(markup,/bc-avatar|Hidden teams/);
   const bottom=markup.slice(markup.indexOf('class="bc-rail-bottom"'));
-  const labels=['Switch to light theme','Org settings','Global settings','Account settings'];
+  const labels=['Switch to light theme','Settings','Account settings'];
   for(let i=1;i<labels.length;i++)assert(bottom.indexOf(labels[i-1])<bottom.indexOf(labels[i]),labels[i]);
   assert.doesNotMatch(markup,/Create org|data-icon="plus"/);
-  for(const name of ['accounts','gear','sun'])assert(icons.includes(name),name);
+  for(const name of ['accounts','settings','sun'])assert(icons.includes(name),name);
 });
 
 test('single-team thread lists stay visible without a team heading, including previously collapsed teams',()=>{
@@ -173,4 +174,13 @@ test('icon uploads reject unsupported and oversized files and resize to a small 
     if(previousBitmap===undefined)delete globalThis.createImageBitmap;else globalThis.createImageBitmap=previousBitmap;
     if(previousDocument===undefined)delete globalThis.document;else globalThis.document=previousDocument;
   }
+});
+
+
+test('grouped settings keep team navigation and process import/export beside the default editor',()=>{
+  const page=renderToStaticMarkup(React.createElement(SettingsPage,{title:'Settings',groups:[{title:'Team',scope:'team',items:[['processes','Processes']]}],selected:'processes'},'Process editor'));
+  assert.match(page,/bc-settings-nav-group/);
+  assert.match(page,/aria-current="page"[^>]*>Processes/);
+  const processes=renderToStaticMarkup(React.createElement(TeamProcesses,{team:{processes:[]},canManage:true,canCreate:true}));
+  for(const label of ['Customize default','Export','Import process','Create process'])assert(processes.includes(label),label);
 });

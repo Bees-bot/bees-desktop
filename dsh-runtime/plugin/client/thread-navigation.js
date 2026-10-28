@@ -6,31 +6,35 @@ export const initials=name=>(name||'You').split(/\s|@/).filter(Boolean).slice(0,
 export function TeamMenu({team,icon,busy,canCreate,onCreate,onSettings,onHide}){
   const choose=fn=>event=>{event.currentTarget.closest('details').open=false;fn();};
   return h('details',{className:'bc-team-menu bc-thread-menu',onKeyDown:event=>{if(event.key==='Escape'){event.currentTarget.open=false;event.currentTarget.querySelector('summary').focus();}}},
-    h('summary',{'aria-label':`${team.title} menu`,title:`${team.title} menu`},icon('more')),
+    h('summary',{'aria-label':`${team.title} menu`,title:`${team.title} menu`},icon('gear')),
     h('nav',{'aria-label':`${team.title} actions`},
+      h('button',{onClick:choose(()=>onSettings('general',team.id))},icon('gear'),'Settings'),
+      h('button',{onClick:choose(()=>onSettings('processes',team.id))},icon('process'),'Processes'),
+      h('button',{onClick:choose(()=>onSettings('agents',team.id))},icon('team'),'Agents'),
       h('button',{disabled:busy||!canCreate,onClick:choose(()=>onCreate('goals',team.id))},icon('goal'),'New Goal'),
       h('button',{disabled:busy||!canCreate,onClick:choose(()=>onCreate('chat',team.id))},icon('chat'),'New Chat'),
-      h('button',{onClick:choose(()=>onSettings('agents',team.id))},icon('team'),'Agents'),
-      h('button',{onClick:choose(()=>onSettings('processes',team.id))},icon('process'),'Processes'),
-      h('button',{onClick:choose(()=>onSettings('general',team.id))},icon('gear'),'Settings'),
       h('hr'),h('button',{disabled:busy,onClick:choose(()=>onHide(team.id))},icon('hide'),'Hide')));
 }
 
 export function TeamSection({team,grouped,expanded,active,onToggle,menu,count,children}){
   return h('section',{className:'bc-team-section'+(active?' active':'')+(!grouped?' bc-team-ungrouped':'')},
-    grouped?h('div',{className:'bc-team-heading'},
+    grouped?h('div',{className:'bc-team-heading'+(active?' active':'')},
       h('button',{className:'bc-team-toggle','aria-expanded':expanded,onClick:onToggle},
-        h('span',{'aria-hidden':true},expanded?'⌄':'›'),h('strong',{title:team.title},team.title),h('small',null,count)),menu):null,
+        h('span',{'aria-hidden':true},expanded?'⌄':'›'),
+        h('strong',{title:team.title},team.title),
+        active?h('span',{className:'bc-team-active-badge'},'Active'):null,
+        h('small',null,count)),menu):null,
     !grouped||expanded?h('div',{className:'bc-team-threads'},children):null);
 }
 
-export function TeamManagement({icon,busy,hasTeam,onTeam,onCreateTeam,hiddenTeams=[],onSelectTeam}){
+export function TeamManagement({icon,busy,hasTeam,currentTeamTitle,onTeam,onCreateTeam,hiddenTeams=[],onSelectTeam}){
   const choose=fn=>event=>{event.currentTarget.closest('details').open=false;fn();};
+  const label=currentTeamTitle?`Manage teams · ${currentTeamTitle}`:'Manage teams';
   return h('details',{className:'bc-thread-menu bc-team-management',onKeyDown:event=>{if(event.key==='Escape'){event.currentTarget.open=false;event.currentTarget.querySelector('summary').focus();}}},
-    h('summary',{'aria-label':'Manage teams',title:'Manage teams'},icon('more')),
+    h('summary',{'aria-label':label,title:label},icon('gear')),
     h('nav',{'aria-label':'Manage teams'},
-      h('button',{disabled:busy,onClick:choose(onCreateTeam)},icon('plus'),'Create team'),
       h('button',{disabled:busy||!hasTeam,onClick:choose(onTeam)},icon('gear'),'Team settings'),
+      h('button',{disabled:busy,onClick:choose(onCreateTeam)},icon('plus'),'Create team'),
       hiddenTeams.length?h('hr'):null,hiddenTeams.length?h('strong',null,'Hidden teams'):null,
       [...hiddenTeams].sort((a,b)=>a.title.localeCompare(b.title)).map(team=>h('button',{key:team.id,disabled:busy,onClick:choose(()=>onSelectTeam(team.id))},icon('team'),team.title))));
 }
@@ -71,13 +75,12 @@ export function BeesNavigation({brandMark,icon,organizations=[],accounts=[],user
           onSelect:()=>{if(!selected&&!busy)onOrganization(org.id,account.id);}},
           h('nav',{'aria-label':title},h('strong',null,title),
             h('button',{disabled:busy,onClick:choose(()=>onOrganization(org.id,account.id))},h('span',{className:'bc-menu-symbol'},h(OrganizationIcon,{organization:org,icon})),h('span',{className:'bc-menu-label'},'Open '+org.name)),
-            h('button',{disabled:busy,onClick:choose(()=>onOrganization(org.id,account.id,true))},h('span',{className:'bc-menu-symbol'},icon('gear')),h('span',{className:'bc-menu-label'},'Org settings'))));
+            h('button',{disabled:busy,onClick:choose(()=>onOrganization(org.id,account.id,true))},h('span',{className:'bc-menu-symbol'},icon('gear')),h('span',{className:'bc-menu-label'},'Organization'))));
       }),
       accountRows.filter(account=>account.organizationError).map(account=>h('p',{key:account.id,className:'bc-rail-label bc-org-error',role:'status',title:account.organizationError},`Org list unavailable (${account.user?.email??'Account'}). Showing saved orgs.`))),
     h('div',{className:'bc-spacer'}),
     h('div',{className:'bc-rail-bottom'},
       h('button',{className:'bc-rail-action','aria-label':`Switch to ${theme.dark?'light':'dark'} theme`,title:`Switch to ${theme.dark?'light':'dark'} theme`,onClick:onTheme},icon(theme.dark?'sun':'moon'),label(theme.dark?'Light mode':'Dark mode')),
-      h('button',{className:'bc-rail-action','aria-label':'Org settings',title:'Org settings',onClick:()=>onGlobal('organizations')},h('span',{className:'bc-scope-icon'},icon('organization'),icon('gear')),label('Org settings')),
-      h('button',{className:'bc-rail-action','aria-label':'Global settings',title:'Global settings',onClick:()=>onGlobal('ai')},icon('settings'),label('Global settings')),
+      h('button',{className:'bc-rail-action','aria-label':'Settings',title:'Settings',onClick:()=>onGlobal('ai')},icon('settings'),label('Settings')),
       h('button',{className:'bc-rail-action','aria-label':'Account settings','aria-description':accounts.length>1?`${accounts.length} signed-in accounts`:undefined,title:'Account settings',onClick:onAccount},h('span',{className:'bc-account-icon'},icon('accounts'),accounts.length>1?h('small',{className:'bc-account-count'},accounts.length):null),label('Accounts'))));
 }

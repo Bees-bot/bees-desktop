@@ -2,6 +2,7 @@ import { h, React, createPortal, useEffect, useRef, useState } from './runtime.j
 import { THREAD_PAGES, defaultThreadLayout, normalizeThreadLayout, layoutGroups, updateLayoutNode, activateWidget, dockWidget } from '../lib/thread-layout.js';
 
 const labels = new Map(THREAD_PAGES);
+const PRIMARY_TABS = new Set(['conversation', 'files', 'kanban', 'discussion']);
 
 export function ThreadWorkspace({ initialLayout, toolbar, navigation, renderWidget, onSave }) {
   const [layout, setLayout] = useState(() => normalizeThreadLayout(initialLayout) ?? defaultThreadLayout());
@@ -79,22 +80,29 @@ export function ThreadWorkspace({ initialLayout, toolbar, navigation, renderWidg
     }
     const dockTarget = node.active === dragging ? node.tabs.find(id => id !== dragging) : node.active;
     return h('section', { key: node.id, className: 'bc-layout-group', 'aria-label': labels.get(node.active) + ' panel' },
-      h('nav', { className: 'bc-page-tabs', role: 'tablist', 'aria-label': 'Panel views' }, node.tabs.map((id, index) => h('button', {
-        key: id, id: 'widget-tab-' + id, role: 'tab', 'aria-selected': node.active === id, 'aria-controls': 'widget-panel-' + id,
-        tabIndex: node.active === id ? 0 : -1, draggable: editing && !saving,
-        onClick: () => changeLayout(layout => activateWidget(layout, id)),
-        onKeyDown: event => {
-          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-          event.preventDefault();
-          const next = node.tabs[event.key === 'Home' ? 0 : event.key === 'End' ? node.tabs.length - 1 : (index + (event.key === 'ArrowLeft' ? -1 : 1) + node.tabs.length) % node.tabs.length];
-          changeLayout(layout => activateWidget(layout, next));
-          document.getElementById('widget-tab-' + next)?.focus();
-        },
-        onDragStart: event => { event.dataTransfer.setData('application/x-bees-widget', id); event.dataTransfer.effectAllowed = 'move'; setDragging(id); },
-        onDragEnd: () => setDragging(null),
-        onDragOver: event => { if (editing && !saving && dragging) event.preventDefault(); },
-        onDrop: event => { if (editing && !saving && dragging) drop(event, id, 'before'); },
-      }, labels.get(id)))),
+      h('nav', { className: 'bc-page-tabs', role: 'tablist', 'aria-label': 'Panel views' }, node.tabs.map((id, index) => {
+        const isPrimary = PRIMARY_TABS.has(id);
+        const isFirstSecondary = !isPrimary && index > 0 && PRIMARY_TABS.has(node.tabs[index - 1]);
+        return h(React.Fragment, { key: id },
+          isFirstSecondary ? h('span', { className: 'bc-tab-separator', role: 'separator', 'aria-hidden': true }) : null,
+          h('button', {
+            id: 'widget-tab-' + id, role: 'tab', 'aria-selected': node.active === id, 'aria-controls': 'widget-panel-' + id,
+            className: 'bc-tab-button ' + (isPrimary ? 'bc-tab-primary' : 'bc-tab-secondary'),
+            tabIndex: node.active === id ? 0 : -1, draggable: editing && !saving,
+            onClick: () => changeLayout(layout => activateWidget(layout, id)),
+            onKeyDown: event => {
+              if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+              event.preventDefault();
+              const next = node.tabs[event.key === 'Home' ? 0 : event.key === 'End' ? node.tabs.length - 1 : (index + (event.key === 'ArrowLeft' ? -1 : 1) + node.tabs.length) % node.tabs.length];
+              changeLayout(layout => activateWidget(layout, next));
+              document.getElementById('widget-tab-' + next)?.focus();
+            },
+            onDragStart: event => { event.dataTransfer.setData('application/x-bees-widget', id); event.dataTransfer.effectAllowed = 'move'; setDragging(id); },
+            onDragEnd: () => setDragging(null),
+            onDragOver: event => { if (editing && !saving && dragging) event.preventDefault(); },
+            onDrop: event => { if (editing && !saving && dragging) drop(event, id, 'before'); },
+          }, labels.get(id)));
+      })),
       h('div', { className: 'bc-widget-host', ref: element => { if (element) hosts.current.set(node.id, element); else hosts.current.delete(node.id); } }),
       editing && !saving && dragging ? h('div', { className: 'bc-layout-dropzones' }, ['left', 'right', 'top', 'bottom', 'tab'].map(where => h('button', {
         key: where, className: 'bc-layout-drop ' + where, 'aria-label': `Dock as ${where} of ${labels.get(dockTarget ?? node.active)}`,
