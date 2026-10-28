@@ -54,7 +54,7 @@ export function HoverMenu({className,label,title,icon,children,onSelect,selected
     h('button',{className:'bc-rail-action',title,'aria-label':title,'aria-haspopup':true,'aria-expanded':false,'aria-current':selected?'page':undefined,onClick:event=>{event.preventDefault();onSelect?.();}},icon,label),children);
 }
 
-export function BeesNavigation({brandMark,icon,organizations=[],accounts=[],user,localActive=!accounts.some(account=>account.active),organizationId,theme,busy,onOrganization,onCreateOrganization,onGlobal,onTheme,onAccount}){
+export function BeesNavigation({brandMark,icon,organizations=[],accounts=[],user,localActive=!accounts.some(account=>account.active),organizationId,theme,busy,onOrganization,onGlobal,onTheme,onAccount}){
   const choose=fn=>event=>{closeHoverMenu(event.currentTarget.closest('.bc-brand-menu'));fn();};
   const accountRows=hosted&&!accounts.length?[{id:null,active:true,user,organizations}]:accounts;
   const localSelected=localActive&&!organizationId;
@@ -73,7 +73,6 @@ export function BeesNavigation({brandMark,icon,organizations=[],accounts=[],user
             h('button',{disabled:busy,onClick:choose(()=>onOrganization(org.id,account.id))},h('span',{className:'bc-menu-symbol'},h(OrganizationIcon,{organization:org,icon})),h('span',{className:'bc-menu-label'},'Open '+org.name)),
             h('button',{disabled:busy,onClick:choose(()=>onOrganization(org.id,account.id,true))},h('span',{className:'bc-menu-symbol'},icon('gear')),h('span',{className:'bc-menu-label'},'Org settings'))));
       }),
-      accountRows.map(account=>h('button',{key:account.id??'hosted',className:'bc-rail-action bc-create-org',title:`Create org for ${account.user?.email??'account'}`,'aria-label':`Create org for ${account.user?.email??'account'}`,disabled:busy,onClick:()=>onCreateOrganization(account.id)},icon('plus'),label(`Create org (${account.user?.email??'Account'})`))),
       accountRows.filter(account=>account.organizationError).map(account=>h('p',{key:account.id,className:'bc-rail-label bc-org-error',role:'status',title:account.organizationError},`Org list unavailable (${account.user?.email??'Account'}). Showing saved orgs.`))),
     h('div',{className:'bc-spacer'}),
     h('div',{className:'bc-rail-bottom'},
