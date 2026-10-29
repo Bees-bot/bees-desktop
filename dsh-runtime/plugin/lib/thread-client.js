@@ -108,7 +108,7 @@ export class ThreadClient {
     if(authority.team_id){const team=this.roster.threads.find(t=>t.id===authority.team_id);if(team)await this.syncAuthority(team);}
     const local=this.store.list().find(t=>t.id===id);if(local?.staged&&authority.transfer_client_id===this.store.clientId&&checkpointDigest(this.store.document(id))===authority.transfer_digest)return this.store.document(id);
     // both stamps are server time, so a wrong laptop clock can't make an online owner look offline
-    const seen=c=>Date.parse(this.roster.clients?.find(x=>x.id===c)?.last_seen_at);if(seen(this.store.clientId)-seen(authority.owner_client_id)>30000)throw threadError("The owner's laptop can't be reached right now.",408);
+    const seen=c=>Date.parse(this.roster.clients?.find(x=>x.id===c)?.last_seen_at);if(seen(this.store.clientId)-seen(authority.owner_client_id)>30000)throw threadError("The owner's Bees Client can't be reached right now.",408);
     const doc=await this.peer.send(id,authority.owner_client_id,{kind:'snapshot'});
     if(this.closing)throw threadError('Client is stopping');
     const imported=this.store.import(doc,authority);
@@ -208,7 +208,7 @@ export class ThreadClient {
     }
     if(input.action==='read'){
       let doc;
-      try{doc=await this.sync(id);}catch(e){doc=this.store.get(id);if(doc.ownerClientId!==this.store.clientId||doc.shared)doc.unavailable=e.status===403?'You no longer have access to this thread.':e.status===502?"Bees can't be reached right now.":!e.status||e.status===408?"The owner's laptop can't be reached right now.":e.message;}
+      try{doc=await this.sync(id);}catch(e){doc=this.store.get(id);if(doc.ownerClientId!==this.store.clientId||doc.shared)doc.unavailable=e.status===403?'You no longer have access to this thread.':e.status===502?"Bees can't be reached right now.":!e.status||e.status===408?"The owner's Bees Client can't be reached right now.":e.message;}
       await this.options.recoverActivity?.(this.store,doc);
       return {...this.store.get(id),teamId:doc.teamId??this.store.preference(`team:${id}`),...(doc.unavailable?{unavailable:doc.unavailable}:{}),frozen:doc.ownerClientId===this.store.clientId&&!!this.store.preference(`frozen:${id}`)};
     }
