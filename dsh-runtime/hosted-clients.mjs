@@ -31,7 +31,7 @@ export function dockerClients({image,stateRoot,directoryUrl,maxClients=50}){
       if(!running){
         // The native-addon loader caches shared libraries in /tmp, which must permit mmap execution.
         await exec('docker',['run','-d','--name',name,'--label','bees.client='+id,'--restart','unless-stopped','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges','--pids-limit','256','--memory','2g','--cpus','2','--tmpfs','/tmp:rw,exec,nosuid,size=512m','--mount',`type=volume,source=${name},target=/var/lib/bees`,'-p','127.0.0.1::8080',
-          ...['BEES_DSH_TOKEN','BEES_THREAD_SESSION','BEES_ACCOUNT_API_URL','BEES_CLIENT_NAME','BEES_HOSTED_CLIENT','BEES_HOSTED_MODEL','BEES_MODEL_PROFILE','BEES_HOSTED_RUNS_PER_DAY'].flatMap(k=>['-e',k]),'--entrypoint','node',image,'dsh-runtime/client-cloud.mjs'],
+          ...['BEES_DSH_TOKEN','BEES_THREAD_SESSION','BEES_ACCOUNT_API_URL','BEES_CLIENT_NAME','BEES_HOSTED_CLIENT','BEES_HOSTED_RUNS_PER_DAY'].flatMap(k=>['-e',k]),'--entrypoint','node',image,'dsh-runtime/client-cloud.mjs'],
           {env:{...process.env,BEES_DSH_TOKEN:credential.token,BEES_THREAD_SESSION:session,BEES_ACCOUNT_API_URL:directoryUrl,BEES_CLIENT_NAME:'Bees Cloud',BEES_HOSTED_CLIENT:'1',BEES_HOSTED_RUNS_PER_DAY:process.env.BEES_HOSTED_RUNS_PER_DAY??'0'},maxBuffer:1_000_000});
       }
       const inspected=JSON.parse((await exec('docker',['inspect',name])).stdout)[0];
@@ -62,7 +62,7 @@ if(state){const channel=new BroadcastChannel('bees-sign-in-'+state);channel.post
       }
       if(url.pathname==='/'||url.pathname==='/app'||url.pathname==='/app/'){
         assetVersion??=hash(await readFile(join(assets,'app.js'))).slice(0,16);
-        res.writeHead(200,{'content-type':'text/html','cache-control':'no-store'});return res.end(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bees Client</title><body><div id="bees-root"></div><script type="module" src="/app/assets/app.js?v=${assetVersion}"></script></body></html>`);
+        res.writeHead(200,{'content-type':'text/html','cache-control':'no-store'});return res.end(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bees Client</title><link rel="stylesheet" href="/app/assets/app.css?v=${assetVersion}"><body><div id="bees-root"></div><script type="module" src="/app/assets/app.js?v=${assetVersion}"></script></body></html>`);
       }
       if(url.pathname.startsWith('/app/assets/')){const name=url.pathname.slice('/app/assets/'.length);if(!/^[a-zA-Z0-9_.-]+$/.test(name))return json(res,404,{error:'Unavailable'});let content;try{content=await readFile(join(assets,name));}catch(error){if(error.code==='ENOENT')return json(res,404,{error:'Unavailable'});throw error;}res.writeHead(200,{'content-type':name.endsWith('.js')?'text/javascript':name.endsWith('.css')?'text/css':'application/octet-stream','cache-control':'no-cache','x-content-type-options':'nosniff'});return res.end(content);}
       if(!['/bees-api/threads','/bees-api/thread-file'].includes(url.pathname))return json(res,404,{error:'Unavailable'});
