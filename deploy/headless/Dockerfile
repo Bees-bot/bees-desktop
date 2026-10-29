@@ -18,7 +18,11 @@ ARG BEES_BUILD_DIRTY=false
 RUN node scripts/install-dsh-runtime.mjs && node scripts/stage-dsh-plugin.mjs && node scripts/prepare-dsh-runtime.mjs --headless && BEES_BUILD_REVISION="$BEES_BUILD_REVISION" BEES_BUILD_DIRTY="$BEES_BUILD_DIRTY" node scripts/build-hosted-ui.mjs
 
 FROM node:24.7.0-bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates bash procps && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates bash procps chromium python3 && rm -rf /var/lib/apt/lists/*
+# the browser add-ons look for Chrome here; a pod without user namespaces has no sandbox to start
+RUN mkdir -p /opt/google/chrome && ln -s /usr/bin/chromium /opt/google/chrome/chrome \
+  && echo 'export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --no-sandbox"' >/etc/chromium.d/bees
+COPY --from=ghcr.io/astral-sh/uv:0.10.0 /uv /uvx /usr/local/bin/
 WORKDIR /opt/bees
 COPY --from=build /opt/bees/dsh-runtime ./dsh-runtime
 COPY --from=build /opt/bees/dist/hosted ./dist/hosted
