@@ -3,7 +3,7 @@ import { openExternal } from './common.js';
 import { parseCreditAmount } from '../lib/credit-pricing.js';
 
 const tokens=value=>Number(value??0).toLocaleString();
-const dollars=value=>Number(value??0).toLocaleString('en-US',{style:'currency',currency:'USD',maximumFractionDigits:6});
+const starterCredits=value=>(value*1000000).toLocaleString('en-US',{maximumFractionDigits:6});
 export function CreditSettings({connection,user,request,onRefresh,onSignIn}){
   const credits=connection?.credits;
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[renew,setRenew]=useState(credits?.autoRenew??false),[amount,setAmount]=useState(((credits?.renewalCents??1000)/100).toFixed(2));
@@ -30,8 +30,8 @@ export function CreditSettings({connection,user,request,onRefresh,onSignIn}){
     !user?h('div',null,h('p',null,'Sign in to use your personal Bees balance on desktop and web.'),h('button',{onClick:onSignIn},'Sign in')):h('div',{className:'bc-form'},
       h('p',null,h('strong',null,tokens(credits?.balance)+' purchased tokens available')),
       h('p',{className:'bc-muted'},'Your balance belongs to your Bees user account and is shared across all organizations, desktop Clients, and web Clients. Creating another organization does not grant more credits.'),
-      h('p',null,'One-time starter credit: $0.01 of provider usage, with no starter token quota. Starter credit is used before purchased tokens.'),
-      typeof credits?.starterRemainingUsd==='number'?h('p',{role:'status'},dollars(credits.starterRemainingUsd)+' starter credit remaining.'):null,
+      h('p',null,'One-time grant: 10k starter credits. Starter credits equal provider usage in dollars × 1,000,000. Starter credits are used before purchased tokens.'),
+      typeof credits?.starterRemainingUsd==='number'?h('p',{role:'status'},starterCredits(credits.starterRemainingUsd)+' starter credits remaining.'):null,
       credits?.starterMessage?h('p',{role:'status'},credits.starterMessage):null,
       h('p',{className:'bc-muted'},'Purchased tokens count input and output, including cached input and reasoning reported in those totals.'),
       credits?.heldTokens?h('p',{role:'status'},tokens(credits.heldTokens)+' tokens are reserved for running or unconfirmed requests. Unused reservations are returned when usage is confirmed.'):null,
@@ -62,7 +62,7 @@ export function FirstStart({user,organizations=[],busy,error,onSignIn,onCloud,on
     error?h('p',{className:'bc-error',role:'alert'},error):null,
     h('div',{className:'bc-onboarding-options'},
       h('section',{className:'bc-form bc-onboarding-option'},h('h2',null,'Create a Bees organization'),
-        h('p',null,'Get $0.01 of provider usage for a first task, with no starter token quota. Use the same personal balance on desktop and web.'),
+        h('p',null,'Get 10k starter credits for your first task. Use the same personal balance on desktop and web.'),
         h('p',{className:'bc-muted'},'One grant per Bees user, shared across organizations. Add 10 million tokens for $10 when you need more.'),
         !user?h('button',{className:'bc-primary',disabled:busy,onClick:onSignIn},'Sign in or create an account'):
         !user.emailVerified?h('div',null,h('p',null,'Verify your email to create an organization and use starter credits.'),h('button',{disabled:busy,onClick:onVerify},'Send verification email')):

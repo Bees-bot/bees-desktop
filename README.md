@@ -6,6 +6,8 @@ Install/open the desktop Client, connect an AI in Settings, and start a thread. 
 
 Chat alternates between your message and an AI reply, retaining conversation history for each turn. Its single Chat stage returns to Your turn after replying and resumes on your next message. Goals use Work and Review stages. Both processes inherit team instructions, memory, files, and local integrations.
 
+Agents can present [review screens](docs/review-screens.md) with forms, editable tables, split panes, tabs, comparisons and source references for data from any workflow. Correct related fields together, save a draft, request changes or approve once. Saved reviews survive restart; interrupted work requires an explicit continuation.
+
 Creating an organization also creates its Default team. The client repairs older empty organizations owned by the signed-in user once, without duplicating existing teams. Team owners can create, edit, and delete named processes under Team settings → Processes; editors can start threads from them. Existing threads retain their saved stages when a process is edited or deleted.
 
 ## How work lives and moves
@@ -49,7 +51,7 @@ npm run check:headless
 
 `npm run check:web` runs the full shared suite, then the same agent proof through the hosted gateway with cookie authentication and a hosted worker. It also checks rejected sessions, cross-origin requests, desktop-only onboarding, and managed web folders. The directory and model are local fixtures; it does not charge customers or modify production accounts.
 
-Account profiles separate threads, certificates and device credentials. First startup offers a Bees organization with $0.01 of provider-cost starter credit (once per Bees user id, with no starter token quota), or a local organization using your own AI. Local mode needs no account. User-configured AI connections remain machine-scoped. Bees Credits is account-scoped and uses one personal balance across organizations, desktop, and web. Credits are metered through the Server using its LLM_MODEL, LLM_BASE_URL, LLM_REASONING_EFFORT, and private LLM_API_KEY; provider credentials are never sent to a Client. Existing explicit model choices are preserved, and operator changes to the credit model refresh within 30 seconds. Root and child agents keep account-scoped billing credentials isolated. Hosted users get separate containers and persistent volumes.
+Account profiles separate threads, certificates and device credentials. First startup offers a Bees organization with 10k starter credits (once per Bees user id; provider-cost dollars × 1,000,000, so $0.01 = 10k credits), or a local organization using your own AI. Local mode needs no account. User-configured AI connections remain machine-scoped. Bees Credits is account-scoped and uses one personal balance across organizations, desktop, and web. Credits are metered through the Server using its LLM_MODEL, LLM_BASE_URL, LLM_REASONING_EFFORT, and private LLM_API_KEY; provider credentials are never sent to a Client. Existing explicit model choices are preserved, and operator changes to the credit model refresh within 30 seconds. Root and child agents keep account-scoped billing credentials isolated. Hosted users get separate containers and persistent volumes.
 
 ## Open headless Bees from your other devices
 

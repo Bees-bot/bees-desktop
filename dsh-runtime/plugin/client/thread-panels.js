@@ -2,6 +2,7 @@ import { h, useEffect, MarkdownText } from './runtime.js';
 import { when } from './common.js';
 import { DEFAULT_WORKFLOW, processName, isChatWorkflow } from '../lib/thread-workflow.js';
 import { labels } from './thread-kanban.js';
+import { ReviewScreen } from './thread-review.js';
 
 export { THREAD_PAGES } from '../lib/thread-layout.js';
 export const THREAD_SETTINGS = [
@@ -14,7 +15,7 @@ export const TEAM_SETTINGS = [
 ];
 export const GLOBAL_SETTINGS = [
   ['ai', 'AI connections'], ['credits', 'Credits & billing'], ['appearance', 'Appearance'], ['instructions', 'System instructions'],
-  ['storage', 'Root folder'], ['organizations', 'Organization'],
+  ['storage', 'Root folder'],
 ];
 
 export function SettingsNav({ items, groups, selected, onSelect, label }) {
@@ -25,6 +26,7 @@ export function SettingsNav({ items, groups, selected, onSelect, label }) {
           h('span', null, group.title),
           group.extra || null
         ),
+        group.selector || null,
         group.items.map(([id, title]) =>
           h('button', {
             key: id,
@@ -71,9 +73,11 @@ export function ThreadDetails({ thread, page, peerNames, userId, onSettings, onF
     ...[...thread.runs].reverse().map(run => h('article', { className: 'bc-card bc-form', key: run.id },
       h('strong', null, run.prompt), h('small', null, `${labels[run.status] ?? run.status} · ${when(run.createdAt)}`),
       run.error ? h('p', { role: 'status' }, run.error) : null,
+      ...(run.reviews ?? []).map(review => h('details', { key: review.id }, h('summary', null, review.request.title, ' · ', review.state.replaceAll('_', ' ')),
+        h(ReviewScreen, { review, runId: run.id, readOnly: true }))),
       ...(run.stages ?? []).map((stage, index) => h('details', { key: index }, h('summary', null, stage.name),
         stage.summary ? h(MarkdownText, { text: stage.summary, content: stage.summary }) : null,
         page === 'traces' ? h('ul', null, ...(stage.tools ?? []).map((tool, i) => h('li', { key: i }, tool.name))) : null)),
       page === 'traces' ? (run.decisions ?? []).map(decision => h('p', { key: decision.id },
-        `${decision.kind === 'approval' ? (decision.approved ? 'Approved' : 'Rejected') : 'Question answered'} · ${peerNames.get(decision.actorId) ?? (decision.actorId === userId || decision.actorId === 'local' ? 'You' : decision.actorId)} · ${when(decision.answeredAt)}`)) : null)));
+        `${decision.kind === 'approval' ? (decision.approved ? 'Approved' : 'Rejected') : decision.kind === 'review' ? 'Review: ' + decision.decision.replaceAll('_', ' ') : 'Question answered'} · ${peerNames.get(decision.actorId) ?? (decision.actorId === userId || decision.actorId === 'local' ? 'You' : decision.actorId)} · ${when(decision.answeredAt)}`)) : null)));
 }

@@ -12,6 +12,7 @@ import { captureWorkflowAgents, validateTeamAgents } from './thread-agents.js';
 import { recordChatReply } from './thread-session.js';
 import { normalizeThreadLayout } from './thread-layout.js';
 import { authConfig, serverOrigin } from './thread-auth.js';
+import { saveReviewDecision } from './thread-review-tool.js';
 
 export class DirectoryConnection {
   constructor(root,clientId){this.path=join(root,'directory.json');this.clientId=clientId;this.stop=new AbortController();if(existsSync(this.path))Object.assign(this,JSON.parse(readFileSync(this.path,'utf8')));this.url??=process.env.BEES_ACCOUNT_API_URL??'https://app.bees.bot';}
@@ -277,9 +278,22 @@ export class ThreadClient {
     else if(input.action==='answer'){
       const pending=this.options.pending?.(input.questionId);const doc=this.store.document(id);
       if(!pending||pending.threadId!==id)throw threadError('This question is no longer waiting',409);
+      if(pending.kind==='review')throw threadError('Use the review screen to save or approve this work.');
       if(pending.kind==='approval'&&doc.shared&&actor!==doc.ownerUserId)throw threadError('Only the thread owner may approve an external action',403);
       if(Buffer.byteLength(JSON.stringify(input.answers??{}))>64000)throw threadError('Keep the answer under 64 KB');
       this.options.answer(input.questionId,{...input,actorId:actor});result=this.store.document(id);
+    }
+    else if(input.action==='review'){
+      const before=this.store.document(id);
+      if(before.operations?.includes(input.operationId))return before;
+      const run=before.runs.find(run=>run.id===input.runId);
+      const live=run?.pending&&this.options.pending?.(run.pending.id);
+      result=saveReviewDecision(this.store,id,input,actor,live);
+      if(input.decision!=='save'&&live){
+        const review=result.runs.find(run=>run.id===input.runId).reviews.find(review=>review.id===input.reviewId);
+        this.options.answer(run.pending.id,{reviewId:review.id,decision:review.decision,values:review.values,note:review.note,digest:review.digest,actorId:actor});
+        result=this.store.document(id);
+      }
     }
     else if(input.action==='run'){
       const configuration=this.store.document(id);
@@ -290,6 +304,7 @@ export class ThreadClient {
       if(team?.shared)await this.authority(team.id);
       if(this.store.document(id).runs.some(r=>r.id===input.operationId))return this.store.document(id);
       if(this.jobs.has(id))throw threadError('Work is already running in this thread',409);
+      if(configuration.runs.some(run=>run.status==='uncertain'&&run.reviews?.some(review=>review.state==='open')))throw threadError('Resolve the saved review before starting more work.',409);
       const quota=Number(process.env.BEES_HOSTED_RUNS_PER_DAY??0),day=new Date().toISOString().slice(0,10);
       const admissions=this.store.preference('admissions:'+day)??[];if(quota&&admissions.length>=quota)throw threadError('Daily hosted workflow allowance reached. Use a local client or try again tomorrow.',429);
       const prompt=text(input.text);const run={id:input.operationId,prompt,status:'running',createdAt:new Date().toISOString(),model:this.store.preference('model'),instructions:[this.store.preference('settings')?.systemInstructions,team?.instructions,configuration.instructions].filter(Boolean).join('\n\n'),workflow:captureWorkflowAgents(workflowFor(configuration,team),team)};
@@ -305,7 +320,7 @@ export class ThreadClient {
         if(team&&this.memory&&!run.workflow.some(stage=>stage.kind==='chat')){try{this.memory.remember(team.id,String(output||'Work completed.').slice(0,12000),`Thread: ${doc.title}\nRequest: ${prompt}\nExecution: ${run.id}`.slice(0,6000),run.id);void this.memory.flush(team.id).catch(()=>{});}catch{/* Recording memory must not change a completed run to failed. */}}
       }catch(e){try{this.store.mutate(id,randomUUID(),doc=>{const r=doc.runs.find(r=>r.id===run.id);
         // words already on screen stay as the reply, like a stopped answer anywhere else
-        if(r.partial?.trim()){const messageId=randomUUID();doc.messages.push({id:messageId,authorId:'bees',kind:'assistant',text:r.partial,createdAt:new Date().toISOString()});recordChatReply(this.store,id,run.id,messageId);}delete r.partial;r.status=abort.signal.aborted?'cancelled':'failed';r.error=abort.signal.aborted?'Stopped before it finished.':e.message;});}catch(write){console.error(`Bees Client could not record the end of run ${run.id}: ${write.message}`);}}finally{this.jobs.delete(id);this.options.notify?.();}})();
+        if(r.partial?.trim()){const messageId=randomUUID();doc.messages.push({id:messageId,authorId:'bees',kind:'assistant',text:r.partial,createdAt:new Date().toISOString()});recordChatReply(this.store,id,run.id,messageId);}delete r.partial;const recover=r.recoveringReview&&r.reviews?.find(review=>review.state==='open');delete r.recoveringReview;r.status=recover?'uncertain':abort.signal.aborted?'cancelled':'failed';r.error=recover?'Bees closed while waiting for your review. Resolve the saved review, then send a message to continue.':abort.signal.aborted?'Stopped before it finished.':e.message;if(recover)r.pending={id:randomUUID(),kind:'review',reviewId:recover.id};});}catch(write){console.error(`Bees Client could not record the end of run ${run.id}: ${write.message}`);}}finally{this.jobs.delete(id);this.options.notify?.();}})();
       this.finishing.add(finished);void finished.finally(()=>this.finishing.delete(finished));
     } else if(input.action==='stop'){this.jobs.get(id)?.abort();result=this.store.document(id);}
     else throw threadError('Unknown thread command');
@@ -337,5 +352,13 @@ export class ThreadClient {
       catch(e){try{this.store.mutate(row.id,randomUUID(),d=>{d.schedule.error=e.message;d.schedule.attemptAt=new Date().toISOString();});}catch{}}
     }}finally{this.scheduling=false;}
   }
-  async close(){this.closing=true;clearInterval(this.timer);this.directory.stop.abort();for(const abort of this.jobs.values())abort.abort();await Promise.allSettled([...this.finishing]);this.options.credits?.close(this);await this.memory?.close();await this.peer?.close();this.store.close();}
+  async close(){
+    this.closing=true;clearInterval(this.timer);this.directory.stop.abort();
+    for(const row of this.store.list())if(this.jobs.has(row.id)&&row.ownerClientId===this.store.clientId&&!row.staged&&!this.store.preference(`frozen:${row.id}`)){
+      const waiting=run=>run.status==='running'&&run.reviews?.some(review=>review.state==='open');
+      if(this.store.document(row.id).runs.some(waiting))this.store.mutate(row.id,randomUUID(),doc=>{for(const run of doc.runs)if(waiting(run))run.recoveringReview=true;});
+    }
+    for(const abort of this.jobs.values())abort.abort();
+    await Promise.allSettled([...this.finishing]);this.options.credits?.close(this);await this.memory?.close();await this.peer?.close();this.store.close();
+  }
 }

@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync, lstatSync, readdirS
 import { join } from 'node:path';
 import { validateTeamAgents } from './thread-agents.js';
 import { DEFAULT_WORKFLOW, WORKFLOW_TEMPLATES, isValidWorkflow } from './thread-workflow.js';
+import { validateReview, reviewValueErrors } from './thread-review.js';
 
 export const digest = value => createHash('sha256').update(value).digest('hex');
 export const canonical = value => JSON.stringify(value, (_key,v) => v && typeof v==='object' && !Array.isArray(v)
@@ -30,7 +31,7 @@ export class ThreadStore {
     // An interrupted agent may have made an external change. Recovery always needs an explicit retry.
     for(const {id,document} of this.db.prepare('SELECT id,document FROM threads WHERE staged=0').all()) {
       const doc=JSON.parse(document);let changed=false;
-      for(const run of doc.runs) if(doc.ownerClientId===this.clientId&&run.status==='running') {run.status='uncertain';run.error='Bees closed while this was running. Check anything it may have changed before you try again.';changed=true;}
+      for(const run of doc.runs) if(doc.ownerClientId===this.clientId&&run.status==='running') {run.status='uncertain';delete run.recoveringReview;const review=run.reviews?.find(review=>review.state==='open');if(review)run.pending={id:randomUUID(),kind:'review',reviewId:review.id};run.error='Bees closed while this was running. Check anything it may have changed before you try again.';changed=true;}
       if(changed) this.save(this.trim({...doc,revision:doc.revision+1}));
     }
     // files no thread lists any more (trimmed, rejected, or refused at the limit) give their space back on start
@@ -81,6 +82,20 @@ export class ThreadStore {
     for(const a of doc.artifacts){validId(a.id);text(a.name,200);if(known.has(a.id)||/[\x00-\x1f/\\]/.test(a.name)||['.','..'].includes(a.name)||!/^[a-f0-9]{64}$/.test(a.digest)||!Number.isSafeInteger(a.size)||a.size<0||a.size>10_000_000)throw threadError('Invalid attachment');known.add(a.id);}
     if(doc.artifacts.length>1000||doc.artifacts.reduce((n,a)=>n+a.size,0)>250_000_000)throw threadError('Thread file limit reached');
     const messages=new Set();for(const m of doc.messages){validId(m.id);if(messages.has(m.id))throw threadError('Duplicate message');messages.add(m.id);text(m.text,100000);text(m.authorId,200);if(!['user','assistant','discussion','system'].includes(m.kind))throw threadError('Invalid message');}
+    for(const run of doc.runs){
+      if(run.pending?.kind==='review'&&!Array.isArray(run.reviews))throw threadError('The pending review is missing.');
+      if(run.reviews===undefined)continue;
+      if(!Array.isArray(run.reviews)||run.reviews.length>100)throw threadError('Too many review screens in one run.');
+      const ids=new Set();
+      for(const review of run.reviews){
+        validId(review.id);if(ids.has(review.id))throw threadError('Duplicate review.');ids.add(review.id);
+        if(!Number.isSafeInteger(review.revision)||review.revision<1||!['open','approved','rejected','changes_requested','cancelled'].includes(review.state))throw threadError('Invalid review state.');
+        validateReview(review.request);
+        const errors=reviewValueErrors(review.request,review.values,review.state==='approved');
+        if(Object.keys(errors).length||review.state==='approved'&&review.digest!==checkpointDigest({request:review.request,values:review.values,revision:review.revision}))throw threadError('Invalid approved review.');
+      }
+      if(run.pending?.kind==='review'&&!ids.has(run.pending.reviewId))throw threadError('The pending review is missing.');
+    }
   }
   create(title,userId='local',workflow=DEFAULT_WORKFLOW,teamId,kind='thread',{processId,organizationId}={}) {const at=now();return this.save({id:randomUUID(),kind,...(teamId?{teamId:validId(teamId)}:{}),...(processId?{processId}:{}),...(organizationId?{organizationId}:{}),title:text(title,180),ownerClientId:this.clientId,ownerUserId:userId,shared:false,epoch:1,revision:1,createdAt:at,updatedAt:at,messages:[],artifacts:[],runs:[],memory:[],workflow});}
   writable(doc){if(doc.staged||doc.ownerClientId!==this.clientId)throw threadError('Changes must be accepted by the owning client',409);if(this.preference(`frozen:${doc.id}`))throw threadError('This thread is being transferred',409);}
