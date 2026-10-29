@@ -3,11 +3,13 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {configureRuntime} from '../client/runtime.js';
-import {BeesNavigation,TeamMenu,TeamSection,HoverMenu,TeamManagement} from '../client/thread-navigation.js';
-import {SettingsPage} from '../client/thread-panels.js';
+import {BeesNavigation,TeamMenu,TeamSection,SettingsScopePicker,TeamManagement} from '../client/thread-navigation.js';
+import {SettingsPage,SettingsNav,ThreadDetails} from '../client/thread-panels.js';
 import {TeamProcesses} from '../client/thread-processes.js';
 import {OrganizationAppearance,OrganizationIcon,readOrganizationImage} from '../client/thread-organization-appearance.js';
 import {ThreadApp} from '../client/thread-app.js';
+import {ThreadWorkspace} from '../client/thread-layout.js';
+import {ScheduleSettings} from '../client/thread-schedule-form.js';
 
 const configure=hosted=>configureRuntime(name=>({react:React,'react-dom':{},'@deepseek-ai/dsh-client-ui-primitives':{},'@bees/dsh-custom-ai':{},'@bees/dsh-subscriptions':{}})[name],{hosted});
 configure(true);
@@ -21,7 +23,7 @@ test('desktop keeps local work visible and selectable beside signed-in organizat
     local.props.onClick();assert.deepEqual(calls,[[null,null]]);
     const markup=renderToStaticMarkup(tree);
     assert(markup.indexOf('Local Org')<markup.indexOf('alice@example.com'));assert(markup.includes('Studio'));assert(!markup.includes('Local threads'));
-    assert.doesNotMatch(markup,/Create org|bc-create-org/);
+    assert.match(markup,/aria-label="Add organization"/);
     const signedInLocal=renderToStaticMarkup(React.createElement(BeesNavigation,{...props,organizationId:null}));
     assert.match(signedInLocal,/title="Local Org"[^>]*aria-current="page"/);assert.equal((signedInLocal.match(/aria-current="page"/g)??[]).length,1);
     const active=renderToStaticMarkup(React.createElement(BeesNavigation,{...props,organizationId:null,accounts:props.accounts.map(account=>({...account,active:false}))}));
@@ -47,12 +49,12 @@ test('orgs form one alphabetical list with email labels and no personal account 
   for(const title of titles)assert(markup.includes(`class="bc-rail-label">${title}</span>`));
   assert.match(markup,/aria-label="Studio \(alice@example.com\)"[^>]*aria-current="page"/);
   assert.doesNotMatch(markup,/aria-label="Studio \(bob@example.com\)" aria-current/);
-  assert.doesNotMatch(markup,/Create org|bc-create-org/);
+  assert.match(markup,/aria-label="Add organization"/);
   assert.doesNotMatch(markup,/Personal threads|Threads outside your organizations|bc-account-switcher|bc-account-orgs/);
   assert.match(markup,/background:#7c3aed;color:#ffffff/);assert.match(markup,/data-icon="star"/);
   assert.doesNotMatch(markup,/Team settings|bc-team-switcher|Hidden teams|New Goal|New Chat|Personal \(/);
   const calls=[],orgs=BeesNavigation({...props,onOrganization:(...args)=>calls.push(args)}).props.children[1].props.children[1];
-  orgs[2].props.onSelect();assert.deepEqual(calls,[['work','bob']],'Duplicate org names still select the right account');
+  orgs[2].props.children.props.onClick();assert.deepEqual(calls,[['work','bob']],'Duplicate org names still select the right account');
 });
 
 test('hosted org labels use the signed-in email when there is no desktop account list',()=>{
@@ -61,9 +63,13 @@ test('hosted org labels use the signed-in email when there is no desktop account
   assert.match(markup,/aria-label="Studio \(alice@example.com\)"[^>]*aria-current="page"/);
 });
 
-test('each team menu exposes creation and administration while settings render inline',()=>{
-  const menu=renderToStaticMarkup(React.createElement(TeamMenu,{team:{id:'team',title:'Research'},icon:()=>null,canCreate:true}));
-  for(const label of ['Research menu','New Goal','New Chat','Processes','Settings','Hide'])assert(menu.includes(label));
+test('each team menu keeps administration and secondary chat creation',()=>{
+  const menu=renderToStaticMarkup(React.createElement(TeamMenu,{team:{id:'team',title:'Research'},icon:()=>null}));
+  for(const label of ['Research menu','Processes','Agents','Schedules','Files &amp; folders','Add-ons','Settings','Hide','New chat'])assert(menu.includes(label),label);
+  assert.doesNotMatch(menu,/New Goal|New thread/);
+  const calls=[],tree=TeamMenu({team:{id:'research',title:'Research'},icon:()=>null,onSettings:(...args)=>calls.push(args)});
+  for(const button of tree.props.children[1].props.children.slice(0,5))button.props.onClick({currentTarget:{closest:()=>({open:true})}});
+  assert.deepEqual(calls,[['processes','research'],['agents','research'],['schedule','research'],['folders','research'],['addons','research']]);
   const page=renderToStaticMarkup(React.createElement(SettingsPage,{title:'Team settings',items:[['processes','Processes']],selected:'processes'},'Process editor'));
   assert.match(page,/<section[^>]*class="bc-settings-page"/);assert(page.includes('Process editor'));assert.doesNotMatch(page,/<dialog|aria-modal/);
 });
@@ -80,61 +86,166 @@ test('logo is inert, menu actions have icons, and bottom controls use the reques
   const bottom=markup.slice(markup.indexOf('class="bc-rail-bottom"'));
   const labels=['Switch to light theme','Settings','Account settings'];
   for(let i=1;i<labels.length;i++)assert(bottom.indexOf(labels[i-1])<bottom.indexOf(labels[i]),labels[i]);
-  assert.doesNotMatch(markup,/Create org|data-icon="plus"/);
+  assert.match(markup,/data-icon="plus"/);
   for(const name of ['accounts','settings','sun'])assert(icons.includes(name),name);
 });
 
-test('single-team thread lists stay visible without a team heading, including previously collapsed teams',()=>{
-  const render=(grouped,expanded)=>renderToStaticMarkup(React.createElement(TeamSection,{team:{id:'default',title:'Default'},grouped,expanded,count:1,menu:React.createElement('button',null,'Team menu')},'A thread'));
-  const single=render(false,false);
-  assert(single.includes('A thread'));assert.doesNotMatch(single,/bc-team-heading|aria-expanded|Default|Team menu/);
-  const grouped=render(true,true);
-  assert.match(grouped,/aria-expanded="true"/);assert(grouped.includes('Default'));assert(grouped.includes('A thread'));assert(grouped.includes('Team menu'));
-  const collapsed=render(true,false);
-  assert.match(collapsed,/aria-expanded="false"/);assert(!collapsed.includes('A thread'));
+test('every team has a collapsible heading and one clear creation action',()=>{
+  const render=expanded=>renderToStaticMarkup(React.createElement(TeamSection,{team:{id:'default',title:'Default'},expanded,menu:React.createElement('button',null,'Team menu')},'A thread'));
+  const expanded=render(true);
+  for(const label of ['Collapse Default','New thread in Default','Team menu','A thread'])assert(expanded.includes(label),label);
+  assert.match(expanded,/aria-expanded="true"/);
+  assert.match(expanded,/class="bc-team-name" title="New thread in Default">Default<\/button>/);
+  assert.equal((expanded.match(/<button/g)??[]).length,3,'Only expand, team name and team menu remain');
+  assert.doesNotMatch(expanded,/Active|active|<small|New Goal|>New thread|>New chat/);
+  const collapsed=render(false);
+  assert.match(collapsed,/aria-label="Expand Default"[^>]*aria-expanded="false"/);assert(!collapsed.includes('A thread'));
+  assert(collapsed.includes('New thread in Default'));
+});
+
+test('team controls toggle independently and open the team welcome screen',()=>{
+  const calls=[],props={team:{id:'research',title:'Research'},expanded:true,onToggle:()=>calls.push('toggle'),onOpen:()=>calls.push('open')};
+  const buttons=TeamSection(props).props.children[0].props.children;
+  buttons[0].props.onClick();assert.deepEqual(calls,['toggle']);
+  buttons[1].props.onClick();
+  assert.deepEqual(calls,['toggle','open']);
+});
+
+test('secondary chat creation keeps its team target and creation permissions',()=>{
+  const calls=[],props={team:{id:'research',title:'Research'},icon:()=>null,canCreate:true,onCreate:(...args)=>calls.push(args)};
+  const chat=TeamMenu(props).props.children[1].props.children.find(node=>node?.props?.children?.includes('New chat'));
+  const menu={open:true};chat.props.onClick({currentTarget:{closest:()=>menu}});
+  assert.deepEqual(calls,[['chat','research']]);assert.equal(menu.open,false);
+  for(const state of [{canCreate:false},{busy:true}]){
+    const disabled=TeamMenu({...props,...state}).props.children[1].props.children.find(node=>node?.props?.children?.includes('New chat'));
+    assert.equal(disabled.props.disabled,true);
+  }
+});
+
+const nodes=node=>!React.isValidElement(node)?[]:[node,...React.Children.toArray(node.props.children).flatMap(nodes)];
+function appHarness({snapshot,selected=null,thread=null},run){
+  const previousWindow=globalThis.window,previousFrame=globalThis.requestAnimationFrame;
+  globalThis.window={};globalThis.requestAnimationFrame=()=>{};
+  const states=[snapshot,selected,thread];let index=0;
+  configureRuntime(name=>({react:{...React,useState:initial=>{
+    const key=index++;if(!(key in states))states[key]=typeof initial==='function'?initial():initial;
+    return [states[key],value=>{states[key]=typeof value==='function'?value(states[key]):value;}];
+  },useRef:value=>({current:value}),useEffect:()=>{}},'react-dom':{},'@deepseek-ai/dsh-client-ui-primitives':{}})[name],{hosted:true});
+  const render=()=>{index=0;return nodes(ThreadApp({}));};
+  try{run(render);}finally{
+    configure(true);
+    if(previousWindow===undefined)delete globalThis.window;else globalThis.window=previousWindow;
+    if(previousFrame===undefined)delete globalThis.requestAnimationFrame;else globalThis.requestAnimationFrame=previousFrame;
+  }
+}
+
+test('thread rows omit decorative icons and team management is reachable in Settings',()=>{
+  const thread={id:'thread',teamId:'research',title:'Weekly status',preview:'Current progress',ownerClientId:'local',runs:[{status:'running'}]};
+  const snapshot={clientId:'local',teams:[{id:'research',title:'Research'},{id:'frozen',title:'Frozen',frozen:true},{id:'hidden',title:'Hidden'}],threads:[thread],organizations:[],settings:{hiddenTeamIds:['hidden']}};
+  appHarness({snapshot,selected:thread.id},render=>{
+    const tree=render(),row=tree.find(node=>node.props.className==='bc-thread-row active');
+    assert(row);assert(!nodes(row).some(node=>node.props.className==='bc-thread-symbol'));
+    assert(nodes(row).some(node=>node.props.className==='bc-thread-copy'));
+    assert(nodes(row).some(node=>node.props.title==='Running'));
+    assert(!nodes(row).some(node=>node.type==='details'||node.type==='summary'));
+    for(const section of tree.filter(node=>node.type===TeamSection)){
+      assert.equal(section.props.menu.props.canCreate,section.props.team.id!=='frozen');
+    }
+    tree.find(node=>node.type===BeesNavigation).props.onGlobal('ai');
+    const page=render().find(node=>node.type===SettingsPage);
+    const team=page.props.groups.find(group=>group.title==='Team');
+    const management=nodes(team.selector).find(node=>node.type===TeamManagement);
+    assert(management);assert.deepEqual(management.props.hiddenTeams.map(team=>team.id),['hidden']);
+    assert.equal(typeof management.props.onCreateTeam,'function');assert.equal(typeof management.props.onSelectTeam,'function');
+  });
+});
+
+test('clicking a team name leaves settings for its welcome screen and organization settings omit the account dropdown',()=>{
+  const snapshot={teams:[{id:'research',title:'Research'},{id:'design',title:'Design'}],threads:[],defaultTeamId:'research',organizations:[],accounts:[{id:'account',active:true,user:{email:'me@example.com'},organizations:[]}]};
+  appHarness({snapshot},render=>{
+    render().find(node=>node.type===BeesNavigation).props.onGlobal('ai');
+    const settings=render(),page=settings.find(node=>node.type===SettingsPage);
+    assert(page);
+    const organization=page.props.groups.find(group=>group.title==='Organization');
+    assert.equal(organization.selector.type,SettingsScopePicker);
+    assert(!nodes(organization.selector).some(node=>node.type==='select'));
+    settings.find(node=>node.type===TeamSection&&node.props.team.id==='design').props.onOpen();
+    const welcome=render();assert(!welcome.some(node=>node.type===SettingsPage));
+    assert(welcome.some(node=>node.type==='h2'&&node.props.children==='What would you like to get done?'));
+    assert(welcome.some(node=>node.type==='p'&&node.props.children==='Start a goal in Design. Add files and people as you go.'));
+  });
+});
+
+test('a thread schedule uses its own document without waiting for team settings',()=>{
+  const thread={id:'thread',teamId:'research',title:'Weekly status',ownerClientId:'local',messages:[],runs:[]};
+  appHarness({snapshot:{clientId:'local',teams:[{id:'research',title:'Research'}],threads:[thread],organizations:[]},selected:thread.id,thread},render=>{
+    const workspace=render().find(node=>node.type===ThreadWorkspace);
+    const schedule=nodes(workspace.props.renderWidget('schedule')).find(node=>node.type===ScheduleSettings);
+    assert.equal(schedule.props.thread,thread);assert.equal(schedule.props.disabled,false);assert.equal(typeof schedule.props.onSave,'function');
+  });
+});
+
+test('thread Settings reuses General and Transfer in the workspace with existing permissions',()=>{
+  for(const state of [{},{runs:[{status:'running'}]},{frozen:true},{ownerClientId:'other'}]){
+    const thread={id:'thread',teamId:'research',title:'Weekly status',ownerClientId:'local',messages:[],runs:[],...state};
+    appHarness({snapshot:{clientId:'local',teams:[{id:'research',title:'Research'}],threads:[thread],organizations:[]},selected:thread.id,thread},render=>{
+      const tree=render(),workspace=tree.find(node=>node.type===ThreadWorkspace);
+      assert(!tree.some(node=>node.type==='button'&&node.props['aria-label']==='Thread settings'));
+      const settings=nodes(workspace.props.renderWidget('settings'));
+      const general=settings.find(node=>node.props.scope==='thread'&&node.props.section==='general');
+      assert(general);assert.equal(general.props.thread,thread);
+      assert.equal(general.props.disabled,!!state.frozen||state.ownerClientId==='other');
+      assert.equal(general.props.canDelete,thread.ownerClientId==='local'&&!thread.runs.some(run=>run.status==='running'));
+      assert.equal(typeof general.props.onDelete,'function');
+      const details=nodes(workspace.props.renderWidget('details')).find(node=>node.type===ThreadDetails);
+      details.props.onSettings('transfer');
+      const next=render().find(node=>node.type===ThreadWorkspace);
+      assert.equal(next.props.navigation.id,'settings');
+      const transfer=nodes(next.props.renderWidget('settings'));
+      assert.equal(transfer.find(node=>node.type===SettingsNav).props.selected,'transfer');
+      assert(transfer.some(node=>node.type==='h3'&&node.props.children==='Transfer thread'));
+    });
+  }
 });
 
 
-test('hover menus open on pointer entry, keep keyboard access, and prevent click toggling',()=>{
-  const prior=globalThis.window;globalThis.window={innerHeight:300,innerWidth:1000};
-  try{
-    let selected=0,focused=0,hovered=false;
-    const panel={offsetHeight:100,offsetWidth:280,style:{}},summary={getBoundingClientRect:()=>({top:250,right:276}),focus:()=>focused++,setAttribute:()=>{}};
-    const menu={open:false,setAttribute:()=>{menu.open=true;},removeAttribute:()=>{menu.open=false;},querySelector:selector=>selector==='nav'?panel:summary,contains:value=>value===panel,matches:()=>hovered};
-    const rendered=HoverMenu({className:'bc-org-switcher',title:'Studio (alice@example.com)',label:'Studio',onSelect:()=>selected++});
-    rendered.props.onPointerEnter({currentTarget:menu,pointerType:'mouse'});
-    assert.equal(menu.open,true);assert.equal(panel.style.top,'192px');assert.equal(panel.style.left,'276px','Popup touches its trigger so there is no pointer gap');
-    rendered.props.onPointerLeave({currentTarget:menu,relatedTarget:panel});assert.equal(menu.open,true);
-    rendered.props.onBlur({currentTarget:menu,relatedTarget:panel});assert.equal(menu.open,true);
-    hovered=true;rendered.props.onBlur({currentTarget:menu,relatedTarget:null});assert.equal(menu.open,true,'Clicking popup padding must not dismiss it');
-    hovered=false;rendered.props.onBlur({currentTarget:menu,relatedTarget:null});assert.equal(menu.open,false);
-    rendered.props.onFocus({currentTarget:menu});
-    rendered.props.onKeyDown({currentTarget:menu,key:'Escape'});assert.equal(menu.open,false);assert.equal(focused,1);
-    rendered.props.onFocus({currentTarget:menu});assert.equal(menu.open,true);
-    rendered.props.onPointerLeave({currentTarget:menu});assert.equal(menu.open,false);
-    rendered.props.onPointerEnter({currentTarget:menu,pointerType:'touch'});assert.equal(menu.open,false);
-    let prevented=false;rendered.props.children[0].props.onClick({preventDefault:()=>prevented=true});
-    assert(prevented);assert.equal(selected,1);assert.equal(menu.open,false);
-  }finally{if(prior===undefined)delete globalThis.window;else globalThis.window=prior;}
+test('organization buttons select directly, without submenus, and the plus opens creation',()=>{
+  const calls=[],props={icon:()=>null,theme:{},onGlobal:section=>calls.push(section),accounts:[{id:'a',active:true,user:{email:'a@example.com'},organizations:[{id:'org',name:'Studio'}]}]};
+  const tree=BeesNavigation(props),markup=renderToStaticMarkup(tree);
+  assert.doesNotMatch(markup,/aria-haspopup|aria-expanded|Open Studio|bc-brand-menu/);
+  tree.props.children[1].props.children[2].props.onClick();assert.deepEqual(calls,['organizations']);
+});
+
+test('settings scope icons show organization appearance and team initials with hover names',()=>{
+  const calls=[],props={label:'Teams to configure',rows:[{id:'a',title:'Alpha'},{id:'b',title:'Beta'}],selected:'b',onSelect:id=>calls.push(id)};
+  const tree=SettingsScopePicker(props),markup=renderToStaticMarkup(tree);
+  assert.match(markup,/title="Alpha" aria-label="Alpha" aria-pressed="false"/);
+  assert.match(markup,/title="Beta" aria-label="Beta" aria-pressed="true"/);
+  assert.match(markup,/>A<\/span>/);assert.match(markup,/>B<\/span>/);
+  tree.props.children[0].props.onClick();assert.deepEqual(calls,['a']);
+  const org=renderToStaticMarkup(React.createElement(SettingsScopePicker,{...props,icon:()=>null,rows:[{id:'org',title:'Studio',organization:{appearance:{icon:'star',color:'#7c3aed'}}}]}));
+  assert.match(org,/bc-org-symbol/);assert.match(org,/background:#7c3aed/);
 });
 
 
-test('thread creation stays in the threads pane rather than the account and org rail',t=>{
+test('thread pane starts with search without a global overflow menu',t=>{
   const prior=globalThis.window;globalThis.window={};
   t.after(()=>{if(prior===undefined)delete globalThis.window;else globalThis.window=prior;});
   const markup=renderToStaticMarkup(React.createElement(ThreadApp,{}));
   const aside=markup.slice(markup.indexOf('<aside'),markup.indexOf('</aside>'));
-  for(const label of ['New Goal','New Chat'])assert(aside.includes(`aria-label="${label}"`),label);
-  assert(aside.indexOf('bc-thread-create')<aside.indexOf('Search threads'));
+  assert.match(aside,/<aside[^>]*><div class="bc-sidebar-tools"><div class="bc-search">/);
+  assert.doesNotMatch(aside,/bc-team-management|<details/);
+  assert.doesNotMatch(aside,/bc-thread-create|bc-team-bar|New Goal|New Chat|Current team/);
   const rail=markup.slice(markup.indexOf('aria-label="Main navigation"'),markup.indexOf('<aside'));
   assert.doesNotMatch(rail,/New Goal|New Chat|Team settings|Manage teams/);
-  assert(aside.includes('Manage teams'));
+  assert(aside.includes('Settings → Team → Manage teams'));
 });
 
 
-test('thread-pane team management keeps creation, settings and hidden teams reachable',()=>{
-  const markup=renderToStaticMarkup(React.createElement(TeamManagement,{icon:()=>null,hasTeam:true,hiddenTeams:[{id:'b',title:'Zulu hidden'},{id:'a',title:'Alpha hidden'}]}));
-  for(const label of ['Manage teams','Create team','Team settings','Hidden teams','Alpha hidden','Zulu hidden'])assert(markup.includes(label),label);
+test('team management keeps creation and hidden teams without an implicit team target',()=>{
+  const markup=renderToStaticMarkup(React.createElement(TeamManagement,{icon:()=>null,hiddenTeams:[{id:'b',title:'Zulu hidden'},{id:'a',title:'Alpha hidden'}]}));
+  for(const label of ['Manage teams','Create team','Hidden teams','Alpha hidden','Zulu hidden'])assert(markup.includes(label),label);
+  assert.doesNotMatch(markup,/Team settings|Current team|Active/);
   assert(markup.indexOf('Alpha hidden')<markup.indexOf('Zulu hidden'));
 });
 

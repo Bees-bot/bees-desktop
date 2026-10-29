@@ -210,7 +210,7 @@ test("a parent must release its file locks before delegating or waiting", async 
   let calls = 0;
   const handoffs = ["bees_delegate_agent", "subagent", "subagent_fork", "send_message", "wait_agent", "spawn_teammate",
     "bees_delegate_work", "bees_revise_work", "bees_resolve_failed_work", "bees_wait_for_peers",
-    "ask_user_question", "bees_ask_team", "bees_request_work_review", "bees_publish_outputs", "bees_submit_stage_result"];
+    "ask_user_question", "bees_ask_team", "bees_request_work_review", "bees_request_review", "bees_publish_outputs", "bees_submit_stage_result"];
   for (const name of handoffs) {
     const tool = { name, execute: () => { calls++; return {}; } };
     parent.ctx.tools.register(tool);

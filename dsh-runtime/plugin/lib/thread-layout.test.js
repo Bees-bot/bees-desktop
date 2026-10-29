@@ -31,7 +31,20 @@ test('views start as tabs, split in every direction, regroup and collapse empty 
   }
   assert.equal(layoutGroups(original).length, 1);
   assert.equal(original.active, 'conversation');
-  assert.deepEqual(original.tabs, ['conversation', 'files', 'kanban', 'discussion', 'details', 'context', 'schedule', 'memory', 'addons', 'runs', 'traces']);
+  assert.deepEqual(original.tabs, ['conversation', 'files', 'kanban', 'discussion', 'details', 'context', 'schedule', 'memory', 'addons', 'runs', 'traces', 'settings']);
+});
+
+test('saved layouts gain Settings without losing panel arrangement or selection', () => {
+  const original = dockWidget(defaultThreadLayout(), 'files', 'conversation', 'right', 'files');
+  original.ratio = 0.7;
+  layoutGroups(original)[0].tabs = layoutGroups(original)[0].tabs.filter(id => id !== 'settings');
+  const before = structuredClone(original), upgraded = normalizeThreadLayout(original);
+  assert.deepEqual(original, before, 'normalization must not mutate the saved preference');
+  assert.equal(upgraded.type, 'row');assert.equal(upgraded.ratio, 0.7);
+  assert.deepEqual(upgraded.second, original.second);
+  assert.equal(upgraded.first.active, original.first.active);
+  assert.deepEqual(upgraded.first.tabs, [...original.first.tabs, 'settings']);
+  assertComplete(upgraded);
 });
 
 test('nested splits, tab ordering, navigation and divider sizes preserve all views', () => {

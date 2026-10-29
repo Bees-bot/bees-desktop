@@ -60,6 +60,6 @@ export async function applyThreadProduct(ctx,config){
     const input=await body(req);
     return profiles.command(input);
   }));
-  register('/bees-api/thread-file',async(req,res)=>{try{const q=new URL(req.url,'http://client').searchParams;const doc=client().store.document(q.get('thread'));const {artifact,bytes}=client().store.object(doc,q.get('artifact'));res.writeHead(200,{'content-type':'application/octet-stream','content-length':bytes.length,'x-content-type-options':'nosniff','content-disposition':`attachment; filename*=UTF-8''${encodeURIComponent(artifact.name)}`});res.end(bytes);}catch(e){reply(res,e.status??400,{error:e.message});}});
+  register('/bees-api/thread-file',async(req,res)=>{try{const q=new URL(req.url,'http://client').searchParams;const fileClient=q.has('settingsAccountId')?await profiles.settingsClient(q.get('settingsAccountId')||null):client();const doc=fileClient.store.document(q.get('thread'));const {artifact,bytes}=fileClient.store.object(doc,q.get('artifact'));res.writeHead(200,{'content-type':'application/octet-stream','content-length':bytes.length,'x-content-type-options':'nosniff','content-disposition':`attachment; filename*=UTF-8''${encodeURIComponent(artifact.name)}`});res.end(bytes);}catch(e){reply(res,e.status??400,{error:e.message});}});
   return profiles;
 }

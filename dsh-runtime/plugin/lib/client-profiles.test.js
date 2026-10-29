@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { randomUUID } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { mkdtemp,rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -56,6 +57,18 @@ test('accounts retain separate databases and sign-out does not expose the previo
     assert.deepEqual(aliceAccount.organizations,[{id:orgIds.alice,name:'Studio',role:'owner'}]);
     assert.deepEqual(bob.organizations,[{id:orgIds.bob,name:'Studio',role:'owner'}]);
     const aliceClient=profiles.active;
+    const selectedBefore=aliceClient.store.preference('settings');
+    const bobSettings=await profiles.command({action:'settingsSnapshot',settingsAccountId:bob.id});
+    assert.equal(bobSettings.user.id,'bob');assert.equal(profiles.active,aliceClient);
+    const bobTeam=bobSettings.teams.find(team=>team.organizationId===orgIds.bob);
+    await profiles.command({action:'configure',threadId:bobTeam.id,operationId:randomUUID(),title:'Bob team',settingsAccountId:bob.id});
+    assert.equal((await profiles.command({action:'read',threadId:bobTeam.id,settingsAccountId:bob.id})).title,'Bob team');
+    assert.equal(profiles.active,aliceClient);assert.deepEqual(aliceClient.store.preference('settings'),selectedBefore);
+    assert.equal((await profiles.snapshot()).accounts.find(account=>account.id===aliceAccount.id).active,true);
+    await assert.rejects(profiles.command({action:'settingsSnapshot',settingsAccountId:'unknown'}),/Sign in/);
+    await assert.rejects(profiles.command({action:'read',threadId:bobTeam.id,settingsAccountId:aliceAccount.id}));
+    await assert.rejects(profiles.settingsClient('unknown'),/Sign in/);
+
     await profiles.command({action:'organizationAppearance',organizationId:orgIds.alice,appearance:{icon:'star',color:'#7c3aed'}});
     const decorated=(await profiles.snapshot()).accounts;assert.equal(decorated.find(account=>account.id===aliceAccount.id).organizations[0].appearance.icon,'star');assert.equal(decorated.find(account=>account.id===bob.id).organizations[0].appearance,undefined);
     await assert.rejects(profiles.command({action:'selectOrganization',accountId:bob.id,organizationId:orgIds.alice}),/membership/);

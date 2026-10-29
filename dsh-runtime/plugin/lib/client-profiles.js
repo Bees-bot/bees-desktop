@@ -37,7 +37,22 @@ export class ClientProfiles {
     this.active.directory.url=client.directory.url;this.active.directory.save();this.save();
     // Signed-out accounts must stop syncing, serving peers, and running schedules.
     if(prior!==this.state.active){this.clients.delete(prior);client.directory.token=null;client.directory.save();await client.close();}return {ok:true};}
+  async settingsClient(accountId){
+    const account=this.accounts().find(account=>account.id===accountId);
+    if(accountId!=null&&!account)throw threadError('Sign in to this account again',401);
+    return this.open(account?this.state.accounts[account.id]:process.env.BEES_HOSTED_CLIENT?this.state.active:this.state.anonymous);
+  }
   async command(input){
+    if(input.action==='settingsSnapshot'||Object.hasOwn(input,'settingsAccountId')){
+      const client=await this.settingsClient(input.settingsAccountId);
+      if(input.action==='settingsSnapshot')return {...await client.snapshot(),folders:this.options.folders?.snapshot(client.store,client.organizations())};
+      if(input.action==='setRootFolder'){
+        if(!this.options.folders)throw threadError('Folder settings are unavailable');
+        return this.options.folders.set(input.directory,[...this.clients.values()],client,input.organizationId);
+      }
+      const {settingsAccountId,...request}=input;
+      return client.command(request);
+    }
     if(input.action==='completeOnboarding'){
       if(input.mode==='local'){
         if(process.env.BEES_HOSTED_CLIENT)throw threadError('Open Bees Desktop to use models running on your computer');

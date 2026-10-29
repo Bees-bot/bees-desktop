@@ -1,7 +1,7 @@
 export const THREAD_PAGES = [
   ['conversation', 'Conversation'], ['files', 'Files'], ['kanban', 'Kanban'], ['discussion', 'Discussion'],
   ['details', 'Details'], ['context', 'Instructions'], ['schedule', 'Schedules'],
-  ['memory', 'Memory'], ['addons', 'Add-ons'], ['runs', 'Run history'], ['traces', 'Activity'],
+  ['memory', 'Memory'], ['addons', 'Add-ons'], ['runs', 'Run history'], ['traces', 'Activity'], ['settings', 'Settings'],
 ];
 
 export const defaultThreadLayout = () => ({ type: 'tabs', id: 'main', tabs: THREAD_PAGES.map(([id]) => id), active: 'conversation' });
@@ -25,6 +25,10 @@ export function normalizeThreadLayout(value) {
   }
   try {
     const layout = visit(value, 0);
+    if (widgets.size === THREAD_PAGES.length - 1 && !widgets.has('settings')) {
+      layoutGroups(layout)[0].tabs.push('settings');
+      widgets.add('settings');
+    }
     return widgets.size === THREAD_PAGES.length ? layout : null;
   } catch { return null; }
 }
