@@ -153,10 +153,14 @@ test('thread rows omit decorative icons and team management is reachable in Sett
     }
     tree.find(node=>node.type===BeesNavigation).props.onGlobal('ai');
     const page=render().find(node=>node.type===SettingsPage);
-    const team=page.props.groups.find(group=>group.title==='Team');
+    const team=page.props.groups.find(group=>group.title==='Teams');
     const management=nodes(team.selector).find(node=>node.type===TeamManagement);
     assert(management);assert.deepEqual(management.props.hiddenTeams.map(team=>team.id),['hidden']);
-    assert.equal(typeof management.props.onCreateTeam,'function');assert.equal(typeof management.props.onSelectTeam,'function');
+    assert.equal(typeof management.props.onSelectTeam,'function');
+    assert.equal(team.extra.props['aria-label'],'Add team');assert.equal(team.extra.props.title,'Add team');
+    assert.equal(team.extra.props.disabled,false);assert.equal(typeof team.extra.props.onClick,'function');
+    const nav=SettingsNav({groups:page.props.groups});
+    assert(nodes(nav).some(node=>node.props.className==='bc-settings-group-header'&&nodes(node).some(child=>child.props['aria-label']==='Add team')));
   });
 });
 
@@ -166,7 +170,7 @@ test('clicking a team name leaves settings for its welcome screen and organizati
     render().find(node=>node.type===BeesNavigation).props.onGlobal('ai');
     const settings=render(),page=settings.find(node=>node.type===SettingsPage);
     assert(page);
-    const organization=page.props.groups.find(group=>group.title==='Organization');
+    const organization=page.props.groups.find(group=>group.title==='Organizations');
     assert.equal(organization.selector.type,SettingsScopePicker);
     assert(!nodes(organization.selector).some(node=>node.type==='select'));
     settings.find(node=>node.type===TeamSection&&node.props.team.id==='design').props.onOpen();
@@ -238,15 +242,22 @@ test('thread pane starts with search without a global overflow menu',t=>{
   assert.doesNotMatch(aside,/bc-thread-create|bc-team-bar|New Goal|New Chat|Current team/);
   const rail=markup.slice(markup.indexOf('aria-label="Main navigation"'),markup.indexOf('<aside'));
   assert.doesNotMatch(rail,/New Goal|New Chat|Team settings|Manage teams/);
-  assert(aside.includes('Settings → Team → Manage teams'));
+  assert(aside.includes('Create a team with the + next to Teams in Settings.'));
 });
 
 
-test('team management keeps creation and hidden teams without an implicit team target',()=>{
+test('team management only shows hidden teams and restores the chosen team',()=>{
   const markup=renderToStaticMarkup(React.createElement(TeamManagement,{icon:()=>null,hiddenTeams:[{id:'b',title:'Zulu hidden'},{id:'a',title:'Alpha hidden'}]}));
-  for(const label of ['Manage teams','Create team','Hidden teams','Alpha hidden','Zulu hidden'])assert(markup.includes(label),label);
-  assert.doesNotMatch(markup,/Team settings|Current team|Active/);
+  for(const label of ['Hidden teams','Alpha hidden','Zulu hidden'])assert(markup.includes(label),label);
+  assert.doesNotMatch(markup,/Manage teams|Create team|Team settings|Current team|Active/);
   assert(markup.indexOf('Alpha hidden')<markup.indexOf('Zulu hidden'));
+  assert.equal(TeamManagement({icon:()=>null}),null);
+  const calls=[],menu={open:true};
+  const tree=TeamManagement({icon:()=>null,busy:true,hiddenTeams:[{id:'hidden',title:'Hidden'}],onSelectTeam:id=>calls.push(id)});
+  const button=nodes(tree).find(node=>node.type==='button');
+  assert.equal(button.props.disabled,true);
+  button.props.onClick({currentTarget:{closest:()=>menu}});
+  assert.deepEqual(calls,['hidden']);assert.equal(menu.open,false);
 });
 
 test('Org settings offer a preview, icon choices, preset colors and a custom color',()=>{
