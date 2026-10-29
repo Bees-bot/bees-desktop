@@ -272,9 +272,9 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const canCreateIn=team=>!team.frozen&&!team.unavailable&&(!team.shared||roster.participants.some(p=>p.thread_id===team.id&&p.user_id===data?.user?.id&&['owner','editor'].includes(p.role)));
   const settingsGroups=[
     {title:'Global',scope:'global',items:GLOBAL_SETTINGS},
-    {title:'Organization',scope:'global',selector:h(SettingsScopePicker,{label:'Organizations to configure',icon,busy,rows:[...!hosted?[{id:'local',title:'Local Org'}]:[],...settingsOrganizations],selected:configOrganizationId?(configAccountId??'')+':'+configOrganizationId:'local',onSelect:key=>{if(key==='local'){selectSettingsOrganization(null,null);return;}const row=settingsOrganizations.find(row=>row.id===key);selectSettingsOrganization(row.organization.id,row.accountId);}}),items:[['organizations','General & members']]},
-    {title:'Team',scope:'team',selector:h('div',null,
-      h(TeamManagement,{icon,busy:busy||!data,onCreateTeam:createTeam,hiddenTeams:teams.filter(team=>hiddenTeamIds.includes(team.id)),onSelectTeam:showTeam}),
+    {title:'Organizations',scope:'global',selector:h(SettingsScopePicker,{label:'Organizations to configure',icon,busy,rows:[...!hosted?[{id:'local',title:'Local Org'}]:[],...settingsOrganizations],selected:configOrganizationId?(configAccountId??'')+':'+configOrganizationId:'local',onSelect:key=>{if(key==='local'){selectSettingsOrganization(null,null);return;}const row=settingsOrganizations.find(row=>row.id===key);selectSettingsOrganization(row.organization.id,row.accountId);}}),items:[['organizations','General & members']]},
+    {title:'Teams',scope:'team',extra:h('button',{type:'button',className:'bc-icon',disabled:busy||!data,'aria-label':'Add team',title:'Add team',onClick:createTeam},icon('plus')),selector:h('div',null,
+      h(TeamManagement,{icon,busy:busy||!data,hiddenTeams:teams.filter(team=>hiddenTeamIds.includes(team.id)),onSelectTeam:showTeam}),
       h(SettingsScopePicker,{label:'Teams to configure',icon,busy,rows:settingsTeams.map(row=>({id:row.id,title:row.title})),selected:configTeamId,onSelect:id=>{setSettingsTeamId(id);setDialog('team');}})),items:settingsTeams.length?TEAM_SETTINGS:[]}
   ];
   if(data?.onboarding===null)return h('div',{className:'bc-app bc-onboarding-app','data-bees-theme':theme.id,style:themeStyle(theme)},
@@ -295,7 +295,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
         onToggle:()=>setCollapsed(values=>({...values,[row.id]:!values[row.id]})),onOpen:()=>create('goals',row.id),
         menu:h(TeamMenu,{team:row,icon,busy,canCreate:canCreateIn(row),onCreate:create,onSettings:openTeamSettings,onHide:hideTeam})},
         teamThreads(row.id).map(renderThread),!teamThreads(row.id).length?h('p',{className:'bc-muted bc-empty-list'},query?'No matching threads.':'No threads yet.'):null)),
-        !visibleTeams.length?h('p',{className:'bc-muted bc-empty-list'},teams.length?'Show a hidden team in Settings → Team → Manage teams.':'Create a team in Settings → Team → Manage teams.'):null),
+        !visibleTeams.length?h('p',{className:'bc-muted bc-empty-list'},teams.length?'Show a hidden team in Settings → Teams → Hidden teams.':'Create a team with the + next to Teams in Settings.'):null),
       roster.invitations?.length?h('section',{className:'bc-invitations'},h('strong',null,'Invitations'),
         roster.invitations.map(i=>h('div',{key:i.id,className:'bc-person'},h('span',null,`${i.invited_by_name??'Someone'} invited you`,h('small',null,i.role==='viewer'?'Can view':'Can contribute and run work')),
           data.user?.emailVerified?h('button',{disabled:busy,onClick:()=>acceptInvitation(i)},'Accept'):null)),
