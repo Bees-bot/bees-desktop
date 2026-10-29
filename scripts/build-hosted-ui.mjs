@@ -15,6 +15,7 @@ await build({
   outdir,
   bundle: true,
   format: "esm",
+  splitting: true,
   platform: "browser",
   target: "es2022",
   nodePaths: [resolve(root, "dsh-runtime/node_modules")],

@@ -120,7 +120,7 @@ export class ThreadRunner {
         collect(outputRoot);const answer=await this.wait(store,thread.id,run.id,signal,'approval',{text:summary||stage.name});if(answer.approved!==true)throw threadError('The work was not approved');
         store.mutate(thread.id,randomUUID(),d=>{const r=d.runs.find(r=>r.id===run.id);r.stages??=[];r.stages.push({index,name:stage.name,summary:'Approved',completedAt:new Date().toISOString()});});continue;
       }
-      const model=await modelFor(stage.agent,stage.model||run.model||(process.env.BEES_HOSTED_MODEL?'hosted/'+process.env.BEES_HOSTED_MODEL:(await this.models(store))[0]?.id));
+      const model=await modelFor(stage.agent,stage.model||run.model||(await this.models(store))[0]?.id);
       let sessionId=SessionId(continuation?.sessionId??run.id+'-'+index),fromSeq=0;
       const locks=new FileLocks(join(store.root,'file-locks'));
       const helpers=(team?.agents??[]).filter(agent=>agent.enabled),configured=new Set();
@@ -201,7 +201,8 @@ export class ThreadRunner {
         if(chat)store.preference(chatKey,{identity,sessionId,cwd,workspaceRunId:run.workspaceRunId,runId:run.id,lastMessageId:thread.messages.at(-1)?.id});
         do{await delay(0);await handle.agent.whenIdle();signal.throwIfAborted();}while(await this.ctx.subagents.waitForChildren(handle.agent));
         const events=handle.agent.session.snapshotEvents().filter(event=>event.seq>=fromSeq);const end=[...events].reverse().find(e=>e.type==='turn/end');
-        if(end?.data?.reason?.kind&&end.data.reason.kind!=='completed')throw threadError('Bees could not finish this: '+(end.data.reason.error?.message??end.data.reason.kind));
+        // providers answer "402: {json}", so show the message inside instead of raw json
+        if(end?.data?.reason?.kind&&end.data.reason.kind!=='completed'){const raw=end.data.reason.error?.message??end.data.reason.kind;let text=raw;try{const body=JSON.parse(raw.replace(/^\d{3}: /,''));text=body.message??body.error?.message??raw;}catch{}throw threadError('Bees could not finish this: '+text);}
         const messages=events.filter(e=>e.type==='assistant/message').map(e=>(e.data.message.content??[]).filter(b=>b.type==='text').map(b=>b.text).join('\n')).filter(Boolean);
         summary=messages.at(-1)??'Work completed.';
         if(stage.kind==='review')reviews.push(stage.name+': '+summary);else deliverable=summary;

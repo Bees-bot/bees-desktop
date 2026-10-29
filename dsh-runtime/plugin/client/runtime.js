@@ -25,7 +25,9 @@ export function configureRuntime(require, options = {}) {
   ({ useEffect, useRef, useState } = React);
   const primitives = require("@deepseek-ai/dsh-client-ui-primitives");
   CodeBlock = primitives.CodeBlock;
-  MarkdownText = (props) => h(primitives.MarkdownText, { labels: markdownLabels, ...props });
+  // "$12,000, up $2,000" rendered as math, so escape a $ before a digit outside code
+  const money = (text) => typeof text === "string" ? text.split(/(```[\s\S]*?(?:```|$)|`[^`\n]*`)/).map((part, i) => i % 2 ? part : part.replace(/\$(?=\d)/g, "\\$")).join("") : text;
+  MarkdownText = (props) => h(primitives.MarkdownText, { labels: markdownLabels, ...props, text: money(props.text) });
   if (!hosted) {
     ({ CustomAiSettings, OpenAiServersSettings } = require("@bees/dsh-custom-ai"));
     ({ SubscriptionSettings } = require("@bees/dsh-subscriptions"));

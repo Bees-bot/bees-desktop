@@ -64,7 +64,7 @@ export function kubernetesClients({ image, directoryUrl, namespace = 'bees-clien
           securityContext: { runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000, fsGroupChangePolicy: 'OnRootMismatch', seccompProfile: { type: 'RuntimeDefault' } },
           containers: [{ name: 'client', image, command: ['node', 'dsh-runtime/client-cloud.mjs'],
             securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ['ALL'] } },
-            ports: [{ containerPort: 8080 }], envFrom: [{ secretRef: { name } }, { secretRef: { name: 'bees-hosted-model', optional: true } }],
+            ports: [{ containerPort: 8080 }], envFrom: [{ secretRef: { name } }],
             env: [{ name: 'BEES_ACCOUNT_API_URL', value: directoryUrl }, { name: 'BEES_HOSTED_CLIENT', value: '1' }, { name: 'BEES_CLIENT_NAME', value: 'Bees Cloud' },
               { name: 'BEES_HOSTED_RUNS_PER_DAY', value: process.env.BEES_HOSTED_RUNS_PER_DAY ?? '0' }],
             resources: { requests: { cpu: '100m', memory: '384Mi' }, limits: { cpu: '2', memory: '2Gi' } },
