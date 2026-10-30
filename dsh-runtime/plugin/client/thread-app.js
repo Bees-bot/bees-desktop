@@ -66,7 +66,9 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const allTeams=[...teamRows,...(data?.directory?.threads??[]).filter(t=>t.kind==='team'&&!teamIds.has(t.id)).map(t=>({id:t.id,organizationId:t.organization_id,title:'Shared team',ownerClientId:t.owner_client_id,shared:true}))];
   const teams=allTeams.filter(t=>selectedOrganizationId?t.organizationId===selectedOrganizationId:!t.organizationId||!organizations.some(o=>o.id===t.organizationId));
   const hiddenTeamIds=data?.settings?.hiddenTeamIds??[],visibleTeams=teams.filter(t=>!hiddenTeamIds.includes(t.id));
-  const currentTeamId=teams.find(t=>t.id===teamId)?.id??visibleTeams.find(t=>t.id===data?.defaultTeamId)?.id??visibleTeams[0]?.id;
+  // an offline team can't take a new goal, so only land on one the user picked
+  const held=id=>data?.directory?.threads.find(t=>t.id===id),usable=t=>!held(t.id)?.offline,orphan=id=>held(id)?.gone&&!held(id).transfer_client_id&&held(id).owner_user_id===data?.user?.id;
+  const currentTeamId=teams.find(t=>t.id===teamId)?.id??visibleTeams.find(t=>t.id===data?.defaultTeamId&&usable(t))?.id??visibleTeams.find(usable)?.id??visibleTeams[0]?.id;
   const configuring=dialog==='settings'||dialog==='team';
   const configAccountId=settingsAccountId===undefined?(data?.accounts?.find(account=>account.active)?.id??null):settingsAccountId;
   const configOrganizationId=settingsOrganizationId===undefined?selectedOrganizationId:settingsOrganizationId;
@@ -138,6 +140,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   // the thread is saved on its first message, so an unused New Goal or New Chat leaves nothing behind
   // composing keeps the empty thread on screen on a phone, where the list and the thread take turns
   const create=(templateId='goals',id=currentTeamId)=>{select(null);setComposing(true);setTeamId(id);setNewTemplate(templateId);setCollapsed(values=>({...values,[id]:false}));requestAnimationFrame(()=>document.querySelector('.bc-composer textarea')?.focus());};
+  const removeGone=id=>perform(async()=>{if(!await confirmAction('Remove this for everyone? The Bees Client that held it is gone, so its messages and files can’t be recovered.','Remove'))return;await command('delete',id);select(null);setTeamId(null);await refresh();});
   const deleteThread=t=>perform(async()=>{if(!await confirmAction(`Delete “${t.title}”? Its messages, runs and files are removed for everyone in it. This can’t be undone.`,'Delete'))return;await command('delete',t.id);if(selectedRef.current===t.id)select(null);await refresh();});
   const settingsHiddenTeamIds=settingsData?.settings?.hiddenTeamIds??[],settingsTeamHidden=settingsHiddenTeamIds.includes(configTeamId);
   const toggleTeamVisibility=()=>perform(async()=>{
@@ -346,6 +349,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
           h('span',{className:'bc-layout-toolbar',ref:setLayoutToolbar})):null),
       error&&!modalOpen?h('div',{className:'bc-error',role:'alert'},error,h('button',{className:'bc-icon','aria-label':'Dismiss error',onClick:()=>setError('')},icon('close'))):null,
       notice&&!modalOpen?h('div',{className:'bc-notice',role:'status'},notice):null,
+      !modalOpen&&(orphan(selected)||orphan(teamId))?h('div',{className:'bc-notice'},'The Bees Client that held this is gone. ',orphan(selected)?h('button',{className:'danger',disabled:busy,onClick:()=>removeGone(selected)},'Remove thread'):null,orphan(teamId)?h('button',{className:'danger',disabled:busy,onClick:()=>removeGone(teamId)},'Remove team'):null):null,
       data&&!data.models?.length&&!data.credits?.available?h('div',{className:'bc-notice'},hosted?'Bees needs Bees Credits to reply on the web. ':'Connect an AI model so Bees can reply. ',h('button',{className:'bc-primary',onClick:()=>{setSettingsSection(hosted?'credits':'ai');setDialog('settings');}},hosted?'Open Credits & billing':'Open AI connections')):null,
       thread?.frozen?h('div',{className:'bc-notice'},'This thread is frozen for transfer. The recipient must accept, or you can cancel the offer.'):null,
       thread?.unavailable?h('div',{className:'bc-notice'},'Showing the copy saved here. ',thread.unavailable):null,

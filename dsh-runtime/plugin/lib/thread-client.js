@@ -81,7 +81,7 @@ export class ThreadClient {
       if(!['chat','goals'].includes(template?.id)||canonical(doc.workflow??DEFAULT_WORKFLOW)!==canonical(template.workflow))return true;
       return doc.messages.length||doc.runs.length||doc.artifacts.length||doc.folders?.length||doc.instructions||doc.memory?.length||doc.schedule||this.store.preference(`integrations:${row.id}`)!==null||this.store.preference(`browser:${row.id}`)!==null;
     });
-    return {product:'Bees Client',clientId:this.store.clientId,user:this.directory.user??null,signedIn:!!this.directory.token&&!this.directory.authRequired,organizations:this.organizations(),organizationError:this.organizationError??null,serverUrl:this.directory.url,connectionError:this.connectionError??null,threads:rows.filter(t=>t.kind!=='team'),teams:rows.filter(t=>t.kind==='team'&&(!t.shared||!this.directory.token||this.connectionError||this.roster.threads.some(row=>row.id===t.id))),defaultTeamId:this.store.preference('defaultTeam'),directory:this.roster,models:await this.options.models?.(this.store)??[],credits:this.options.credits?.view(this.store),agentPresets:await this.options.agentPresets?.()??[],defaultModel:this.store.preference('model'),settings:this.store.preference('settings')??{}};}
+    return {product:'Bees Client',clientId:this.store.clientId,user:this.directory.user??null,signedIn:!!this.directory.token&&!this.directory.authRequired,organizations:this.organizations(),organizationError:this.organizationError??null,serverUrl:this.directory.url,connectionError:this.connectionError??null,threads:rows.filter(t=>t.kind!=='team'),teams:rows.filter(t=>t.kind==='team'&&(!t.shared||!this.directory.token||this.connectionError||this.roster.threads.some(row=>row.id===t.id))),defaultTeamId:this.store.preference('defaultTeam'),directory:{...this.roster,threads:this.roster.threads.map(t=>({...t,offline:this.offline(t.owner_client_id)}))},models:await this.options.models?.(this.store)??[],credits:this.options.credits?.view(this.store),agentPresets:await this.options.agentPresets?.()??[],defaultModel:this.store.preference('model'),settings:this.store.preference('settings')??{}};}
   async registerThread(id,input={}){await this.fence(id);let doc=this.store.document(id);if(!this.directory.token)throw threadError('Sign in to share or transfer a thread',401);
     const team=this.store.teamFor(id);
     if(this.organizations().some(org=>org.local&&org.id===(team?.organizationId??doc.organizationId)))throw threadError('Local organizations cannot be shared',403);
@@ -114,12 +114,13 @@ export class ThreadClient {
     }
     return this.localCommand(id,input.command,grant.source_user_id);
   }
+  // both stamps are server time, so a wrong laptop clock can't make an online owner look offline, and a revoked one has none
+  offline(c){const seen=x=>Date.parse(this.roster.clients?.find(r=>r.id===x)?.last_seen_at);return c!==this.store.clientId&&!(seen(this.store.clientId)-seen(c)<=30000);}
   async sync(id){return this.syncAuthority(await this.authority(id));}
   async syncAuthority(authority){const id=authority.id;if(authority.owner_client_id===this.store.clientId)return this.store.document(id);
     if(authority.team_id){const team=this.roster.threads.find(t=>t.id===authority.team_id);if(team)await this.syncAuthority(team);}
     const local=this.store.list().find(t=>t.id===id);if(local?.staged&&authority.transfer_client_id===this.store.clientId&&checkpointDigest(this.store.document(id))===authority.transfer_digest)return this.store.document(id);
-    // both stamps are server time, so a wrong laptop clock can't make an online owner look offline
-    const seen=c=>Date.parse(this.roster.clients?.find(x=>x.id===c)?.last_seen_at);if(seen(this.store.clientId)-seen(authority.owner_client_id)>30000)throw threadError("The owner's Bees Client can't be reached right now.",408);
+    if(this.offline(authority.owner_client_id))throw threadError("The owner's Bees Client can't be reached right now.",408);
     const doc=await this.peer.send(id,authority.owner_client_id,{kind:'snapshot'});
     if(this.closing)throw threadError('Client is stopping');
     const imported=this.store.import(doc,authority);
@@ -240,6 +241,8 @@ export class ThreadClient {
       await this.refresh().catch(()=>{});return {ok:true};
     }
     if(input.action==='delete'){
+      // the server deletes it, and the next refresh drops our copies
+      if(this.roster.threads.some(t=>t.id===id&&t.owner_client_id!==this.store.clientId)){await this.directory.request(`/threads/${id}`,{},'DELETE');await this.refresh().catch(()=>{});return {ok:true};}
       const doc=await this.fence(id);if(doc.kind==='team')throw threadError('Only a thread can be deleted');
       if(this.jobs.has(id)||doc.runs.some(r=>['running','waiting'].includes(r.status)))throw threadError('Stop the work running in this thread before you delete it',409);
       if(doc.shared)await this.directory.request(`/threads/${id}`,{},'DELETE');
