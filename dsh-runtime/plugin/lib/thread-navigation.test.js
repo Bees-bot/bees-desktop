@@ -77,12 +77,6 @@ test('additional local orgs use the org picker without becoming accounts or hidi
   }finally{configure(true);}
 });
 
-test('hosted org labels use the signed-in email when there is no desktop account list',()=>{
-  const markup=renderToStaticMarkup(React.createElement(BeesNavigation,{icon:()=>null,theme:{},user:{email:'alice@example.com'},organizations:[{id:'org',name:'Studio'}],organizationId:'org'}));
-  assert(markup.includes('Studio (alice@example.com)'));assert(!markup.includes('Local Org'));
-  assert.match(markup,/aria-label="Studio \(alice@example.com\)"[^>]*aria-current="page"/);
-});
-
 test('each team menu keeps administration without chat creation',()=>{
   const menu=renderToStaticMarkup(React.createElement(TeamMenu,{team:{id:'team',title:'Research'},icon:()=>null}));
   for(const label of ['Research menu','Processes','Agents','Schedules','Files &amp; folders','Add-ons','Settings','Hide','Create team'])assert(menu.includes(label),label);

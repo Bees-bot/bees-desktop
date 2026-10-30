@@ -132,8 +132,6 @@ if(state){const channel=new BroadcastChannel('bees-sign-in-'+state);channel.post
         cookie('bees_hosted_session','');return json(res,200,{ok:true});
       }
       if(input?.action==='login'){
-        // Preserve an existing single-account browser session when adding its first extra account.
-        if(token){const prior=await identify(token);if(prior)cookie(accountPrefix+prior.id,token);}
         if(input.session)token=String(input.session);
         else {
           const r=await fetch(directory.origin+'/api/auth/'+(input.name?'sign-up/email':'sign-in/email'),{method:'POST',headers:{'content-type':'application/json',origin:directory.origin,'x-forwarded-for':String(req.headers['x-real-ip']??req.socket.remoteAddress??'')},body:JSON.stringify({email:input.email,password:input.password,...(input.name?{name:input.name}:{})}),signal:AbortSignal.timeout(20000)});

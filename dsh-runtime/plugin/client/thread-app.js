@@ -290,15 +290,15 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     {title:'Organizations',scope:'global',extra:h('button',{type:'button',className:'bc-icon',disabled:busy||!data,'aria-label':'Add organization',title:'Add organization',onClick:()=>openGlobal('organizations')},icon('plus')),selector:h(SettingsScopePicker,{label:'Organizations to configure',icon,busy,rows:[...!hosted?[{id:'local',title:'Local Org'}]:[],...settingsOrganizations],selected:configOrganizationId?(configAccountId??'')+':'+configOrganizationId:'local',onSelect:key=>{if(key==='local'){selectSettingsOrganization(null,null);return;}const row=settingsOrganizations.find(row=>row.id===key);selectSettingsOrganization(row.organization.id,row.accountId);}}),items:[['organizations','General & members']]},
     {title:'Teams',scope:'team',extra:h('button',{type:'button',className:'bc-icon',disabled:busy||!data,'aria-label':'Add team',title:'Add team',onClick:()=>createTeam()},icon('plus')),selector:h(SettingsScopePicker,{label:'Teams to configure',icon,busy,rows:settingsTeams.map(row=>({id:row.id,title:row.title})),selected:configTeamId,onSelect:id=>{setSettingsTeamId(id);setDialog('team');}}),items:settingsTeams.length?TEAM_SETTINGS:[]}
   ];
-  if(data?.onboarding===null)return h('div',{className:'bc-app bc-onboarding-app','data-bees-theme':theme.id,style:themeStyle(theme)},
+  if(data?.onboarding===null&&!roster.invitations?.length&&!roster.threads.some(t=>t.owner_user_id!==data.user?.id))return h('div',{className:'bc-app bc-onboarding-app','data-bees-theme':theme.id,style:themeStyle(theme)},
     h(FirstStart,{user:data.user,organizations,accounts:data.accounts??[],busy,error,onSignIn:()=>setDialog('login'),
-      onVerify:accountId=>void perform(async()=>{await command('verifyEmail',null,{settingsAccountId:accountId});setNotice('Check your email to verify your account.');}),
-      onCloud:({accountId,...values})=>perform(async()=>{if(accountId)await command('switchAccount',null,{accountId});await command('completeOnboarding',null,{mode:'cloud',...values});clearAccount();await refresh();}),
+      invitations:accountId=>command('organizations',null,{settingsAccountId:accountId}).then(result=>result.invitations),
+      onVerify:accountId=>perform(async()=>{await command('verifyEmail',null,{settingsAccountId:accountId});return true;}),
+      onCloud:({accountId,invitationId,...values})=>perform(async()=>{if(accountId)await command('switchAccount',null,{accountId});if(invitationId){await command('acceptOrganization',null,{invitationId});await command('organizations');}await command('completeOnboarding',null,{mode:'cloud',...values});clearAccount();await refresh();}),
       onLocal:()=>void perform(async()=>{await command('completeOnboarding',null,{mode:'local'});clearAccount();await refresh();openGlobal('ai');})}),
-    notice?h('p',{role:'status'},notice):null,
     dialog==='login'?h(Dialog,{title:'Sign in',onClose:closeDialog},h(Login,{server:data.serverUrl,request:(action,values)=>command(action,null,values),onComplete:async()=>{await refresh();closeDialog();}})):null);
   return h('div',{className:'bc-app '+(selected||composing||settingsOpen?'has-thread':''),'data-bees-theme':theme.id,style:themeStyle(theme)},
-    h(BeesNavigation,{brandMark,icon,organizations,localOrganizations:data?.localOrganizations??[],accounts:data?.accounts??[],user:data?.user,localActive:data?.localActive,organizationId:selectedOrganizationId,theme,busy:busy||!data,
+    h(BeesNavigation,{brandMark,icon,localOrganizations:data?.localOrganizations??[],accounts:data?.accounts??[],localActive:data?.localActive,organizationId:selectedOrganizationId,theme,busy:busy||!data,
       onOrganization:chooseOrganization,onGlobal:openGlobal,
       onTheme:()=>{const next=nextThemePreset(preference);void saveAppearance({themePreset:next.id,colorMode:next.dark?'dark':'light'});},onAccount:openAccount}),
     h('aside',{className:'bc-sidebar','aria-label':'Threads'},

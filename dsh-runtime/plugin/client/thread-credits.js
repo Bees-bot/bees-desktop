@@ -55,10 +55,12 @@ export function CreditSettings({connection,user,request,onRefresh,onSignIn}){
       credits?.paymentPending?h('p',{role:'status'},'A recharge is processing. A charge already in progress may complete after auto-renew is turned off.'):null));
 }
 
-export function FirstStart({user,organizations=[],accounts=[],busy,error,onSignIn,onCloud,onLocal,onVerify}){
+export function FirstStart({user,organizations=[],accounts=[],busy,error,onSignIn,onCloud,onLocal,onVerify,invitations}){
   const [name,setName]=useState(''),[organizationId,setOrganizationId]=useState(''),[accountId,setAccountId]=useState(accounts.find(account=>account.active)?.id??accounts[0]?.id??null);
+  const [invites,setInvites]=useState([]),[sent,setSent]=useState();
   const account=accounts.find(account=>account.id===accountId);
   user=account?.user??user;organizations=account?.organizations??organizations;
+  useEffect(()=>{let alive=true;setInvites([]);if(user?.emailVerified)void invitations(accountId).then(rows=>{if(alive)setInvites(rows);},()=>{});return()=>{alive=false;};},[accountId,user?.emailVerified]);
   return h('main',{className:'bc-first-start'},h('section',{className:'bc-onboarding'},
     h('h1',null,'How would you like to start?'),h('p',{className:'bc-muted'},'Choose a Bees organization with starter credits, or work locally with your own AI.'),
     error?h('p',{className:'bc-error',role:'alert'},error):null,
@@ -68,8 +70,10 @@ export function FirstStart({user,organizations=[],accounts=[],busy,error,onSignI
         h('p',{className:'bc-muted'},'One grant per Bees user, shared across organizations. Add 10 million tokens for $10 when you need more.'),
         accounts.length>1?h('label',{className:'bc-field'},h('span',null,'Account'),h('select',{'aria-label':'Account for new organization',value:accountId,disabled:busy,onChange:e=>{setAccountId(e.target.value);setOrganizationId('');}},accounts.map(account=>h('option',{key:account.id,value:account.id},account.user.email)))):null,
         !user?h('button',{className:'bc-primary',disabled:busy,onClick:onSignIn},'Sign in or create an account'):
-        !user.emailVerified?h('div',null,h('p',null,'Verify your email to create an organization and use starter credits.'),h('button',{disabled:busy,onClick:()=>onVerify(accountId)},'Send verification email')):
+        !user.emailVerified?h('div',null,h('p',null,'Verify your email to create an organization and use starter credits.'),h('button',{disabled:busy,onClick:()=>void onVerify(accountId).then(ok=>setSent(ok&&accountId))},'Send verification email'),sent===accountId?h('p',{className:'bc-notice',role:'status'},'Check your email to verify your account.'):null):
         h('form',{className:'bc-form',onSubmit:e=>{e.preventDefault();if(!busy)onCloud({name,...(accountId?{accountId}:{}),...(organizationId?{organizationId}:{})});}},
+          invites.map(i=>h('div',{key:i.id,className:'bc-person'},h('span',null,(i.invited_by_name?i.invited_by_name+' invited you to ':'You’re invited to ')+(i.organization_name??'an organization')),
+            h('button',{type:'button',className:'bc-primary',disabled:busy,onClick:()=>onCloud({...(accountId?{accountId}:{}),invitationId:i.id,organizationId:i.organization_id})},'Join'))),
           organizations.length?h('label',{className:'bc-field'},h('span',null,'Organization'),h('select',{value:organizationId,disabled:busy,onChange:e=>setOrganizationId(e.target.value)},
             h('option',{value:''},'Create a new organization'),organizations.map(org=>h('option',{key:org.id,value:org.id},org.name)))):null,
           !organizationId?h('label',{className:'bc-field'},h('span',null,'Organization name'),h('input',{required:true,maxLength:120,value:name,disabled:busy,onChange:e=>setName(e.target.value)})):null,

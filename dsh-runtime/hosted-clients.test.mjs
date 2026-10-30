@@ -88,8 +88,7 @@ test('one browser retains all accounts and organizations while commands and sign
    }
    return {status:response.status,value:await response.json()};
   };
-  // An existing browser cookie upgrades without requiring another login.
-  jar.set('bees_hosted_session','alice');
+  assert.equal((await request({action:'login',session:'alice'})).status,200);
   assert.equal((await request({action:'login',session:'bob'})).status,200);
   let result=await request();assert.equal(result.status,200);
   let accounts=result.value.accounts;assert.equal(accounts.length,2);
