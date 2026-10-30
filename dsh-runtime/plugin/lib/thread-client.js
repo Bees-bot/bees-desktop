@@ -343,11 +343,12 @@ export class ThreadClient {
     else throw threadError('Unknown thread command');
     this.options.notify?.();return result;
   }
+  schedules(){return this.store.list().filter(row=>row.ownerClientId===this.store.clientId&&!row.staged&&!this.store.preference(`frozen:${row.id}`)&&this.store.document(row.id).schedule?.enabled);}
   async scheduled(){
     if(this.scheduling||this.closing)return;this.scheduling=true;
-    try{for(const row of this.store.list()){
-      if(row.ownerClientId!==this.store.clientId||row.staged||this.jobs.has(row.id)||this.store.preference(`frozen:${row.id}`))continue;
-      const doc=this.store.document(row.id),s=doc.schedule;if(!s?.enabled||Date.parse(s.nextAt)>Date.now()||Date.parse(s.attemptAt??0)>Date.now()-60000)continue;
+    try{for(const row of this.schedules()){
+      if(this.jobs.has(row.id))continue;
+      const doc=this.store.document(row.id),s=doc.schedule;if(Date.parse(s.nextAt)>Date.now()||Date.parse(s.attemptAt??0)>Date.now()-60000)continue;
       const uuid=value=>{const hash=checkpointDigest(value);return `${hash.slice(0,8)}-${hash.slice(8,12)}-4${hash.slice(13,16)}-8${hash.slice(17,20)}-${hash.slice(20,32)}`;};
       const operationId=uuid({thread:row.id,occurrence:s.nextAt});
       try{

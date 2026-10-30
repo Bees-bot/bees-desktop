@@ -46,7 +46,7 @@ export async function applyThreadProduct(ctx,config){
   register('/healthz',(_req,res)=>reply(res,200,{status:'ok',product:'bees',service:'bees-client',clientId:client().store.clientId}));
   register('/bees-api/snapshot',apiSnapshot);
   async function apiSnapshot(_req,res){try{reply(res,200,await profiles.snapshot());}catch(e){reply(res,400,{error:e.message});}}
-  register('/bees-api/active-runs',(_req,res)=>{const count=[...profiles.clients.values()].reduce((n,c)=>n+c.jobs.size,0);reply(res,200,count);});
+  register('/bees-api/active-runs',(req,res)=>{const schedules=new URL(req.url,'http://client').searchParams.has('schedules');reply(res,200,[...profiles.clients.values()].reduce((n,c)=>n+c.jobs.size+(schedules?c.schedules().length:0),0));});
   register('/bees-auth',async(req,res)=>{
     const offered=new URL(req.url,'http://client').searchParams.get('token');if(!equal(offered,token))return reply(res,401,{error:'Unauthorized'});
     // DSH names its cookie after the Host, so ask with the browser's Host; fetch would send 127.0.0.1
