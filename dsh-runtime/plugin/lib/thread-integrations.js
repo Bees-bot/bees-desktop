@@ -13,9 +13,9 @@ import { agentAllowsServer } from './thread-agents.js';
 const lib = dirname(fileURLToPath(import.meta.url));
 const secretRef = (store, threadId, serverId, key) => credentialRef(`BEES_THREAD_${store.clientId}_${threadId}_${serverId}_${key}`.replace(/[^a-zA-Z0-9_]/g, '_').toUpperCase());
 const rows = (store, id) => store.preference(`integrations:${id}`) ?? [];
-export const browserMode = (store, id, available = !process.env.BEES_HOSTED_CLIENT && !!defaultBrowser()) => {
+export const browserMode = (store, id, available = !process.env.BEES_HOSTED_CLIENT && defaultBrowser()) => {
   const saved = store.preference(`browser:${id}`);
-  return available && saved !== 'own' ? 'personal' : 'own';
+  return available && saved !== 'own' && (!available.fallback || saved === 'personal') ? 'personal' : 'own';
 };
 
 export class ThreadIntegrations {

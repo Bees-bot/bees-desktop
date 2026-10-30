@@ -59,13 +59,13 @@ export function IntegrationSettings({ threadId, canManage, signedIn, onSignIn, r
   if (page === 'browser') return h('section', { className: 'bc-form' },
     h('h3', null, 'Browser'), h('label', { className: 'bc-check' },
       h('input', { type: 'checkbox', role: 'switch', checked: data.browser.mode === 'personal', disabled: !data.browser.personalAvailable,
-        onChange: event => change('setBrowser', { mode: event.target.checked ? 'personal' : 'own' }) }), 'Use your own browser'),
+        onChange: event => change('setBrowser', { mode: event.target.checked ? 'personal' : 'own' }) }), `Use your own browser${data.browser.name ? ` (${data.browser.name})` : ''}`),
     h('p', { className: 'bc-muted' }, data.browser.mode === 'personal'
       ? `Runs use their own tabs in ${data.browser.name}, with your existing sign-ins. ${data.browser.setup}`
       : 'Runs use an isolated browser. Your personal browser and sign-ins stay separate.'),
     !data.browser.personalAvailable ? h('p', { className: 'bc-muted' }, hosted
       ? 'Personal browser access works only in the Bees desktop app.'
-      : 'Personal browser access requires a supported Chromium browser as your Mac’s default browser.') : null,
+      : 'Open Google Chrome once, or use a supported Chromium browser as your Mac’s default browser.') : null,
     data.browser.warning ? h('p', { className: 'bc-muted' }, data.browser.warning) : null,
     h('p', null, 'Turn on Browser or Chrome DevTools in Add-ons to give every thread in this team browser tools.'),
     !hosted && data.browser.mode === 'personal' ? h('button', { onClick: () => perform(() => request('openBrowser', threadId)) }, 'Open browser') : null,

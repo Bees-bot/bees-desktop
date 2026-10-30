@@ -40,6 +40,27 @@ function mount(t, request, Component = ComposioApps) {
   };
 }
 
+test('browser settings name the available browser and allow switching it on and off', async t => {
+  const modes = [], data = { servers: [], catalog: [], browser: { mode: 'own', name: 'Google Chrome', personalAvailable: true } };
+  const ui = mount(t, async (action, id, input) => {
+    assert.equal(id, 'team');
+    if (action === 'setBrowser') { modes.push(input.mode); data.browser.mode = input.mode; }
+    else assert.equal(action, 'integrations');
+    return structuredClone(data);
+  }, IntegrationSettings);
+  const render = () => ui.render({ page: 'browser' });
+  const toggle = () => render().find(node => node.props?.role === 'switch');
+  render(); await flush();
+  assert(render().some(node => node.children.includes('Use your own browser (Google Chrome)')));
+  assert.equal(toggle().props.disabled, false);
+  assert.equal(toggle().props.checked, false);
+  await toggle().props.onChange({ target: { checked: true } });
+  assert.equal(toggle().props.checked, true);
+  await toggle().props.onChange({ target: { checked: false } });
+  assert.equal(toggle().props.checked, false);
+  assert.deepEqual(modes, ['personal', 'own']);
+});
+
 test('add-on settings show a failed initial request and retry without remaining on the loading screen', async t => {
   let calls = 0;
   const ui = mount(t, async action => {
