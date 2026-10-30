@@ -19,7 +19,9 @@ export function dockerClients({image,stateRoot,directoryUrl,maxClients=50,exec=e
   if(!/^(?:.+@)?sha256:[a-f0-9]{64}$/.test(image??''))throw Error('BEES_CLIENT_IMAGE must be pinned to a reviewed image digest');
   const pending=new Map(),stopping=new Map();
   const provision=async(user,session)=>{
-    const id=hash(directoryUrl+'\n'+user.id);if(stopping.has(id))await stopping.get(id);if(pending.has(id))return pending.get(id);
+    const id=hash(directoryUrl+'\n'+user.id);if(stopping.has(id))await stopping.get(id);
+    // a dead container keeps its cached promise and its port can go to another account, so check it still takes this token
+    const cached=pending.get(id);if(cached){const client=await cached;try{if((await fetch(client.url+'/bees-api/active-runs',{headers:{authorization:'Bearer '+client.token},signal:AbortSignal.timeout(2000)})).ok)return client;}catch{}if(pending.get(id)===cached)pending.delete(id);if(pending.has(id))return pending.get(id);}
     if(pending.size>=maxClients)throw Error('Hosted client capacity reached');
     const started=(async()=>{
       await mkdir(stateRoot,{recursive:true,mode:0o700});const record=join(stateRoot,id+'.json');let credential;
@@ -130,8 +132,6 @@ if(state){const channel=new BroadcastChannel('bees-sign-in-'+state);channel.post
         cookie('bees_hosted_session','');return json(res,200,{ok:true});
       }
       if(input?.action==='login'){
-        // Preserve an existing single-account browser session when adding its first extra account.
-        if(token){const prior=await identify(token);if(prior)cookie(accountPrefix+prior.id,token);}
         if(input.session)token=String(input.session);
         else {
           const r=await fetch(directory.origin+'/api/auth/'+(input.name?'sign-up/email':'sign-in/email'),{method:'POST',headers:{'content-type':'application/json',origin:directory.origin,'x-forwarded-for':String(req.headers['x-real-ip']??req.socket.remoteAddress??'')},body:JSON.stringify({email:input.email,password:input.password,...(input.name?{name:input.name}:{})}),signal:AbortSignal.timeout(20000)});
@@ -167,7 +167,8 @@ if(state){const channel=new BroadcastChannel('bees-sign-in-'+state);channel.post
           const other=await identify(session).catch(()=>undefined);if(other===undefined)return null;if(!other||other.id!==id){cookie(accountPrefix+id,'');return null;}
           try{
             activity.touch(other.user);
-            const target=await provision(other.user,session);
+            // a slow or stuck second account shouldn't hold up this one's page
+            const target=await Promise.race([provision(other.user,session),new Promise((_,fail)=>setTimeout(fail,10000,Error('This account is waking up. Try again shortly.')))]);
             const response=await fetch(target.url+'/bees-api/snapshot',{headers:{authorization:'Bearer '+target.token},signal:AbortSignal.timeout(10000)});
             if(!response.ok)throw Error('Could not load organizations');
             const state=await response.json();return {id,user:other.user,url:directory.origin,active:false,organizations:state.organizations??[],organizationError:state.organizationError??null};

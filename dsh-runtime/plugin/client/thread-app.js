@@ -66,7 +66,9 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const allTeams=[...teamRows,...(data?.directory?.threads??[]).filter(t=>t.kind==='team'&&!teamIds.has(t.id)).map(t=>({id:t.id,organizationId:t.organization_id,title:'Shared team',ownerClientId:t.owner_client_id,shared:true}))];
   const teams=allTeams.filter(t=>selectedOrganizationId?t.organizationId===selectedOrganizationId:!t.organizationId||!organizations.some(o=>o.id===t.organizationId));
   const hiddenTeamIds=data?.settings?.hiddenTeamIds??[],visibleTeams=teams.filter(t=>!hiddenTeamIds.includes(t.id));
-  const currentTeamId=teams.find(t=>t.id===teamId)?.id??visibleTeams.find(t=>t.id===data?.defaultTeamId)?.id??visibleTeams[0]?.id;
+  // an offline team can't take a new goal, so only land on one the user picked
+  const held=id=>data?.directory?.threads.find(t=>t.id===id),usable=t=>!held(t.id)?.offline,orphan=id=>held(id)?.gone&&!held(id).transfer_client_id&&held(id).owner_user_id===data?.user?.id;
+  const currentTeamId=teams.find(t=>t.id===teamId)?.id??visibleTeams.find(t=>t.id===data?.defaultTeamId&&usable(t))?.id??visibleTeams.find(usable)?.id??visibleTeams[0]?.id;
   const configuring=dialog==='settings'||dialog==='team';
   const configAccountId=settingsAccountId===undefined?(data?.accounts?.find(account=>account.active)?.id??null):settingsAccountId;
   const configOrganizationId=settingsOrganizationId===undefined?selectedOrganizationId:settingsOrganizationId;
@@ -138,6 +140,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   // the thread is saved on its first message, so an unused New Goal or New Chat leaves nothing behind
   // composing keeps the empty thread on screen on a phone, where the list and the thread take turns
   const create=(templateId='goals',id=currentTeamId)=>{select(null);setComposing(true);setTeamId(id);setNewTemplate(templateId);setCollapsed(values=>({...values,[id]:false}));requestAnimationFrame(()=>document.querySelector('.bc-composer textarea')?.focus());};
+  const removeGone=id=>perform(async()=>{if(!await confirmAction('Remove this for everyone? The Bees Client that held it is gone, so its messages and files can’t be recovered.','Remove'))return;await command('delete',id);select(null);setTeamId(null);await refresh();});
   const deleteThread=t=>perform(async()=>{if(!await confirmAction(`Delete “${t.title}”? Its messages, runs and files are removed for everyone in it. This can’t be undone.`,'Delete'))return;await command('delete',t.id);if(selectedRef.current===t.id)select(null);await refresh();});
   const settingsHiddenTeamIds=settingsData?.settings?.hiddenTeamIds??[],settingsTeamHidden=settingsHiddenTeamIds.includes(configTeamId);
   const toggleTeamVisibility=()=>perform(async()=>{
@@ -287,15 +290,15 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     {title:'Organizations',scope:'global',extra:h('button',{type:'button',className:'bc-icon',disabled:busy||!data,'aria-label':'Add organization',title:'Add organization',onClick:()=>openGlobal('organizations')},icon('plus')),selector:h(SettingsScopePicker,{label:'Organizations to configure',icon,busy,rows:[...!hosted?[{id:'local',title:'Local Org'}]:[],...settingsOrganizations],selected:configOrganizationId?(configAccountId??'')+':'+configOrganizationId:'local',onSelect:key=>{if(key==='local'){selectSettingsOrganization(null,null);return;}const row=settingsOrganizations.find(row=>row.id===key);selectSettingsOrganization(row.organization.id,row.accountId);}}),items:[['organizations','General & members']]},
     {title:'Teams',scope:'team',extra:h('button',{type:'button',className:'bc-icon',disabled:busy||!data,'aria-label':'Add team',title:'Add team',onClick:()=>createTeam()},icon('plus')),selector:h(SettingsScopePicker,{label:'Teams to configure',icon,busy,rows:settingsTeams.map(row=>({id:row.id,title:row.title})),selected:configTeamId,onSelect:id=>{setSettingsTeamId(id);setDialog('team');}}),items:settingsTeams.length?TEAM_SETTINGS:[]}
   ];
-  if(data?.onboarding===null)return h('div',{className:'bc-app bc-onboarding-app','data-bees-theme':theme.id,style:themeStyle(theme)},
+  if(data?.onboarding===null&&!roster.invitations?.length&&!roster.threads.some(t=>t.owner_user_id!==data.user?.id))return h('div',{className:'bc-app bc-onboarding-app','data-bees-theme':theme.id,style:themeStyle(theme)},
     h(FirstStart,{user:data.user,organizations,accounts:data.accounts??[],busy,error,onSignIn:()=>setDialog('login'),
-      onVerify:accountId=>void perform(async()=>{await command('verifyEmail',null,{settingsAccountId:accountId});setNotice('Check your email to verify your account.');}),
-      onCloud:({accountId,...values})=>perform(async()=>{if(accountId)await command('switchAccount',null,{accountId});await command('completeOnboarding',null,{mode:'cloud',...values});clearAccount();await refresh();}),
+      invitations:accountId=>command('organizations',null,{settingsAccountId:accountId}).then(result=>result.invitations),
+      onVerify:accountId=>perform(async()=>{await command('verifyEmail',null,{settingsAccountId:accountId});return true;}),
+      onCloud:({accountId,invitationId,...values})=>perform(async()=>{if(accountId)await command('switchAccount',null,{accountId});if(invitationId){await command('acceptOrganization',null,{invitationId});await command('organizations');}await command('completeOnboarding',null,{mode:'cloud',...values});clearAccount();await refresh();}),
       onLocal:()=>void perform(async()=>{await command('completeOnboarding',null,{mode:'local'});clearAccount();await refresh();openGlobal('ai');})}),
-    notice?h('p',{role:'status'},notice):null,
     dialog==='login'?h(Dialog,{title:'Sign in',onClose:closeDialog},h(Login,{server:data.serverUrl,request:(action,values)=>command(action,null,values),onComplete:async()=>{await refresh();closeDialog();}})):null);
   return h('div',{className:'bc-app '+(selected||composing||settingsOpen?'has-thread':''),'data-bees-theme':theme.id,style:themeStyle(theme)},
-    h(BeesNavigation,{brandMark,icon,organizations,localOrganizations:data?.localOrganizations??[],accounts:data?.accounts??[],user:data?.user,localActive:data?.localActive,organizationId:selectedOrganizationId,theme,busy:busy||!data,
+    h(BeesNavigation,{brandMark,icon,localOrganizations:data?.localOrganizations??[],accounts:data?.accounts??[],localActive:data?.localActive,organizationId:selectedOrganizationId,theme,busy:busy||!data,
       onOrganization:chooseOrganization,onGlobal:openGlobal,
       onTheme:()=>{const next=nextThemePreset(preference);void saveAppearance({themePreset:next.id,colorMode:next.dark?'dark':'light'});},onAccount:openAccount}),
     h('aside',{className:'bc-sidebar','aria-label':'Threads'},
@@ -307,7 +310,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
         teamThreads(row.id).map(renderThread),!teamThreads(row.id).length?h('p',{className:'bc-muted bc-empty-list'},query?'No matching threads.':'No threads yet.'):null)),
         !visibleTeams.length?h('p',{className:'bc-muted bc-empty-list'},teams.length?'Unhide a team in Settings → Teams → General.':'Create a team with the + next to Teams in Settings.'):null),
       roster.invitations?.length?h('section',{className:'bc-invitations'},h('strong',null,'Invitations'),
-        roster.invitations.map(i=>h('div',{key:i.id,className:'bc-person'},h('span',null,`${i.invited_by_name??'Someone'} invited you`,h('small',null,i.role==='viewer'?'Can view':'Can contribute and run work')),
+        roster.invitations.map(i=>h('div',{key:i.id,className:'bc-person'},h('span',null,`${i.invited_by_name??'Someone'} invited you${i.thread_title?' to '+i.thread_title:''}`,h('small',null,i.role==='viewer'?'Can view':'Can contribute and run work')),
           data.user?.emailVerified?h('button',{disabled:busy,onClick:()=>acceptInvitation(i)},'Accept'):null)),
         data.user?.emailVerified?null:h(React.Fragment,null,h('p',{className:'bc-muted'},'Verify your email to accept.'),h('button',{disabled:busy,onClick:verifyEmail},'Send verification email'))):null,
       h('footer',null,h('span',{className:'bc-dot '+(data?.connectionError?'offline':'')}),h('span',null,data?.connectionError?"Can't reach Bees right now":data?.user?'Connected to Bees':'Private on this machine',(data?.connectionError||data?.user)&&data?.serverUrl?h('small',{className:'bc-server-url'},data.serverUrl):null))),
@@ -346,6 +349,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
           h('span',{className:'bc-layout-toolbar',ref:setLayoutToolbar})):null),
       error&&!modalOpen?h('div',{className:'bc-error',role:'alert'},error,h('button',{className:'bc-icon','aria-label':'Dismiss error',onClick:()=>setError('')},icon('close'))):null,
       notice&&!modalOpen?h('div',{className:'bc-notice',role:'status'},notice):null,
+      !modalOpen&&(orphan(selected)||orphan(teamId))?h('div',{className:'bc-notice'},'The Bees Client that held this is gone. ',orphan(selected)?h('button',{className:'danger',disabled:busy,onClick:()=>removeGone(selected)},'Remove thread'):null,orphan(teamId)?h('button',{className:'danger',disabled:busy,onClick:()=>removeGone(teamId)},'Remove team'):null):null,
       data&&!data.models?.length&&!data.credits?.available?h('div',{className:'bc-notice'},hosted?'Bees needs Bees Credits to reply on the web. ':'Connect an AI model so Bees can reply. ',h('button',{className:'bc-primary',onClick:()=>{setSettingsSection(hosted?'credits':'ai');setDialog('settings');}},hosted?'Open Credits & billing':'Open AI connections')):null,
       thread?.frozen?h('div',{className:'bc-notice'},'This thread is frozen for transfer. The recipient must accept, or you can cancel the offer.'):null,
       thread?.unavailable?h('div',{className:'bc-notice'},'Showing the copy saved here. ',thread.unavailable):null,
@@ -375,7 +379,7 @@ export function ThreadConversation({thread,discussion,peerNames,userId,userName,
   const [draft,setDraft]=useState(''),[pending,setPending]=useState([]),end=useRef(),picker=useRef(),pinned=useRef(true);
   const recovering=useRef(false);
   const needsReview=(thread?.runs??(run?[run]:[])).some(r=>r.status==='uncertain'&&r.reviews?.some(review=>review.state==='open'));
-  const recovery=!active&&!needsReview&&['failed','uncertain','cancelled'].includes(run?.status)?run.status==='failed'?'Retry':'Continue':null;
+  const recovery=!active&&!needsReview&&run?.pending?.kind!=='questions'&&['failed','uncertain','cancelled'].includes(run?.status)?run.status==='failed'?'Retry':'Continue':null;
   const recover=async()=>{
     if(!recovery||busy||!canWrite||recovering.current)return;
     recovering.current=true;
@@ -409,7 +413,7 @@ export function ThreadConversation({thread,discussion,peerNames,userId,userName,
       !discussion&&active?h('div',{className:'bc-working',role:'status'},h('span',{className:'bc-dot'}),chatting?'Bees is replying…':run.stage?`Bees is working on the ${run.stage} stage…`:'Bees is working…',h('button',{disabled:!canWrite,onClick:()=>act('stop')},'Stop')):null,
       !discussion&&run?.error?h('div',{className:'bc-error',role:'alert'},needsReview?'Bees closed while waiting for your review. Resolve the saved review below to continue.':run.status==='uncertain'&&run.reviews?.some(review=>review.resumeRequired)?'Your review decision is saved. Choose Continue or send a message below.':run.error):null,
       !discussion&&recovery?h('div',{className:'bc-actions'},h('button',{type:'button',className:'bc-primary',disabled:busy||!canWrite,onClick:recover},recovery)):null,
-      !discussion&&run?.pending&&(active||run.status==='uncertain'&&run.pending.kind==='review')?(run.pending.kind==='review'
+      !discussion&&run?.pending&&(active||run.status==='uncertain'&&['review','questions'].includes(run.pending.kind))?(run.pending.kind==='review'
         ?h(ReviewScreen,{key:run.pending.reviewId,review:run.reviews.find(review=>review.id===run.pending.reviewId),runId:run.id,act,readOnly:!canWrite||!manage,interrupted:run.status==='uncertain'})
         :h('fieldset',{disabled:!canWrite||run.pending.kind==='approval'&&!manage,className:'bc-fieldset'},h(Question,{key:run.pending.id,run,threadId:thread.id,act}))):null,h('div',{ref:end})):null,
     h('form',{className:'bc-composer',onSubmit:e=>{e.preventDefault();const sent=draft;void onSend(sent,discussion,()=>{setDraft(current=>current===sent?'':current);setPending([]);},pending);}},

@@ -59,32 +59,33 @@ export function kubernetesClients({ image, directoryUrl, namespace = 'bees-clien
       const service = await ensure(core + '/services', { apiVersion: 'v1', kind: 'Service', metadata,
         spec: { selector: labels, ports: [{ port: 8080, targetPort: 8080 }] } });
       if (service.metadata.labels?.['bees-client-id'] !== labels['bees-client-id']) throw Error('Hosted service ownership mismatch');
-      if (!deployment) deployment = await ensure(apps + '/deployments', { apiVersion: 'apps/v1', kind: 'Deployment', metadata,
-        spec: { replicas: 1, strategy: { type: 'Recreate' }, selector: { matchLabels: labels }, template: { metadata: { labels }, spec: {
+      const runsPerDay = process.env.BEES_HOSTED_RUNS_PER_DAY ?? '0', template = { metadata: { labels }, spec: {
           automountServiceAccountToken: false, terminationGracePeriodSeconds: 45,
           securityContext: { runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000, fsGroupChangePolicy: 'OnRootMismatch', seccompProfile: { type: 'RuntimeDefault' } },
           containers: [{ name: 'client', image, command: ['node', 'dsh-runtime/client-cloud.mjs'],
             securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ['ALL'] } },
             ports: [{ containerPort: 8080 }], envFrom: [{ secretRef: { name } }],
             env: [{ name: 'BEES_ACCOUNT_API_URL', value: directoryUrl }, { name: 'BEES_HOSTED_CLIENT', value: '1' }, { name: 'BEES_CLIENT_NAME', value: 'Bees Cloud' },
-              { name: 'BEES_HOSTED_RUNS_PER_DAY', value: process.env.BEES_HOSTED_RUNS_PER_DAY ?? '0' }],
+              { name: 'BEES_HOSTED_RUNS_PER_DAY', value: runsPerDay }],
             resources: { requests: { cpu: '100m', memory: '384Mi' }, limits: { cpu: '2', memory: '2Gi' } },
             volumeMounts: [{ name: 'state', mountPath: '/var/lib/bees' }, { name: 'temporary', mountPath: '/tmp' }],
             startupProbe: { httpGet: { path: '/healthz', port: 8080 }, periodSeconds: 5, failureThreshold: 60 },
             readinessProbe: { httpGet: { path: '/healthz', port: 8080 }, periodSeconds: 5 },
             livenessProbe: { httpGet: { path: '/healthz', port: 8080 }, periodSeconds: 20, failureThreshold: 3 } }],
           volumes: [{ name: 'state', persistentVolumeClaim: { claimName: name } }, { name: 'temporary', emptyDir: { sizeLimit: '512Mi' } }],
-        } } } });
-      const container=deployment.spec.template.spec.containers[0],runsPerDay=process.env.BEES_HOSTED_RUNS_PER_DAY??'0';
-      if (container.image !== image || container.env?.find(row=>row.name==='BEES_HOSTED_RUNS_PER_DAY')?.value!==runsPerDay || deployment.spec.template.spec.securityContext?.fsGroupChangePolicy !== 'OnRootMismatch') {
+      } };
+      if (!deployment) deployment = await ensure(apps + '/deployments', { apiVersion: 'apps/v1', kind: 'Deployment', metadata,
+        spec: { replicas: 1, strategy: { type: 'Recreate' }, selector: { matchLabels: labels }, template } });
+      const container = deployment.spec.template.spec.containers[0];
+      if (container.image !== image || container.env?.find(row => row.name === 'BEES_HOSTED_RUNS_PER_DAY')?.value !== runsPerDay) {
         let active = 0;
         if (deployment.spec.replicas !== 0) {
           const activity = await fetcher(client.url + '/bees-api/active-runs', { headers: { authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(5000) });
           if (!activity.ok) throw Error('Could not verify active work before updating this hosted client');
           active = await activity.json();
         }
-        if (active === 0) deployment = await api('PATCH', apps + '/deployments/' + name,
-          { spec: { template: { spec: { securityContext: { ...deployment.spec.template.spec.securityContext, fsGroupChangePolicy: 'OnRootMismatch' }, containers: [{ ...container, image,env:[...(container.env??[]).filter(row=>row.name!=='BEES_HOSTED_RUNS_PER_DAY'),{name:'BEES_HOSTED_RUNS_PER_DAY',value:runsPerDay}] }] } } } });
+        // a merge patch swaps whole lists, so an env or secret dropped from the template also leaves running workspaces
+        if (active === 0) deployment = await api('PATCH', apps + '/deployments/' + name, { spec: { template } });
       }
       if (deployment.spec.replicas === 0) deployment = await api('PATCH', apps + '/deployments/' + name, { spec: { replicas: 1 } });
       const deadline = Date.now() + 300000;

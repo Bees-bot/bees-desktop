@@ -10,6 +10,8 @@ export const digest = value => createHash('sha256').update(value).digest('hex');
 export const canonical = value => JSON.stringify(value, (_key,v) => v && typeof v==='object' && !Array.isArray(v)
   ? Object.fromEntries(Object.keys(v).sort().map(k=>[k,v[k]])) : v);
 export const checkpointDigest = doc => digest(canonical(doc));
+// a run stopped on a question keeps it, and answering carries on from that stage
+export const ASKED='Bees restarted while waiting for your answer. Answer below to carry on.';
 export const threadError = (text,status=400) => Object.assign(new Error(text),{status});
 const idPattern=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 export const validId = value => {if(typeof value!=='string'||!idPattern.test(value)) throw threadError('Invalid identity');return value;};
@@ -31,7 +33,7 @@ export class ThreadStore {
     // An interrupted agent may have made an external change. Recovery always needs an explicit retry.
     for(const {id,document} of this.db.prepare('SELECT id,document FROM threads WHERE staged=0').all()) {
       const doc=JSON.parse(document);let changed=false;
-      for(const run of doc.runs) if(doc.ownerClientId===this.clientId&&run.status==='running') {run.status='uncertain';delete run.recoveringReview;const review=run.reviews?.find(review=>review.state==='open');if(review)run.pending={id:randomUUID(),kind:'review',reviewId:review.id};run.error='Bees closed while this was running. Check anything it may have changed before you try again.';changed=true;}
+      for(const run of doc.runs) if(doc.ownerClientId===this.clientId&&run.status==='running') {run.status='uncertain';delete run.recoveringReview;const review=run.reviews?.find(review=>review.state==='open');if(review)run.pending={id:randomUUID(),kind:'review',reviewId:review.id};run.error=run.pending?.kind==='questions'?ASKED:'Bees closed while this was running. Check anything it may have changed before you try again.';changed=true;}
       if(changed) this.save(this.trim({...doc,revision:doc.revision+1}));
     }
     // files no thread lists any more (trimmed, rejected, or refused at the limit) give their space back on start

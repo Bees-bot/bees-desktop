@@ -30,11 +30,10 @@ export function TeamSection({team,expanded,onToggle,onOpen,menu,children}){
     expanded?h('div',{className:'bc-team-threads'},children):null);
 }
 
-export function BeesNavigation({brandMark,icon,organizations=[],localOrganizations=[],accounts=[],user,localActive=!accounts.some(account=>account.active),organizationId,theme,busy,onOrganization,onGlobal,onTheme,onAccount}){
-  const accountRows=hosted&&!accounts.length?[{id:null,active:true,user,organizations}]:accounts;
+export function BeesNavigation({brandMark,icon,localOrganizations=[],accounts=[],localActive=!accounts.some(account=>account.active),organizationId,theme,busy,onOrganization,onGlobal,onTheme,onAccount}){
   const localSelected=localActive&&!organizationId;
   const label=text=>h('span',{className:'bc-rail-label'},text);
-  const orgRows=[...!hosted?localOrganizations.map(org=>({account:{id:null,active:localActive},org,title:`${org.name} (Local)`})):[],...accountRows.flatMap(account=>(account.organizations??[]).map(org=>({account,org,title:`${org.name} (${account.user?.email??'Account'})` })))]
+  const orgRows=[...!hosted?localOrganizations.map(org=>({account:{id:null,active:localActive},org,title:`${org.name} (Local)`})):[],...accounts.flatMap(account=>(account.organizations??[]).map(org=>({account,org,title:`${org.name} (${account.user.email})` })))]
     .sort((a,b)=>a.org.name.localeCompare(b.org.name,undefined,{sensitivity:'base'})||a.title.localeCompare(b.title));
   return h('nav',{className:'bc-rail','aria-label':'Main navigation'},
     h('div',{className:'bc-brand',title:'Bees'},brandMark?h('img',{src:brandMark,alt:'Bees'}):h('span',{'aria-label':'Bees'},'✳')),
@@ -47,7 +46,7 @@ export function BeesNavigation({brandMark,icon,organizations=[],localOrganizatio
             onClick:()=>{if(!selected)onOrganization(org.id,account.id);}},h(OrganizationIcon,{organization:org,icon}),label(title)));
       }),
       h('button',{className:'bc-rail-action bc-create-org',disabled:busy,'aria-label':'Add organization',title:'Add organization',onClick:()=>onGlobal('organizations')},icon('plus'),label('Add organization')),
-      accountRows.filter(account=>account.organizationError).map(account=>h('p',{key:account.id,className:'bc-rail-label bc-org-error',role:'status',title:account.organizationError},`Org list unavailable (${account.user?.email??'Account'}). Showing saved orgs.`))),
+      accounts.filter(account=>account.organizationError).map(account=>h('p',{key:account.id,className:'bc-rail-label bc-org-error',role:'status',title:account.organizationError},`Org list unavailable (${account.user.email}). Showing saved orgs.`))),
     h('div',{className:'bc-spacer'}),
     h('div',{className:'bc-rail-bottom'},
       h('button',{className:'bc-rail-action','aria-label':`Switch to ${theme.dark?'light':'dark'} theme`,title:`Switch to ${theme.dark?'light':'dark'} theme`,onClick:onTheme},icon(theme.dark?'sun':'moon'),label(theme.dark?'Light mode':'Dark mode')),
