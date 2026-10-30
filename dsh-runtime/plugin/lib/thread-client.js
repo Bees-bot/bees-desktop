@@ -92,7 +92,7 @@ export class ThreadClient {
   }
   async share(id,input){await this.registerThread(id,input);
     if(this.store.get(id).kind==='team')for(const row of this.store.list())if(row.teamId===id&&row.ownerClientId===this.store.clientId)await this.registerThread(row.id);
-    const invite=await this.directory.request(`/threads/${id}/invitations`,{email:input.email,role:input.role??'editor'});await this.refresh();return {...invite,url:this.directory.url+'/app?invitation='+invite.id};
+    const invite=await this.directory.request(`/threads/${id}/invitations`,{email:input.email,role:input.role??'editor',title:this.store.get(id).title});await this.refresh();return {...invite,url:this.directory.url+'/app?invitation='+invite.id};
   }
   async receive(grant,input){
     if(!input||!['snapshot','object','command','checkpoint'].includes(input.kind))throw threadError('Invalid peer operation');

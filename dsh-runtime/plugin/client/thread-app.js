@@ -307,7 +307,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
         teamThreads(row.id).map(renderThread),!teamThreads(row.id).length?h('p',{className:'bc-muted bc-empty-list'},query?'No matching threads.':'No threads yet.'):null)),
         !visibleTeams.length?h('p',{className:'bc-muted bc-empty-list'},teams.length?'Unhide a team in Settings → Teams → General.':'Create a team with the + next to Teams in Settings.'):null),
       roster.invitations?.length?h('section',{className:'bc-invitations'},h('strong',null,'Invitations'),
-        roster.invitations.map(i=>h('div',{key:i.id,className:'bc-person'},h('span',null,`${i.invited_by_name??'Someone'} invited you`,h('small',null,i.role==='viewer'?'Can view':'Can contribute and run work')),
+        roster.invitations.map(i=>h('div',{key:i.id,className:'bc-person'},h('span',null,`${i.invited_by_name??'Someone'} invited you${i.thread_title?' to '+i.thread_title:''}`,h('small',null,i.role==='viewer'?'Can view':'Can contribute and run work')),
           data.user?.emailVerified?h('button',{disabled:busy,onClick:()=>acceptInvitation(i)},'Accept'):null)),
         data.user?.emailVerified?null:h(React.Fragment,null,h('p',{className:'bc-muted'},'Verify your email to accept.'),h('button',{disabled:busy,onClick:verifyEmail},'Send verification email'))):null,
       h('footer',null,h('span',{className:'bc-dot '+(data?.connectionError?'offline':'')}),h('span',null,data?.connectionError?"Can't reach Bees right now":data?.user?'Connected to Bees':'Private on this machine',(data?.connectionError||data?.user)&&data?.serverUrl?h('small',{className:'bc-server-url'},data.serverUrl):null))),
