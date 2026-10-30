@@ -1,3 +1,4 @@
+import { fileTransferLimit } from './file-limits.js';
 import { createServer, request as httpsRequest, Agent } from 'node:https';
 import { createServer as createHttpServer, request as httpRequest } from 'node:http';
 import { createSecureContext, TLSSocket, connect as tlsConnect } from 'node:tls';
@@ -15,7 +16,7 @@ export async function peerCertificate(root) {
   const generated=await selfsigned.generate([{name:'commonName',value:'bees-client'}],{keySize:2048,algorithm:'sha256',notAfterDate:new Date(Date.now()+3650*86400000)});
   const identity={key:generated.private,cert:generated.cert};writeFileSync(path,JSON.stringify(identity),{flag:'wx',mode:0o600});return identity;
 }
-async function jsonBody(req) {let size=0;const parts=[];for await(const chunk of req){size+=chunk.length;if(size>16_000_000)throw threadError('Peer request is too large');parts.push(chunk);}return JSON.parse(Buffer.concat(parts).toString()||'{}');}
+async function jsonBody(req) {let size=0;const parts=[];for await(const chunk of req){size+=chunk.length;if(size>fileTransferLimit())throw threadError('Peer request is too large');parts.push(chunk);}return JSON.parse(Buffer.concat(parts).toString()||'{}');}
 const response=(res,status,value)=>{if(res.destroyed)return;const body=JSON.stringify(value);res.writeHead(status,{'content-type':'application/json','content-length':Buffer.byteLength(body),'cache-control':'no-store'});res.end(body);};
 
 // TLS may flush many records in one write. Bound WebSocket messages independently of file size.
@@ -72,11 +73,11 @@ export class ThreadPeer {
     const grant=await this.directory.request('/connections',{threadId,targetClientId});
     const send=(endpoint,socket)=>new Promise((ok,bad)=>{
       const bytes=Buffer.from(JSON.stringify(payload));
-      if(bytes.length>16_000_000)return bad(threadError('Peer request is too large'));
+      if(bytes.length>fileTransferLimit())return bad(threadError('Peer request is too large'));
       const agent=socket?new Agent({keepAlive:false}):false;if(agent)agent.createConnection=()=>socket;
       const req=httpsRequest(new URL('/exchange',endpoint),{method:'POST',ca:grant.target.certificate,servername:'bees-client',minVersion:'TLSv1.3',agent,timeout:socket?30000:2500,
         headers:{authorization:`Bearer ${grant.id}`,'content-type':'application/json','content-length':bytes.length}},res=>{
-        const chunks=[];let size=0;res.on('data',chunk=>{size+=chunk.length;if(size>16_000_000){req.destroy(threadError('Peer response is too large'));return;}chunks.push(chunk);});
+        const chunks=[];let size=0;res.on('data',chunk=>{size+=chunk.length;if(size>fileTransferLimit()){req.destroy(threadError('Peer response is too large'));return;}chunks.push(chunk);});
         res.on('end',()=>{try{const body=JSON.parse(Buffer.concat(chunks).toString());if(res.statusCode!==200)throw threadError(body.error??'Peer request failed',res.statusCode);ok(body.result);}catch(e){bad(e);}});res.on('error',bad);
       });this.sockets.add(req);req.on('close',()=>this.sockets.delete(req));req.on('error',bad);req.on('timeout',()=>req.destroy(threadError('Peer connection timed out',408)));req.end(bytes);
     });

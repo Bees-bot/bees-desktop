@@ -1,3 +1,4 @@
+import { MAX_FILE_BYTES, fileSizeLimit, threadFileBytesLimit } from './file-limits.js';
 import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, existsSync, lstatSync, readdirSync, rmSync } from 'node:fs';
@@ -45,7 +46,7 @@ export class ThreadStore {
   trim(doc){const done=r=>!['running','waiting'].includes(r.status)&&!r.pending,drop=(list,n)=>{for(let i=0;i<list.length&&n>0;)if(list===doc.runs&&!done(list[i]))i++;else{list.splice(i,1);n--;}},since=doc.runs.find(r=>!done(r))?.createdAt;
     if(doc.operations?.length>50000)doc.operations.splice(0,doc.operations.length-50000);
     drop(doc.runs,doc.runs.length-1000);drop(doc.messages,doc.messages.length-10000);
-    for(let i;(doc.artifacts.length>1000||doc.artifacts.reduce((n,a)=>n+a.size,0)>250_000_000)&&(i=doc.artifacts.findIndex(a=>a.authorId==='bees'&&!(a.createdAt>=since)))>=0;)doc.artifacts.splice(i,1);
+    for(let i;(doc.artifacts.length>1000||doc.artifacts.reduce((n,a)=>n+a.size,0)>threadFileBytesLimit())&&(i=doc.artifacts.findIndex(a=>a.authorId==='bees'&&!(a.createdAt>=since)))>=0;)doc.artifacts.splice(i,1);
     while(Buffer.byteLength(canonical(doc))>8_000_000){const before=doc.runs.length+doc.messages.length;drop(doc.runs,Math.ceil(doc.runs.length/50));drop(doc.messages,Math.ceil(doc.messages.length/50));if(doc.runs.length+doc.messages.length===before)break;}
     return doc;}
   preference(key,value){if(value!==undefined)this.db.prepare('INSERT INTO preferences VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key,JSON.stringify(value));return JSON.parse(this.db.prepare('SELECT value FROM preferences WHERE key=?').get(key)?.value??'null');}
@@ -81,8 +82,8 @@ export class ThreadStore {
       for(let i=1;i<parts.length;i++)if(paths.has(parts.slice(0,i).join('/')))throw threadError('A file occupies a parent folder');
     }
     if(doc.operations!==undefined){if(!Array.isArray(doc.operations)||doc.operations.length>50000||new Set(doc.operations).size!==doc.operations.length)throw threadError('Invalid operation ledger');for(const operation of doc.operations)validId(operation);}
-    for(const a of doc.artifacts){validId(a.id);text(a.name,200);if(known.has(a.id)||/[\x00-\x1f/\\]/.test(a.name)||['.','..'].includes(a.name)||!/^[a-f0-9]{64}$/.test(a.digest)||!Number.isSafeInteger(a.size)||a.size<0||a.size>10_000_000)throw threadError('Invalid attachment');known.add(a.id);}
-    if(doc.artifacts.length>1000||doc.artifacts.reduce((n,a)=>n+a.size,0)>250_000_000)throw threadError('Thread file limit reached');
+    for(const a of doc.artifacts){validId(a.id);text(a.name,200);if(known.has(a.id)||/[\x00-\x1f/\\]/.test(a.name)||['.','..'].includes(a.name)||!/^[a-f0-9]{64}$/.test(a.digest)||!Number.isSafeInteger(a.size)||a.size<0||a.size>fileSizeLimit())throw threadError('Invalid attachment');known.add(a.id);}
+    if(doc.artifacts.length>1000||doc.artifacts.reduce((n,a)=>n+a.size,0)>threadFileBytesLimit())throw threadError('Thread file limit reached');
     const messages=new Set();for(const m of doc.messages){validId(m.id);if(messages.has(m.id))throw threadError('Duplicate message');messages.add(m.id);text(m.text,100000);text(m.authorId,200);if(!['user','assistant','discussion','system'].includes(m.kind))throw threadError('Invalid message');}
     for(const run of doc.runs){
       if(run.pending?.kind==='review'&&!Array.isArray(run.reviews))throw threadError('The pending review is missing.');
@@ -113,7 +114,7 @@ export class ThreadStore {
     doc.messages.push({id:operation,authorId,text:messageText,kind,createdAt:now(),...(attached.length?{files:attached}:{})});
   });}
   objectPath(hash){if(!/^[a-f0-9]{64}$/.test(hash))throw threadError('Invalid file digest');return join(this.root,'objects',hash);}
-  putObject(bytes,expected){if(!Buffer.isBuffer(bytes)||bytes.length>10_000_000)throw threadError('Files must be 10 MB or smaller');const hash=digest(bytes);if(expected&&expected!==hash)throw threadError('File integrity check failed');const path=this.objectPath(hash);if(existsSync(path)){if(lstatSync(path).isSymbolicLink()||digest(readFileSync(path))!==hash)throw threadError('Stored file failed verification');}else writeFileSync(path,bytes,{flag:'wx',mode:0o600});return hash;}
+  putObject(bytes,expected){if(!Buffer.isBuffer(bytes)||bytes.length>fileSizeLimit())throw threadError(`Files must be ${MAX_FILE_BYTES / 1_000_000} MB or smaller`);const hash=digest(bytes);if(expected&&expected!==hash)throw threadError('File integrity check failed');const path=this.objectPath(hash);if(existsSync(path)){if(lstatSync(path).isSymbolicLink()||digest(readFileSync(path))!==hash)throw threadError('Stored file failed verification');}else writeFileSync(path,bytes,{flag:'wx',mode:0o600});return hash;}
   object(doc,id){const artifact=doc.artifacts.find(a=>a.id===validId(id));if(!artifact)throw threadError('File is not part of this thread',404);const path=this.objectPath(artifact.digest);if(!existsSync(path)||lstatSync(path).isSymbolicLink())throw threadError('File has not arrived on this client',404);const bytes=readFileSync(path);if(bytes.length!==artifact.size||digest(bytes)!==artifact.digest)throw threadError('File integrity check failed');return {artifact,bytes};}
   attach(id,operation,name,bytes,authorId,path){name=text(name,200);if(/[\x00-\x1f/\\]/.test(name)||['.','..'].includes(name))throw threadError('Invalid attachment name');if(path!==undefined)threadPath(path);const doc=this.get(id);this.writable(doc);validId(operation);if(doc.operations?.includes(operation))return this.document(id);const hash=this.putObject(bytes);return this.mutate(id,operation,doc=>{doc.artifacts.push({id:operation,name,...(path!==undefined?{path}:{}),digest:hash,size:bytes.length,authorId,createdAt:now()});});}
   import(doc,authority,{staged=false}={}) {

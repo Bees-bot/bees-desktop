@@ -4,7 +4,7 @@ import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {configureRuntime} from '../client/runtime.js';
 import {BeesNavigation,TeamMenu,TeamSection,SettingsScopePicker} from '../client/thread-navigation.js';
-import {SettingsPage,SettingsNav,ThreadDetails} from '../client/thread-panels.js';
+import {SettingsPage,SettingsNav,ThreadDetails,SentInvitations} from '../client/thread-panels.js';
 import {TeamProcesses} from '../client/thread-processes.js';
 import {OrganizationAppearance,OrganizationIcon,readOrganizationImage} from '../client/thread-organization-appearance.js';
 import {ThreadApp} from '../client/thread-app.js';
@@ -181,6 +181,39 @@ test('thread add-ons use the active team without opening settings',async t=>{
     assert.equal(requests.at(-1).threadId,team.id);
     assert.equal(requests.at(-1).action,'saveIntegration');
     assert.equal(requests.at(-1).settingsAccountId,undefined,'Thread add-ons use the active account');
+  }
+});
+
+test('team Members lists pending sent invitations for that team only',()=>{
+  const team={id:'research',title:'Research',ownerClientId:'local',ownerUserId:'alice',shared:true};
+  const snapshot={clientId:'local',user:{id:'alice'},teams:[team],threads:[],organizations:[],directory:{threads:[],clients:[],participants:[{thread_id:team.id,user_id:'alice',role:'owner',name:'Alice'}],sentInvitations:[
+    {id:'invite',thread_id:team.id,email:'colleague@example.com',role:'editor'},
+    {id:'other',thread_id:'other-team',email:'other@example.com',role:'viewer'}
+  ]}};
+  appHarness({snapshot,settingsTeam:team},render=>{
+    render().find(node=>node.type===BeesNavigation).props.onGlobal('ai');
+    let page=render().find(node=>node.type===SettingsPage);
+    page.props.groups.find(group=>group.title==='Teams').selector.props.onSelect(team.id);
+    render().find(node=>node.type===SettingsPage).props.onSelect('members','team');
+    const tree=render();
+    const list=tree.find(node=>node.type===SentInvitations);
+    assert.equal(list.props.scope,'team');
+    assert.deepEqual(list.props.invitations.map(invite=>invite.email),['colleague@example.com']);
+  });
+});
+
+test('organization and team sent invitations share labeled columns, counts, expiry and empty states',()=>{
+  configure(true);
+  for(const [scope,role,access] of [['organization','admin','Admin'],['team','editor','Can contribute and run work']]){
+    const markup=renderToStaticMarkup(React.createElement(SentInvitations,{scope,invitations:[
+      {id:'invite',email:'colleague@example.com',role,expires_at:'2026-11-06T12:00:00Z'}
+    ]}));
+    for(const label of ['Sent invitations (1)','Email','Access','Status','Expires','colleague@example.com',access,'Pending'])assert(markup.includes(label),label);
+    assert.match(markup,/<time dateTime="2026-11-06T12:00:00.000Z">/);
+    assert.match(markup,/scope="col"/);
+    const empty=renderToStaticMarkup(React.createElement(SentInvitations,{scope}));
+    assert(empty.includes('Sent invitations (0)'));assert(empty.includes('No pending invitations.'));
+    assert(!empty.includes('<table'));
   }
 });
 

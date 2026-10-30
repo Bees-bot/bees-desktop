@@ -18,6 +18,21 @@ export const GLOBAL_SETTINGS = [
   ['storage', 'Root folder'],
 ];
 
+export function SentInvitations({ invitations = [], scope }) {
+  const access = scope === 'team' ? { viewer: 'Can view', editor: 'Can contribute and run work' } : { member: 'Member', admin: 'Admin' };
+  return h('section', { className: 'bc-form bc-card', 'aria-label': 'Pending invitations' },
+    h('h3', null, `Sent invitations (${invitations.length})`),
+    h('p', { className: 'bc-muted' }, `People invited to this ${scope} who haven’t joined yet.`),
+    invitations.length ? h('div', { className: 'bc-invitation-table' },
+      h('table', null, h('thead', null, h('tr', null, ...['Email', 'Access', 'Status', 'Expires'].map(label => h('th', { key: label, scope: 'col' }, label)))),
+        h('tbody', null, invitations.map(invite => {
+          const expires = new Date(invite.expires_at), validDate = Number.isFinite(expires.getTime());
+          return h('tr', { key: invite.id }, h('td', null, invite.email), h('td', null, access[invite.role] ?? invite.role),
+            h('td', null, h('span', { className: 'bc-invitation-status' }, 'Pending')),
+            h('td', null, validDate ? h('time', { dateTime: expires.toISOString() }, expires.toLocaleDateString()) : '—'));
+        })))) : h('p', { className: 'bc-muted' }, 'No pending invitations.'));
+}
+
 export function SettingsNav({ items, groups, selected, onSelect, label }) {
   if (groups) {
     return h('nav', { className: 'bc-settings-nav', 'aria-label': label },

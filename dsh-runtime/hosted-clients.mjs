@@ -1,3 +1,4 @@
+import { MAX_FILE_TRANSFER_BYTES } from './plugin/lib/file-limits.js';
 import { createServer } from 'node:http';
 import { createHash, randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
@@ -12,7 +13,7 @@ import { hostedClientActivity, isFreeClient } from './hosted-lifecycle.mjs';
 const execute=promisify(execFile);
 const hash=v=>createHash('sha256').update(v).digest('hex');
 const json=(res,status,value,headers={})=>{res.writeHead(status,{'content-type':'application/json','cache-control':'no-store',...headers});res.end(JSON.stringify(value));};
-async function body(req){const parts=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>16_000_000)throw Error('Request too large');parts.push(chunk);}return Buffer.concat(parts);}
+async function body(req){const parts=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>MAX_FILE_TRANSFER_BYTES)throw Error('Request too large');parts.push(chunk);}return Buffer.concat(parts);}
 
 /** Each account receives an isolated container and a persistent volume, never a shared writable runtime. */
 export function dockerClients({image,stateRoot,directoryUrl,maxClients=50,exec=execute}){

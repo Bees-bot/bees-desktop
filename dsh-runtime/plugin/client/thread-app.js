@@ -1,9 +1,10 @@
+import { checkUploadSizes as checkSize } from '../lib/file-limits.js';
 import { h, React, useEffect, useState, useRef, hosted, CustomAiSettings, OpenAiServersSettings, SubscriptionSettings, MarkdownText } from './runtime.js';
 import { ask, confirmAction, openExternal, Button, when, droppedFiles, pastedFiles } from './common.js';
 import { threadCss } from './thread-style.js';
 import { THEME_PRESETS, nextThemePreset } from '../lib/themes.js';
 import { AppearanceSettings, themeStyle, useAppearance } from './thread-appearance.js';
-import { GLOBAL_SETTINGS, THREAD_SETTINGS, TEAM_SETTINGS, SettingsNav, ThreadDetails, SettingsPage } from './thread-panels.js';
+import { GLOBAL_SETTINGS, THREAD_SETTINGS, TEAM_SETTINGS, SettingsNav, ThreadDetails, SettingsPage, SentInvitations } from './thread-panels.js';
 import { ScheduleSettings } from './thread-schedule-form.js';
 import { ThreadFiles } from './thread-files.js';
 import { ReviewScreen } from './thread-review.js';
@@ -150,12 +151,11 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   });
   const hideTeam=id=>perform(async()=>{await command('preferences',null,{values:{hiddenTeamIds:[...new Set([...hiddenTeamIds,id])]}});await refresh();});
   const createTeam=(accountId=configAccountId,organizationId=configOrganizationId)=>perform(async()=>{const name=await ask('Team name','');if(!name?.trim())return;const next=await command('createTeam',null,{name,settingsAccountId:accountId,...(organizationId?{organizationId}:{})});await command('selectOrganization',null,{accountId,organizationId});clearAccount();setOrganizationId(organizationId);await refresh();setTeamId(next.id);});
-  const checkSize=files=>{const big=files.find(file=>file.size>10_000_000);if(big)throw Error(`${big.name} is over 10 MB. Files must be 10 MB or smaller.`);};
   const encode=file=>new Promise((ok,bad)=>{const reader=new FileReader();reader.onload=()=>ok(reader.result.split(',')[1]);reader.onerror=()=>bad(Error('Could not read '+file.name));reader.readAsDataURL(file);});
   // checked before perform, whose finally would clear busy while the first send is still out
   const send=(text,discussion=false,onAccepted,files=[])=>!text.trim()||busy||!canWrite||active&&!discussion?Promise.resolve(false):perform(async()=>{
     // read files before creating the thread, so a bad file never leaves an empty thread behind
-    checkSize(files);const contents=await Promise.all(files.map(encode));
+    checkSize(files,hosted);const contents=await Promise.all(files.map(encode));
     let id=selected;if(!id){const created=await command('create',null,{templateId:newTemplate,teamId:currentTeamId});id=created.id;select(id);}
     // the file ids ride on the message, so it shows what was sent with it
     const ids=files.map(()=>crypto.randomUUID());
@@ -165,7 +165,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   });
   const attach=(files,prefix='',id=selected)=>perform(async()=>{
     if(!id)throw Error('Start a thread before attaching files');
-    checkSize(files);
+    checkSize(files,hosted);
     for(const file of files)await command('attach',id,{name:file.name,path:prefix+(file.webkitRelativePath||file.name),content:await encode(file)});
     if(id===currentTeamId)await readTeam(id);else await read(id);setNotice(`Added ${files.length} file${files.length===1?'':'s'}.`);return true;
   });
@@ -208,8 +208,8 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
       request:inThread?command:settingsCommand,perform,page:section}):h('p',{role:'status'},'Loading team add-ons…');
   };
   const configuration=(section,note)=>settingsTeam?h(React.Fragment,null,canConfigureTeam||!note?null:h('p',{className:'bc-muted'},'Only the team owner can change shared settings.'),h(WorkflowSettings,{key:configAccountId+configTeamId+section+(canConfigureTeam?'':settingsTeam.revision),thread:settingsTeam,agents:settingsTeam.agents??[],scope:'team',section,disabled:!canConfigureTeam,busy,onSave:saveTeam})):h('p',{role:'status'},'Loading team settings…');
-  const invitations=h('form',{className:'bc-form',onSubmit:event=>{event.preventDefault();void perform(async()=>{
-    if(!settingsData?.user){setDialog('login');return;}const invite=await settingsCommand('share',configTeamId,{email,role});setInviteLink(invite.url);setNotice(`Invited ${email}. It shows in their Bees sidebar, or you can send them the link below.`);setEmail('');setRole('viewer');await refresh();await readSettingsTeam(configTeamId);
+  const invitations=h('form',{className:'bc-form bc-card',onSubmit:event=>{event.preventDefault();void perform(async()=>{
+    if(!settingsData?.user){setDialog('login');return;}const invite=await settingsCommand('share',configTeamId,{email,role});setInviteLink(invite.url);setNotice(`Invited ${email}. It shows in their Bees sidebar, or you can send them the link below.`);setEmail('');setRole('viewer');await refreshSettings();await refresh();await readSettingsTeam(configTeamId);
   });}},h('h3',null,'Invite to team'),h('p',{className:'bc-muted'},'Invite someone to this team and all its threads, including people outside your organization.'),
     h(Field,{label:'Email',type:'email',required:true,disabled:!canConfigureTeam,value:email,autoComplete:'email',autoCorrect:'off',autoCapitalize:'off',spellCheck:false,onChange:e=>{setEmail(e.target.value);e.target.setCustomValidity(e.target.value.trim().toLowerCase()===settingsData?.user?.email?.toLowerCase()?'This is your own email.':'');}}),
     h('label',{className:'bc-field'},h('span',null,'Access'),h('select',{value:role,disabled:!canConfigureTeam,onChange:e=>setRole(e.target.value)},
@@ -221,6 +221,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     settingsParticipants.map(p=>h('div',{key:p.user_id,className:'bc-person'},h('span',null,p.name??p.email),h('small',null,{owner:'Owner',editor:'Can contribute and run work',viewer:'Can view'}[p.role]??p.role),
       canConfigureTeam&&p.role!=='owner'?h('button',{className:'danger',disabled:busy,onClick:async()=>{if(await confirmAction(`Remove ${p.name??p.email} from this team? They lose access to all of its threads.`,'Remove'))void teamAction('remove',{userId:p.user_id});}},'Remove'):null)),
     settingsTeam?.shared&&!teamOwn&&settingsRole&&settingsRole!=='owner'?h('button',{className:'danger',disabled:busy,onClick:leaveTeam},'Leave team'):null,
+    canConfigureTeam?h(SentInvitations,{scope:'team',invitations:(settingsData?.directory?.sentInvitations??[]).filter(invite=>invite.thread_id===configTeamId)}):null,
     canConfigureTeam?h('div',{className:'bc-form-section'},invitations):null);
   const transfer=h('form',{className:'bc-form',onSubmit:e=>{e.preventDefault();void act('transfer',{targetClientId:target});}},
     h('h3',null,'Transfer thread'),h('p',{className:'bc-muted'},own?'Move the thread, its files and its runs to another computer in this thread. Sign in to its add-ons again there and choose browser access.':`Only ${owner?.name??'the computer running this thread'} can transfer it.`),
@@ -235,7 +236,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     data?.user?h('button',{disabled:busy,onClick:()=>perform(async()=>{await command('logout');clearAccount();const next=await refresh().catch(error=>{if(!hosted||error.status!==401)throw error;});setDialog(hosted&&!next?.user?'login':'account');})},'Sign out of this account'):null);
   const threadContent=!thread?h('p',{role:'status'},'Loading thread settings…')
     :threadSection==='transfer'?transfer:h(React.Fragment,null,manage?null:h('p',{className:'bc-muted'},'Only the person who started this thread can rename it.'),h(WorkflowSettings,{key:selected,thread,scope:'thread',section:'general',disabled:!canConfigure,busy,onSave:saveThread,onDelete:()=>deleteThread(thread),canDelete:thread.ownerClientId===data?.clientId&&!thread.runs?.some(r=>r.status==='running')}));
-  const teamFiles=settingsTeam?h(ThreadFiles,{key:configAccountId+configTeamId,thread:settingsTeam,canWrite:canConfigureTeam,busy,onAttach:(files,prefix='')=>perform(async()=>{checkSize(files);for(const file of files)await settingsCommand('attach',configTeamId,{name:file.name,path:prefix+(file.webkitRelativePath||file.name),content:await encode(file)});await readSettingsTeam(configTeamId);}),onPreview:file=>setPreview({...file,url:`/bees-api/thread-file?thread=${configTeamId}&artifact=${file.id}&settingsAccountId=${encodeURIComponent(configAccountId??'')}`}),preview,onClosePreview:()=>setPreview(null)}):null;
+  const teamFiles=settingsTeam?h(ThreadFiles,{key:configAccountId+configTeamId,thread:settingsTeam,canWrite:canConfigureTeam,busy,onAttach:(files,prefix='')=>perform(async()=>{checkSize(files,hosted);for(const file of files)await settingsCommand('attach',configTeamId,{name:file.name,path:prefix+(file.webkitRelativePath||file.name),content:await encode(file)});await readSettingsTeam(configTeamId);}),onPreview:file=>setPreview({...file,url:`/bees-api/thread-file?thread=${configTeamId}&artifact=${file.id}&settingsAccountId=${encodeURIComponent(configAccountId??'')}`}),preview,onClosePreview:()=>setPreview(null)}):null;
   const legacyRows=(settingsData?.threads??[]).filter(t=>t.teamId===configTeamId&&t.legacySettings&&t.ownerClientId===settingsData?.clientId);
   const teamContent=!settingsTeam?h('p',{role:'status'},'Loading team settings…')
     :['processes','workflow'].includes(teamSection)?h(TeamProcesses,{key:configAccountId+configTeamId,team:settingsTeam,canManage:canConfigureTeam,canCreate:!!settingsTeam&&(!settingsTeam.shared||['owner','editor'].includes(settingsRole))&&!settingsTeam.frozen&&!settingsTeam.unavailable,busy,onSave:processes=>saveTeam({processes}),onSaveDefault:workflow=>saveTeam({workflow}),onStart:templateId=>perform(async()=>{await command('selectOrganization',null,{accountId:configAccountId,organizationId:configOrganizationId});clearAccount();setOrganizationId(configOrganizationId);await refresh();create(templateId,configTeamId);})})
@@ -472,7 +473,8 @@ function OrganizationsPanel({local=false,accounts=[],accountId=null,onCreate,per
   const organization=data.organizations.find(org=>org.id===id);
   const admin=['owner','admin'].includes(organization?.role);
   return h('section',{className:'bc-form'},h('h3',null,'Organizations'),h('p',{className:'bc-muted'},local?'Local organizations stay on this computer and cannot be shared.':'See your colleagues and their computers. Thread invitations decide who can open each thread.'),
-    data.invitations.map(i=>h('div',{key:i.id,className:'bc-person'},h('span',null,(i.invited_by_name?i.invited_by_name+' invited you to ':'You’re invited to ')+(i.organization_name??'an organization')),h('button',{disabled:busy,onClick:()=>perform(async()=>{await request('acceptOrganization',null,{invitationId:i.id});await load();chooseOrganization(i.organization_id);await onChanged?.();onNotice?.(`You joined ${i.organization_name??'the organization'}.`);})},'Join'))),
+    data.invitations.length?h('section',{className:'bc-form bc-card','aria-label':'Invitations for you'},h('h3',null,'Invitations for you'),
+      data.invitations.map(i=>h('div',{key:i.id,className:'bc-person'},h('span',null,(i.invited_by_name?i.invited_by_name+' invited you to ':'You’re invited to ')+(i.organization_name??'an organization')),h('button',{disabled:busy,onClick:()=>perform(async()=>{await request('acceptOrganization',null,{invitationId:i.id});await load();chooseOrganization(i.organization_id);await onChanged?.();onNotice?.(`You joined ${i.organization_name??'the organization'}.`);})},'Join'))) ):null,
     !hosted&&(!local||accounts.length)?h('label',null,h('input',{type:'checkbox',checked:createLocal,disabled:busy,onChange:e=>setCreateLocal(e.target.checked)}),'Local organization (only on this computer)'):null,
     h('form',{className:'bc-form',onSubmit:e=>{e.preventDefault();if(!busy&&name.trim())void perform(async()=>{if(createLocal){await onCreateLocal(name.trim());return;}const org=await onCreate(name.trim(),createAccountId);setName('');if(createAccountId===accountId)await load();chooseOrganization(org.id,createAccountId);await onChanged?.();});}},
       !createLocal&&accounts.length?h('label',{className:'bc-field'},h('span',null,'Account'),h('select',{'aria-label':'Account for new organization',value:createAccountId,disabled:busy,onChange:e=>setCreateAccountId(e.target.value)},accounts.map(account=>h('option',{key:account.id,value:account.id},account.user.email)))):null,
@@ -481,5 +483,6 @@ function OrganizationsPanel({local=false,accounts=[],accountId=null,onCreate,per
     organization?h(RootFolderSettings,{key:'folders:'+organization.id,ctx,folders,organization,busy,onSave:onSaveFolder}):null,
     id?members.members.map(m=>h('div',{key:m.user_id,className:'bc-person'},h('span',null,m.name??m.email),h('small',null,{owner:'Owner',admin:'Admin',member:'Member'}[m.role]??m.role),admin&&m.role!=='owner'?h('button',{disabled:busy,onClick:()=>perform(async()=>{if(!await confirmAction(`Remove ${m.name??m.email} from this organization?`,'Remove'))return;await request('removeOrganizationMember',null,{organizationId:id,userId:m.user_id});setMembers(await request('organizationMembers',null,{organizationId:id}));})},'Remove'):null)):null,
     id?members.clients.map(c=>h('small',{key:c.id},c.name+' · '+(members.at-Date.parse(c.last_seen_at)<30000?'Online':'Offline'))):null,
-    id&&admin&&!local?h('form',{className:'bc-actions',onSubmit:e=>{e.preventDefault();const to=email.trim();if(!busy&&to)void perform(async()=>{await request('inviteOrganization',null,{organizationId:id,email:to});setEmail('');onNotice?.(`Invited ${to}. They can join from Organization settings in Bees.`);});}},h('input',{'aria-label':'Invite colleague by email',type:'email',required:true,placeholder:'Colleague’s email',value:email,onChange:e=>setEmail(e.target.value)}),h('button',{type:'submit',disabled:busy||!email.trim()},'Invite')):null);
+    id&&admin&&!local?h(SentInvitations,{scope:'organization',invitations:members.sentInvitations}):null,
+    id&&admin&&!local?h('form',{className:'bc-form bc-card',onSubmit:e=>{e.preventDefault();const to=email.trim();if(!busy&&to)void perform(async()=>{await request('inviteOrganization',null,{organizationId:id,email:to});setMembers(await request('organizationMembers',null,{organizationId:id}));setEmail('');onNotice?.(`Invited ${to}. They can join from Organization settings in Bees.`);});}},h('h3',null,'Invite to organization'),h('p',{className:'bc-muted'},'Invite a colleague to join this organization.'),h('input',{'aria-label':'Invite colleague by email',type:'email',required:true,placeholder:'Colleague’s email',value:email,onChange:e=>setEmail(e.target.value)}),h('button',{type:'submit',disabled:busy||!email.trim()},'Create invitation')):null);
 }
