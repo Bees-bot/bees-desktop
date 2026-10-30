@@ -25,12 +25,14 @@ function mount(t, request) {
   globalThis.window = window;
   t.after(() => { cleanups.forEach(cleanup => cleanup?.()); if (prior === undefined) delete globalThis.window; else globalThis.window = prior; });
   t.mock.timers.enable({ apis: ['setTimeout'] });
+  const provider = { enabled: true, accountSelections: {} };
   return {
     window,
     unmount: () => cleanups.forEach(cleanup => cleanup?.()),
     render() {
       cursor = 0;
-      const tree = ComposioApps({ threadId: 'team', signedIn: true, request, provider: { enabled: true }, onAccess: async () => {} });
+      const tree = ComposioApps({ threadId: 'team', signedIn: true, request, provider, onAccess: async () => {},
+        onSelection: async (toolkit, accounts) => { await request('setComposioAccounts', 'team', { toolkit, accounts }); provider.accountSelections[toolkit] = accounts; } });
       effects.splice(0).forEach(fn => fn());
       return nodes(tree);
     }
@@ -81,4 +83,57 @@ test('Composio status checks stop on unmount and ignore an in-flight response', 
   t.mock.timers.tick(30000); ui.window.dispatchEvent(new Event('focus')); await flush();
   assert.equal(checks, 1);
   assert(!ui.render().some(node => node.children.includes('Gmail connected.')));
+});
+
+test('accounts can be selected together, switched, and paginated without enabling expired connections', async t => {
+  const a = { id: 'ca_a', label: 'Client A', status: 'ACTIVE' }, b = { id: 'ca_b', label: 'Client B', status: 'ACTIVE' };
+  const selections = [];
+  const ui = mount(t, async (action, _id, input) => {
+    if (action === 'composioApps') return { items: [{ slug: 'facebook', name: 'Facebook', connected: true }] };
+    if (action === 'composioAccounts') return input.cursor ? { items: [b], nextCursor: null } : {
+      items: [a, { id: 'ca_expired', label: 'Expired', status: 'EXPIRED' }], nextCursor: 'more'
+    };
+    if (action === 'setComposioAccounts') { selections.push(input); return {}; }
+    assert.fail(action);
+  });
+  ui.render(); await flush();
+  ui.render().find(node => node.children.includes('Manage accounts')).props.onClick(); await flush();
+  let tree = ui.render();
+  const check = label => tree.find(node => node.type === 'label' && node.children.includes(label)).children[0];
+  assert.equal(check('Client A').props.checked, true);
+  assert.equal(check('Expired').props.disabled, true);
+  tree.find(node => node.children.includes('Show more accounts')).props.onClick(); await flush();
+  tree = ui.render(); check('Client B').props.onChange({ target: { checked: true } }); await flush();
+  assert.deepEqual(selections.at(-1), { toolkit: 'facebook', accounts: [a, b].map(({ id, label }) => ({ id, label })) });
+  tree = ui.render(); check('Client A').props.onChange({ target: { checked: false } }); await flush();
+  assert.deepEqual(selections.at(-1).accounts, [{ id: 'ca_b', label: 'Client B' }]);
+  tree = ui.render(); assert.equal(check('Client A').props.checked, false); assert.equal(check('Client B').props.checked, true);
+});
+
+test('adding a named second account waits for that connection, not the already connected app', async t => {
+  let active = false, checks = 0;
+  const a = { id: 'ca_a', label: 'Client A', status: 'ACTIVE' };
+  const ui = mount(t, async (action, _id, input) => {
+    if (action === 'composioApps') return { items: [{ slug: 'facebook', name: 'Facebook', connected: true }] };
+    if (action === 'composioAccounts') { checks++; return { items: [a, { id: 'ca_b', label: 'Client B', status: active ? 'ACTIVE' : 'INITIATED' }] }; }
+    if (action === 'connectComposioApp') {
+      assert.deepEqual(input, { toolkit: 'facebook', alias: 'Client B' });
+      return { url: 'https://connect.composio.dev/link/second', accountId: 'ca_b' };
+    }
+    assert.fail(action);
+  });
+  ui.render(); await flush();
+  ui.render().find(node => node.children.includes('Manage accounts')).props.onClick(); await flush();
+  let tree = ui.render();
+  tree.find(node => node.type === 'input' && node.props.placeholder === 'e.g. Client A').props.onChange({ target: { value: 'Client B' } });
+  tree = ui.render(); tree.find(node => node.children.includes('Add another account')).props.onClick(); await flush();
+  tree = ui.render(); assert(tree.some(node => node.type === 'button' && node.children.includes('Waiting for sign-in…')));
+  t.mock.timers.tick(1500); await flush(); tree = ui.render();
+  assert(tree.some(node => node.type === 'button' && node.children.includes('Waiting for sign-in…')));
+  assert(!tree.some(node => node.children.includes('Facebook connected.')));
+  active = true; ui.window.dispatchEvent(new Event('focus')); await flush(); tree = ui.render();
+  assert(tree.some(node => node.children.includes('Facebook connected.')));
+  assert(tree.some(node => node.type === 'label' && node.children.includes('Client B')));
+  const completedChecks = checks;
+  t.mock.timers.tick(30000); await flush(); assert.equal(checks, completedChecks);
 });

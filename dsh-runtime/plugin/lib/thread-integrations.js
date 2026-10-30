@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdirSync } from 'node:fs';
@@ -21,22 +21,38 @@ export const browserMode = (store, id, available = !process.env.BEES_HOSTED_CLIE
 export class ThreadIntegrations {
   constructor(ctx) { this.ctx = ctx; this.consents = new Set(); }
   snapshot(store, id) {
-    return { servers: rows(store, id), catalog: MCP_CATALOG, browser: {
+    const team = store.teamFor(id), servers = rows(store, id);
+    const inherited = team && !servers.some(server => server.catalogId === 'composio')
+      ? rows(store, team.id).filter(server => server.catalogId === 'composio').map(server => ({ ...server, inherited: true })) : [];
+    return { servers: [...servers, ...inherited], catalog: MCP_CATALOG, browser: {
       mode: browserMode(store, id), name: defaultBrowser()?.name ?? '', setup: browserSetup(), warning: browserMode(store, id) === 'personal' ? browserWarning() : '',
       personalAvailable: !process.env.BEES_HOSTED_CLIENT && !!defaultBrowser(),
     } };
   }
   async command(store, id, input, directory) {
     if (input.action === 'integrations') return this.snapshot(store, id);
-    if (['composioApps', 'connectComposioApp'].includes(input.action)) {
+    if (['composioApps', 'composioAccounts', 'connectComposioApp', 'setComposioAccounts'].includes(input.action)) {
       if (!directory?.token || directory.authRequired) throw threadError('Sign in to Bees to connect your apps', 401);
       if (input.action === 'composioApps') {
         const query = new URLSearchParams({ search: input.search ?? '' });
         if (input.cursor) query.set('cursor', input.cursor);
         return directory.request('/composio/toolkits?' + query);
       }
+      if (input.action === 'composioAccounts') {
+        const query = new URLSearchParams({ toolkit: input.toolkit ?? '' });
+        if (input.cursor) query.set('cursor', input.cursor);
+        return directory.request('/composio/accounts?' + query);
+      }
       if (!rows(store, id).some(server => server.catalogId === 'composio' && server.enabled)) throw threadError('Enable app access for this team first');
-      return directory.request('/composio/link', { toolkit: input.toolkit });
+      if (input.action === 'setComposioAccounts') {
+        if (typeof input.toolkit !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,79}$/.test(input.toolkit) || !Array.isArray(input.accounts) || input.accounts.length > 100 ||
+            input.accounts.some(account => !account || typeof account.id !== 'string' || !/^ca_[a-zA-Z0-9_-]{1,100}$/.test(account.id) || typeof account.label !== 'string' || account.label.length > 200) ||
+            new Set(input.accounts.map(account => account.id)).size !== input.accounts.length) throw threadError('Choose valid connected accounts');
+        store.preference(`integrations:${id}`, rows(store, id).map(server => server.catalogId === 'composio'
+          ? { ...server, accountSelections: { ...server.accountSelections, [input.toolkit]: input.accounts.map(({ id, label }) => ({ id, label })) } } : server));
+        return this.snapshot(store, id);
+      }
+      return directory.request('/composio/link', { toolkit: input.toolkit, ...(input.alias ? { alias: input.alias } : {}) });
     }
     if (input.action === 'setBrowser') {
       if (!['own', 'personal'].includes(input.mode) || input.mode === 'personal' && (process.env.BEES_HOSTED_CLIENT || !defaultBrowser())) throw threadError('Personal browser is unavailable on this client');
@@ -98,6 +114,12 @@ export class ThreadIntegrations {
       command: transport === 'stdio' ? text(entry?.command || input.command, 1000) : '', args,
       url: transport === 'streamable-http' && entry?.id !== 'composio' ? this.url(entry?.url || input.url) : '',
       secretNames: Object.keys(secrets).filter(key => secrets[key]), enabled: true };
+    if (entry?.id === 'composio') {
+      if (input.enabled !== undefined && typeof input.enabled !== 'boolean') throw threadError('Choose whether to turn app access on');
+      server.enabled = input.enabled ?? true;
+      const team = store.teamFor(id), inherited = team && rows(store, team.id).find(row => row.catalogId === 'composio');
+      if (inherited?.accountSelections) server.accountSelections = structuredClone(inherited.accountSelections);
+    }
     for (const key of server.secretNames) await this.ctx.credentials.set(secretRef(store, id, server.id, key), secrets[key]);
     store.preference(`integrations:${id}`, [...current, server]);
   }
@@ -106,12 +128,14 @@ export class ThreadIntegrations {
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw threadError('Use HTTP or HTTPS; put credentials in the credential fields');
     return url.href;
   }
-  async config(store, id, server, cwd, browserId=id, directory) {
+  async config(store, id, server, cwd, browserId=id, directory, selection = {}) {
     if (server.catalogId === 'composio') {
       if (!directory?.token || directory.authRequired) throw threadError('Sign in to Bees to use connected apps', 401);
-      const { token } = await directory.request('/composio/session', {});
+      const result = await directory.request('/composio/session', selection);
+      if (selection.accountId && result.accountId !== selection.accountId || selection.excludedToolkits?.length &&
+          JSON.stringify(result.excludedToolkits) !== JSON.stringify(selection.excludedToolkits)) throw threadError('Update Bees Server to use selected app accounts');
       return { transport: 'streamable-http', serverName: server.serverName,
-        url: directory.url + '/api/composio/mcp', headers: { Authorization: `Bearer ${token}` }, failOnStartupError: true };
+        url: directory.url + '/api/composio/mcp', headers: { Authorization: `Bearer ${result.token}` }, failOnStartupError: true };
     }
     const credentials = {};
     for (const key of server.secretNames) {
@@ -139,16 +163,29 @@ export class ThreadIntegrations {
       args, env: credentials, cwd, failOnStartupError: true };
   }
   async mount(agentCtx, store, id, cwd, agent, directory) {
-    const team=store.teamFor(id),teamServers=team?rows(store,team.id):[];
-    const connections=[...teamServers.map(server=>({server,scope:team.id})),...rows(store,id).filter(server=>!teamServers.some(row=>row.serverName===server.serverName)).map(server=>({server,scope:id}))];
+    const team=store.teamFor(id),localServers=rows(store,id),teamServers=(team?rows(store,team.id):[]).filter(server=>server.catalogId!=='composio'||!localServers.some(row=>row.catalogId==='composio'));
+    const connections=[...teamServers.map(server=>({server,scope:team.id})),...localServers.filter(server=>!teamServers.some(row=>row.serverName===server.serverName)).map(server=>({server,scope:id}))];
+    const accountTools=[];
     for (const {server,scope} of connections.filter(({server}) => server.enabled && agentAllowsServer(agent, server.serverName))) {
       const browserId=team&&store.preference(`browser:${team.id}`)!==null?team.id:scope;
-      const fiber = agentCtx.plugin(mcpClient, await this.config(store, scope, server, cwd, browserId, directory));
-      let timer;
-      try { await Promise.race([Promise.resolve(fiber), new Promise((_, reject) => { timer = setTimeout(() => reject(threadError(`${server.label} did not start within 30 seconds`)), 30000); })]); }
-      catch (error) { await fiber.dispose(); throw error; }
-      finally { clearTimeout(timer); }
+      const selections=server.catalogId==='composio'?Object.entries(server.accountSelections??{}):[];
+      const instances=[{server,selection:selections.length?{excludedToolkits:selections.map(([toolkit])=>toolkit)}:{}}];
+      for(const [toolkit,accounts] of selections)for(const account of accounts){
+        const suffix=createHash('sha256').update(toolkit+'\0'+account.id).digest('hex').slice(0,12);
+        const label=account.label.replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,10)||toolkit.slice(0,10);
+        const serverName=`composio_${label}_${suffix}`;
+        instances.push({server:{...server,serverName},selection:{toolkit,accountId:account.id}});
+        accountTools.push({serverName,toolkit,accountId:account.id,label:account.label});
+      }
+      for(const instance of instances){
+        const fiber = agentCtx.plugin(mcpClient, await this.config(store, scope, instance.server, cwd, browserId, directory, instance.selection));
+        let timer;
+        try { await Promise.race([Promise.resolve(fiber), new Promise((_, reject) => { timer = setTimeout(() => reject(threadError(`${server.label} did not start within 30 seconds`)), 30000); })]); }
+        catch (error) { await fiber.dispose(); throw error; }
+        finally { clearTimeout(timer); }
+      }
     }
+    return accountTools;
   }
   close() { for (const consent of this.consents) consent.close(); this.consents.clear(); closeAgentBrowser(); }
 }
