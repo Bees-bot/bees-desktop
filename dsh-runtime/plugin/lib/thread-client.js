@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { hostname } from 'node:os';
-import { ThreadStore, checkpointDigest, canonical, threadError, text, validId } from './thread-store.js';
+import { ThreadStore, ASKED, checkpointDigest, canonical, threadError, text, validId } from './thread-store.js';
 import { ThreadPeer, peerCertificate } from './thread-peer.js';
 import { schedule, nextOccurrence } from './thread-schedule.js';
 import { validOrganizationAppearance } from './organization-appearance.js';
@@ -297,10 +297,12 @@ export class ThreadClient {
     }
     else if(input.action==='answer'){
       const pending=this.options.pending?.(input.questionId);const doc=this.store.document(id);
-      if(!pending||pending.threadId!==id)throw threadError('This question is no longer waiting',409);
-      if(pending.kind==='review')throw threadError('Use the review screen to save or approve this work.');
-      if(pending.kind==='approval'&&doc.shared&&actor!==doc.ownerUserId)throw threadError('Only the thread owner may approve an external action',403);
+      const asked=!pending&&doc.runs.find(r=>r.status==='uncertain'&&r.pending?.kind==='questions'&&r.pending.id===input.questionId);
+      if(!asked&&(!pending||pending.threadId!==id))throw threadError('This question is no longer waiting',409);
+      if(pending?.kind==='review')throw threadError('Use the review screen to save or approve this work.');
+      if(pending?.kind==='approval'&&doc.shared&&actor!==doc.ownerUserId)throw threadError('Only the thread owner may approve an external action',403);
       if(Buffer.byteLength(JSON.stringify(input.answers??{}))>64000)throw threadError('Keep the answer under 64 KB');
+      if(asked)return this.localCommand(id,{action:'run',operationId:input.operationId,text:asked.prompt,resume:{runId:asked.id,answers:input.answers??[]}},actor);
       this.options.answer(input.questionId,{...input,actorId:actor});result=this.store.document(id);
     }
     else if(input.action==='review'){
@@ -325,10 +327,14 @@ export class ThreadClient {
       if(this.store.document(id).runs.some(r=>r.id===input.operationId))return this.store.document(id);
       if(this.jobs.has(id))throw threadError('Work is already running in this thread',409);
       if(configuration.runs.some(run=>run.status==='uncertain'&&run.reviews?.some(review=>review.state==='open')))throw threadError('Resolve the saved review before starting more work.',409);
+      const asked=configuration.runs.find(r=>r.status==='uncertain'&&r.pending?.kind==='questions'),resumed=input.resume&&asked?.id===input.resume.runId&&asked;
+      if(input.resume&&!resumed)throw threadError('This question is no longer waiting',409);
+      if(asked&&!resumed)throw threadError('Answer the waiting question before starting more work.',409);
       const quota=Number(process.env.BEES_HOSTED_RUNS_PER_DAY??0),day=new Date().toISOString().slice(0,10);
       const admissions=this.store.preference('admissions:'+day)??[];if(quota&&admissions.length>=quota)throw threadError('Daily hosted workflow allowance reached. Use a local client or try again tomorrow.',429);
-      const prompt=text(input.text);const run={id:input.operationId,prompt,status:'running',createdAt:new Date().toISOString(),model:this.store.preference('model'),instructions:[this.store.preference('settings')?.systemInstructions,team?.instructions,configuration.instructions].filter(Boolean).join('\n\n'),workflow:captureWorkflowAgents(workflowFor(configuration,team),team)};
-      result=this.store.mutate(id,input.operationId,doc=>{doc.runs.push(run);});
+      const prompt=text(input.text);const run={id:input.operationId,prompt,status:'running',createdAt:new Date().toISOString(),model:this.store.preference('model'),instructions:[this.store.preference('settings')?.systemInstructions,team?.instructions,configuration.instructions].filter(Boolean).join('\n\n'),workflow:resumed?.workflow??captureWorkflowAgents(workflowFor(configuration,team),team)};
+      if(resumed)run.resume={session:resumed.agents.find(a=>a.stageIndex===resumed.stageIndex&&!a.parentId).id,stageIndex:resumed.stageIndex,questions:resumed.pending.questions,answers:input.resume.answers,summary:resumed.stages?.findLast(s=>resumed.workflow[s.index]?.kind!=='approval')?.summary};
+      result=this.store.mutate(id,input.operationId,doc=>{doc.runs.push(run);if(resumed){const old=doc.runs.find(r=>r.id===resumed.id);delete old.pending;delete old.error;}});
       if(!result.runs.some(r=>r.id===run.id))throw threadError('This operation identity was already used',409);
       if(quota)this.store.preference('admissions:'+day,[...admissions,run.id]);
       const abort=new AbortController();this.jobs.set(id,abort);
@@ -340,7 +346,7 @@ export class ThreadClient {
         if(team&&this.memory&&!run.workflow.some(stage=>stage.kind==='chat')){try{this.memory.remember(team.id,String(output||'Work completed.').slice(0,12000),`Thread: ${doc.title}\nRequest: ${prompt}\nExecution: ${run.id}`.slice(0,6000),run.id);void this.memory.flush(team.id).catch(()=>{});}catch{/* Recording memory must not change a completed run to failed. */}}
       }catch(e){try{this.store.mutate(id,randomUUID(),doc=>{const r=doc.runs.find(r=>r.id===run.id);
         // words already on screen stay as the reply, like a stopped answer anywhere else
-        if(r.partial?.trim()){const messageId=randomUUID();doc.messages.push({id:messageId,authorId:'bees',kind:'assistant',text:r.partial,createdAt:new Date().toISOString()});recordChatReply(this.store,id,run.id,messageId);}delete r.partial;const recover=r.recoveringReview&&r.reviews?.find(review=>review.state==='open');delete r.recoveringReview;r.status=recover?'uncertain':abort.signal.aborted?'cancelled':'failed';r.error=recover?'Bees closed while waiting for your review. Resolve the saved review, then send a message to continue.':abort.signal.aborted?'Stopped before it finished.':e.message;if(recover)r.pending={id:randomUUID(),kind:'review',reviewId:recover.id};});}catch(write){console.error(`Bees Client could not record the end of run ${run.id}: ${write.message}`);}}finally{this.jobs.delete(id);this.options.notify?.();}})();
+        if(r.partial?.trim()){const messageId=randomUUID();doc.messages.push({id:messageId,authorId:'bees',kind:'assistant',text:r.partial,createdAt:new Date().toISOString()});recordChatReply(this.store,id,run.id,messageId);}delete r.partial;const recover=r.recoveringReview&&r.reviews?.find(review=>review.state==='open'),asked=r.recoveringReview&&!recover&&r.pending?.kind==='questions';delete r.recoveringReview;r.status=recover||asked?'uncertain':abort.signal.aborted?'cancelled':'failed';r.error=asked?ASKED:recover?'Bees closed while waiting for your review. Resolve the saved review, then send a message to continue.':abort.signal.aborted?'Stopped before it finished.':e.message;if(recover)r.pending={id:randomUUID(),kind:'review',reviewId:recover.id};});}catch(write){console.error(`Bees Client could not record the end of run ${run.id}: ${write.message}`);}}finally{this.jobs.delete(id);this.options.notify?.();}})();
       this.finishing.add(finished);void finished.finally(()=>this.finishing.delete(finished));
     } else if(input.action==='stop'){this.jobs.get(id)?.abort();result=this.store.document(id);}
     else throw threadError('Unknown thread command');
@@ -376,7 +382,7 @@ export class ThreadClient {
   async close(){
     this.closing=true;clearInterval(this.timer);this.directory.stop.abort();
     for(const row of this.store.list())if(this.jobs.has(row.id)&&row.ownerClientId===this.store.clientId&&!row.staged&&!this.store.preference(`frozen:${row.id}`)){
-      const waiting=run=>run.status==='running'&&run.reviews?.some(review=>review.state==='open');
+      const waiting=run=>run.status==='running'&&(run.pending?.kind==='questions'||run.reviews?.some(review=>review.state==='open'));
       if(this.store.document(row.id).runs.some(waiting))this.store.mutate(row.id,randomUUID(),doc=>{for(const run of doc.runs)if(waiting(run))run.recoveringReview=true;});
     }
     for(const abort of this.jobs.values())abort.abort();

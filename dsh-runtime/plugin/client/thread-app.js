@@ -379,7 +379,7 @@ export function ThreadConversation({thread,discussion,peerNames,userId,userName,
   const [draft,setDraft]=useState(''),[pending,setPending]=useState([]),end=useRef(),picker=useRef(),pinned=useRef(true);
   const recovering=useRef(false);
   const needsReview=(thread?.runs??(run?[run]:[])).some(r=>r.status==='uncertain'&&r.reviews?.some(review=>review.state==='open'));
-  const recovery=!active&&!needsReview&&['failed','uncertain','cancelled'].includes(run?.status)?run.status==='failed'?'Retry':'Continue':null;
+  const recovery=!active&&!needsReview&&run?.pending?.kind!=='questions'&&['failed','uncertain','cancelled'].includes(run?.status)?run.status==='failed'?'Retry':'Continue':null;
   const recover=async()=>{
     if(!recovery||busy||!canWrite||recovering.current)return;
     recovering.current=true;
@@ -413,7 +413,7 @@ export function ThreadConversation({thread,discussion,peerNames,userId,userName,
       !discussion&&active?h('div',{className:'bc-working',role:'status'},h('span',{className:'bc-dot'}),chatting?'Bees is replying…':run.stage?`Bees is working on the ${run.stage} stage…`:'Bees is working…',h('button',{disabled:!canWrite,onClick:()=>act('stop')},'Stop')):null,
       !discussion&&run?.error?h('div',{className:'bc-error',role:'alert'},needsReview?'Bees closed while waiting for your review. Resolve the saved review below to continue.':run.status==='uncertain'&&run.reviews?.some(review=>review.resumeRequired)?'Your review decision is saved. Choose Continue or send a message below.':run.error):null,
       !discussion&&recovery?h('div',{className:'bc-actions'},h('button',{type:'button',className:'bc-primary',disabled:busy||!canWrite,onClick:recover},recovery)):null,
-      !discussion&&run?.pending&&(active||run.status==='uncertain'&&run.pending.kind==='review')?(run.pending.kind==='review'
+      !discussion&&run?.pending&&(active||run.status==='uncertain'&&['review','questions'].includes(run.pending.kind))?(run.pending.kind==='review'
         ?h(ReviewScreen,{key:run.pending.reviewId,review:run.reviews.find(review=>review.id===run.pending.reviewId),runId:run.id,act,readOnly:!canWrite||!manage,interrupted:run.status==='uncertain'})
         :h('fieldset',{disabled:!canWrite||run.pending.kind==='approval'&&!manage,className:'bc-fieldset'},h(Question,{key:run.pending.id,run,threadId:thread.id,act}))):null,h('div',{ref:end})):null,
     h('form',{className:'bc-composer',onSubmit:e=>{e.preventDefault();const sent=draft;void onSend(sent,discussion,()=>{setDraft(current=>current===sent?'':current);setPending([]);},pending);}},
