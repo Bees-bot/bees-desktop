@@ -331,7 +331,7 @@ test('a thread schedule uses its own document without waiting for team settings'
 
 test('thread Settings reuses General and Transfer in the workspace with existing permissions',()=>{
   for(const state of [{},{runs:[{status:'running'}]},{frozen:true},{ownerClientId:'other'}]){
-    const thread={id:'thread',teamId:'research',title:'Weekly status',ownerClientId:'local',messages:[],runs:[],...state};
+    const thread={id:'thread',teamId:'research',title:'Weekly status',instructions:'Cite sources.',ownerClientId:'local',messages:[],runs:[],...state};
     appHarness({snapshot:{clientId:'local',teams:[{id:'research',title:'Research'}],threads:[thread],organizations:[]},selected:thread.id,thread},render=>{
       const tree=render(),workspace=tree.find(node=>node.type===ThreadWorkspace);
       assert(!tree.some(node=>node.type==='button'&&node.props['aria-label']==='Thread settings'));
@@ -342,6 +342,11 @@ test('thread Settings reuses General and Transfer in the workspace with existing
       assert.equal(general.props.canDelete,thread.ownerClientId==='local'&&!thread.runs.some(run=>run.status==='running'));
       assert.equal(typeof general.props.onDelete,'function');
       const details=nodes(workspace.props.renderWidget('details')).find(node=>node.type===ThreadDetails);
+      const instructions=nodes(workspace.props.renderWidget('context')).find(node=>node.type===ThreadDetails);
+      assert(instructions.key.endsWith(thread.id));
+      assert.equal(instructions.props.thread.instructions,thread.instructions);
+      assert.equal(instructions.props.canConfigure,!general.props.disabled);
+      assert.equal(instructions.props.onSave,general.props.onSave);
       details.props.onSettings('transfer');
       const next=render().find(node=>node.type===ThreadWorkspace);
       assert.equal(next.props.navigation.id,'settings');

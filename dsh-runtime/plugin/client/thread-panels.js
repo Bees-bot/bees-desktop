@@ -1,4 +1,4 @@
-import { h, useEffect, MarkdownText } from './runtime.js';
+import { h, useEffect, useState, MarkdownText } from './runtime.js';
 import { when } from './common.js';
 import { DEFAULT_WORKFLOW, processName, isChatWorkflow } from '../lib/thread-workflow.js';
 import { labels } from './thread-kanban.js';
@@ -56,7 +56,8 @@ export function SettingsPage({title,items,groups,selected,onSelect,onClose,child
       h('div',{className:'bc-settings-content'},children)));
 }
 
-export function ThreadDetails({ thread, page, peerNames, userId, onSettings, onFiles }) {
+export function ThreadDetails({ thread, page, peerNames, userId, onSettings, onFiles, teamInstructions, canConfigure, busy, onSave }) {
+  const [editing, setEditing] = useState(null);
   if (page === 'details') return h('section', { className: 'bc-form' },
     h('h3', null, 'Details'), h('p', null, thread.title), h('p', { className: 'bc-muted' }, 'Thread ID ', h('code', null, thread.id)),
     h('p', { className: 'bc-muted' }, `Created ${when(thread.createdAt)}`),
@@ -64,7 +65,18 @@ export function ThreadDetails({ thread, page, peerNames, userId, onSettings, onF
       h('p', { key: i }, `${i + 1}. ${stage.name}`)),
     h('button', { onClick: () => onSettings('general') }, 'Thread settings'));
   if (page === 'context') return h('section', { className: 'bc-form' },
-    h('h3', null, 'Instructions'), h('p', thread.instructions ? null : { className: 'bc-muted' }, thread.instructions || 'This thread has no instructions of its own. Team and system instructions still apply.'),
+    h('h3', null, 'Instructions'), h('p', { className: thread.instructions ? 'bc-preserve' : 'bc-muted' }, thread.instructions || 'This thread has no instructions of its own. Team and system instructions still apply.'),
+    canConfigure ? editing === null ? h('button', { type: 'button', disabled: busy, onClick: () => setEditing(thread.instructions ?? '') }, thread.instructions ? 'Edit instructions' : 'Add instructions')
+      : h('form', { className: 'bc-form', onSubmit: async event => {
+        event.preventDefault(); if (busy || !canConfigure) return;
+        if (await onSave({ instructions: editing })) setEditing(null);
+      } }, h('fieldset', { className: 'bc-form bc-fieldset', disabled: busy },
+        h('label', { className: 'bc-field' }, h('span', null, 'Instructions for this thread'),
+          h('textarea', { rows: 6, maxLength: 20000, autoFocus: true, value: editing, onChange: event => setEditing(event.target.value) })),
+        h('p', { className: 'bc-muted' }, 'Applies to new runs in this thread. Team and system instructions still apply.'),
+        h('div', { className: 'bc-actions' }, h('button', { type: 'submit', className: 'bc-primary' }, busy ? 'Saving…' : 'Save instructions'),
+          h('button', { type: 'button', onClick: () => setEditing(null) }, 'Cancel')))) : null,
+    teamInstructions ? h('div', null, h('h4', null, 'Team instructions'), h('p', { className: 'bc-preserve' }, teamInstructions)) : null,
     h('p', { className: 'bc-muted' }, 'Bees uses this thread’s recent conversation, memory, and attached files for each run.'),
     h('h3', null, 'Memory'), ...(thread.memory?.length ? thread.memory.map((note, i) => h('p', { key: i }, note)) : [h('p', { key: 'none', className: 'bc-muted' }, 'Nothing saved yet.')]),
     h('button', { onClick: onFiles }, `Files (${thread.artifacts.length})`));
