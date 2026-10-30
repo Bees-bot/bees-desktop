@@ -4,7 +4,8 @@ export const isFreeClient = credits => credits?.balance === 0 && credits.heldTok
 
 /** Browser requests renew the lease; a worker's own heartbeats never do. */
 export function hostedClientActivity({ provision, directoryUrl, fetcher = fetch, now = Date.now }) {
-  const idleMs = 5 * 60_000, started = now(), seen = new Map();
+  const idleMs = 5 * 60_000, sleepMs = Number(process.env.BEES_HOSTED_IDLE_MINUTES || 30) * 60_000, started = now(), seen = new Map();
+  if (!(sleepMs >= 0)) throw Error('BEES_HOSTED_IDLE_MINUTES must be 0 (never) or more minutes');
   const key = user => createHash('sha256').update(directoryUrl + '\n' + user.id).digest('hex');
   const lastSeen = id => seen.get(id.slice(0, 32)) ?? started;
   let sweeping = false;
@@ -27,9 +28,12 @@ export function hostedClientActivity({ provision, directoryUrl, fetcher = fetch,
             });
             if (!response.ok) continue;
             const status = await response.json();
-            if (!status || status.message || !isFreeClient(status.credits)) continue;
-            const activity = await fetcher(client.url + '/bees-api/active-runs', { headers, signal: AbortSignal.timeout(5000) });
-            if (!activity.ok || await activity.json() !== 0 || now() - lastSeen(client.id) < idleMs) continue;
+            if (!status || status.message) continue;
+            // paid ones sleep later, and never while they own a schedule, since a sleeping one can't fire it
+            const free = isFreeClient(status.credits), limit = free ? idleMs : sleepMs;
+            if (!limit || now() - lastSeen(client.id) < limit) continue;
+            const activity = await fetcher(client.url + '/bees-api/active-runs' + (free ? '' : '?schedules'), { headers, signal: AbortSignal.timeout(5000) });
+            if (!activity.ok || await activity.json() !== 0 || now() - lastSeen(client.id) < limit) continue;
             await provision.stop(user);
           } catch (error) { console.warn('Idle hosted client check failed:', client.id, error.message); }
         }

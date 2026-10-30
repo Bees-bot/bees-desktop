@@ -47,7 +47,7 @@ export class ThreadRunner {
         signal.removeEventListener('abort',abort);this.pending.delete(id);let preserve=false;
         try{store.mutate(threadId,randomUUID(),doc=>{
           const run=doc.runs.find(r=>r.id===runId);
-          preserve=kind==='review'&&!value&&run.recoveringReview;
+          preserve=['review','questions'].includes(kind)&&!value&&run.recoveringReview;
           if(!preserve&&run.pending?.id===id)delete run.pending;
           if(kind==='review'&&!value&&!preserve){
             const review=run.reviews?.find(review=>review.id===content.reviewId);
@@ -104,7 +104,7 @@ export class ThreadRunner {
         const {bytes}=store.object(doc,a.id),target=join(directory,name);mkdirSync(dirname(target),{recursive:true,mode:0o700});writeFileSync(target,bytes,{mode:0o600,flag:'wx'});
       }
     }
-    let summary='',deliverable='';const reviews=[];
+    let summary=run.resume?.summary??'',deliverable='';const reviews=[];
     // skip a file the thread already holds unchanged, so a follow-up returns only what changed and a failed run's files still come back
     const outputRoot=resolve(cwd,'outputs'),added=new Set(),returned=new Map(store.document(thread.id).artifacts.flatMap(a=>a.path?.startsWith('results/')?[[a.path.split('/').slice(2).join('/'),a.digest]]:[]));
     const collect=directory=>{for(const entry of readdirSync(directory,{withFileTypes:true})){
@@ -132,7 +132,7 @@ export class ThreadRunner {
       if(!model?.model||!this.ctx.llm.listProviders().some(p=>p.id===model.provider))throw threadError(selection?`The AI model ${typeof selection==='string'?selection:selection.model} is not connected. Pick another in Settings.`:'No AI model is connected. Add one in Global settings, under AI connections.');
       return model;
     };
-    try{for(let index=0;index<workflow.length;index++){
+    try{for(let index=run.resume?.stageIndex??0;index<workflow.length;index++){
       signal.throwIfAborted();const stage=workflow[index];
       store.mutate(thread.id,randomUUID(),d=>{const r=d.runs.find(r=>r.id===run.id);r.stage=stage.name;r.stageIndex=index;});
       if(stage.kind==='approval'){
@@ -140,7 +140,8 @@ export class ThreadRunner {
         store.mutate(thread.id,randomUUID(),d=>{const r=d.runs.find(r=>r.id===run.id);r.stages??=[];r.stages.push({index,name:stage.name,summary:'Approved',completedAt:new Date().toISOString()});});continue;
       }
       const model=await modelFor(stage.agent,stage.model||run.model||(await this.models(store))[0]?.id);
-      let sessionId=SessionId(continuation?.sessionId??run.id+'-'+index),fromSeq=0;
+      const resuming=index===run.resume?.stageIndex;
+      let sessionId=SessionId(continuation?.sessionId??(resuming?run.resume.session:run.id+'-'+index)),fromSeq=0;
       const locks=new FileLocks(join(store.root,'file-locks'));
       const helpers=(team?.agents??[]).filter(agent=>agent.enabled),configured=new Set();
       const setup=async (agentCtx,parentId,role=stage.agent,chain=role?[role.id]:[],ancestors=[])=>{
@@ -207,7 +208,7 @@ export class ThreadRunner {
         await this.ctx.agentPresets.mount(agentCtx,stage.agent?.presetId??'standard');await setup(agentCtx);
       };
       let handle;
-      if(continuation){
+      if(continuation||resuming){
         try{handle=await this.ctx.agents.resume({resumeSessionId:sessionId,agentOptions:model,signal,setup:compose});}
         catch(error){if(error.name!=='SessionPersistenceNotFoundError')throw error;continuation=null;sessionId=SessionId(run.id+'-'+index);}
       }
@@ -216,6 +217,7 @@ export class ThreadRunner {
       try{
         signal.throwIfAborted();
         handle.agent.followup(createUserMessage({source:{kind:'user'},content:[{type:'text',text:[run.prompt,stage.kind==='chat'?'Continue the conversation with a reply to the latest user message.':'Current workflow stage: '+stage.name+'. Complete this stage of the requested outcome.',stage.instructions,summary?'Previous stage result:\n'+summary:'',
+          resuming?'Bees restarted while you waited for the user. Your questions:\n'+JSON.stringify(run.resume.questions)+'\nTheir answers:\n'+JSON.stringify(run.resume.answers)+'\nCarry on with this stage from where you stopped.':'',
           stage.kind==='review'?'Recorded execution evidence:\n'+JSON.stringify(store.document(thread.id).runs.find(r=>r.id===run.id).agents??[]):'',
           team?'Team: '+team.title:'','Thread context:\n'+(chat?chatMessages(thread,continuation,run.prompt):thread.messages.slice(-40)).map(m=>`${m.authorId}: ${m.text}`).join('\n'),
           'Thread memory:\n'+(thread.memory??[]).join('\n')].filter(Boolean).join('\n\n')}]}));
