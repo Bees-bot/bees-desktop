@@ -18,7 +18,7 @@ import { TeamAgents } from './thread-agents.js';
 import { TeamMemory } from './thread-memory.js';
 import { RootFolderSettings } from './thread-folders.js';
 import { OrganizationAppearance } from './thread-organization-appearance.js';
-import { BeesNavigation, TeamMenu, TeamSection, TeamManagement, SettingsScopePicker, initials } from './thread-navigation.js';
+import { BeesNavigation, TeamMenu, TeamSection, SettingsScopePicker, initials } from './thread-navigation.js';
 
 async function api(input){const response=await fetch('/bees-api/threads',{...(input?{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(input)}:{}),credentials:'same-origin'}).catch(()=>{throw Object.assign(Error(offline),{status:503});});const value=await response.json().catch(()=>({error:offline}));
   // the gateway sends real 503s (at capacity, enrollment failed) with a message; show it instead of burying it under the generic offline text
@@ -139,9 +139,14 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   // composing keeps the empty thread on screen on a phone, where the list and the thread take turns
   const create=(templateId='goals',id=currentTeamId)=>{select(null);setComposing(true);setTeamId(id);setNewTemplate(templateId);setCollapsed(values=>({...values,[id]:false}));requestAnimationFrame(()=>document.querySelector('.bc-composer textarea')?.focus());};
   const deleteThread=t=>perform(async()=>{if(!await confirmAction(`Delete “${t.title}”? Its messages, runs and files are removed for everyone in it. This can’t be undone.`,'Delete'))return;await command('delete',t.id);if(selectedRef.current===t.id)select(null);await refresh();});
-  const showTeam=id=>perform(async()=>{setCollapsed(values=>({...values,[id]:false}));await command('preferences',null,{values:{hiddenTeamIds:hiddenTeamIds.filter(hidden=>hidden!==id)}});await refresh();});
+  const settingsHiddenTeamIds=settingsData?.settings?.hiddenTeamIds??[],settingsTeamHidden=settingsHiddenTeamIds.includes(configTeamId);
+  const toggleTeamVisibility=()=>perform(async()=>{
+    await settingsCommand('preferences',null,{values:{hiddenTeamIds:settingsTeamHidden?settingsHiddenTeamIds.filter(id=>id!==configTeamId):[...settingsHiddenTeamIds,configTeamId]}});
+    if(settingsTeamHidden)setCollapsed(values=>({...values,[configTeamId]:false}));
+    await refreshSettings();await refresh();
+  });
   const hideTeam=id=>perform(async()=>{await command('preferences',null,{values:{hiddenTeamIds:[...new Set([...hiddenTeamIds,id])]}});await refresh();});
-  const createTeam=()=>perform(async()=>{const name=await ask('Team name','');if(!name?.trim())return;const next=await command('createTeam',null,{name,...(selectedOrganizationId?{organizationId:selectedOrganizationId}:{})});await refresh();select(null);setTeamId(next.id);});
+  const createTeam=()=>perform(async()=>{const name=await ask('Team name','');if(!name?.trim())return;const next=await settingsCommand('createTeam',null,{name,...(configOrganizationId?{organizationId:configOrganizationId}:{})});await command('selectOrganization',null,{accountId:configAccountId,organizationId:configOrganizationId});clearAccount();setOrganizationId(configOrganizationId);await refresh();setTeamId(next.id);});
   const checkSize=files=>{const big=files.find(file=>file.size>10_000_000);if(big)throw Error(`${big.name} is over 10 MB. Files must be 10 MB or smaller.`);};
   const encode=file=>new Promise((ok,bad)=>{const reader=new FileReader();reader.onload=()=>ok(reader.result.split(',')[1]);reader.onerror=()=>bad(Error('Could not read '+file.name));reader.readAsDataURL(file);});
   // checked before perform, whose finally would clear busy while the first send is still out
@@ -228,13 +233,15 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     :teamSection==='agents'?h(TeamAgents,{key:configAccountId+configTeamId,team:settingsTeam,models:settingsData?.models, presets:settingsData?.agentPresets,canManage:canConfigureTeam,busy,onSave:agents=>saveTeam({agents})})
     :teamSection==='memory'?h(React.Fragment,null,h(TeamMemory,{key:configAccountId+configTeamId,teamId:configTeamId,canManage:canConfigureTeam,request:settingsCommand}),configuration('memory'))
     :teamSection==='schedule'?h(ScheduleSettings,{key:configAccountId+configTeamId,thread:settingsTeam,scope:'team',disabled:!canConfigureTeam,busy,onSave:saveTeam})
-    :teamSection==='general'?configuration(teamSection)
+    :teamSection==='general'?h(React.Fragment,null,configuration(teamSection),
+      h('div',{className:'bc-form-section'},h('h4',null,'Sidebar visibility'),h('p',{className:'bc-muted'},'Hide this team from your sidebar. You can always find it in Settings.'),
+        h('button',{type:'button',role:'switch','aria-label':'Hide team from sidebar','aria-checked':settingsTeamHidden,disabled:busy,onClick:toggleTeamVisibility},settingsTeamHidden?'Unhide':'Hide')))
     :['members','invitations'].includes(teamSection)?members
     :teamSection==='folders'?teamFiles:integrations(teamSection);
   const globalContent=settingsSection==='ai'?h(AiConnections,{ctx,preferences,modelSettings,models:data?.models??[],current:data?.defaultModel,credits:data?.credits,onModel:model=>act('model',{model})})
     :settingsSection==='credits'?h(CreditSettings,{key:data?.user?.id??'local',connection:data?.credits,user:data?.user,request:(action,values)=>command(action,null,values),onRefresh:refresh,onSignIn:()=>setDialog('login')})
     :settingsSection==='appearance'?h(AppearanceSettings,{preference,onSave:saveAppearance,disabled:busy||!!preferences&&preferences.getSnapshot().status!=='ready'})
-    :settingsSection==='organizations'?(settingsData?.user?h(OrganizationsPanel,{key:configAccountId,perform,busy,icon,ctx,folders:settingsData?.folders,request:settingsCommand,onSaveFolder:values=>perform(async()=>{await settingsCommand('setRootFolder',null,values);await refreshSettings();await refresh();return true;}),organizationId:configOrganizationId,onSelectOrganization:selectSettingsOrganization,onChanged:async()=>{await refreshSettings();await refresh();},onNotice:setNotice}):h('button',{onClick:()=>setDialog('login')},'Sign in to manage organizations'))
+    :settingsSection==='organizations'?h(React.Fragment,null,h(OrganizationsPanel,{key:configAccountId,local:!hosted&&!configAccountId,perform,busy,icon,ctx,folders:settingsData?.folders,request:settingsCommand,onCreateLocal:async name=>{const org=await command('createLocalOrganization',null,{name});await command('selectOrganization',null,{accountId:null,organizationId:org.id});clearAccount();setOrganizationId(org.id);await refresh();},onSaveFolder:values=>perform(async()=>{await settingsCommand('setRootFolder',null,values);await refreshSettings();await refresh();return true;}),organizationId:configOrganizationId,onSelectOrganization:selectSettingsOrganization,onChanged:async()=>{await refreshSettings();await refresh();},onNotice:setNotice}),!settingsData?.user?h('button',{onClick:()=>setDialog('login')},'Sign in to manage shared organizations'):null)
     :settingsSection==='storage'?h(RootFolderSettings,{ctx,folders:data?.folders,busy,onSave:saveFolder})
     :settingsSection==='account'?account
     :settingsSection==='instructions'?h('form',{className:'bc-form',key:data?.clientId,onSubmit:event=>{event.preventDefault();const systemInstructions=new FormData(event.currentTarget).get('instructions');void perform(async()=>{await command('preferences',null,{values:{systemInstructions}});await refresh();setNotice('System instructions saved.');});}},
@@ -268,14 +275,12 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const settingsOpen=dialog==='settings'||dialog==='team'||dialog==='account', modalOpen=dialog==='login';
   const currentTeam=teams.find(t=>t.id===currentTeamId);
   const settingsAccounts=data?.accounts??[];
-  const settingsOrganizations=settingsAccounts.length?settingsAccounts.flatMap(account=>(account.organizations??[]).map(org=>({id:account.id+':'+org.id,title:`${org.name} (${account.user.email})`,organization:org,accountId:account.id}))):(settingsData?.organizations??organizations).map(org=>({id:':'+org.id,title:org.name,organization:org,accountId:null}));
+  const settingsOrganizations=[...!hosted?(data?.localOrganizations??[]).map(org=>({id:':'+org.id,title:`${org.name} (Local)`,organization:org,accountId:null})):[],...settingsAccounts.length?settingsAccounts.flatMap(account=>(account.organizations??[]).map(org=>({id:account.id+':'+org.id,title:`${org.name} (${account.user.email})`,organization:org,accountId:account.id}))):(settingsData?.organizations??organizations).filter(org=>!org.local).map(org=>({id:':'+org.id,title:org.name,organization:org,accountId:null}))];
   const canCreateIn=team=>!team.frozen&&!team.unavailable&&(!team.shared||roster.participants.some(p=>p.thread_id===team.id&&p.user_id===data?.user?.id&&['owner','editor'].includes(p.role)));
   const settingsGroups=[
     {title:'Global',scope:'global',items:GLOBAL_SETTINGS},
-    {title:'Organizations',scope:'global',selector:h(SettingsScopePicker,{label:'Organizations to configure',icon,busy,rows:[...!hosted?[{id:'local',title:'Local Org'}]:[],...settingsOrganizations],selected:configOrganizationId?(configAccountId??'')+':'+configOrganizationId:'local',onSelect:key=>{if(key==='local'){selectSettingsOrganization(null,null);return;}const row=settingsOrganizations.find(row=>row.id===key);selectSettingsOrganization(row.organization.id,row.accountId);}}),items:[['organizations','General & members']]},
-    {title:'Teams',scope:'team',extra:h('button',{type:'button',className:'bc-icon',disabled:busy||!data,'aria-label':'Add team',title:'Add team',onClick:createTeam},icon('plus')),selector:h('div',null,
-      h(TeamManagement,{icon,busy:busy||!data,hiddenTeams:teams.filter(team=>hiddenTeamIds.includes(team.id)),onSelectTeam:showTeam}),
-      h(SettingsScopePicker,{label:'Teams to configure',icon,busy,rows:settingsTeams.map(row=>({id:row.id,title:row.title})),selected:configTeamId,onSelect:id=>{setSettingsTeamId(id);setDialog('team');}})),items:settingsTeams.length?TEAM_SETTINGS:[]}
+    {title:'Organizations',scope:'global',extra:h('button',{type:'button',className:'bc-icon',disabled:busy||!data,'aria-label':'Add organization',title:'Add organization',onClick:()=>openGlobal('organizations')},icon('plus')),selector:h(SettingsScopePicker,{label:'Organizations to configure',icon,busy,rows:[...!hosted?[{id:'local',title:'Local Org'}]:[],...settingsOrganizations],selected:configOrganizationId?(configAccountId??'')+':'+configOrganizationId:'local',onSelect:key=>{if(key==='local'){selectSettingsOrganization(null,null);return;}const row=settingsOrganizations.find(row=>row.id===key);selectSettingsOrganization(row.organization.id,row.accountId);}}),items:[['organizations','General & members']]},
+    {title:'Teams',scope:'team',extra:h('button',{type:'button',className:'bc-icon',disabled:busy||!data,'aria-label':'Add team',title:'Add team',onClick:createTeam},icon('plus')),selector:h(SettingsScopePicker,{label:'Teams to configure',icon,busy,rows:settingsTeams.map(row=>({id:row.id,title:row.title})),selected:configTeamId,onSelect:id=>{setSettingsTeamId(id);setDialog('team');}}),items:settingsTeams.length?TEAM_SETTINGS:[]}
   ];
   if(data?.onboarding===null)return h('div',{className:'bc-app bc-onboarding-app','data-bees-theme':theme.id,style:themeStyle(theme)},
     h(FirstStart,{user:data.user,organizations,busy,error,onSignIn:()=>setDialog('login'),
@@ -285,7 +290,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     notice?h('p',{role:'status'},notice):null,
     dialog==='login'?h(Dialog,{title:'Sign in',onClose:closeDialog},h(Login,{server:data.serverUrl,request:(action,values)=>command(action,null,values),onComplete:async()=>{await refresh();closeDialog();}})):null);
   return h('div',{className:'bc-app '+(selected||composing||settingsOpen?'has-thread':''),'data-bees-theme':theme.id,style:themeStyle(theme)},
-    h(BeesNavigation,{brandMark,icon,organizations,accounts:data?.accounts??[],user:data?.user,localActive:data?.localActive,organizationId:selectedOrganizationId,theme,busy:busy||!data,
+    h(BeesNavigation,{brandMark,icon,organizations,localOrganizations:data?.localOrganizations??[],accounts:data?.accounts??[],user:data?.user,localActive:data?.localActive,organizationId:selectedOrganizationId,theme,busy:busy||!data,
       onOrganization:chooseOrganization,onGlobal:openGlobal,
       onTheme:()=>{const next=nextThemePreset(preference);void saveAppearance({themePreset:next.id,colorMode:next.dark?'dark':'light'});},onAccount:openAccount}),
     h('aside',{className:'bc-sidebar','aria-label':'Threads'},
@@ -295,7 +300,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
         onToggle:()=>setCollapsed(values=>({...values,[row.id]:!values[row.id]})),onOpen:()=>create('goals',row.id),
         menu:h(TeamMenu,{team:row,icon,busy,canCreate:canCreateIn(row),onCreate:create,onSettings:openTeamSettings,onHide:hideTeam})},
         teamThreads(row.id).map(renderThread),!teamThreads(row.id).length?h('p',{className:'bc-muted bc-empty-list'},query?'No matching threads.':'No threads yet.'):null)),
-        !visibleTeams.length?h('p',{className:'bc-muted bc-empty-list'},teams.length?'Show a hidden team in Settings → Teams → Hidden teams.':'Create a team with the + next to Teams in Settings.'):null),
+        !visibleTeams.length?h('p',{className:'bc-muted bc-empty-list'},teams.length?'Unhide a team in Settings → Teams → General.':'Create a team with the + next to Teams in Settings.'):null),
       roster.invitations?.length?h('section',{className:'bc-invitations'},h('strong',null,'Invitations'),
         roster.invitations.map(i=>h('div',{key:i.id,className:'bc-person'},h('span',null,`${i.invited_by_name??'Someone'} invited you`,h('small',null,i.role==='viewer'?'Can view':'Can contribute and run work')),
           data.user?.emailVerified?h('button',{disabled:busy,onClick:()=>acceptInvitation(i)},'Accept'):null)),
@@ -448,21 +453,22 @@ function LegacyOverrides({rows,section,perform,busy,signedIn,onSignIn,request=co
       :h(WorkflowSettings,{key:id+section,thread:doc,scope:'legacy',section,busy,disabled:doc.frozen||!!doc.unavailable,onSave:values=>perform(async()=>{setDoc(await request('configure',id,values));})}):null);
 }
 
-function OrganizationsPanel({perform,busy,icon,ctx,folders,onSaveFolder,organizationId,onSelectOrganization,onChanged,onNotice,request=command}){
+function OrganizationsPanel({local=false,perform,busy,icon,ctx,folders,onSaveFolder,onCreateLocal,organizationId,onSelectOrganization,onChanged,onNotice,request=command}){
   const id=organizationId??'';
-  const [data,setData]=useState({organizations:[],invitations:[]}),[members,setMembers]=useState({members:[],clients:[]}),[name,setName]=useState(''),[email,setEmail]=useState('');
-  const load=async()=>{const next=await request('organizations');setData(next);return next;};useEffect(()=>{void perform(async()=>{const next=await load();if(!id&&next.organizations.length===1)onSelectOrganization?.(next.organizations[0].id);});},[]);
+  const [data,setData]=useState({organizations:[],invitations:[]}),[members,setMembers]=useState({members:[],clients:[]}),[name,setName]=useState(''),[email,setEmail]=useState(''),[createLocal,setCreateLocal]=useState(local);
+  const load=async()=>{const next=await request('organizations',null,{local});setData(next);return next;};useEffect(()=>{void perform(async()=>{const next=await load();if(!local&&!id&&next.organizations.length===1)onSelectOrganization?.(next.organizations[0].id);});},[]);
   // heartbeats land every 5s, so re-read the clients to keep Online honest
-  useEffect(()=>{let current=true;setMembers({members:[],clients:[]});const get=async()=>{const next=await request('organizationMembers',null,{organizationId:id});if(current)setMembers({...next,at:Date.now()});};if(id)void perform(get);const timer=id?setInterval(()=>void get().catch(()=>{}),15000):null;return()=>{current=false;clearInterval(timer);};},[id]);
+  useEffect(()=>{let current=true;setMembers({members:[],clients:[]});const get=async()=>{const next=await request('organizationMembers',null,{organizationId:id});if(current)setMembers({...next,at:Date.now()});};if(id&&!local)void perform(get);const timer=id&&!local?setInterval(()=>void get().catch(()=>{}),15000):null;return()=>{current=false;clearInterval(timer);};},[id,local]);
   const chooseOrganization=id=>onSelectOrganization?.(id);
   const organization=data.organizations.find(org=>org.id===id);
   const admin=['owner','admin'].includes(organization?.role);
-  return h('section',{className:'bc-form'},h('h3',null,'Organizations'),h('p',{className:'bc-muted'},'See your colleagues and their computers. Thread invitations decide who can open each thread.'),
+  return h('section',{className:'bc-form'},h('h3',null,'Organizations'),h('p',{className:'bc-muted'},local?'Local organizations stay on this computer and cannot be shared.':'See your colleagues and their computers. Thread invitations decide who can open each thread.'),
     data.invitations.map(i=>h('div',{key:i.id,className:'bc-person'},h('span',null,(i.invited_by_name?i.invited_by_name+' invited you to ':'You’re invited to ')+(i.organization_name??'an organization')),h('button',{disabled:busy,onClick:()=>perform(async()=>{await request('acceptOrganization',null,{invitationId:i.id});await load();chooseOrganization(i.organization_id);await onChanged?.();onNotice?.(`You joined ${i.organization_name??'the organization'}.`);})},'Join'))),
-    h('form',{className:'bc-actions',onSubmit:e=>{e.preventDefault();if(!busy&&name.trim())void perform(async()=>{const org=await request('createOrganization',null,{name:name.trim()});setName('');await load();chooseOrganization(org.id);await onChanged?.();});}},h('input',{'aria-label':'Organization name',placeholder:'Organization name',maxLength:120,value:name,onChange:e=>setName(e.target.value)}),h('button',{type:'submit',disabled:busy||!name.trim()},'Create')),
-    organization?h(OrganizationAppearance,{key:organization.id,organization,icon,busy,onSave:appearance=>perform(async()=>{await request('organizationAppearance',null,{organizationId:id,appearance});await load();await onChanged?.();return true;})}):null,
-    organization?h(RootFolderSettings,{key:organization.id,ctx,folders,organization,busy,onSave:onSaveFolder}):null,
+    !hosted&&!local?h('label',null,h('input',{type:'checkbox',checked:createLocal,disabled:busy,onChange:e=>setCreateLocal(e.target.checked)}),'Local organization (only on this computer)'):null,
+    h('form',{className:'bc-actions',onSubmit:e=>{e.preventDefault();if(!busy&&name.trim())void perform(async()=>{if(createLocal){await onCreateLocal(name.trim());return;}const org=await request('createOrganization',null,{name:name.trim()});setName('');await load();chooseOrganization(org.id);await onChanged?.();});}},h('input',{'aria-label':'Organization name',placeholder:'Organization name',maxLength:120,value:name,onChange:e=>setName(e.target.value)}),h('button',{type:'submit',disabled:busy||!name.trim()},createLocal?'Create local organization':'Create')),
+    organization?h(OrganizationAppearance,{key:'appearance:'+organization.id,organization,icon,busy,onSave:appearance=>perform(async()=>{await request('organizationAppearance',null,{organizationId:id,appearance});await load();await onChanged?.();return true;})}):null,
+    organization?h(RootFolderSettings,{key:'folders:'+organization.id,ctx,folders,organization,busy,onSave:onSaveFolder}):null,
     id?members.members.map(m=>h('div',{key:m.user_id,className:'bc-person'},h('span',null,m.name??m.email),h('small',null,{owner:'Owner',admin:'Admin',member:'Member'}[m.role]??m.role),admin&&m.role!=='owner'?h('button',{disabled:busy,onClick:()=>perform(async()=>{if(!await confirmAction(`Remove ${m.name??m.email} from this organization?`,'Remove'))return;await request('removeOrganizationMember',null,{organizationId:id,userId:m.user_id});setMembers(await request('organizationMembers',null,{organizationId:id}));})},'Remove'):null)):null,
     id?members.clients.map(c=>h('small',{key:c.id},c.name+' · '+(members.at-Date.parse(c.last_seen_at)<30000?'Online':'Offline'))):null,
-    id&&admin?h('form',{className:'bc-actions',onSubmit:e=>{e.preventDefault();const to=email.trim();if(!busy&&to)void perform(async()=>{await request('inviteOrganization',null,{organizationId:id,email:to});setEmail('');onNotice?.(`Invited ${to}. They can join from Organization settings in Bees.`);});}},h('input',{'aria-label':'Invite colleague by email',type:'email',required:true,placeholder:'Colleague’s email',value:email,onChange:e=>setEmail(e.target.value)}),h('button',{type:'submit',disabled:busy||!email.trim()},'Invite')):null);
+    id&&admin&&!local?h('form',{className:'bc-actions',onSubmit:e=>{e.preventDefault();const to=email.trim();if(!busy&&to)void perform(async()=>{await request('inviteOrganization',null,{organizationId:id,email:to});setEmail('');onNotice?.(`Invited ${to}. They can join from Organization settings in Bees.`);});}},h('input',{'aria-label':'Invite colleague by email',type:'email',required:true,placeholder:'Colleague’s email',value:email,onChange:e=>setEmail(e.target.value)}),h('button',{type:'submit',disabled:busy||!email.trim()},'Invite')):null);
 }

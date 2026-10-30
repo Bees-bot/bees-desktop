@@ -30,21 +30,11 @@ export function TeamSection({team,expanded,onToggle,onOpen,menu,children}){
     expanded?h('div',{className:'bc-team-threads'},children):null);
 }
 
-export function TeamManagement({icon,busy,hiddenTeams=[],onSelectTeam}){
-  if(!hiddenTeams.length)return null;
-  const choose=fn=>event=>{event.currentTarget.closest('details').open=false;fn();};
-  const label='Hidden teams';
-  return h('details',{className:'bc-thread-menu bc-team-management',onKeyDown:event=>{if(event.key==='Escape'){event.currentTarget.open=false;event.currentTarget.querySelector('summary').focus();}}},
-    h('summary',{'aria-label':label,title:label},icon('team'),label),
-    h('nav',{'aria-label':label},
-      [...hiddenTeams].sort((a,b)=>a.title.localeCompare(b.title)).map(team=>h('button',{key:team.id,disabled:busy,onClick:choose(()=>onSelectTeam(team.id))},icon('team'),team.title))));
-}
-
-export function BeesNavigation({brandMark,icon,organizations=[],accounts=[],user,localActive=!accounts.some(account=>account.active),organizationId,theme,busy,onOrganization,onGlobal,onTheme,onAccount}){
+export function BeesNavigation({brandMark,icon,organizations=[],localOrganizations=[],accounts=[],user,localActive=!accounts.some(account=>account.active),organizationId,theme,busy,onOrganization,onGlobal,onTheme,onAccount}){
   const accountRows=hosted&&!accounts.length?[{id:null,active:true,user,organizations}]:accounts;
   const localSelected=localActive&&!organizationId;
   const label=text=>h('span',{className:'bc-rail-label'},text);
-  const orgRows=accountRows.flatMap(account=>(account.organizations??[]).map(org=>({account,org,title:`${org.name} (${account.user?.email??'Account'})` })))
+  const orgRows=[...!hosted?localOrganizations.map(org=>({account:{id:null,active:localActive},org,title:`${org.name} (Local)`})):[],...accountRows.flatMap(account=>(account.organizations??[]).map(org=>({account,org,title:`${org.name} (${account.user?.email??'Account'})` })))]
     .sort((a,b)=>a.org.name.localeCompare(b.org.name,undefined,{sensitivity:'base'})||a.title.localeCompare(b.title));
   return h('nav',{className:'bc-rail','aria-label':'Main navigation'},
     h('div',{className:'bc-brand',title:'Bees'},brandMark?h('img',{src:brandMark,alt:'Bees'}):h('span',{'aria-label':'Bees'},'✳')),

@@ -8,17 +8,17 @@ import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
 import { authConfig, browserSignInUrl } from './plugin/lib/thread-auth.js';
 import { kubernetesClients } from './hosted-kubernetes.mjs';
-const exec=promisify(execFile);
+const execute=promisify(execFile);
 const hash=v=>createHash('sha256').update(v).digest('hex');
 const json=(res,status,value,headers={})=>{res.writeHead(status,{'content-type':'application/json','cache-control':'no-store',...headers});res.end(JSON.stringify(value));};
 async function body(req){const parts=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>16_000_000)throw Error('Request too large');parts.push(chunk);}return Buffer.concat(parts);}
 
 /** Each account receives an isolated container and a persistent volume, never a shared writable runtime. */
-export function dockerClients({image,stateRoot,directoryUrl,maxClients=50}){
+export function dockerClients({image,stateRoot,directoryUrl,maxClients=50,exec=execute}){
   if(!/^(?:.+@)?sha256:[a-f0-9]{64}$/.test(image??''))throw Error('BEES_CLIENT_IMAGE must be pinned to a reviewed image digest');
-  const pending=new Map();
-  return async(user,session)=>{
-    const id=hash(directoryUrl+'\n'+user.id);if(pending.has(id))return pending.get(id);
+  const pending=new Map(),stopping=new Map();
+  const provision=async(user,session)=>{
+    const id=hash(directoryUrl+'\n'+user.id);if(stopping.has(id))await stopping.get(id);if(pending.has(id))return pending.get(id);
     if(pending.size>=maxClients)throw Error('Hosted client capacity reached');
     const started=(async()=>{
       await mkdir(stateRoot,{recursive:true,mode:0o700});const record=join(stateRoot,id+'.json');let credential;
@@ -43,6 +43,20 @@ export function dockerClients({image,stateRoot,directoryUrl,maxClients=50}){
       throw Error('Hosted client did not become ready');
     })().catch(error=>{pending.delete(id);throw error;});pending.set(id,started);return started;
   };
+  provision.stop=async user=>{
+    const id=hash(directoryUrl+'\n'+user.id),name='bees-client-'+id.slice(0,32);
+    if(stopping.has(id))return stopping.get(id);
+    const operation=(async()=>{
+      await pending.get(id)?.catch(()=>{});pending.delete(id);
+      let container;
+      try{container=JSON.parse((await exec('docker',['inspect',name])).stdout)[0];}
+      catch(error){if(error.stderr?.includes('No such object'))return;throw error;}
+      if(container.Config.Labels['bees.client']!==id)throw Error('Container ownership mismatch');
+      if(container.State.Running)await exec('docker',['stop','--time','45',name]);
+    })().finally(()=>stopping.delete(id));
+    stopping.set(id,operation);return operation;
+  };
+  return provision;
 }
 
 export function createHostedGateway({directoryUrl,assets,provision,publicUrl}){
@@ -89,6 +103,14 @@ if(state){const channel=new BroadcastChannel('bees-sign-in-'+state);channel.post
       let token=cookies.get('bees_hosted_session')||sessions.values().next().value;
       if(switching&&input.accountId!=null){token=sessions.get(input.accountId);if(!token)return json(res,401,{error:'Sign in to this account again'});}
       if(input?.action==='logout'){
+        // shortcut: only explicit sign-out stops free Clients; add session reconciliation for expired sessions.
+        const account=token?await identify(token):null;
+        if(account&&provision.stop){
+          const response=await fetch(directory.origin+'/api/directory/credits',{headers:{authorization:'Bearer '+token},signal:AbortSignal.timeout(20000)});
+          if(!response.ok)throw Error('Could not check credits before stopping this hosted client. Try signing out again.');
+          const {credits}=await response.json();
+          if(credits?.balance===0&&credits.heldTokens===0&&!credits.autoRenew&&!credits.paymentPending)await provision.stop(account.user);
+        }
         for(const [id,session] of sessions)if(session===token)cookie(accountPrefix+id,'');
         cookie('bees_hosted_session','');return json(res,200,{ok:true});
       }

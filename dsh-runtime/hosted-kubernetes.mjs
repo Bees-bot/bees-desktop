@@ -28,14 +28,15 @@ export function kubernetesClients({ image, directoryUrl, namespace = 'bees-clien
   if (!/^.+@sha256:[a-f0-9]{64}$/.test(image ?? '')) throw Error('BEES_CLIENT_IMAGE must use an immutable registry digest');
   if (!/^[a-z0-9-]+$/.test(namespace) || !Number.isInteger(maxClients) || maxClients < 1) throw Error('Invalid hosted namespace or capacity');
   const core = '/api/v1/namespaces/' + namespace, apps = '/apis/apps/v1/namespaces/' + namespace;
-  const pending = new Map(), ready = new Map();
+  const pending = new Map(), ready = new Map(), stopping = new Map();
   const get = async path => { try { return await api('GET', path); } catch (error) { if (error.status !== 404) throw error; } };
   const ensure = async (path, value) => {
     const existing = await get(path + '/' + value.metadata.name); if (existing) return existing;
     try { return await api('POST', path, value); } catch (error) { if (error.status !== 409) throw error; return api('GET', path + '/' + value.metadata.name); }
   };
-  return async (user, session) => {
+  const provision = async (user, session) => {
     const id = createHash('sha256').update(directoryUrl + '\n' + user.id).digest('hex'), name = 'bees-client-' + id.slice(0, 32);
+    if (stopping.has(id)) await stopping.get(id);
     const cached = ready.get(id); if (cached?.expires > Date.now()) return cached.client;
     if (pending.has(id)) return pending.get(id);
     const operation = (async () => {
@@ -76,11 +77,16 @@ export function kubernetesClients({ image, directoryUrl, namespace = 'bees-clien
         } } } });
       const container=deployment.spec.template.spec.containers[0],runsPerDay=process.env.BEES_HOSTED_RUNS_PER_DAY??'0';
       if (container.image !== image || container.env?.find(row=>row.name==='BEES_HOSTED_RUNS_PER_DAY')?.value!==runsPerDay || deployment.spec.template.spec.securityContext?.fsGroupChangePolicy !== 'OnRootMismatch') {
-        const activity = await fetcher(client.url + '/bees-api/active-runs', { headers: { authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(5000) });
-        if (!activity.ok) throw Error('Could not verify active work before updating this hosted client');
-        if (await activity.json() === 0) deployment = await api('PATCH', apps + '/deployments/' + name,
+        let active = 0;
+        if (deployment.spec.replicas !== 0) {
+          const activity = await fetcher(client.url + '/bees-api/active-runs', { headers: { authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(5000) });
+          if (!activity.ok) throw Error('Could not verify active work before updating this hosted client');
+          active = await activity.json();
+        }
+        if (active === 0) deployment = await api('PATCH', apps + '/deployments/' + name,
           { spec: { template: { spec: { securityContext: { ...deployment.spec.template.spec.securityContext, fsGroupChangePolicy: 'OnRootMismatch' }, containers: [{ ...container, image,env:[...(container.env??[]).filter(row=>row.name!=='BEES_HOSTED_RUNS_PER_DAY'),{name:'BEES_HOSTED_RUNS_PER_DAY',value:runsPerDay}] }] } } } });
       }
+      if (deployment.spec.replicas === 0) deployment = await api('PATCH', apps + '/deployments/' + name, { spec: { replicas: 1 } });
       const deadline = Date.now() + 300000;
       while (Date.now() < deadline) {
         const state = await api('GET', apps + '/deployments/' + name);
@@ -95,4 +101,17 @@ export function kubernetesClients({ image, directoryUrl, namespace = 'bees-clien
     })().finally(() => pending.delete(id));
     pending.set(id, operation); return operation;
   };
+  provision.stop = async user => {
+    const id = createHash('sha256').update(directoryUrl + '\n' + user.id).digest('hex'), name = 'bees-client-' + id.slice(0, 32);
+    if (stopping.has(id)) return stopping.get(id);
+    const operation = (async () => {
+      await pending.get(id)?.catch(() => {}); ready.delete(id);
+      const path = apps + '/deployments/' + name, deployment = await get(path);
+      if (!deployment) return;
+      if (deployment.metadata.labels?.['bees-client-id'] !== id.slice(0, 32)) throw Error('Hosted workspace ownership mismatch');
+      if (deployment.spec.replicas !== 0) await api('PATCH', path, { spec: { replicas: 0 } });
+    })().finally(() => stopping.delete(id));
+    stopping.set(id, operation); return operation;
+  };
+  return provision;
 }

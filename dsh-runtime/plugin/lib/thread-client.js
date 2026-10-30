@@ -75,6 +75,7 @@ export class ThreadClient {
   async snapshot(){const rows=this.store.list();return {product:'Bees Client',clientId:this.store.clientId,user:this.directory.user??null,signedIn:!!this.directory.token&&!this.directory.authRequired,organizations:this.organizations(),organizationError:this.organizationError??null,serverUrl:this.directory.url,connectionError:this.connectionError??null,threads:rows.filter(t=>t.kind!=='team'),teams:rows.filter(t=>t.kind==='team'&&(!t.shared||!this.directory.token||this.connectionError||this.roster.threads.some(row=>row.id===t.id))),defaultTeamId:this.store.preference('defaultTeam'),directory:this.roster,models:await this.options.models?.(this.store)??[],credits:this.options.credits?.view(this.store),agentPresets:await this.options.agentPresets?.()??[],defaultModel:this.store.preference('model'),settings:this.store.preference('settings')??{}};}
   async registerThread(id,input={}){await this.fence(id);let doc=this.store.document(id);if(!this.directory.token)throw threadError('Sign in to share or transfer a thread',401);
     const team=this.store.teamFor(id);
+    if(this.organizations().some(org=>org.local&&org.id===(team?.organizationId??doc.organizationId)))throw threadError('Local organizations cannot be shared',403);
     if(team&&!team.shared)await this.registerThread(team.id);
     if(!doc.shared){const authority=await this.directory.request('/threads',{id:doc.id,clientId:this.store.clientId,kind:doc.kind??'thread',...(team?{teamId:team.id}:{}),...((input.organizationId??doc.organizationId)?{organizationId:input.organizationId??doc.organizationId}:{})});doc=this.store.mutate(id,randomUUID(),d=>{d.ownerUserId=this.directory.user.id;d.epoch=Number(authority.epoch);d.shared=true;if(team)d.teamId=team.id;});}
     else if(team&&!doc.teamId){await this.directory.request(`/threads/${id}/team`,{teamId:team.id});doc=this.store.mutate(id,randomUUID(),d=>{d.teamId=team.id;});}
@@ -117,7 +118,7 @@ export class ThreadClient {
   }
   async replicate(){if(this.replicating||!this.directory.token||this.closing)return;this.replicating=true;try{for(const t of this.roster.threads){if(this.closing)break;if(t.owner_client_id===this.store.clientId)continue;try{await this.syncAuthority(t);}catch{/* An offline owner keeps the last authorized copy available. */}}}finally{this.replicating=false;}}
   async files(doc,source){for(const a of doc.artifacts){try{this.store.object(doc,a.id);continue;}catch{}const object=await this.peer.send(doc.id,source,{kind:'object',artifactId:a.id});if(object.artifact.digest!==a.digest||object.artifact.size!==a.size)throw threadError('File manifest changed');const bytes=Buffer.from(object.content,'base64');if(bytes.length!==a.size)throw threadError('Incomplete file transfer');this.store.putObject(bytes,a.digest);}}
-  organizations(){const appearance=this.store.preference('organizationAppearance')??{};return (this.store.preference('organizations')??[]).map(org=>({...org,...(appearance[org.id]?{appearance:appearance[org.id]}:{})}));}
+  organizations(){const appearance=this.store.preference('organizationAppearance')??{};return [...this.store.preference('localOrganizations')??[],...this.store.preference('organizations')??[]].map(org=>({...org,...(appearance[org.id]?{appearance:appearance[org.id]}:{})}));}
   ensureOrganizationTeam(organization){
     const key=`organizationDefault:${validId(organization.id)}`;
     if(this.store.preference(key))return this.store.preference(key);
@@ -129,7 +130,7 @@ export class ThreadClient {
   async command(input){
     if(input.action==='createTeam'){
       const name=text(input.name,180),organizationId=input.organizationId===undefined?undefined:validId(input.organizationId);
-      if(organizationId){const {organizations}=await this.directory.request('/organizations');if(!organizations.some(o=>o.id===organizationId))throw threadError('Organization membership required',403);}
+      if(organizationId&&!this.organizations().some(org=>org.id===organizationId&&org.local)){const {organizations}=await this.directory.request('/organizations');if(!organizations.some(o=>o.id===organizationId))throw threadError('Organization membership required',403);}
       const doc=this.store.create(name,this.directory.user?.id??'local',DEFAULT_WORKFLOW,undefined,'team',{organizationId});
       this.options.notify?.();return doc;
     }
@@ -170,7 +171,14 @@ export class ThreadClient {
       }
       return this.store.preference('settings',{...this.store.preference('settings'),...values});
     }
-    if(input.action==='organizations'){const result=await this.directory.request('/organizations');for(const org of result.organizations)if(org.role==='owner')this.ensureOrganizationTeam(org);this.store.preference('organizations',result.organizations.map(({id,name,role})=>({id,name,role})));this.organizationError=null;return {...result,organizations:this.organizations()};}
+    if(input.action==='organizations'){if(input.local)return {organizations:this.organizations().filter(org=>org.local),invitations:[]};const result=await this.directory.request('/organizations');for(const org of result.organizations)if(org.role==='owner')this.ensureOrganizationTeam(org);this.store.preference('organizations',result.organizations.map(({id,name,role})=>({id,name,role})));this.organizationError=null;return {...result,organizations:this.organizations()};}
+    if(input.action==='createLocalOrganization'){
+      if(process.env.BEES_HOSTED_CLIENT)throw threadError('Open Bees Desktop to create a local organization');
+      if(this.directory.user||this.directory.token)throw threadError('Switch to Local Org to create a local organization');
+      const org={id:randomUUID(),name:text(input.name,120),role:'owner',local:true};
+      this.ensureOrganizationTeam(org);this.store.preference('localOrganizations',[...this.store.preference('localOrganizations')??[],org]);
+      this.options.notify?.();return org;
+    }
     if(input.action==='organizationAppearance'){
       const id=validId(input.organizationId);
       if(!this.organizations().some(org=>org.id===id))throw threadError('Organization membership required',403);
