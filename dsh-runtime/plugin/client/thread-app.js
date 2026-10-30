@@ -190,7 +190,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const peerNames=new Map(roster.participants.map(p=>[p.user_id,p.name??p.email]));
   const transferClients=roster.clients.filter(c=>c.id!==data?.clientId&&(c.user_id===data?.user?.id||participants.some(p=>p.user_id===c.user_id&&p.role!=='viewer')));
   const previewFile=file=>setPreview({...file,url:`/bees-api/thread-file?thread=${selected}&artifact=${file.id}`});
-  const saveThread=values=>perform(async()=>{await command('configure',selected,values);await refresh();await read(selected);setNotice('Thread settings saved.');});
+  const saveThread=values=>perform(async()=>{await command('configure',selected,values);await refresh();await read(selected);setNotice('Thread settings saved.');return true;});
   const saveFolder=values=>perform(async()=>{await command('setRootFolder',null,values);await refresh();setNotice('Folder settings saved.');return true;});
   const saveTeam=values=>perform(async()=>{await settingsCommand('configure',configTeamId,values);await refreshSettings();await refresh();await readSettingsTeam(configTeamId);setNotice(values.processes!==undefined?'Processes saved. Start a new thread to use them.':values.workflow!==undefined?'Default process saved. New threads in this team will use these stages.':'Team settings saved. Changes apply to new runs in every thread.');return true;});
   const leaveTeam=()=>perform(async()=>{if(!await confirmAction(`Leave ${settingsTeam.title}? You lose access to its threads. Threads you started on this computer stay with you.`,'Leave'))return;await settingsCommand('leave',configTeamId);setSettingsTeamId(null);setSettingsTeam(null);await refreshSettings();await refresh();});
@@ -259,7 +259,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     :h('section',{className:'bc-conversation'+(page==='files'?' bc-files-tab':'')},
       page==='kanban'?h(ThreadKanban,{key:selected,thread:effectiveThread,onConversation:()=>navigate('conversation'),onWorkflow:()=>openTeamSettings('processes'),icon})
       :page==='files'?files:page==='addons'?integrations('addons'):page==='schedule'?h(ScheduleSettings,{key:selected,thread,disabled:!canConfigure,busy,onSave:saveThread}):page==='memory'?configuration(page,true)
-      :h(ThreadDetails,{thread:effectiveThread,page,peerNames,userId:data?.user?.id,onSettings:openSettings,onFiles:()=>navigate('files')}));
+      :h(ThreadDetails,{key:selected,thread:{...effectiveThread,instructions:thread.instructions},teamInstructions:team?.instructions,canConfigure,busy,onSave:saveThread,page,peerNames,userId:data?.user?.id,onSettings:openSettings,onFiles:()=>navigate('files')}));
   const renderThread=t=>h('div',{key:t.id,className:'bc-thread-row '+(selected===t.id?'active':'')},
     h('button',{className:'bc-thread',title:t.title,'aria-current':selected===t.id?'page':undefined,onClick:()=>select(t.id)},
       h('span',{className:'bc-thread-copy'},h('strong',null,t.title),h('small',null,t.preview?.replace(/^\s*(?:#+|>|[-*+])\s|\*\*?|`/gm,'')??'Open shared work')),t.runs?.some(r=>r.status==='running')?h('span',{className:'bc-dot',title:'Running'}):null));

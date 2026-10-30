@@ -46,10 +46,16 @@ test('themes, defaults and instructions persist; partial thread settings preserv
     const draft=scheduleDraft(before);assert.equal(draft.hour,17);assert.equal(draft.minute,42);assert.equal(draft.dayOfWeek,4);
     assert.equal(schedule(draft).expression,before.expression);
     await client.command({action:'configure',threadId:doc.id,operationId:randomUUID(),memory:['A note']});
+    await client.command({action:'configure',threadId:doc.id,operationId:randomUUID(),instructions:'  Cite sources.  '});
+    await assert.rejects(client.command({action:'configure',threadId:doc.id,operationId:randomUUID(),instructions:'x'.repeat(20001)}),/Invalid instructions/);
     assert.deepEqual(client.store.document(doc.id).schedule,before);
     client.store.close();client=new ThreadClient(root);
     assert.equal((await client.snapshot()).settings.themePreset,'night');
     assert.equal((await client.snapshot()).settings.systemInstructions,'Keep answers concise.');
+    assert.equal(client.store.document(doc.id).instructions,'Cite sources.');
+    await client.command({action:'configure',threadId:doc.id,operationId:randomUUID(),instructions:''});
+    assert.equal(client.store.document(doc.id).instructions,'');
+    assert.deepEqual(client.store.document(doc.id).memory,['A note']);
   } finally {client.store.close();rmSync(root,{recursive:true,force:true});}
 });
 
