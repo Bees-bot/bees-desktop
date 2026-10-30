@@ -113,5 +113,15 @@ export function kubernetesClients({ image, directoryUrl, namespace = 'bees-clien
     })().finally(() => stopping.delete(id));
     stopping.set(id, operation); return operation;
   };
+  provision.running = async () => {
+    const { items } = await api('GET', apps + '/deployments?labelSelector=app.kubernetes.io%2Fname%3Dbees-client');
+    return Promise.all(items.filter(row => row.spec.replicas > 0).map(async deployment => {
+      const name = deployment.metadata.name, id = deployment.metadata.labels?.['bees-client-id'];
+      if (!/^[a-f0-9]{32}$/.test(id ?? '') || name !== 'bees-client-' + id) throw Error('Hosted workspace ownership mismatch');
+      const credentials = await api('GET', core + '/secrets/' + name);
+      if (credentials.metadata.labels?.['bees-client-id'] !== id) throw Error('Hosted credential ownership mismatch');
+      return { id, url: `http://${name}.${namespace}.svc.cluster.local:8080`, token: Buffer.from(credentials.data.BEES_DSH_TOKEN, 'base64').toString() };
+    }));
+  };
   return provision;
 }

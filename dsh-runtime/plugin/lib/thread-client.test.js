@@ -7,6 +7,29 @@ import {randomUUID} from 'node:crypto';
 import {ThreadClient} from './thread-client.js';
 import {DEFAULT_WORKFLOW,CHAT_WORKFLOW,WORKFLOW_TEMPLATES,processName} from './thread-workflow.js';
 
+test('snapshots omit empty Chat and Goal placeholders at any revision while preserving saved work',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'bees-empty-drafts-'));let client=new ThreadClient(root);
+ try{
+  const chat=await client.command({action:'create',title:'New chat'}),goal=await client.command({action:'create',title:'New Goal'});
+  client.store.mutate(goal.id,randomUUID(),()=>{});
+  assert.equal(client.store.get(goal.id).revision,2);
+  assert.deepEqual((await client.snapshot()).threads,[]);
+  assert.equal(client.store.get(chat.id).title,'New chat','Placeholder data stays intact');
+  assert.equal(client.store.get(goal.id).title,'New Goal');
+  client.store.close();client=new ThreadClient(root);
+  assert.deepEqual((await client.snapshot()).threads,[],'Reopening the stored drafts keeps them out of the list');
+  const kept=[];
+  for(const values of [{messages:[{id:randomUUID(),kind:'user',text:'Saved message',authorId:'local',createdAt:new Date().toISOString()}]},{instructions:'Saved instructions'},{memory:['Remember this']},{folders:['work']},{shared:true},{workflow:[{name:'Saved process',kind:'work'}]},{workflow:DEFAULT_WORKFLOW.map((stage,index)=>index===0?{...stage,model:'provider/saved-model'}:stage)},{title:'My empty thread'}]){
+    const doc=await client.command({action:'create',title:'New chat'});client.store.save({...doc,...values});kept.push(doc.id);
+  }
+  const file=await client.command({action:'create',title:'New goal'});
+  client.store.attach(file.id,randomUUID(),'saved.txt',Buffer.from('Keep this'),'local');kept.push(file.id);
+  assert.deepEqual(new Set((await client.snapshot()).threads.map(row=>row.id)),new Set(kept));
+  await client.command({action:'message',threadId:chat.id,operationId:randomUUID(),text:'Hello'});
+  assert((await client.snapshot()).threads.some(row=>row.id===chat.id),'A draft reappears after its first message');
+ }finally{client.store.close();await rm(root,{recursive:true,force:true});}
+});
+
 test('explicit Goal and Chat processes survive team defaults, repeated replies and restart',async()=>{
  const root=await mkdtemp(join(tmpdir(),'bees-chat-loop-'));let client;const seen=[];
  try{

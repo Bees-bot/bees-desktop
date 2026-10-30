@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
 import { authConfig, browserSignInUrl } from './plugin/lib/thread-auth.js';
 import { kubernetesClients } from './hosted-kubernetes.mjs';
+import { hostedClientActivity, isFreeClient } from './hosted-lifecycle.mjs';
 const execute=promisify(execFile);
 const hash=v=>createHash('sha256').update(v).digest('hex');
 const json=(res,status,value,headers={})=>{res.writeHead(status,{'content-type':'application/json','cache-control':'no-store',...headers});res.end(JSON.stringify(value));};
@@ -56,13 +57,27 @@ export function dockerClients({image,stateRoot,directoryUrl,maxClients=50,exec=e
     })().finally(()=>stopping.delete(id));
     stopping.set(id,operation);return operation;
   };
+  provision.running=async()=>{
+    const names=(await exec('docker',['ps','--filter','label=bees.client','--format','{{.Names}}'])).stdout.trim().split('\n').filter(Boolean);
+    if(!names.length)return [];
+    const containers=JSON.parse((await exec('docker',['inspect',...names])).stdout);
+    return Promise.all(containers.map(async container=>{
+      const id=container.Config.Labels?.['bees.client'];
+      if(!/^[a-f0-9]{64}$/.test(id??'')||container.Name!=='/bees-client-'+id.slice(0,32))throw Error('Container ownership mismatch');
+      const {token}=JSON.parse(await readFile(join(stateRoot,id+'.json'),'utf8'));
+      const port=container.NetworkSettings.Ports['8080/tcp']?.find(p=>p.HostIp==='127.0.0.1')?.HostPort;
+      if(!port)throw Error('Client port is not private');
+      return {id,url:'http://127.0.0.1:'+port,token};
+    }));
+  };
   return provision;
 }
 
 export function createHostedGateway({directoryUrl,assets,provision,publicUrl}){
   const directory=new URL(directoryUrl);if(directory.protocol!=='https:'&&!['localhost','127.0.0.1'].includes(directory.hostname))throw Error('Use a secure Bees Server');
   let assetVersion;
-  return createServer(async(req,res)=>{
+  const activity=hostedClientActivity({provision,directoryUrl});
+  const server=createServer(async(req,res)=>{
     try{
       const url=new URL(req.url??'/',publicUrl??'http://localhost');
       if(req.method!=='GET'&&req.headers.origin&&req.headers.origin!==(publicUrl?new URL(publicUrl).origin:'http://'+req.headers.host))return json(res,403,{error:'Origin is not permitted'});
@@ -100,16 +115,16 @@ if(state){const channel=new BroadcastChannel('bees-sign-in-'+state);channel.post
         const {user}=await response.json();return {id:hash(directory.origin+'\n'+user.id),user,token};
       };
       const switching=['switchAccount','selectOrganization'].includes(input?.action);
+      const targetAccountId=switching?input.accountId:input?.settingsAccountId;
       let token=cookies.get('bees_hosted_session')||sessions.values().next().value;
-      if(switching&&input.accountId!=null){token=sessions.get(input.accountId);if(!token)return json(res,401,{error:'Sign in to this account again'});}
+      if(targetAccountId!=null){token=sessions.get(targetAccountId);if(!token)return json(res,401,{error:'Sign in to this account again'});}
       if(input?.action==='logout'){
-        // shortcut: only explicit sign-out stops free Clients; add session reconciliation for expired sessions.
         const account=token?await identify(token):null;
         if(account&&provision.stop){
           const response=await fetch(directory.origin+'/api/directory/credits',{headers:{authorization:'Bearer '+token},signal:AbortSignal.timeout(20000)});
           if(!response.ok)throw Error('Could not check credits before stopping this hosted client. Try signing out again.');
           const {credits}=await response.json();
-          if(credits?.balance===0&&credits.heldTokens===0&&!credits.autoRenew&&!credits.paymentPending)await provision.stop(account.user);
+          if(isFreeClient(credits))await provision.stop(account.user);
         }
         for(const [id,session] of sessions)if(session===token)cookie(accountPrefix+id,'');
         cookie('bees_hosted_session','');return json(res,200,{ok:true});
@@ -132,7 +147,8 @@ if(state){const channel=new BroadcastChannel('bees-sign-in-'+state);channel.post
         }
       }
       if(!account)return json(res,401,{error:'Sign in again'});
-      if(switching&&input.accountId!=null&&input.accountId!==account.id)return json(res,401,{error:'Sign in to this account again'});
+      if(targetAccountId!=null&&targetAccountId!==account.id)return json(res,401,{error:'Sign in to this account again'});
+      activity.touch(account.user);
       const client=await provision(account.user,token);
       if(input?.action==='login'){
         const resumed=await fetch(client.url+'/bees-api/threads',{method:'POST',headers:{authorization:'Bearer '+client.token,'content-type':'application/json'},body:JSON.stringify({action:'resumeSession',session:token}),signal:AbortSignal.timeout(20000)});
@@ -150,6 +166,7 @@ if(state){const channel=new BroadcastChannel('bees-sign-in-'+state);channel.post
         const accounts=await Promise.all([...sessions].filter(([id])=>id!==account.id).map(async([id,session])=>{
           const other=await identify(session).catch(()=>undefined);if(other===undefined)return null;if(!other||other.id!==id){cookie(accountPrefix+id,'');return null;}
           try{
+            activity.touch(other.user);
             const target=await provision(other.user,session);
             const response=await fetch(target.url+'/bees-api/snapshot',{headers:{authorization:'Bearer '+target.token},signal:AbortSignal.timeout(10000)});
             if(!response.ok)throw Error('Could not load organizations');
@@ -168,6 +185,9 @@ if(state){const channel=new BroadcastChannel('bees-sign-in-'+state);channel.post
       res.writeHead(response.status,headers);for await(const chunk of response.body??[])if(!res.write(chunk))await once(res,'drain');res.end();
     }catch(e){if(!res.headersSent)json(res,503,{error:e.message});else res.destroy();}
   });
+  const timer=setInterval(()=>void activity.sweep().catch(error=>console.warn('Idle hosted client sweep failed:',error.message)),60_000);
+  timer.unref();server.once('close',()=>clearInterval(timer));
+  return server;
 }
 
 if(process.argv[1]===fileURLToPath(import.meta.url)){
