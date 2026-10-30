@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { configureRuntime } from '../client/runtime.js';
-import { ComposioApps } from '../client/thread-integrations.js';
+import { ComposioApps, IntegrationSettings } from '../client/thread-integrations.js';
 
 const flush = () => new Promise(setImmediate);
 const nodes = node => !node || typeof node !== 'object' ? [] : [node, ...(node.children ?? []).flat(Infinity).flatMap(nodes)];
 
-function mount(t, request) {
+function mount(t, request, Component = ComposioApps) {
   let cursor = 0;
   const state = [], dependencies = [], effects = [], cleanups = [];
   const React = {
@@ -29,15 +29,53 @@ function mount(t, request) {
   return {
     window,
     unmount: () => cleanups.forEach(cleanup => cleanup?.()),
-    render() {
+    render(props = {}) {
       cursor = 0;
-      const tree = ComposioApps({ threadId: 'team', signedIn: true, request, provider, onAccess: async () => {},
+      const tree = Component({ threadId: 'team', canManage: true, signedIn: true, request, provider, onAccess: async () => {},
+        perform: async fn => { try { return await fn(); } catch {} }, ...props,
         onSelection: async (toolkit, accounts) => { await request('setComposioAccounts', 'team', { toolkit, accounts }); provider.accountSelections[toolkit] = accounts; } });
       effects.splice(0).forEach(fn => fn());
       return nodes(tree);
     }
   };
 }
+
+test('add-on settings show a failed initial request and retry without remaining on the loading screen', async t => {
+  let calls = 0;
+  const ui = mount(t, async action => {
+    assert.equal(action, 'integrations');
+    if (++calls === 1) throw Error('The add-on service is unavailable');
+    return { servers: [], catalog: [], browser: {} };
+  }, IntegrationSettings);
+  ui.render(); await flush();
+  let tree = ui.render();
+  assert(tree.some(node => node.props?.role === 'alert' && node.children.includes('The add-on service is unavailable')));
+  assert(!tree.some(node => node.children.includes('Loading add-ons…')));
+  tree.find(node => node.type === 'button' && node.children.includes('Try again')).props.onClick();
+  ui.render(); await flush(); tree = ui.render();
+  assert(tree.some(node => node.children.includes('Add an MCP add-on')));
+  assert.equal(calls, 2);
+  for (let i = 0; i < 5; i++) ui.render();
+  assert.equal(calls, 2, 'Parent refreshes must not restart initial loading');
+});
+
+test('add-on settings stop waiting for a stalled request and ignore its late response after retry', async t => {
+  let calls = 0, finish;
+  const ui = mount(t, async () => {
+    if (++calls === 1) return new Promise(resolve => { finish = resolve; });
+    return { servers: [{ id: 'current', label: 'Current add-on', serverName: 'current' }], catalog: [], browser: {} };
+  }, IntegrationSettings);
+  ui.render(); await flush();
+  t.mock.timers.tick(20000);
+  let tree = ui.render();
+  assert(!tree.some(node => node.children.includes('Loading add-ons…')));
+  tree.find(node => node.type === 'button' && node.children.includes('Try again')).props.onClick();
+  ui.render(); await flush();
+  finish({ servers: [{ id: 'stale', label: 'Stale add-on', serverName: 'stale' }], catalog: [], browser: {} });
+  await flush(); tree = ui.render();
+  assert(tree.some(node => node.children.includes('Current add-on')));
+  assert(!tree.some(node => node.children.includes('Stale add-on')));
+});
 
 test('Composio authorization updates its card automatically on return without losing other apps or pagination', async t => {
   let checks = 0;
@@ -83,6 +121,27 @@ test('Composio status checks stop on unmount and ignore an in-flight response', 
   t.mock.timers.tick(30000); ui.window.dispatchEvent(new Event('focus')); await flush();
   assert.equal(checks, 1);
   assert(!ui.render().some(node => node.children.includes('Gmail connected.')));
+});
+
+test('abandoned add-on sign-in can be cancelled and retried while ignoring a late status response', async t => {
+  const gmail = { slug: 'gmail', name: 'Gmail', connected: false };
+  let connects = 0, finish;
+  const ui = mount(t, async (action, _id, input) => {
+    if (action === 'connectComposioApp') { connects++; return { url: 'https://connect.composio.dev/link/test' }; }
+    if (!input.search) return { items: [gmail] };
+    return new Promise(resolve => { finish = resolve; });
+  });
+  const button = label => ui.render().find(node => node.type === 'button' && node.children.includes(label));
+  ui.render(); await flush();
+  button('Connect').props.onClick(); await flush(); ui.render();
+  t.mock.timers.tick(1500); await flush();
+  button('Cancel sign in').props.onClick(); ui.render();
+  finish({ items: [{ ...gmail, connected: true }] }); await flush();
+  assert.equal(button('Connect').props.disabled, false);
+  assert(!ui.render().some(node => node.children.includes('Gmail connected.')));
+  button('Connect').props.onClick(); await flush();
+  assert.equal(connects, 2);
+  assert.equal(button('Waiting for sign-in…').props.disabled, true);
 });
 
 test('accounts can be selected together, switched, and paginated without enabling expired connections', async t => {

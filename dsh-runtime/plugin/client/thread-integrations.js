@@ -12,9 +12,25 @@ export async function composioConnectionError(error, request) {
 export function IntegrationSettings({ threadId, canManage, signedIn, onSignIn, request, perform, page = 'addons', scope='team' }) {
   const [data, setData] = useState(null), [catalogId, setCatalogId] = useState('playwright');
   const [transport, setTransport] = useState('stdio'), [notice, setNotice] = useState('');
+  const [loadError, setLoadError] = useState(''), [attempt, setAttempt] = useState(0);
   const load = async () => setData(await request('integrations', threadId));
-  useEffect(() => { if (canManage) void perform(load); }, [threadId, canManage]);
+  useEffect(() => {
+    let current = true;
+    setData(null); setLoadError('');
+    if (!canManage) return;
+    const timer = setTimeout(() => {
+      current = false; setLoadError('Loading add-ons timed out. Try again.');
+    }, 20000);
+    void request('integrations', threadId).then(
+      value => { if (current) setData(value); },
+      error => { if (current) setLoadError(error.message); }
+    ).finally(() => clearTimeout(timer));
+    return () => { current = false; clearTimeout(timer); };
+  }, [threadId, canManage, attempt]);
   if (!canManage) return h('p', { className: 'bc-muted' }, 'Team owners and editors can manage add-ons on their own computers.');
+  if (!data && loadError) return h('div', { className: 'bc-form' },
+    h('p', { className: 'bc-error', role: 'alert' }, loadError),
+    h('button', { type: 'button', onClick: () => setAttempt(value => value + 1) }, 'Try again'));
   if (!data) return h('p', { role: 'status' }, 'Loading add-ons…');
   const entry = data.catalog.find(row => row.id === catalogId);
   const provider = data.servers.find(server => server.catalogId === 'composio');
@@ -194,6 +210,7 @@ export function ComposioApps({ threadId, signedIn, onSignIn, request, provider, 
           h('p', null, error.message), h('button', { disabled: !!pending, onClick: () => void browse() }, 'Try again')) : null,
         pending === 'loading' ? h('p', { role: 'status', className: 'bc-muted' }, 'Loading apps…') : null,
         notice ? h('p', { role: 'status' }, notice) : null,
+        connecting ? h('button', { type: 'button', onClick: () => { setConnecting(null); setNotice('Sign in cancelled. Select Connect to try again.'); } }, 'Cancel sign in') : null,
         apps && !apps.items.length ? h('p', { className: 'bc-muted' }, 'No matching apps. Try another name.') : null,
         apps ? h('div', { className: 'bc-composio-grid', 'aria-busy': pending === 'loading' }, apps.items.map(app =>
           h('article', { className: 'bc-card bc-composio-app', key: app.slug },

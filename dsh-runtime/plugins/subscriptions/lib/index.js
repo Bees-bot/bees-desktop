@@ -115,6 +115,7 @@ function beginCodexLogin() {
   const oauth = openaiCodexProvider().auth.oauth;
   if (!oauth) throw new Error("This Bees runtime has no Codex sign-in provider");
   const ready = deferred();
+  const id = randomUUID();
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(new Error("Codex sign-in timed out")), LOGIN_TIMEOUT_MS);
   const result = oauth.login({
@@ -127,11 +128,11 @@ function beginCodexLogin() {
       throw new Error(`Unexpected Codex sign-in prompt: ${prompt.type}`);
     },
     notify: (event) => {
-      if (event.type === "auth_url") ready.resolve({ authUrl: event.url });
+      if (event.type === "auth_url") ready.resolve({ id, authUrl: event.url });
     }
   }).finally(() => clearTimeout(timer));
   void result.catch(ready.reject);
-  return { ready: ready.promise, result, abort };
+  return { id, ready: ready.promise, result, abort };
 }
 
 function credential(value) {
@@ -582,6 +583,7 @@ export async function apply(ctx, config) {
   }, 60_000);
   refreshTimer.unref();
   ctx.effect(() => () => clearInterval(refreshTimer), "bees subscriptions: Codex refresh");
+  ctx.effect(() => () => pending?.abort.abort(new Error("Codex sign-in cancelled")), "bees subscriptions: Codex sign-in");
   ctx.effect(() => () => claudeRegistration?.(), "bees subscriptions: Claude adapter");
   ctx.effect(() => ctx.webServer.register({ kind: "exact", path: "/bees-api/subscriptions", handler: async (req, res) => {
     try {
@@ -600,16 +602,26 @@ export async function apply(ctx, config) {
         if (!pending) {
           const started = beginCodexLogin();
           // An abandoned sign-in must not park a dead url here until the app restarts.
-          void started.result.catch(() => {}).finally(() => { if (pending === started) pending = null; });
+          void started.result.catch(() => { if (pending === started) pending = null; });
           pending = started;
         }
         return json(res, 200, await pending.ready);
       }
+      if (input.action === "codex_cancel") {
+        const current = pending;
+        if (current && current.id === input.id) {
+          current.abort.abort(new Error("Codex sign-in cancelled"));
+          await current.result.catch(() => {});
+          if (pending === current) pending = null;
+        }
+        return json(res, 200, { ok: true });
+      }
       if (input.action === "codex_await") {
-        if (!pending) throw new Error("No Codex sign-in is in progress");
+        if (!pending || pending.id !== input.id) throw new Error("No Codex sign-in is in progress");
         const current = pending;
         try {
           const value = await current.result;
+          current.abort.signal.throwIfAborted();
           await ctx.credentials.set(CODEX_OAUTH_REF, JSON.stringify(value));
           await ctx.credentials.set(CODEX_ACCESS_REF, value.access);
           await ensureCodex(true);

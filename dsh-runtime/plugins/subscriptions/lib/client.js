@@ -5,7 +5,7 @@ window.__ModuleLoader__.load({
     const exports = module.exports;
     const React = require("react");
     const h = React.createElement;
-    const { useEffect, useState } = React;
+    const { useEffect, useRef, useState } = React;
 
     const CODEX_ACCESS_REF = "BEES_CODEX_ACCESS_TOKEN";
     const CLAUDE_INSTALL_URL = "https://claude.com/product/claude-code";
@@ -55,9 +55,9 @@ window.__ModuleLoader__.load({
       return snapshot.value ?? {};
     }
 
-    async function command(action, values = {}) {
+    async function command(action, values = {}, signal) {
       const response = await fetch("/bees-api/subscriptions", {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, ...values })
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, ...values }), signal
       });
       const value = await response.json();
       if (!response.ok) throw new Error(value.error || "Subscription setup failed");
@@ -73,6 +73,8 @@ window.__ModuleLoader__.load({
       const [error, setError] = useState("");
       const [notice, setNotice] = useState("");
       const [pathDraft, setPathDraft] = useState(null);
+      const login = useRef(null);
+      useEffect(() => () => login.current?.abort(new Error("Codex sign-in cancelled")), []);
       const refresh = async () => {
         const response = await fetch("/bees-api/subscriptions", { cache: "no-store" });
         const value = await response.json();
@@ -100,12 +102,23 @@ window.__ModuleLoader__.load({
         else delete profile.models;
         return profile;
       };
-      const connectCodex = () => perform("codex", async () => {
-        const { authUrl } = await command("codex_start");
-        await openExternal(authUrl);
-        const { models = [] } = await command("codex_await");
-        const available = [...new Map([...codexModels, ...models].map((model) => [model.id, model])).values()];
-        await modelSettings.set("providers", { ...(config.providers ?? {}), "openai-codex": codexProfile(available) });
+      const connectCodex = () => perform("codex-login", async () => {
+        const controller = new AbortController();
+        login.current = controller;
+        let id;
+        try {
+          const started = await command("codex_start");
+          id = started.id;
+          controller.signal.throwIfAborted();
+          await openExternal(started.authUrl);
+          const { models = [] } = await command("codex_await", { id }, controller.signal);
+          controller.signal.throwIfAborted();
+          const available = [...new Map([...codexModels, ...models].map((model) => [model.id, model])).values()];
+          await modelSettings.set("providers", { ...(config.providers ?? {}), "openai-codex": codexProfile(available) });
+        } finally {
+          if (id) await command("codex_cancel", { id }, AbortSignal.timeout(5000)).catch(() => {});
+          if (login.current === controller) login.current = null;
+        }
       });
       const testCodex = () => perform("codex-test", () => command("codex_test"), "Codex connection works.");
       const disconnectCodex = () => perform("codex", async () => {
@@ -172,7 +185,7 @@ window.__ModuleLoader__.load({
             h("div", { className: "bees-subscription-header" },
               h("div", { className: "bees-subscription-header-info bees-subscription-main" },
                 h("h3", null, "Codex"),
-                h("p", { className: "bees-muted" }, busy === "codex" ? "Finish signing in in the browser window."
+                h("p", { className: "bees-muted" }, busy === "codex-login" ? "Finish signing in in the browser window."
                   : status.codex ? "Available models refresh automatically. Models you remove stay hidden."
                     : "Sign in with ChatGPT; no CLI installation or API key is required."),
                 status.codexModelError ? h("p", { className: "bees-muted", role: "status" }, status.codexModelError) : null
@@ -186,7 +199,8 @@ window.__ModuleLoader__.load({
                     "aria-label": "Enable Codex", onChange: (event) => toggleCodex(event.target.checked) }),
                   h("span", { className: "bees-sub-toggle-label" }, codexEnabled ? "On" : "Off")) : null,
                 !status.codex ? h(Button, { className: "primary", disabled: Boolean(busy), onClick: connectCodex },
-                  busy === "codex" ? "Waiting for sign-in…" : "Sign in") : null
+                  busy === "codex-login" ? "Waiting for sign-in…" : "Sign in") : null,
+                busy === "codex-login" ? h(Button, { onClick: () => login.current?.abort(new Error("Codex sign-in cancelled")) }, "Cancel sign in") : null
               )
             ),
             status.codex ? h("div", { className: "bees-subscription-models-section" },
@@ -206,7 +220,7 @@ window.__ModuleLoader__.load({
             status.codex ? h("div", { className: "bees-subscription-footer bees-subscription-actions" },
               h("div", { className: "bees-subscription-footer-left" },
                 h(Button, { disabled: Boolean(busy), onClick: connectCodex },
-                  busy === "codex" ? "Waiting for sign-in…" : "Reconnect"),
+                  busy === "codex-login" ? "Waiting for sign-in…" : "Reconnect"),
                 h(Button, { disabled: Boolean(busy), onClick: testCodex },
                   busy === "codex-test" ? "Testing…" : "Test connection")
               ),

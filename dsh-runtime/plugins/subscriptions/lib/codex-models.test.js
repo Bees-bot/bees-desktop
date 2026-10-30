@@ -87,6 +87,56 @@ async function subscriptions(t, { connected = true, enabled = true } = {}) {
   return app;
 }
 
+test("abandoned Codex sign-ins can be cancelled and retried without saving credentials", async (t) => {
+  const app = await subscriptions(t, { connected: false, enabled: false });
+  const first = await app.request({ action: "codex_start" });
+  assert.equal(first.status, 200);
+  const waiting = app.request({ action: "codex_await", id: first.body.id });
+  assert.equal((await app.request({ action: "codex_cancel", id: first.body.id })).status, 200);
+  assert.equal((await waiting).status, 409);
+  const next = await app.request({ action: "codex_start" });
+  assert.equal(next.status, 200);
+  assert.notEqual(next.body.id, first.body.id);
+  assert.notEqual(next.body.authUrl, first.body.authUrl);
+  await app.request({ action: "codex_cancel", id: first.body.id });
+  assert.equal((await app.request({ action: "codex_start" })).body.id, next.body.id, "stale cleanup cannot cancel a retry");
+  await app.request({ action: "codex_cancel", id: next.body.id });
+  assert.equal(app.credentials.size, 0);
+});
+
+test("Codex sign-in timeout releases the attempt for a fresh retry", async (t) => {
+  const app = await subscriptions(t, { connected: false, enabled: false });
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const first = await app.request({ action: "codex_start" });
+  const waiting = app.request({ action: "codex_await", id: first.body.id });
+  await new Promise(setImmediate);
+  t.mock.timers.tick(15 * 60_000);
+  assert.equal((await waiting).status, 409);
+  const next = await app.request({ action: "codex_start" });
+  assert.equal(next.status, 200);
+  assert.notEqual(next.body.id, first.body.id);
+  await app.request({ action: "codex_cancel", id: next.body.id });
+  assert.equal(app.credentials.size, 0);
+});
+
+test("a Codex callback arriving before the browser opener returns is retained until consumed or cancelled", async (t) => {
+  const { openaiCodexOAuth } = await import(new URL("../auth/oauth/openai-codex.js", import.meta.resolve("@earendil-works/pi-ai/providers/openai-codex")));
+  t.mock.method(openaiCodexOAuth, "login", async ({ notify }) => {
+    notify({ type: "auth_url", url: "https://auth.example/" });
+    return grant;
+  });
+  t.mock.method(globalThis, "fetch", async () => Response.json({ models: [listed("gpt-6-sol")] }));
+  for (const cancel of [false, true]) {
+    const app = await subscriptions(t, { connected: false, enabled: false });
+    const { body: { id } } = await app.request({ action: "codex_start" });
+    await new Promise(setImmediate);
+    if (cancel) await app.request({ action: "codex_cancel", id });
+    assert.equal((await app.request({ action: "codex_await", id })).status, cancel ? 409 : 200);
+    assert.equal(app.credentials.has("BEES_CODEX_OAUTH"), !cancel);
+    assert.equal((await app.request({ action: "codex_cancel", id })).status, 200);
+  }
+});
+
 test("existing connections refresh automatically, preserve choices, and keep removals hidden", async (t) => {
   let now = Date.now(), calls = 0;
   t.mock.method(Date, "now", () => now);
