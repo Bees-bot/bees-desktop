@@ -13,6 +13,7 @@ import {threadCss} from '../client/thread-style.js';
 import {ThreadWorkspace} from '../client/thread-layout.js';
 import {ScheduleSettings} from '../client/thread-schedule-form.js';
 import {RootFolderSettings} from '../client/thread-folders.js';
+import {IntegrationSettings} from '../client/thread-integrations.js';
 
 const configure=hosted=>configureRuntime(name=>({react:React,'react-dom':{},'@deepseek-ai/dsh-client-ui-primitives':{},'@bees/dsh-custom-ai':{},'@bees/dsh-subscriptions':{}})[name],{hosted});
 configure(true);
@@ -142,11 +143,11 @@ test('team controls toggle independently and open the team welcome screen',()=>{
 });
 
 const nodes=node=>!React.isValidElement(node)?[]:[node,...React.Children.toArray(node.props.children).flatMap(nodes)];
-function appHarness({snapshot,selected=null,thread=null,settingsSnapshot=snapshot,settingsTeam=null,settingsAccountId,hosted=true},run){
+function appHarness({snapshot,selected=null,thread=null,team=null,settingsSnapshot=snapshot,settingsTeam=null,settingsAccountId,hosted=true},run){
   const previousWindow=globalThis.window,previousFrame=globalThis.requestAnimationFrame;
   globalThis.window={};globalThis.requestAnimationFrame=()=>{};
   const states=[snapshot,selected,thread];let index=0;
-  states[10]=settingsAccountId;states[13]=settingsSnapshot;states[14]=settingsTeam;
+  states[10]=settingsAccountId;states[13]=settingsSnapshot;states[14]=settingsTeam;states[18]=team;
   configureRuntime(name=>({react:{...React,useState:initial=>{
     const key=index++;if(!(key in states))states[key]=typeof initial==='function'?initial():initial;
     return [states[key],value=>{states[key]=typeof value==='function'?value(states[key]):value;}];
@@ -159,6 +160,47 @@ function appHarness({snapshot,selected=null,thread=null,settingsSnapshot=snapsho
     if(previousFrame===undefined)delete globalThis.requestAnimationFrame;else globalThis.requestAnimationFrame=previousFrame;
   }
 }
+
+test('thread add-ons use the active team without opening settings',async t=>{
+  const previousFetch=globalThis.fetch,requests=[];t.after(()=>{globalThis.fetch=previousFetch;});
+  globalThis.fetch=async(url,options)=>{requests.push(JSON.parse(options.body));return {ok:true,json:async()=>({})};};
+  const team={id:'research',title:'Research',ownerClientId:'local'},thread={id:'goal',teamId:team.id,title:'Goal',ownerClientId:'local',runs:[]};
+  const snapshot={clientId:'local',teams:[team],defaultTeamId:team.id,threads:[thread],organizations:[],signedIn:true};
+  for(const settingsTeam of [null,{id:'other-team',title:'Other team',ownerClientId:'other'}]){
+    let saving;
+    appHarness({snapshot,selected:thread.id,thread,team,settingsSnapshot:null,settingsTeam,settingsAccountId:'other-account'},(render,renderPanel)=>{
+      const workspace=render().find(node=>node.type===ThreadWorkspace);
+      const panel=nodes(workspace.props.renderWidget('addons')).find(node=>node.type===IntegrationSettings);
+      assert(panel,'Add-on controls must render before team settings have loaded');
+      assert.equal(panel.props.threadId,team.id);
+      assert.equal(panel.props.canManage,true);
+      assert.equal(panel.props.signedIn,true);
+      const content=renderPanel(panel,{catalog:[],servers:[]});
+      assert(content.some(node=>node.type==='summary'&&node.props.children==='Add an MCP add-on'));
+      assert(content.some(node=>node.type==='button'&&node.props.children==='Connect add-on'));
+      saving=panel.props.request('saveIntegration',panel.props.threadId,{catalogId:'playwright'});
+      panel.props.onSignIn();
+      const page=render().find(node=>node.type===SettingsPage);
+      assert.equal(page,undefined,'Sign-in opens the login dialog');
+    });
+    await saving;
+    assert.equal(requests.at(-1).threadId,team.id);
+    assert.equal(requests.at(-1).action,'saveIntegration');
+    assert.equal(requests.at(-1).settingsAccountId,undefined,'Thread add-ons use the active account');
+  }
+});
+
+test('thread add-ons preserve team permissions and show loading while the team is read',()=>{
+  const thread={id:'goal',teamId:'research',title:'Goal',runs:[]};
+  for(const [team,role,allowed] of [[null,null,false],[{ownerClientId:'local'},null,true],[{ownerClientId:'other'},'editor',true],[{ownerClientId:'other'},'viewer',false],[{ownerClientId:'local',frozen:true},null,false],[{ownerClientId:'local',unavailable:'Offline'},null,false]]){
+    const snapshot={clientId:'local',user:{id:'me'},teams:[{id:'research',title:'Research'}],defaultTeamId:'research',threads:[thread],organizations:[],directory:{threads:[],clients:[],participants:[{thread_id:'research',user_id:'me',role}]}};
+    appHarness({snapshot,selected:thread.id,thread,team,settingsSnapshot:null},render=>{
+      const workspace=render().find(node=>node.type===ThreadWorkspace),content=nodes(workspace.props.renderWidget('addons'));
+      if(!team)assert(content.some(node=>node.props.role==='status'&&node.props.children==='Loading team add-ons…'));
+      else assert.equal(content.find(node=>node.type===IntegrationSettings).props.canManage,allowed);
+    });
+  }
+});
 
 test('the organization rail stays compact and every action has a tooltip',()=>{
   assert.doesNotMatch(threadCss,/\.bc-rail:(?:hover|focus-within)/);

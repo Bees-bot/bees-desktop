@@ -196,8 +196,14 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const leaveTeam=()=>perform(async()=>{if(!await confirmAction(`Leave ${settingsTeam.title}? You lose access to its threads. Threads you started on this computer stay with you.`,'Leave'))return;await settingsCommand('leave',configTeamId);setSettingsTeamId(null);setSettingsTeam(null);await refreshSettings();await refresh();});
   const teamAction=(action,values)=>perform(async()=>{await settingsCommand(action,configTeamId,values);await refreshSettings();await refresh();await readSettingsTeam(configTeamId);});
   const files=thread?h(ThreadFiles,{key:selected,thread,canWrite,busy,onAttach:attach,onPreview:previewFile,preview,onClosePreview:()=>setPreview(null)}):null;
-  const signInForApps=()=>{loginReturn.current=configTeamId;setError('');setDialog('login');};
-  const integrations=section=>settingsTeam?h(IntegrationSettings,{key:configAccountId+configTeamId+section,threadId:configTeamId,canManage:(teamOwn||['owner','editor'].includes(settingsRole))&&!settingsTeam.unavailable&&!settingsTeam.frozen,signedIn:settingsData?.signedIn??!!settingsData?.user,onSignIn:signInForApps,request:settingsCommand,perform,page:section}):null;
+  const signInForApps=(id=configTeamId)=>{loginReturn.current=id;setError('');setDialog('login');};
+  const integrations=(section,inThread=false)=>{
+    const doc=inThread?team:settingsTeam,snapshot=inThread?data:settingsData,id=inThread?currentTeamId:configTeamId,role=inThread?teamRole:settingsRole;
+    return doc?h(IntegrationSettings,{key:(inThread?data?.clientId:configAccountId)+id+section,threadId:id,
+      canManage:(doc.ownerClientId===snapshot?.clientId||['owner','editor'].includes(role))&&!doc.unavailable&&!doc.frozen,
+      signedIn:snapshot?.signedIn??!!snapshot?.user,onSignIn:()=>{if(inThread)openTeamSettings('addons',id);signInForApps(id);},
+      request:inThread?command:settingsCommand,perform,page:section}):h('p',{role:'status'},'Loading team add-ons…');
+  };
   const configuration=(section,note)=>settingsTeam?h(React.Fragment,null,canConfigureTeam||!note?null:h('p',{className:'bc-muted'},'Only the team owner can change shared settings.'),h(WorkflowSettings,{key:configAccountId+configTeamId+section+(canConfigureTeam?'':settingsTeam.revision),thread:settingsTeam,agents:settingsTeam.agents??[],scope:'team',section,disabled:!canConfigureTeam,busy,onSave:saveTeam})):h('p',{role:'status'},'Loading team settings…');
   const invitations=h('form',{className:'bc-form',onSubmit:event=>{event.preventDefault();void perform(async()=>{
     if(!settingsData?.user){setDialog('login');return;}const invite=await settingsCommand('share',configTeamId,{email,role});setInviteLink(invite.url);setNotice(`Invited ${email}. It shows in their Bees sidebar, or you can send them the link below.`);setEmail('');setRole('viewer');await refresh();await readSettingsTeam(configTeamId);
@@ -258,7 +264,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
       h('div',{className:'bc-settings-layout'},h(SettingsNav,{items:THREAD_SETTINGS,selected:threadSection,onSelect:section=>{setThreadSection(section);setNotice('');},label:'Thread settings sections'}),h('div',{className:'bc-settings-content'},threadContent)))
     :h('section',{className:'bc-conversation'+(page==='files'?' bc-files-tab':'')},
       page==='kanban'?h(ThreadKanban,{key:selected,thread:effectiveThread,onConversation:()=>navigate('conversation'),onWorkflow:()=>openTeamSettings('processes'),icon})
-      :page==='files'?files:page==='addons'?integrations('addons'):page==='schedule'?h(ScheduleSettings,{key:selected,thread,disabled:!canConfigure,busy,onSave:saveThread}):page==='memory'?configuration(page,true)
+      :page==='files'?files:page==='addons'?integrations('addons',true):page==='schedule'?h(ScheduleSettings,{key:selected,thread,disabled:!canConfigure,busy,onSave:saveThread}):page==='memory'?configuration(page,true)
       :h(ThreadDetails,{key:selected,thread:{...effectiveThread,instructions:thread.instructions},teamInstructions:team?.instructions,canConfigure,busy,onSave:saveThread,page,peerNames,userId:data?.user?.id,onSettings:openSettings,onFiles:()=>navigate('files')}));
   const renderThread=t=>h('div',{key:t.id,className:'bc-thread-row '+(selected===t.id?'active':'')},
     h('button',{className:'bc-thread',title:t.title,'aria-current':selected===t.id?'page':undefined,onClick:()=>select(t.id)},
@@ -324,7 +330,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
         onClose:closeDialog
       },
         dialog==='account'?account:dialog==='team'?h(React.Fragment,null,settingsTeam&&!canConfigureTeam&&!['addons','browser','schedule'].includes(teamSection)?h('p',{className:'bc-muted'},'Only the team owner can change shared settings.'):null,teamContent,
-          settingsTeam&&legacyRows.length&&['general','memory','schedule','addons','browser'].includes(teamSection)?h(LegacyOverrides,{key:configAccountId+configTeamId+teamSection,rows:legacyRows,section:teamSection,request:settingsCommand,perform,busy,signedIn:settingsData?.signedIn??!!settingsData?.user,onSignIn:signInForApps}):null):globalContent))
+          settingsTeam&&legacyRows.length&&['general','memory','schedule','addons','browser'].includes(teamSection)?h(LegacyOverrides,{key:configAccountId+configTeamId+teamSection,rows:legacyRows,section:teamSection,request:settingsCommand,perform,busy,signedIn:settingsData?.signedIn??!!settingsData?.user,onSignIn:()=>signInForApps()}):null):globalContent))
       :null,h('section',{className:'bc-thread-surface',hidden:settingsOpen},
       h('header',{className:'bc-thread-header'},
         h('button',{className:'bc-icon bc-back-to-threads','aria-label':'Show threads',onClick:()=>select(null)},'‹'),
