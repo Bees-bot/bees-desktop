@@ -11,9 +11,9 @@ window.__ModuleLoader__.load({
     const CLAUDE_INSTALL_URL = "https://claude.com/product/claude-code";
     const css = `
       .bees-subscriptions{display:grid;gap:16px}
-      .bees-subscription{display:flex;flex-direction:column;gap:16px;padding:20px;border:1px solid var(--line,#e9ebe5);border-radius:14px;background:var(--surface,#fff);box-sizing:border-box}
-      .bees-subscription-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}
-      .bees-subscription-header-info{flex:1 1 280px;min-width:0}
+      .bees-subscription{display:flex;flex-direction:column;gap:14px;padding:16px 18px;border:1px solid var(--line,#e9ebe5);border-radius:14px;background:var(--surface,#fff);box-sizing:border-box}
+      .bees-subscription-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+      .bees-subscription-header-info{flex:1 1 180px;min-width:0}
       .bees-subscription-header-info h3{margin:0 0 4px;font-size:16px;font-weight:650;color:var(--ink,#242820)}
       .bees-subscription-header-info p{margin:0;font-size:13px;line-height:1.45;color:var(--muted,#787d72)}
       .bees-subscription-header-actions{display:flex;align-items:center;gap:10px;flex-shrink:0}
@@ -25,11 +25,12 @@ window.__ModuleLoader__.load({
       .bees-subscription-models .bees-badge .bees-btn{padding:0 2px;border:0;background:transparent;color:var(--muted,#787d72);font-size:14px;line-height:1;min-height:auto;cursor:pointer}
       .bees-subscription-models .bees-badge .bees-btn:hover{color:var(--ink,#242820)}
       .bees-subscription-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding-top:14px;border-top:1px solid var(--line,#e9ebe5);margin-top:2px}
-      .bees-subscription-footer-left{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+      .bees-subscription-footer-left{display:flex;align-items:center;gap:8px;flex-wrap:nowrap}
       .bees-cli-path{flex-basis:100%;min-width:0;margin-top:2px}
       .bees-cli-path label{display:block;font-size:12px;font-weight:600;color:var(--ink,#242820);margin-bottom:6px}
-      .bees-cli-path-controls{display:flex;gap:8px;flex-wrap:wrap}
-      .bees-cli-path-controls input{flex:1 1 240px;min-width:0}
+      .bees-cli-path-controls{display:flex;gap:8px;align-items:center}
+      .bees-cli-path-controls input{flex:1 1 140px;min-width:100px}
+      .bees-cli-path-controls button{flex-shrink:0;white-space:nowrap}
       .bees-cli-path p{margin:6px 0 0;font-size:12px;color:var(--muted,#787d72)}
 
       /* Modern Toggle Switch */
