@@ -72,11 +72,13 @@ test('stopping and restarting a hosted client preserves its storage and credenti
   const c = cluster(), options = { image, directoryUrl: 'https://directory.test', api: c.api, fetcher: async () => Response.json({}) };
   const provision = kubernetesClients(options), alice = { id: 'alice' }, bob = { id: 'bob' };
   const [a, b] = await Promise.all([provision(alice, 'session'), provision(bob, 'session')]);
+  assert.deepEqual((await provision.running()).map(client => client.token).sort(), [a.token, b.token].sort());
   await Promise.all([provision.stop(alice), provision.stop(alice)]);
   const deployments = [...c.rows.values()].filter(row => row.kind === 'Deployment');
   assert.equal(deployments.find(row => a.url.includes(row.metadata.name)).spec.replicas, 0);
   assert.equal(deployments.find(row => b.url.includes(row.metadata.name)).spec.replicas, 1);
   assert.equal(c.writes.filter(row => row.method === 'PATCH').length, 1);
+  assert.deepEqual((await provision.running()).map(client => client.token), [b.token]);
   await provision.stop(alice); // Already stopped: no extra writes.
   assert.deepEqual(await provision(alice, 'new-session'), a);
   assert.equal(deployments.find(row => a.url.includes(row.metadata.name)).spec.replicas, 1);

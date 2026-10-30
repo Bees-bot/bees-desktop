@@ -72,7 +72,16 @@ export class ThreadClient {
   }
   async authority(id){await this.refresh();const t=this.roster.threads.find(t=>t.id===id);if(!t)throw threadError('Thread access is unavailable',403);return t;}
   async fence(id){const doc=this.store.get(id);this.store.writable(doc);if(doc.shared){const t=await this.authority(id);if(t.owner_client_id!==this.store.clientId||Number(t.epoch)!==doc.epoch)throw threadError('This client no longer owns the thread',409);}return doc;}
-  async snapshot(){const rows=this.store.list();return {product:'Bees Client',clientId:this.store.clientId,user:this.directory.user??null,signedIn:!!this.directory.token&&!this.directory.authRequired,organizations:this.organizations(),organizationError:this.organizationError??null,serverUrl:this.directory.url,connectionError:this.connectionError??null,threads:rows.filter(t=>t.kind!=='team'),teams:rows.filter(t=>t.kind==='team'&&(!t.shared||!this.directory.token||this.connectionError||this.roster.threads.some(row=>row.id===t.id))),defaultTeamId:this.store.preference('defaultTeam'),directory:this.roster,models:await this.options.models?.(this.store)??[],credits:this.options.credits?.view(this.store),agentPresets:await this.options.agentPresets?.()??[],defaultModel:this.store.preference('model'),settings:this.store.preference('settings')??{}};}
+  async snapshot(){
+    // Older versions saved empty Chat/Goal drafts before the first message.
+    const rows=this.store.list().filter(row=>{
+      if(row.kind==='team'||row.shared||row.staged||row.ownerClientId!==this.store.clientId||!/^New (chat|goal)$/i.test(row.title))return true;
+      const doc=this.store.get(row.id);
+      const template=workflowTemplate(doc.workflow);
+      if(!['chat','goals'].includes(template?.id)||canonical(doc.workflow??DEFAULT_WORKFLOW)!==canonical(template.workflow))return true;
+      return doc.messages.length||doc.runs.length||doc.artifacts.length||doc.folders?.length||doc.instructions||doc.memory?.length||doc.schedule||this.store.preference(`integrations:${row.id}`)!==null||this.store.preference(`browser:${row.id}`)!==null;
+    });
+    return {product:'Bees Client',clientId:this.store.clientId,user:this.directory.user??null,signedIn:!!this.directory.token&&!this.directory.authRequired,organizations:this.organizations(),organizationError:this.organizationError??null,serverUrl:this.directory.url,connectionError:this.connectionError??null,threads:rows.filter(t=>t.kind!=='team'),teams:rows.filter(t=>t.kind==='team'&&(!t.shared||!this.directory.token||this.connectionError||this.roster.threads.some(row=>row.id===t.id))),defaultTeamId:this.store.preference('defaultTeam'),directory:this.roster,models:await this.options.models?.(this.store)??[],credits:this.options.credits?.view(this.store),agentPresets:await this.options.agentPresets?.()??[],defaultModel:this.store.preference('model'),settings:this.store.preference('settings')??{}};}
   async registerThread(id,input={}){await this.fence(id);let doc=this.store.document(id);if(!this.directory.token)throw threadError('Sign in to share or transfer a thread',401);
     const team=this.store.teamFor(id);
     if(this.organizations().some(org=>org.local&&org.id===(team?.organizationId??doc.organizationId)))throw threadError('Local organizations cannot be shared',403);

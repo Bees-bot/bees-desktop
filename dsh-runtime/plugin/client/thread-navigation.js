@@ -3,7 +3,7 @@ import { OrganizationIcon } from './thread-organization-appearance.js';
 
 export const initials=name=>(name||'You').split(/\s|@/).filter(Boolean).slice(0,2).map(x=>x[0]).join('').toUpperCase();
 
-export function TeamMenu({team,icon,busy,canCreate,onCreate,onSettings,onHide}){
+export function TeamMenu({team,icon,busy,onCreateTeam,onSettings,onHide}){
   const choose=fn=>event=>{event.currentTarget.closest('details').open=false;fn();};
   return h('details',{className:'bc-team-menu bc-thread-menu',onKeyDown:event=>{if(event.key==='Escape'){event.currentTarget.open=false;event.currentTarget.querySelector('summary').focus();}}},
     h('summary',{'aria-label':`${team.title} menu`,title:`${team.title} menu`},icon('more')),
@@ -13,10 +13,10 @@ export function TeamMenu({team,icon,busy,canCreate,onCreate,onSettings,onHide}){
       h('button',{onClick:choose(()=>onSettings('schedule',team.id))},icon('schedule'),'Schedules'),
       h('button',{onClick:choose(()=>onSettings('folders',team.id))},icon('file'),'Files & folders'),
       h('button',{onClick:choose(()=>onSettings('addons',team.id))},icon('plus'),'Add-ons'),
-      h('button',{disabled:busy||!canCreate,onClick:choose(()=>onCreate('chat',team.id))},icon('chat'),'New chat'),
       h('button',{disabled:busy,onClick:choose(()=>onHide(team.id))},icon('hide'),'Hide'),
       h('hr'),
-      h('button',{onClick:choose(()=>onSettings('general',team.id))},icon('gear'),'Settings')));
+      h('button',{onClick:choose(()=>onSettings('general',team.id))},icon('gear'),'Settings'),
+      h('button',{disabled:busy,onClick:choose(onCreateTeam)},icon('plus'),'Create team')));
 }
 
 export function TeamSection({team,expanded,onToggle,onOpen,menu,children}){

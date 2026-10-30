@@ -4,6 +4,10 @@ Notable changes, newest first. Dates are release dates.
 
 ## Unreleased
 
+- Keep the organization bar compact with hover tooltips, choose the account for a new organization, and simplify team menus with Create team instead of New chat.
+- Hide old empty Chat and Goal placeholders while preserving saved thread content and settings.
+- Stop free hosted Clients after five minutes without browser contact once active work finishes; keep their saved data and restart them on the next request.
+
 - Add and edit instructions directly in a thread's Instructions tab, with Save and Cancel controls.
 - Upgraded DeepSeek Harness to 0.2.1-rc.3. Chats resume their saved conversation and files across replies and restarts.
 - Agents can ask any enabled agent in their team for help, using that agent's instructions, model and add-ons. Helpers cannot call themselves or an agent above them in the delegation chain.

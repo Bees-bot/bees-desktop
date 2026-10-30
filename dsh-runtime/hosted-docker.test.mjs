@@ -16,13 +16,15 @@ test('Docker shutdown preserves credentials and volumes and login starts only th
     const exec = async (command, args, options) => {
       assert.equal(command, 'docker'); calls.push(args);
       const [action, name] = args, container = containers.get(name);
+      if (action === 'ps') return { stdout: [...containers].filter(([, row]) => row.State.Running).map(([name]) => name).join('\n') };
       if (action === 'inspect') {
         if (!container) throw Object.assign(Error('Missing container'), { stderr: 'No such object: ' + name });
-        return { stdout: JSON.stringify([container]) };
+        return { stdout: JSON.stringify(args.slice(1).map(name => containers.get(name))) };
       }
       if (action === 'run') {
         const label = args[args.indexOf('--label') + 1].slice('bees.client='.length);
         containers.set(args[args.indexOf('--name') + 1], {
+          Name: '/' + args[args.indexOf('--name') + 1],
           Config: { Labels: { 'bees.client': label } }, State: { Running: true },
           NetworkSettings: { Ports: { '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: String(health.address().port) }] } },
         });
@@ -38,9 +40,11 @@ test('Docker shutdown preserves credentials and volumes and login starts only th
     const alice = { id: 'alice' }, bob = { id: 'bob' };
     const a = await provision(alice, 'session'), b = await provision(bob, 'session');
     assert.notEqual(a.token, b.token);
+    assert.deepEqual((await provision.running()).map(client => client.token).sort(), [a.token, b.token].sort());
     await Promise.all([provision.stop(alice), provision.stop(alice)]);
     assert.equal(calls.filter(args => args[0] === 'stop').length, 1);
     assert.equal([...containers.values()].filter(container => container.State.Running).length, 1);
+    assert.deepEqual((await provision.running()).map(client => client.token), [b.token]);
     await provision.stop(alice);
     assert.deepEqual(await provision(alice, 'session'), a);
     const runs = calls.filter(args => args[0] === 'run');

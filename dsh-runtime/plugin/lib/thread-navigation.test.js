@@ -8,6 +8,8 @@ import {SettingsPage,SettingsNav,ThreadDetails} from '../client/thread-panels.js
 import {TeamProcesses} from '../client/thread-processes.js';
 import {OrganizationAppearance,OrganizationIcon,readOrganizationImage} from '../client/thread-organization-appearance.js';
 import {ThreadApp} from '../client/thread-app.js';
+import {FirstStart} from '../client/thread-credits.js';
+import {threadCss} from '../client/thread-style.js';
 import {ThreadWorkspace} from '../client/thread-layout.js';
 import {ScheduleSettings} from '../client/thread-schedule-form.js';
 import {RootFolderSettings} from '../client/thread-folders.js';
@@ -80,15 +82,26 @@ test('hosted org labels use the signed-in email when there is no desktop account
   assert.match(markup,/aria-label="Studio \(alice@example.com\)"[^>]*aria-current="page"/);
 });
 
-test('each team menu keeps administration and secondary chat creation',()=>{
+test('each team menu keeps administration without chat creation',()=>{
   const menu=renderToStaticMarkup(React.createElement(TeamMenu,{team:{id:'team',title:'Research'},icon:()=>null}));
-  for(const label of ['Research menu','Processes','Agents','Schedules','Files &amp; folders','Add-ons','Settings','Hide','New chat'])assert(menu.includes(label),label);
-  assert.doesNotMatch(menu,/New Goal|New thread/);
+  for(const label of ['Research menu','Processes','Agents','Schedules','Files &amp; folders','Add-ons','Settings','Hide','Create team'])assert(menu.includes(label),label);
+  assert.doesNotMatch(menu,/New chat|New Goal|New thread/);
   const calls=[],tree=TeamMenu({team:{id:'research',title:'Research'},icon:()=>null,onSettings:(...args)=>calls.push(args)});
   for(const button of tree.props.children[1].props.children.slice(0,5))button.props.onClick({currentTarget:{closest:()=>({open:true})}});
   assert.deepEqual(calls,[['processes','research'],['agents','research'],['schedule','research'],['folders','research'],['addons','research']]);
   const page=renderToStaticMarkup(React.createElement(SettingsPage,{title:'Team settings',items:[['processes','Processes']],selected:'processes'},'Process editor'));
   assert.match(page,/<section[^>]*class="bc-settings-page"/);assert(page.includes('Process editor'));assert.doesNotMatch(page,/<dialog|aria-modal/);
+});
+
+test('Create team follows Settings, closes the menu, and is disabled while busy',()=>{
+  const calls=[],props={team:{id:'research',title:'Research'},icon:()=>null,onCreateTeam:()=>calls.push('create')};
+  const buttons=TeamMenu(props).props.children[1].props.children;
+  const create=buttons.at(-1),menu={open:true};
+  assert(buttons.at(-2).props.children.includes('Settings'));
+  assert(create.props.children.includes('Create team'));assert(!create.props.disabled);
+  create.props.onClick({currentTarget:{closest:()=>menu}});
+  assert.deepEqual(calls,['create']);assert.equal(menu.open,false);
+  assert.equal(TeamMenu({...props,busy:true}).props.children[1].props.children.at(-1).props.disabled,true);
 });
 
 
@@ -128,17 +141,6 @@ test('team controls toggle independently and open the team welcome screen',()=>{
   assert.deepEqual(calls,['toggle','open']);
 });
 
-test('secondary chat creation keeps its team target and creation permissions',()=>{
-  const calls=[],props={team:{id:'research',title:'Research'},icon:()=>null,canCreate:true,onCreate:(...args)=>calls.push(args)};
-  const chat=TeamMenu(props).props.children[1].props.children.find(node=>node?.props?.children?.includes('New chat'));
-  const menu={open:true};chat.props.onClick({currentTarget:{closest:()=>menu}});
-  assert.deepEqual(calls,[['chat','research']]);assert.equal(menu.open,false);
-  for(const state of [{canCreate:false},{busy:true}]){
-    const disabled=TeamMenu({...props,...state}).props.children[1].props.children.find(node=>node?.props?.children?.includes('New chat'));
-    assert.equal(disabled.props.disabled,true);
-  }
-});
-
 const nodes=node=>!React.isValidElement(node)?[]:[node,...React.Children.toArray(node.props.children).flatMap(nodes)];
 function appHarness({snapshot,selected=null,thread=null,settingsSnapshot=snapshot,settingsTeam=null,settingsAccountId,hosted=true},run){
   const previousWindow=globalThis.window,previousFrame=globalThis.requestAnimationFrame;
@@ -157,6 +159,36 @@ function appHarness({snapshot,selected=null,thread=null,settingsSnapshot=snapsho
     if(previousFrame===undefined)delete globalThis.requestAnimationFrame;else globalThis.requestAnimationFrame=previousFrame;
   }
 }
+
+test('the organization rail stays compact and every action has a tooltip',()=>{
+  assert.doesNotMatch(threadCss,/\.bc-rail:(?:hover|focus-within)/);
+  const tree=BeesNavigation({icon:()=>null,theme:{},accounts:[{id:'alice',user:{email:'alice@example.com'},organizations:[{id:'org',name:'Studio'}]}]});
+  for(const button of nodes(tree).filter(node=>node.type==='button'))assert(button.props.title,button.props['aria-label']);
+});
+
+test('first setup uses the chosen account and clears the previous account organization',async t=>{
+  const previousFetch=globalThis.fetch;t.after(()=>{globalThis.fetch=previousFetch;});
+  const accounts=[{id:'alice',active:true,user:{email:'alice@example.com',emailVerified:true},organizations:[{id:'alice-org',name:'Alice org'}]},{id:'bob',user:{email:'bob@example.com',emailVerified:true},organizations:[{id:'bob-org',name:'Bob org'}]}];
+  const snapshot={onboarding:null,teams:[],threads:[],organizations:accounts[0].organizations,accounts,user:accounts[0].user},requests=[];
+  globalThis.fetch=async(_url,options)=>{requests.push(options?.body?JSON.parse(options.body):null);return {ok:true,json:async()=>snapshot};};
+  let pending;
+  appHarness({snapshot,hosted:false},(render,renderPanel)=>{
+    let first=render().find(node=>node.type===FirstStart);const onCloud=first.props.onCloud;
+    first={...first,props:{...first.props,onCloud:values=>pending=onCloud(values)}};
+    let content=renderPanel(first);
+    content.find(node=>node.type==='select'&&!node.props['aria-label']).props.onChange({target:{value:'alice-org'}});
+    content.find(node=>node.props['aria-label']==='Account for new organization').props.onChange({target:{value:'bob'}});
+    content=renderPanel(first);
+    const orgPicker=content.find(node=>node.type==='select'&&!node.props['aria-label']);
+    assert.equal(orgPicker.props.value,'');assert(orgPicker.props.children.flat().some(node=>node.props?.value==='bob-org'));
+    assert(!orgPicker.props.children.flat().some(node=>node.props?.value==='alice-org'));
+    content.find(node=>node.type==='input').props.onChange({target:{value:'Studio'}});
+    content=renderPanel(first);content.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});
+  });
+  await pending;
+  assert.equal(requests[0].action,'switchAccount');assert.equal(requests[0].accountId,'bob');
+  assert.equal(requests[1].action,'completeOnboarding');assert.equal(requests[1].name,'Studio');assert.equal(requests[1].organizationId,undefined);
+});
 
 test('local org settings create without sign-in and keep the built-in teams separate',()=>{
   const org={id:'studio',name:'Studio',role:'owner',local:true};
@@ -199,6 +231,33 @@ test('switching from team General between built-in and named local orgs keeps wi
   });
 });
 
+for(const local of [false,true])test(`organization creation chooses an account from ${local?'local':'signed-in'} settings`,async t=>{
+  const previousFetch=globalThis.fetch;t.after(()=>{globalThis.fetch=previousFetch;});
+  const accounts=[{id:'alice',active:true,user:{email:'alice@example.com'},organizations:[]},{id:'bob',user:{email:'bob@example.com'},organizations:[]}];
+  const snapshot={teams:[],threads:[],organizations:[],accounts},org={id:'bob-studio',name:'Studio'},requests=[];
+  globalThis.fetch=async(_url,options)=>{const input=options?.body?JSON.parse(options.body):null;requests.push(input);return {ok:true,json:async()=>input?.action==='createOrganization'?org:snapshot};};
+  let pending;
+  appHarness({snapshot,settingsAccountId:local?null:'alice',hosted:false},(render,renderPanel)=>{
+    render().find(node=>node.type===BeesNavigation).props.onGlobal('organizations');
+    if(local)render().find(node=>node.type===SettingsPage).props.groups.find(group=>group.title==='Organizations').selector.props.onSelect('local');
+    let panel=render().find(node=>node.type.name==='OrganizationsPanel');
+    const perform=panel.props.perform;panel={...panel,props:{...panel.props,perform:fn=>pending=perform(fn)}};
+    let content=renderPanel(panel);
+    if(local){content.find(node=>node.type==='input'&&node.props.type==='checkbox').props.onChange({target:{checked:false}});content=renderPanel(panel);}
+    content.find(node=>node.props['aria-label']==='Organization name').props.onChange({target:{value:' Studio '}});
+    const picker=content.find(node=>node.props['aria-label']==='Account for new organization');
+    assert.deepEqual(picker.props.children.map(option=>option.props.children),accounts.map(account=>account.user.email));
+    picker.props.onChange({target:{value:'bob'}});
+    content=renderPanel(panel);
+    assert.equal(content.find(node=>node.props['aria-label']==='Organization name').props.value,' Studio ');
+    assert.equal(content.find(node=>node.props['aria-label']==='Account for new organization').props.value,'bob');
+    content.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});
+  });
+  await pending;
+  assert.equal(requests[0].action,'createOrganization');assert.equal(requests[0].name,'Studio');assert.equal(requests[0].settingsAccountId,'bob');
+  assert(!requests.some(input=>input?.action==='selectOrganization'||input?.action==='switchAccount'),'Creating an org must not change the active chat account');
+});
+
 test('creating a local org from signed-in settings selects it in the main view',async t=>{
   const previousFetch=globalThis.fetch;t.after(()=>{globalThis.fetch=previousFetch;});
   const org={id:'local-studio',name:'Private studio',local:true,role:'owner'},requests=[];
@@ -219,7 +278,7 @@ test('creating a local org from signed-in settings selects it in the main view',
   assert.equal(requests[1].action,'selectOrganization');assert.equal(requests[1].accountId,null);assert.equal(requests[1].organizationId,org.id);assert.equal(requests[2],null);
 });
 
-test('Add team uses the local org chosen in Settings while a different account is active',async t=>{
+for(const source of ['settings','menu'])test(`${source} team creation uses its own organization and account`,async t=>{
   const previousFetch=globalThis.fetch,previousDocument=globalThis.document,previousDialog=globalThis.HTMLDialogElement;
   t.after(()=>{globalThis.fetch=previousFetch;if(previousDocument===undefined)delete globalThis.document;else globalThis.document=previousDocument;if(previousDialog===undefined)delete globalThis.HTMLDialogElement;else globalThis.HTMLDialogElement=previousDialog;});
   const requests=[],elements=[];
@@ -227,8 +286,8 @@ test('Add team uses the local org chosen in Settings while a different account i
   globalThis.document={querySelector:()=>null,createElement:tag=>{
     const element={tag,listeners:{},append(){},setAttribute(){},addEventListener(name,fn){this.listeners[name]=fn;},remove(){}};elements.push(element);return element;
   },body:{append:dialog=>queueMicrotask(()=>{elements.find(element=>element.tag==='input').value='Research';dialog.returnValue='ok';dialog.listeners.close();})}};
-  const org={id:'studio',name:'Studio',local:true},localSnapshot={teams:[],threads:[],organizations:[org]};
-  const snapshot={...localSnapshot,localOrganizations:[org],accounts:[{id:'alice',active:true,user:{email:'alice@example.com'},organizations:[]}]};
+  const org={id:'studio',name:'Studio',local:true},localSnapshot={teams:[{id:'work-team',title:'Work',organizationId:'work'}],threads:[],organizations:[org,{id:'work',name:'Work'}]};
+  const snapshot={...localSnapshot,settings:{selectedOrganizationId:'work'},localOrganizations:[org],accounts:[{id:'alice',active:true,user:{email:'alice@example.com'},organizations:[]}]};
   globalThis.fetch=async(_url,options)=>{const input=options?.body?JSON.parse(options.body):null;requests.push(input);return {ok:true,json:async()=>input?.action==='createTeam'?{id:'new-team'}:input?{}:snapshot};};
   let pending;
   appHarness({snapshot,settingsSnapshot:localSnapshot,settingsAccountId:null,hosted:false},render=>{
@@ -236,11 +295,12 @@ test('Add team uses the local org chosen in Settings while a different account i
     let groups=render().find(node=>node.type===SettingsPage).props.groups;
     groups.find(group=>group.title==='Organizations').selector.props.onSelect(':studio');
     groups=render().find(node=>node.type===SettingsPage).props.groups;
-    pending=groups.find(group=>group.title==='Teams').extra.props.onClick();
+    pending=source==='settings'?groups.find(group=>group.title==='Teams').extra.props.onClick():render().find(node=>node.type===TeamSection).props.menu.props.onCreateTeam();
   });
   await pending;
-  assert.equal(requests[0].action,'createTeam');assert.equal(requests[0].settingsAccountId,null);assert.equal(requests[0].organizationId,'studio');assert.equal(requests[0].name,'Research');
-  assert.equal(requests[1].action,'selectOrganization');assert.equal(requests[1].accountId,null);assert.equal(requests[1].organizationId,'studio');assert.equal(requests[2],null);
+  const accountId=source==='settings'?null:'alice',organizationId=source==='settings'?'studio':'work';
+  assert.equal(requests[0].action,'createTeam');assert.equal(requests[0].settingsAccountId,accountId);assert.equal(requests[0].organizationId,organizationId);assert.equal(requests[0].name,'Research');
+  assert.equal(requests[1].action,'selectOrganization');assert.equal(requests[1].accountId,accountId);assert.equal(requests[1].organizationId,organizationId);assert.equal(requests[2],null);
 });
 
 test('thread rows omit decorative icons and Settings lists all teams without a hidden teams menu',()=>{
@@ -253,7 +313,7 @@ test('thread rows omit decorative icons and Settings lists all teams without a h
     assert(nodes(row).some(node=>node.props.title==='Running'));
     assert(!nodes(row).some(node=>node.type==='details'||node.type==='summary'));
     for(const section of tree.filter(node=>node.type===TeamSection)){
-      assert.equal(section.props.menu.props.canCreate,section.props.team.id!=='frozen');
+      assert.doesNotMatch(renderToStaticMarkup(section.props.menu),/New chat/);
     }
     tree.find(node=>node.type===BeesNavigation).props.onGlobal('ai');
     const page=render().find(node=>node.type===SettingsPage);

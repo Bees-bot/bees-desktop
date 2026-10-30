@@ -11,7 +11,7 @@ COPY scripts ./scripts
 COPY src/brand-mark.png ./src/brand-mark.png
 COPY dsh-runtime/start.mjs dsh-runtime/headless.mjs ./dsh-runtime/
 COPY dsh-runtime/client-cloud.mjs ./dsh-runtime/
-COPY dsh-runtime/hosted-clients.mjs dsh-runtime/hosted-kubernetes.mjs dsh-runtime/hosted-api.mjs ./dsh-runtime/
+COPY dsh-runtime/hosted-clients.mjs dsh-runtime/hosted-kubernetes.mjs dsh-runtime/hosted-api.mjs dsh-runtime/hosted-lifecycle.mjs ./dsh-runtime/
 COPY dsh-runtime/profile ./dsh-runtime/profile
 ARG BEES_BUILD_REVISION=unversioned
 ARG BEES_BUILD_DIRTY=false

@@ -100,10 +100,17 @@ test('one browser retains all accounts and organizations while commands and sign
   assert.deepEqual(result.value.threads,[{id:'bob-thread'}]);
   assert.deepEqual([...provisioned].sort(),['alice','bob']);
   assert(!JSON.stringify(accounts).includes('private-'));assert(accounts.every(account=>!('token' in account)));
+  for(const action of ['settingsSnapshot','createOrganization']){
+   assert.equal((await request({action,settingsAccountId:alice.id,...(action==='createOrganization'?{name:'New studio'}:{})})).status,200);
+   assert.equal(commands.at(-1).user,'alice');assert.equal(commands.at(-1).action,action);
+   assert.equal(jar.get('bees_hosted_session'),'bob','Settings keep the active chat account');
+  }
+  assert.equal((await request({action:'createOrganization',settingsAccountId:'unknown',name:'New studio'})).status,401);
   assert.equal((await request({action:'switchAccount',accountId:'unknown'})).status,401);
   // Renaming a cookie cannot substitute another user's credentials for an account.
   const aliceCookie='bees_hosted_account_'+alice.id;
-  jar.set(aliceCookie,'bob');assert.equal((await request({action:'switchAccount',accountId:alice.id})).status,401);jar.set(aliceCookie,'alice');
+  jar.set(aliceCookie,'bob');assert.equal((await request({action:'switchAccount',accountId:alice.id})).status,401);
+  assert.equal((await request({action:'createOrganization',settingsAccountId:alice.id,name:'New studio'})).status,401);jar.set(aliceCookie,'alice');
   assert.equal((await request({action:'selectOrganization',accountId:alice.id,organizationId:'bob-org'})).status,403);
   assert.equal(jar.get('bees_hosted_session'),'bob','Failed selection keeps the prior view');
   assert.equal((await request({action:'selectOrganization',accountId:alice.id,organizationId:'alice-org'})).status,200);
