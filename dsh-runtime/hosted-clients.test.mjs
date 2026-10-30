@@ -49,11 +49,16 @@ test('hosted gateway authenticates each request and routes only to the matching 
 });
 
 test('one browser retains all accounts and organizations while commands and sign-out stay account scoped',async()=>{
- const servers=[],revoked=new Set(),unavailable=new Set(),commands=[],provisioned=new Set();
+ const servers=[],revoked=new Set(),unavailable=new Set(),commands=[],provisioned=new Set(),stopped=[];let creditsUnavailable=false,stopFailed=false,creditOverride;
  const directory=createServer((req,res)=>{
   const token=String(req.headers.authorization??'').slice(7);
   res.setHeader('content-type','application/json');
-  if(req.url!=='/api/me'||!['alice','bob'].includes(token)||revoked.has(token)){res.statusCode=401;return res.end('{}');}
+  if(!['alice','bob'].includes(token)||revoked.has(token)){res.statusCode=401;return res.end('{}');}
+  if(req.url==='/api/directory/credits'){
+   if(creditsUnavailable){res.statusCode=503;return res.end('{}');}
+   return res.end(JSON.stringify({credits:creditOverride===undefined?{balance:token==='alice'?0:100,heldTokens:0,autoRenew:false,paymentPending:false}:creditOverride}));
+  }
+  if(req.url!=='/api/me'){res.statusCode=404;return res.end('{}');}
   res.end(JSON.stringify({user:{id:token,email:token+'@example.com'}}));
  });servers.push(directory);
  try{
@@ -73,6 +78,7 @@ test('one browser retains all accounts and organizations while commands and sign
    });servers.push(worker);clients[user]={url:await listen(worker),token:'private-'+user};
   }
   const provision=async user=>{provisioned.add(user.id);return clients[user.id];};
+  provision.stop=async user=>{if(stopFailed)throw Error('Stop failed');stopped.push(user.id);provisioned.delete(user.id);};
   let gateway=createHostedGateway({directoryUrl,assets:'/unused',provision});servers.push(gateway);let url=await listen(gateway);
   const request=async(input,path='/bees-api/threads')=>{
    const response=await fetch(url+path,{headers:{cookie:[...jar].map(([key,value])=>key+'='+value).join('; '),...(input?{'content-type':'application/json'}:{})},...(input?{method:'POST',body:JSON.stringify(input)}:{})});
@@ -107,12 +113,27 @@ test('one browser retains all accounts and organizations while commands and sign
   // The gateway holds no in-memory login state; browser cookies restore every account.
   await close(gateway);gateway=createHostedGateway({directoryUrl,assets:'/unused',provision});servers.push(gateway);url=await listen(gateway);
   assert.equal((await request()).value.accounts.length,2);
-  assert.equal((await request({action:'logout'})).status,200);
+  creditsUnavailable=true;assert.equal((await request({action:'logout'})).status,503);assert(jar.has(aliceCookie));assert.deepEqual(stopped,[]);creditsUnavailable=false;
+  stopFailed=true;assert.equal((await request({action:'logout'})).status,503);assert(jar.has(aliceCookie));stopFailed=false;
+  assert.equal((await request({action:'logout',userId:'bob',credits:{balance:100}})).status,200);
+  assert.deepEqual(stopped,['alice']);assert(!provisioned.has('alice'));assert(provisioned.has('bob'));
   assert(!jar.has(aliceCookie));result=await request();assert.equal(result.value.user.id,'bob');assert.equal(result.value.accounts.length,1);
   assert.equal((await request({action:'switchAccount',accountId:alice.id})).status,401);
-  assert(!commands.some(command=>command.action==='logout'),'Browser sign-out leaves cloud work running');
-  await request({action:'login',session:'alice'});await request({action:'switchAccount',accountId:bob.id});revoked.add('bob');result=await request();assert.equal(result.status,200);assert.equal(result.value.user.id,'alice');assert.equal(result.value.accounts.length,1);
+  assert(!commands.some(command=>command.action==='logout'),'Shutdown is handled by the gateway');
+  await request({action:'logout'});assert.deepEqual(stopped,['alice'],'Paid account keeps running');
+  await request({action:'login',session:'bob'});
+  await request({action:'login',session:'alice'});assert(provisioned.has('alice'),'Login restarts the free client');await request({action:'switchAccount',accountId:bob.id});revoked.add('bob');result=await request();assert.equal(result.status,200);assert.equal(result.value.user.id,'alice');assert.equal(result.value.accounts.length,1);
   assert(!jar.has('bees_hosted_account_'+bob.id));
   await request({action:'logout'});assert.equal((await request()).status,401);
+  assert.deepEqual(stopped,['alice','alice']);
+  for(const status of [{balance:1},{heldTokens:10},{autoRenew:true},{paymentPending:true}]){
+   creditOverride={balance:0,heldTokens:0,autoRenew:false,paymentPending:false,...status};
+   await request({action:'login',session:'alice'});assert.equal((await request({action:'logout'})).status,200);
+   assert.deepEqual(stopped,['alice','alice'],'Purchased, reserved, auto-renewing and pending-payment accounts keep running');
+  }
+  for(const unknown of [null,{}, {balance:0}]){
+   creditOverride=unknown;await request({action:'login',session:'alice'});await request({action:'logout'});
+   assert.deepEqual(stopped,['alice','alice'],'Unknown credit status never shuts down a paid client');
+  }
  }finally{await Promise.all(servers.map(close));}
 });

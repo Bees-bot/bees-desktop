@@ -3,6 +3,20 @@ import { THREAD_PAGES, defaultThreadLayout, normalizeThreadLayout, layoutGroups,
 
 const labels = new Map(THREAD_PAGES);
 const PRIMARY_TABS = new Set(['conversation', 'files', 'kanban', 'discussion']);
+const TAB_HELP = {
+  conversation: 'Talk to Bees and ask it to do work. Answer its questions and approve requests here.\nExample: “Prepare my weekly report.”',
+  files: 'The thread’s filing cabinet: files you added and results Bees created.\nExample: Upload a spreadsheet or open a finished report.',
+  kanban: 'A board showing where the work is in its process, including work given to helper agents.\nExample: See what’s running, waiting for you, or finished.',
+  discussion: 'Chat with the people sharing the thread. Messages here do not start Bees working.\nExample: “Can someone check these numbers?”',
+  details: 'The thread’s information card: its name, creation date, and process steps.\nExample: Check which process this thread follows.',
+  context: 'Read the guidance and saved context Bees uses for this work.\nExample: Check the rules Bees has been given.',
+  schedule: 'An alarm clock that tells Bees to repeat this thread’s work automatically. Bees must be running on the thread owner’s computer.\nExample: Run this report every Monday.',
+  memory: 'A notebook of facts Bees should remember. This tab edits team memory, shared across that team’s threads.\nExample: “Our reporting week starts on Monday.”',
+  addons: 'Connect and manage outside tools available through the team.\nExample: Give Bees access to a connected service.',
+  runs: 'A diary of previous attempts: what you asked, whether they finished, and their results.\nExample: Revisit yesterday’s report or a failed attempt.',
+  traces: 'A more detailed diary showing tools used and recorded approvals or answers.\nExample: Investigate what Bees did during a task.',
+  settings: 'Manage the thread itself: rename it, delete it, or transfer it to another computer.\nExample: Move ongoing work to another machine.',
+};
 
 export function ThreadWorkspace({ initialLayout, toolbar, navigation, renderWidget, onSave }) {
   const [layout, setLayout] = useState(() => normalizeThreadLayout(initialLayout) ?? defaultThreadLayout());
@@ -88,6 +102,7 @@ export function ThreadWorkspace({ initialLayout, toolbar, navigation, renderWidg
           h('button', {
             id: 'widget-tab-' + id, role: 'tab', 'aria-selected': node.active === id, 'aria-controls': 'widget-panel-' + id,
             className: 'bc-tab-button ' + (isPrimary ? 'bc-tab-primary' : 'bc-tab-secondary'),
+            title: TAB_HELP[id], 'aria-description': TAB_HELP[id],
             tabIndex: node.active === id ? 0 : -1, draggable: editing && !saving,
             onClick: () => changeLayout(layout => activateWidget(layout, id)),
             onKeyDown: event => {

@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {configureRuntime} from '../client/runtime.js';
-import {BeesNavigation,TeamMenu,TeamSection,SettingsScopePicker,TeamManagement} from '../client/thread-navigation.js';
+import {BeesNavigation,TeamMenu,TeamSection,SettingsScopePicker} from '../client/thread-navigation.js';
 import {SettingsPage,SettingsNav,ThreadDetails} from '../client/thread-panels.js';
 import {TeamProcesses} from '../client/thread-processes.js';
 import {OrganizationAppearance,OrganizationIcon,readOrganizationImage} from '../client/thread-organization-appearance.js';
 import {ThreadApp} from '../client/thread-app.js';
 import {ThreadWorkspace} from '../client/thread-layout.js';
 import {ScheduleSettings} from '../client/thread-schedule-form.js';
+import {RootFolderSettings} from '../client/thread-folders.js';
 
 const configure=hosted=>configureRuntime(name=>({react:React,'react-dom':{},'@deepseek-ai/dsh-client-ui-primitives':{},'@bees/dsh-custom-ai':{},'@bees/dsh-subscriptions':{}})[name],{hosted});
 configure(true);
@@ -55,6 +56,22 @@ test('orgs form one alphabetical list with email labels and no personal account 
   assert.doesNotMatch(markup,/Team settings|bc-team-switcher|Hidden teams|New Goal|New Chat|Personal \(/);
   const calls=[],orgs=BeesNavigation({...props,onOrganization:(...args)=>calls.push(args)}).props.children[1].props.children[1];
   orgs[2].props.children.props.onClick();assert.deepEqual(calls,[['work','bob']],'Duplicate org names still select the right account');
+});
+
+test('additional local orgs use the org picker without becoming accounts or hiding the built-in org',()=>{
+  configure(false);
+  try{
+    const calls=[],localOrganizations=[{id:'studio',name:'Studio',local:true,appearance:{icon:'star',color:'#7c3aed'}},{id:'research',name:'Research',local:true}];
+    const props={icon:name=>React.createElement('svg',{'data-icon':name}),theme:{},localActive:true,organizationId:'studio',localOrganizations,onOrganization:(...args)=>calls.push(args),accounts:[{id:'alice',user:{email:'alice@example.com'},organizations:[{id:'work',name:'Work'}]}]};
+    const markup=renderToStaticMarkup(React.createElement(BeesNavigation,props));
+    assert.match(markup,/title="Studio \(Local\)"[^>]*aria-current="page"/);assert.equal((markup.match(/aria-current="page"/g)??[]).length,1);
+    for(const label of ['Local Org','Research (Local)','Work (alice@example.com)'])assert(markup.includes(label));
+    assert.match(markup,/background:#7c3aed;color:#ffffff/);
+    const rows=BeesNavigation(props).props.children[1].props.children[1];
+    rows[0].props.children.props.onClick();assert.deepEqual(calls,[['research',null]]);
+    const signedIn=renderToStaticMarkup(React.createElement(BeesNavigation,{...props,localActive:false}));assert.doesNotMatch(signedIn,/aria-current="page"/);
+    configure(true);assert(!renderToStaticMarkup(React.createElement(BeesNavigation,props)).includes('(Local)'));
+  }finally{configure(true);}
 });
 
 test('hosted org labels use the signed-in email when there is no desktop account list',()=>{
@@ -123,23 +140,110 @@ test('secondary chat creation keeps its team target and creation permissions',()
 });
 
 const nodes=node=>!React.isValidElement(node)?[]:[node,...React.Children.toArray(node.props.children).flatMap(nodes)];
-function appHarness({snapshot,selected=null,thread=null},run){
+function appHarness({snapshot,selected=null,thread=null,settingsSnapshot=snapshot,settingsTeam=null,settingsAccountId,hosted=true},run){
   const previousWindow=globalThis.window,previousFrame=globalThis.requestAnimationFrame;
   globalThis.window={};globalThis.requestAnimationFrame=()=>{};
   const states=[snapshot,selected,thread];let index=0;
+  states[10]=settingsAccountId;states[13]=settingsSnapshot;states[14]=settingsTeam;
   configureRuntime(name=>({react:{...React,useState:initial=>{
     const key=index++;if(!(key in states))states[key]=typeof initial==='function'?initial():initial;
     return [states[key],value=>{states[key]=typeof value==='function'?value(states[key]):value;}];
-  },useRef:value=>({current:value}),useEffect:()=>{}},'react-dom':{},'@deepseek-ai/dsh-client-ui-primitives':{}})[name],{hosted:true});
+  },useRef:value=>({current:value}),useEffect:()=>{}},'react-dom':{},'@deepseek-ai/dsh-client-ui-primitives':{},'@bees/dsh-custom-ai':{},'@bees/dsh-subscriptions':{}})[name],{hosted});
   const render=()=>{index=0;return nodes(ThreadApp({}));};
-  try{run(render);}finally{
+  const renderPanel=(element,data)=>{index=100;if(data)states[100]=data;return nodes(element.type(element.props));};
+  try{run(render,renderPanel);}finally{
     configure(true);
     if(previousWindow===undefined)delete globalThis.window;else globalThis.window=previousWindow;
     if(previousFrame===undefined)delete globalThis.requestAnimationFrame;else globalThis.requestAnimationFrame=previousFrame;
   }
 }
 
-test('thread rows omit decorative icons and team management is reachable in Settings',()=>{
+test('local org settings create without sign-in and keep the built-in teams separate',()=>{
+  const org={id:'studio',name:'Studio',role:'owner',local:true};
+  const snapshot={teams:[{id:'default',title:'Default'},{id:'studio-team',title:'Studio team',organizationId:org.id}],threads:[],organizations:[org],localOrganizations:[org],settings:{selectedOrganizationId:org.id},localActive:true};
+  appHarness({snapshot,hosted:false},(render,renderPanel)=>{
+    let tree=render();assert.deepEqual(tree.filter(node=>node.type===TeamSection).map(node=>node.props.team.id),['studio-team']);
+    tree.find(node=>node.type===BeesNavigation).props.onGlobal('organizations');
+    tree=render();let page=tree.find(node=>node.type===SettingsPage),group=page.props.groups.find(group=>group.title==='Organizations');
+    assert.deepEqual(group.selector.props.rows.map(row=>row.title),['Local Org','Studio (Local)']);
+    let panel=tree.find(node=>node.type.name==='OrganizationsPanel');assert.equal(panel.props.local,true);assert.equal(panel.props.organizationId,'studio');
+    const created=[];
+    panel={...panel,props:{...panel.props,onCreateLocal:async name=>{created.push(name);}}};
+    let content=renderPanel(panel);assert(content.some(node=>node.type==='button'&&node.props.children==='Create local organization'));
+    assert(!content.some(node=>node.props['aria-label']==='Invite colleague by email'));
+    content.find(node=>node.props['aria-label']==='Organization name').props.onChange({target:{value:' Personal '}});
+    content=renderPanel(panel);content.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});assert.deepEqual(created,['Personal']);
+    group.selector.props.onSelect('local');
+    tree=render();panel=tree.find(node=>node.type.name==='OrganizationsPanel');assert.equal(panel.props.organizationId,null);
+    page=tree.find(node=>node.type===SettingsPage);assert.deepEqual(page.props.groups.find(group=>group.title==='Teams').selector.props.rows.map(row=>row.id),['default']);
+  });
+});
+
+test('switching from team General between built-in and named local orgs keeps widget keys distinct',()=>{
+  const org={id:'localorg2',name:'localorg2',role:'owner',local:true},team={id:'default',title:'Default',ownerClientId:'local'};
+  const snapshot={clientId:'local',teams:[team],threads:[],organizations:[org],localOrganizations:[org],localActive:true,settings:{}};
+  appHarness({snapshot,settingsTeam:team,hosted:false},(render,renderPanel)=>{
+    render().find(node=>node.type===BeesNavigation).props.onGlobal('ai');
+    let page=render().find(node=>node.type===SettingsPage);
+    page.props.groups.find(group=>group.title==='Teams').selector.props.onSelect(team.id);
+    page=render().find(node=>node.type===SettingsPage);page.props.onSelect('general','team');
+    for(let i=0;i<20;i++)for(const id of [':localorg2','local']){
+      render().find(node=>node.type===SettingsPage).props.groups.find(group=>group.title==='Organizations').selector.props.onSelect(id);
+      const panel=render().find(node=>node.type.name==='OrganizationsPanel'),content=renderPanel(panel,{organizations:[org],invitations:[]});
+      const widgets=content.filter(node=>[OrganizationAppearance,RootFolderSettings].includes(node.type));
+      assert.equal(widgets.length,id==='local'?0:2);
+      assert.equal(new Set(widgets.map(node=>node.key)).size,widgets.length,'Sibling widgets must have distinct keys so React removes the previous organization correctly');
+      assert.equal(panel.props.organizationId,id==='local'?null:org.id);
+      assert(widgets.every(node=>node.props.organization.id===org.id));
+    }
+  });
+});
+
+test('creating a local org from signed-in settings selects it in the main view',async t=>{
+  const previousFetch=globalThis.fetch;t.after(()=>{globalThis.fetch=previousFetch;});
+  const org={id:'local-studio',name:'Private studio',local:true,role:'owner'},requests=[];
+  const snapshot={teams:[],threads:[],organizations:[],accounts:[{id:'alice',active:true,user:{email:'alice@example.com'}}]};
+  globalThis.fetch=async(_url,options)=>{
+    const input=options?.body?JSON.parse(options.body):null;requests.push(input);
+    return {ok:true,json:async()=>input?.action==='createLocalOrganization'?org:input?{}:{...snapshot,localActive:true,localOrganizations:[org],organizations:[org],accounts:[]}};
+  };
+  let pending;
+  appHarness({snapshot,settingsAccountId:'alice',hosted:false},(render,renderPanel)=>{
+    render().find(node=>node.type===BeesNavigation).props.onGlobal('organizations');
+    const panel=render().find(node=>node.type.name==='OrganizationsPanel');assert.equal(panel.props.local,false);
+    assert(renderPanel(panel).some(node=>node.type==='input'&&node.props.type==='checkbox'&&node.props.checked===false));
+    pending=panel.props.onCreateLocal('Private studio');
+  });
+  await pending;
+  assert.equal(requests[0].action,'createLocalOrganization');assert.equal(requests[0].name,'Private studio');assert.equal(requests[0].settingsAccountId,undefined);
+  assert.equal(requests[1].action,'selectOrganization');assert.equal(requests[1].accountId,null);assert.equal(requests[1].organizationId,org.id);assert.equal(requests[2],null);
+});
+
+test('Add team uses the local org chosen in Settings while a different account is active',async t=>{
+  const previousFetch=globalThis.fetch,previousDocument=globalThis.document,previousDialog=globalThis.HTMLDialogElement;
+  t.after(()=>{globalThis.fetch=previousFetch;if(previousDocument===undefined)delete globalThis.document;else globalThis.document=previousDocument;if(previousDialog===undefined)delete globalThis.HTMLDialogElement;else globalThis.HTMLDialogElement=previousDialog;});
+  const requests=[],elements=[];
+  globalThis.HTMLDialogElement={prototype:{closedBy:true}};
+  globalThis.document={querySelector:()=>null,createElement:tag=>{
+    const element={tag,listeners:{},append(){},setAttribute(){},addEventListener(name,fn){this.listeners[name]=fn;},remove(){}};elements.push(element);return element;
+  },body:{append:dialog=>queueMicrotask(()=>{elements.find(element=>element.tag==='input').value='Research';dialog.returnValue='ok';dialog.listeners.close();})}};
+  const org={id:'studio',name:'Studio',local:true},localSnapshot={teams:[],threads:[],organizations:[org]};
+  const snapshot={...localSnapshot,localOrganizations:[org],accounts:[{id:'alice',active:true,user:{email:'alice@example.com'},organizations:[]}]};
+  globalThis.fetch=async(_url,options)=>{const input=options?.body?JSON.parse(options.body):null;requests.push(input);return {ok:true,json:async()=>input?.action==='createTeam'?{id:'new-team'}:input?{}:snapshot};};
+  let pending;
+  appHarness({snapshot,settingsSnapshot:localSnapshot,settingsAccountId:null,hosted:false},render=>{
+    render().find(node=>node.type===BeesNavigation).props.onGlobal('ai');
+    let groups=render().find(node=>node.type===SettingsPage).props.groups;
+    groups.find(group=>group.title==='Organizations').selector.props.onSelect(':studio');
+    groups=render().find(node=>node.type===SettingsPage).props.groups;
+    pending=groups.find(group=>group.title==='Teams').extra.props.onClick();
+  });
+  await pending;
+  assert.equal(requests[0].action,'createTeam');assert.equal(requests[0].settingsAccountId,null);assert.equal(requests[0].organizationId,'studio');assert.equal(requests[0].name,'Research');
+  assert.equal(requests[1].action,'selectOrganization');assert.equal(requests[1].accountId,null);assert.equal(requests[1].organizationId,'studio');assert.equal(requests[2],null);
+});
+
+test('thread rows omit decorative icons and Settings lists all teams without a hidden teams menu',()=>{
   const thread={id:'thread',teamId:'research',title:'Weekly status',preview:'Current progress',ownerClientId:'local',runs:[{status:'running'}]};
   const snapshot={clientId:'local',teams:[{id:'research',title:'Research'},{id:'frozen',title:'Frozen',frozen:true},{id:'hidden',title:'Hidden'}],threads:[thread],organizations:[],settings:{hiddenTeamIds:['hidden']}};
   appHarness({snapshot,selected:thread.id},render=>{
@@ -154,14 +258,50 @@ test('thread rows omit decorative icons and team management is reachable in Sett
     tree.find(node=>node.type===BeesNavigation).props.onGlobal('ai');
     const page=render().find(node=>node.type===SettingsPage);
     const team=page.props.groups.find(group=>group.title==='Teams');
-    const management=nodes(team.selector).find(node=>node.type===TeamManagement);
-    assert(management);assert.deepEqual(management.props.hiddenTeams.map(team=>team.id),['hidden']);
-    assert.equal(typeof management.props.onSelectTeam,'function');
+    assert.equal(team.selector.type,SettingsScopePicker);
+    assert.deepEqual(team.selector.props.rows.map(team=>team.id),['research','frozen','hidden']);
+    assert.doesNotMatch(renderToStaticMarkup(team.selector),/Hidden teams|<details/);
     assert.equal(team.extra.props['aria-label'],'Add team');assert.equal(team.extra.props.title,'Add team');
     assert.equal(team.extra.props.disabled,false);assert.equal(typeof team.extra.props.onClick,'function');
     const nav=SettingsNav({groups:page.props.groups});
-    assert(nodes(nav).some(node=>node.props.className==='bc-settings-group-header'&&nodes(node).some(child=>child.props['aria-label']==='Add team')));
+    for(const label of ['Add team','Add organization'])assert(nodes(nav).some(node=>node.props.className==='bc-settings-group-header'&&nodes(node).some(child=>child.props['aria-label']===label)));
+    const organization=page.props.groups.find(group=>group.title==='Organizations');
+    assert.equal(organization.extra.props.title,'Add organization');assert.equal(organization.extra.props.disabled,false);
+    organization.extra.props.onClick();
+    assert.equal(render().find(node=>node.type===SettingsPage).props.selected,'organizations');
+    assert(render().some(node=>node.type==='button'&&node.props.children==='Sign in to manage shared organizations'));
   });
+});
+
+test('General hides and unhides teams for the configured account, including read-only teams',async t=>{
+  const previousFetch=globalThis.fetch;t.after(()=>{globalThis.fetch=previousFetch;});
+  for(const hidden of [false,true]){
+    const snapshot={teams:[],threads:[],organizations:[],accounts:[{id:'active',active:true,user:{email:'active@example.com'}}],settings:{hiddenTeamIds:['active-hidden']}};
+    const team={id:'research',title:'Research',ownerClientId:'someone-else',frozen:true};
+    const settingsSnapshot={clientId:'viewer',teams:[team],threads:[],organizations:[],settings:{hiddenTeamIds:['other-hidden',...hidden?['research']:[]]}};
+    const requests=[];
+    globalThis.fetch=async(_url,options)=>{
+      const input=options?.body?JSON.parse(options.body):null;requests.push(input);
+      return {ok:true,json:async()=>input?.action==='settingsSnapshot'?settingsSnapshot:input?{}:snapshot};
+    };
+    let pending;
+    appHarness({snapshot,settingsSnapshot,settingsTeam:team,settingsAccountId:'configured'},render=>{
+      render().find(node=>node.type===BeesNavigation).props.onGlobal('ai');
+      const group=render().find(node=>node.type===SettingsPage).props.groups.find(group=>group.title==='Teams');
+      group.selector.props.onSelect('research');
+      const tree=render(),toggle=tree.find(node=>node.props.role==='switch');
+      assert(toggle,'Team General offers a personal visibility toggle even for a read-only team');
+      assert.equal(toggle.props['aria-label'],'Hide team from sidebar');
+      assert.equal(toggle.props['aria-checked'],hidden);assert.equal(toggle.props.children,hidden?'Unhide':'Hide');
+      assert.equal(toggle.props.disabled,false);
+      pending=toggle.props.onClick();
+      assert.equal(render().find(node=>node.props.role==='switch').props.disabled,true);
+    });
+    await pending;
+    assert.deepEqual(requests[0],{action:'preferences',threadId:null,operationId:requests[0].operationId,settingsAccountId:'configured',values:{hiddenTeamIds:hidden?['other-hidden']:['other-hidden','research']}});
+    assert.equal(requests[1].action,'settingsSnapshot');assert.equal(requests[1].settingsAccountId,'configured');
+    assert.equal(requests[2],null,'The sidebar refreshes after saving');
+  }
 });
 
 test('clicking a team name leaves settings for its welcome screen and organization settings omit the account dropdown',()=>{
@@ -245,20 +385,6 @@ test('thread pane starts with search without a global overflow menu',t=>{
   assert(aside.includes('Create a team with the + next to Teams in Settings.'));
 });
 
-
-test('team management only shows hidden teams and restores the chosen team',()=>{
-  const markup=renderToStaticMarkup(React.createElement(TeamManagement,{icon:()=>null,hiddenTeams:[{id:'b',title:'Zulu hidden'},{id:'a',title:'Alpha hidden'}]}));
-  for(const label of ['Hidden teams','Alpha hidden','Zulu hidden'])assert(markup.includes(label),label);
-  assert.doesNotMatch(markup,/Manage teams|Create team|Team settings|Current team|Active/);
-  assert(markup.indexOf('Alpha hidden')<markup.indexOf('Zulu hidden'));
-  assert.equal(TeamManagement({icon:()=>null}),null);
-  const calls=[],menu={open:true};
-  const tree=TeamManagement({icon:()=>null,busy:true,hiddenTeams:[{id:'hidden',title:'Hidden'}],onSelectTeam:id=>calls.push(id)});
-  const button=nodes(tree).find(node=>node.type==='button');
-  assert.equal(button.props.disabled,true);
-  button.props.onClick({currentTarget:{closest:()=>menu}});
-  assert.deepEqual(calls,['hidden']);assert.equal(menu.open,false);
-});
 
 test('Org settings offer a preview, icon choices, preset colors and a custom color',()=>{
   const markup=renderToStaticMarkup(React.createElement(OrganizationAppearance,{organization:{id:'org',name:'Studio',appearance:{icon:'star',color:'#7c3aed'}},icon:name=>React.createElement('svg',{'data-icon':name})}));

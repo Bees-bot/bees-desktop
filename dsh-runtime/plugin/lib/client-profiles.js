@@ -11,23 +11,24 @@ export class ClientProfiles {
   save(){if(this.active){this.state.servers??={};this.state.servers[this.active.directory.url]=this.state.active;}const temporary=this.path+'.tmp';writeFileSync(temporary,JSON.stringify(this.state),{mode:0o600});renameSync(temporary,this.path);}
   async open(slot){if(!/^[a-zA-Z0-9-]+$/.test(slot))throw threadError('Invalid client profile');if(!this.clients.has(slot))this.clients.set(slot,await new ThreadClient(join(this.root,slot),this.options).start());return this.clients.get(slot);}
   savedDirectory(slot){if(!/^[a-zA-Z0-9-]+$/.test(slot))throw threadError('Invalid client profile');const path=join(this.root,slot,'directory.json');return this.clients.get(slot)?.directory??(existsSync(path)?JSON.parse(readFileSync(path,'utf8')):{});}
-  accounts(){return Object.entries(this.state.accounts).flatMap(([id,slot])=>{const directory=this.savedDirectory(slot);return directory.token&&directory.user?[{id,user:directory.user,url:directory.url,active:slot===this.state.active}]:[];}).sort((a,b)=>(a.user.email??'').localeCompare(b.user.email??''));}
-  async snapshot(){return {...await this.active.snapshot(),onboarding:this.state.onboarding===undefined?'existing':this.state.onboarding,localActive:this.state.active===this.state.anonymous,folders:this.options.folders?.snapshot(this.active.store,this.active.organizations()),accounts:this.accounts().map(account=>{const client=this.clients.get(this.state.accounts[account.id]);return {...account,organizations:client?.organizations()??[],organizationError:client?.organizationError??null};})};}
+  accounts(){return Object.entries(this.state.accounts).flatMap(([id,slot])=>{const directory=this.savedDirectory(slot);return directory.token&&directory.user&&(!this.configuredServer||directory.url===this.configuredServer)?[{id,user:directory.user,url:directory.url,active:slot===this.state.active}]:[];}).sort((a,b)=>(a.user.email??'').localeCompare(b.user.email??''));}
+  async snapshot(){return {...await this.active.snapshot(),onboarding:this.state.onboarding===undefined?'existing':this.state.onboarding,localActive:this.state.active===this.state.anonymous,localOrganizations:this.clients.get(this.state.anonymous)?.organizations().filter(org=>org.local)??[],folders:this.options.folders?.snapshot(this.active.store,this.active.organizations()),accounts:this.accounts().map(account=>{const client=this.clients.get(this.state.accounts[account.id]);return {...account,organizations:client?.organizations()??[],organizationError:client?.organizationError??null};})};}
   async start(){
-    const url=process.env.BEES_ACCOUNT_API_URL&&serverOrigin(process.env.BEES_ACCOUNT_API_URL);
+    const url=this.configuredServer=process.env.BEES_ACCOUNT_API_URL&&serverOrigin(process.env.BEES_ACCOUNT_API_URL);
     this.state.servers??={};const prior=this.savedDirectory(this.state.active);if(prior.url)this.state.servers[prior.url]=this.state.active;
     if(url&&this.savedDirectory(this.state.active).url&&this.savedDirectory(this.state.active).url!==url){
       this.state.active=this.state.servers[url]??Object.values(this.state.accounts).find(slot=>{const d=this.savedDirectory(slot);return d.url===url&&d.token;})??'personal-'+this.key(url,'anonymous');
       if(!Object.values(this.state.accounts).includes(this.state.active))this.state.anonymous=this.state.active;
     }
-    this.active=await this.open(this.state.active);this.active.directory.save();if(this.active.directory.user&&this.active.directory.token){const key=this.key(this.active.directory.url,this.active.directory.user.id);this.state.accounts[key]=this.state.active;}await Promise.all([...new Set(Object.values(this.state.accounts))].filter(slot=>slot!==this.state.active&&this.savedDirectory(slot).token).map(slot=>this.open(slot)));this.save();return this;
+    if(url&&this.savedDirectory(this.state.anonymous).url&&this.savedDirectory(this.state.anonymous).url!==url)this.state.anonymous='personal-'+this.key(url,'anonymous');
+    this.active=await this.open(this.state.active);this.active.directory.save();if(this.active.directory.user&&this.active.directory.token){const key=this.key(this.active.directory.url,this.active.directory.user.id);this.state.accounts[key]=this.state.active;}await Promise.all(this.accounts().map(account=>this.state.accounts[account.id]).filter(slot=>slot!==this.state.active).map(slot=>this.open(slot)));if(!process.env.BEES_HOSTED_CLIENT)await this.open(this.state.anonymous);this.save();return this;
   }
   key(url,user){return createHash('sha256').update(url+'\n'+user).digest('hex');}
   async login(input){
     const signed=await this.active.directory.signIn(input);
     const response=await fetch(signed.url+'/api/me',{headers:{authorization:'Bearer '+signed.session},signal:AbortSignal.timeout(20000)});const user=response.ok&&(await response.json().catch(()=>({}))).user;if(!user)throw response.status===401?threadError('Sign in again',401):threadError("Bees can't be reached right now.",502);
     const key=this.key(signed.url,user.id);
-    const slot=this.state.accounts[key]??(!this.active.directory.user&&!Object.values(this.state.accounts).includes(this.state.active)?this.state.active:key);
+    const slot=this.state.accounts[key]??(!this.active.directory.user&&!Object.values(this.state.accounts).includes(this.state.active)&&!this.active.organizations().some(org=>org.local)?this.state.active:key);
     const client=await this.open(slot);client.directory.url=signed.url;await client.directory.resume(signed.session,client.identity.cert,client.peer.endpoints);await client.refresh();
     this.state.accounts[key]=slot;this.state.active=slot;this.active=client;this.save();return user;
   }
@@ -43,6 +44,11 @@ export class ClientProfiles {
     return this.open(account?this.state.accounts[account.id]:process.env.BEES_HOSTED_CLIENT?this.state.active:this.state.anonymous);
   }
   async command(input){
+    if(input.action==='createLocalOrganization'){
+      if(process.env.BEES_HOSTED_CLIENT)throw threadError('Open Bees Desktop to create a local organization');
+      if(this.savedDirectory(this.state.anonymous).user||Object.values(this.state.accounts).includes(this.state.anonymous)){this.state.anonymous='personal-'+randomUUID();this.save();}
+      return (await this.settingsClient(null)).command(input);
+    }
     if(input.action==='settingsSnapshot'||Object.hasOwn(input,'settingsAccountId')){
       const client=await this.settingsClient(input.settingsAccountId);
       if(input.action==='settingsSnapshot')return {...await client.snapshot(),folders:this.options.folders?.snapshot(client.store,client.organizations())};
@@ -77,7 +83,7 @@ export class ClientProfiles {
       const slot=account?this.state.accounts[account.id]:process.env.BEES_HOSTED_CLIENT?this.state.active:this.state.anonymous,client=await this.open(slot);
       if(input.action==='selectOrganization'){
         const organizationId=input.organizationId??null;
-        if(organizationId&&!(client.store.preference('organizations')??[]).some(org=>org.id===organizationId))throw threadError('Organization membership required',403);
+        if(organizationId&&!client.organizations().some(org=>org.id===organizationId))throw threadError('Organization membership required',403);
         await client.command({action:'preferences',values:{selectedOrganizationId:organizationId}});
       }
       this.state.active=slot;this.active=client;this.save();return {ok:true};
