@@ -1,3 +1,4 @@
+import { fileTransferLimit } from './file-limits.js';
 import { join } from 'node:path';
 import { timingSafeEqual } from 'node:crypto';
 import { get } from 'node:http';
@@ -14,7 +15,7 @@ import { ThreadCredits, isAccountAIProvider } from './thread-credits.js';
 const equal=(a,b)=>{const x=Buffer.from(String(a??'')),y=Buffer.from(String(b??''));return x.length===y.length&&x.length>0&&timingSafeEqual(x,y);};
 const tokenOf=req=>String(req.headers.authorization??'').replace(/^Bearer\s+/i,'')||String(req.headers.cookie??'').split(';').map(x=>x.trim().split('=')).find(([k])=>k==='bees_dsh')?.[1];
 const reply=(res,status,value)=>{const body=JSON.stringify(value);res.writeHead(status,{'content-type':'application/json','cache-control':'no-store','content-length':Buffer.byteLength(body)});res.end(body);};
-async function body(req){let size=0;const chunks=[];for await(const b of req){size+=b.length;if(size>16_000_000)throw Error('Request is too large');chunks.push(b);}return JSON.parse(Buffer.concat(chunks).toString()||'{}');}
+async function body(req){let size=0;const chunks=[];for await(const b of req){size+=b.length;if(size>fileTransferLimit())throw Error('Request is too large');chunks.push(b);}return JSON.parse(Buffer.concat(chunks).toString()||'{}');}
 
 export async function applyThreadProduct(ctx,config){
   let folders;

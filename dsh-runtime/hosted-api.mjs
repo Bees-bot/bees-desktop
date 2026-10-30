@@ -1,3 +1,4 @@
+import { MAX_FILE_TRANSFER_BYTES } from './plugin/lib/file-limits.js';
 import { createServer, request } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 
@@ -19,7 +20,7 @@ export function createClientProxy({ port, token }) {
       res.writeHead(response.statusCode, response.headers); response.pipe(res);
     });
     let size = 0;
-    req.on('data', chunk => { size += chunk.length; if (size > 16_000_000) { if (!res.headersSent) reply(413, 'Request too large'); upstream.destroy(); } });
+    req.on('data', chunk => { size += chunk.length; if (size > MAX_FILE_TRANSFER_BYTES) { if (!res.headersSent) reply(413, 'Request too large'); upstream.destroy(); } });
     upstream.on('timeout', () => upstream.destroy(Error('Client request timed out')));
     upstream.on('error', () => { if (!res.headersSent) reply(503, 'Client is starting. Try again shortly.'); else if (!res.writableEnded) res.destroy(); });
     res.on('close', () => upstream.destroy()); req.pipe(upstream);
