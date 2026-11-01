@@ -7,71 +7,87 @@ export const isAccountAIProvider=provider=>provider.startsWith(prefix)||provider
 
 export function creditsAdapter(provider,ai,baseUrl,resolveApiKey){
   const base=openrouterProvider();
-  const model={...ai.model,provider,api:'openai-completions',baseUrl,input:['text'],reasoning:true,
-    cost:{input:1,output:1,cacheRead:1,cacheWrite:1},compat:{supportsDeveloperRole:false,thinkingFormat:'openrouter'}};
+  const models=(ai.models??[ai.model]).map(model=>({...model,provider,api:'openai-completions',baseUrl,input:['text'],reasoning:model.reasoning??true,
+    thinkingLevelMap:{minimal:'minimal',low:'low',medium:'medium',high:'high',xhigh:'xhigh',max:'max'},
+    cost:model.pricing??{input:1,output:1,cacheRead:1,cacheWrite:1},compat:{supportsDeveloperRole:false,thinkingFormat:'openrouter'}}));
   const profiles=new Map([[provider,{provider,displayName:'Bees Credits',streamIdleTimeoutMs:300000,
-    configuredMaxTokens:new Map([[model.id,model.maxTokens]]),modelErrors:new Map(),
-    piProvider:{...base,id:provider,name:'Bees Credits',baseUrl,getModels:()=>[model]}}]]);
+    reasoning:ai.reasoningEffort==='none'?'off':ai.reasoningEffort||undefined,
+    configuredMaxTokens:new Map(models.map(model=>[model.id,model.maxTokens])),modelErrors:new Map(),
+    headers:ai.organizationId?{'X-Bees-Organization':ai.organizationId}:{},
+    piProvider:{...base,id:provider,name:'Bees Credits',baseUrl,getModels:()=>models}}]]);
   return new PiAiAdapter({profiles:()=>profiles,resolveApiKey});
 }
 
 export class ThreadCredits {
   constructor(ctx){this.ctx=ctx;this.accounts=new Map();}
-  async sync(client,force=false){
+  scope(store,organizationId){return organizationId===undefined?store.preference('settings')?.selectedOrganizationId??null:organizationId;}
+  entry(store,organizationId){return this.accounts.get(store)?.get(this.scope(store,organizationId)??'personal');}
+  async sync(client,force=false,organizationId){
     const {directory,store}=client;
     if(!directory.token||!directory.user||client.closing)return;
-    const owner=directory.url+'\n'+directory.user.id;
-    let entry=this.accounts.get(store);
-    if(entry&&entry.owner!==owner){this.close(client);entry=undefined;}
+    organizationId=this.scope(store,organizationId);
+    if(organizationId&&client.organizations?.().some(org=>org.id===organizationId&&org.local))return;
+    const scope=organizationId??'personal',owner=directory.url+'\n'+directory.user.id;
+    let scopes=this.accounts.get(store);
+    if(scopes&&[...scopes.values()].some(entry=>entry.owner!==owner)){this.close(client);scopes=undefined;}
+    if(!scopes){scopes=new Map();this.accounts.set(store,scopes);}
+    let entry=scopes.get(scope);
     if(entry?.pending)return entry.pending;
     if(!force&&entry?.retryAt>Date.now())return;
-    entry??={owner,client,provider:prefix+store.clientId};this.accounts.set(store,entry);
+    entry??={owner,client,provider:prefix+store.clientId+(organizationId?'-'+organizationId:'')};scopes.set(scope,entry);
     const token=directory.token;
     entry.pending=(async()=>{
       try{
-        const {ai}=await directory.request('/ai',{});
-        if(client.closing||directory.token!==token||this.accounts.get(store)!==entry)return;
+        const {ai}=await directory.request('/ai',organizationId?{organizationId}:{});
+        if(client.closing||directory.token!==token||this.entry(store,organizationId)!==entry)return;
         if(!ai){entry.dispose?.();entry.dispose=undefined;entry.ai=undefined;entry.message='';return;}
+        const validModel=model=>typeof model?.id==='string'&&typeof model.name==='string'&&Number.isSafeInteger(model.contextWindow)&&model.contextWindow>0&&Number.isSafeInteger(model.maxTokens)&&model.maxTokens>0&&model.maxTokens<=model.contextWindow;
         if(ai.kind!=='credits'||typeof ai.available!=='boolean'||!Number.isSafeInteger(ai.credits?.balance)||ai.credits.balance<0||
-           ai.credits.starterRemainingUsd!=null&&(typeof ai.credits.starterRemainingUsd!=='number'||!Number.isFinite(ai.credits.starterRemainingUsd)||ai.credits.starterRemainingUsd<0||ai.credits.starterRemainingUsd>0.01)||
-           typeof ai.model?.id!=='string'||typeof ai.model.name!=='string'||!Number.isSafeInteger(ai.model.contextWindow)||ai.model.contextWindow<=0||
-           !Number.isSafeInteger(ai.model.maxTokens)||ai.model.maxTokens<=0||ai.model.maxTokens>ai.model.contextWindow)
+           ai.credits.starterRemainingUsd!=null&&(typeof ai.credits.starterRemainingUsd!=='number'||!Number.isFinite(ai.credits.starterRemainingUsd)||ai.credits.starterRemainingUsd<0||ai.credits.starterRemainingUsd>0.05)||
+           !validModel(ai.model)||ai.models!==undefined&&(!Array.isArray(ai.models)||!ai.models.length||ai.models.some(model=>!validModel(model)))||
+           organizationId&&ai.organizationId!==organizationId)
           throw Error('Invalid Bees Credits configuration');
-        const changed=entry.ai?.model.id!==ai.model.id||entry.ai?.available!==ai.available;
+        const changed=JSON.stringify(entry.ai?.models??entry.ai?.model)!==JSON.stringify(ai.models??ai.model)||entry.ai?.available!==ai.available||entry.ai?.reasoningEffort!==ai.reasoningEffort;
         entry.ai=ai;
         if(changed||ai.available&&!entry.dispose){
           entry.dispose?.();entry.dispose=undefined;
           if(ai.available){
-            const adapter=creditsAdapter(entry.provider,ai,directory.url+'/api/directory/ai/v1',async()=>{
-              if(client.closing||!directory.token||directory.url+'\n'+directory.user?.id!==entry.owner||this.accounts.get(store)!==entry)
+            const adapter=creditsAdapter(entry.provider,ai,directory.url+'/api/directory/ai/'+(ai.modelSelection?'v2':'v1'),async()=>{
+              if(client.closing||!directory.token||directory.url+'\n'+directory.user?.id!==entry.owner||this.entry(store,organizationId)!==entry)
                 throw threadError('Sign in to use Bees Credits');
               return directory.token;
             });
             entry.dispose=this.ctx.llm.registerAdapter([entry.provider],adapter);
           }
         }
-        const current=store.preference('model');
-        if(ai.available&&(current===null||current.startsWith('bees-credits/')))store.preference('model','bees-credits/'+ai.model.id);
+        const current=store.preference('model'),models=ai.models??[ai.model];
+        if(ai.available&&(current===null||current===store.preference('automaticCreditModel')||current.startsWith('bees-credits/')&&!models.some(model=>'bees-credits/'+model.id===current))){
+          store.preference('model','bees-credits/'+ai.model.id);store.preference('automaticCreditModel','bees-credits/'+ai.model.id);
+        }
         entry.message=ai.available?'':'Bees Credits AI is not configured on this server yet.';
       }catch(error){
+        if(organizationId||error.status===401||error.status===403){entry.dispose?.();entry.dispose=undefined;entry.ai=undefined;}
         if(!entry.dispose)entry.ai=undefined;
         entry.message=error.status===404?'':'Bees Credits are temporarily unavailable. Try again or use your own AI connection.';
       }finally{entry.pending=undefined;entry.retryAt=Date.now()+30000;}
     })();
     await entry.pending;
   }
-  models(store){const ai=this.accounts.get(store)?.ai;return ai?.available?[{id:'bees-credits/'+ai.model.id,name:ai.model.name}]:[];}
-  view(store){const entry=this.accounts.get(store);return {available:!!entry?.ai?.available,message:entry?.message??'',credits:entry?.ai?.credits??null};}
-  mount(agentCtx,store){agentCtx.on('llm/stream',(options,next)=>{
-    if(isAccountAIProvider(options.provider)&&options.provider!==this.accounts.get(store)?.provider)throw threadError('Bees Credits belong to another account');
+  models(store){const ai=this.entry(store)?.ai;return ai?.available?(ai.models??[ai.model]).map(model=>({id:'bees-credits/'+model.id,name:model.name,group:model.group,pricing:model.pricing})):[];}
+  view(store){const entry=this.entry(store);return {available:!!entry?.ai?.available,message:entry?.message??'',credits:entry?.ai?.credits??null,organizationId:this.scope(store),canManage:entry?.ai?.canManage??!this.scope(store),reasoningEfforts:entry?.ai?.reasoningEfforts??[],defaultReasoningEffort:entry?.ai?.reasoningEffort??'',reasoningEffort:store.preference('creditReasoningEffort')??''};}
+  mount(agentCtx,store,organizationId){agentCtx.on('llm/stream',(options,next)=>{
+    if(isAccountAIProvider(options.provider)&&options.provider!==this.entry(store,organizationId)?.provider)throw threadError('Bees Credits belong to another account or organization');
     return next();
   });}
-  resolve(store,model){
+  resolve(store,model,organizationId){
     if(isAccountAIProvider(model?.provider??''))throw threadError('Choose Bees Credits for this account');
     if(model?.provider!=='bees-credits')return model;
-    const entry=this.accounts.get(store);
+    const entry=this.entry(store,organizationId);
     if(!entry?.ai?.available||!entry.client.directory.token||entry.client.closing)throw threadError('Bees Credits are unavailable. Sign in or choose another AI connection.');
-    return {...model,model:entry.ai.model.id,provider:entry.provider};
+    const id=entry.ai.models?model.model:entry.ai.model.id;
+    if(entry.ai.models&&!entry.ai.models.some(row=>row.id===id))throw threadError('Choose an available Bees Credits model in Settings.');
+    const effort=model.reasoningEffort||store.preference('creditReasoningEffort');
+    return {...model,model:id,provider:entry.provider,...(effort?{reasoningEffort:effort==='none'?'off':effort}:{})};
   }
-  close(client){const entry=this.accounts.get(client.store);this.accounts.delete(client.store);entry?.dispose?.();if(entry)entry.ai=undefined;}
+  close(client){const entries=this.accounts.get(client.store);this.accounts.delete(client.store);for(const entry of entries?.values()??[]){entry.dispose?.();entry.ai=undefined;}}
 }
