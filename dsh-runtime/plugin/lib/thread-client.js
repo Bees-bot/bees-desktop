@@ -157,7 +157,7 @@ export class ThreadClient {
     }
     if(input.action==='login'){const result=await this.directory.login(input,this.identity.cert,this.peer.endpoints);await this.refresh();return result;}
     if(input.action==='logout'){this.directory.token=null;this.directory.save();this.roster={threads:[],participants:[],clients:[],invitations:[]};return {ok:true};}
-    if(input.action==='model'){this.store.preference('model',input.model);return {ok:true};}
+    if(input.action==='model'){if(input.reasoningEffort!==undefined&&!['','none','minimal','low','medium','high','xhigh','max'].includes(input.reasoningEffort))throw threadError('Invalid reasoning effort');this.store.preference('model',input.model);if(input.reasoningEffort===undefined)this.store.preference('automaticCreditModel',null);if(input.reasoningEffort!==undefined)this.store.preference('creditReasoningEffort',input.reasoningEffort);return {ok:true};}
     if(input.action==='preferences'){
       const values=input.values;
       if(!values||typeof values!=='object'||Array.isArray(values))throw threadError('Invalid preferences');
@@ -179,7 +179,9 @@ export class ThreadClient {
           values[key]=layout;
         }else throw threadError('Unknown preference');
       }
-      return this.store.preference('settings',{...this.store.preference('settings'),...values});
+      const settings=this.store.preference('settings',{...this.store.preference('settings'),...values});
+      if(Object.hasOwn(values,'selectedOrganizationId'))await this.options.credits?.sync(this);
+      return settings;
     }
     if(input.action==='organizations'){if(input.local)return {organizations:this.organizations().filter(org=>org.local),invitations:[]};const result=await this.directory.request('/organizations');for(const org of result.organizations)if(org.role==='owner')this.ensureOrganizationTeam(org);this.store.preference('organizations',result.organizations.map(({id,name,role})=>({id,name,role})));this.organizationError=null;return {...result,organizations:this.organizations()};}
     if(input.action==='createLocalOrganization'){
@@ -197,8 +199,8 @@ export class ThreadClient {
       this.options.notify?.();return this.organizations().find(org=>org.id===id);
     }
     if(input.action==='credits'){await this.options.credits?.sync(this,true);return this.options.credits?.view(this.store)??null;}
-    if(input.action==='purchaseCredits')return this.directory.request('/credits/checkout',{id:input.id,autoRenew:input.autoRenew,amountCents:input.amountCents});
-    if(input.action==='creditAutoRenew'){const result=await this.directory.request('/credits/auto-renew',{enabled:input.enabled,amountCents:input.amountCents});await this.options.credits?.sync(this,true);return result;}
+    if(input.action==='purchaseCredits')return this.directory.request('/credits/checkout',{id:input.id,autoRenew:input.autoRenew,amountCents:input.amountCents,organizationId:input.organizationId===undefined?this.options.credits?.scope(this.store):input.organizationId});
+    if(input.action==='creditAutoRenew'){const result=await this.directory.request('/credits/auto-renew',{enabled:input.enabled,amountCents:input.amountCents,organizationId:input.organizationId===undefined?this.options.credits?.scope(this.store):input.organizationId});await this.options.credits?.sync(this,true);return result;}
     if(input.action==='createOrganization'){const org=await this.directory.request('/organizations',{name:input.name});this.ensureOrganizationTeam(org);this.options.notify?.();return org;}
     if(input.action==='organizationMembers')return this.directory.request(`/organizations/${validId(input.organizationId)}/members`);
     if(input.action==='inviteOrganization')return this.directory.request(`/organizations/${validId(input.organizationId)}/invitations`,{email:input.email,role:input.role??'member'});

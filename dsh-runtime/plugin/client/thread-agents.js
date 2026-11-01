@@ -1,6 +1,7 @@
 import { h, useState } from './runtime.js';
 import { REASONING_EFFORTS } from '../lib/thread-agents.js';
 import { confirmAction } from './common.js';
+import { modelOptions, ModelPricing } from './model-options.js';
 
 export function TeamAgents({ team, models = [], presets = [], canManage, busy, onSave }) {
   const [editing, setEditing] = useState(null);
@@ -33,7 +34,8 @@ export function TeamAgents({ team, models = [], presets = [], canManage, busy, o
       field('AI model', h('select', { value: editing.model, onChange: event => change('model', event.target.value) },
         h('option', { value: '' }, 'Use default AI'),
         editing.model && !models.some(row => row.id === editing.model) ? h('option', { value: editing.model }, editing.model + ' (not connected)') : null,
-        models.map(model => h('option', { key: model.id, value: model.id }, model.name)))),
+        modelOptions(models))),
+      h(ModelPricing,{models,current:editing.model}),
       field('Reasoning effort', h('select', { value: editing.reasoningEffort, onChange: event => change('reasoningEffort', event.target.value) }, REASONING_EFFORTS.map(value => h('option', { key: value, value }, value || 'Model default')))),
       field('Instructions', h('textarea', { rows: 5, maxLength: 20000, value: editing.instructions, onChange: event => change('instructions', event.target.value) })),
       field('Add-on access', h('select', { value: editing.mcpAccess, onChange: event => change('mcpAccess', event.target.value) }, ['all','none','selected'].map(value => h('option', { key: value, value }, ({ all: 'All team add-ons', none: 'No add-ons', selected: 'Selected add-ons' })[value])))),

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-export const isFreeClient = credits => credits?.balance === 0 && credits.heldTokens === 0 && !credits.autoRenew && !credits.paymentPending;
+export const isFreeClient = credits => credits?.balance === 0 && credits.heldTokens === 0 && !credits.autoRenew && !credits.paymentPending && !credits.hasOrganizationCredits;
 
 /** Browser requests renew the lease; a worker's own heartbeats never do. */
 export function hostedClientActivity({ provision, directoryUrl, fetcher = fetch, now = Date.now }) {

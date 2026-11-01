@@ -2,7 +2,7 @@ import { h, useEffect, useRef, useState, hosted } from './runtime.js';
 import { openExternal } from './common.js';
 import { parseCreditAmount } from '../lib/credit-pricing.js';
 
-const tokens=value=>Number(value??0).toLocaleString();
+const count=value=>Number(value??0).toLocaleString();
 const starterCredits=value=>(value*1000000).toLocaleString('en-US',{maximumFractionDigits:6});
 export function CreditSettings({connection,user,request,onRefresh,onSignIn}){
   const credits=connection?.credits;
@@ -11,6 +11,7 @@ export function CreditSettings({connection,user,request,onRefresh,onSignIn}){
   useEffect(()=>setRenew(credits?.autoRenew??false),[credits?.autoRenew]);
   useEffect(()=>setAmount(((credits?.renewalCents??1000)/100).toFixed(2)),[credits?.renewalCents]);
   let amountCents;try{amountCents=parseCreditAmount(amount);}catch{}
+  const canManage=connection?.canManage!==false;
   const price=amountCents?'$'+(amountCents/100).toFixed(2):'the chosen amount';
   const act=async fn=>{setBusy(true);setError('');try{await fn();await request('credits');await onRefresh();}catch(e){setError(e.message);}finally{setBusy(false);}};
   const buy=()=>{
@@ -19,7 +20,7 @@ export function CreditSettings({connection,user,request,onRefresh,onSignIn}){
     if(popup)popup.opener=null;
     void act(async()=>{
       try{
-        const {url}=await request('purchaseCredits',{id:purchase.current,autoRenew:renew,amountCents:parseCreditAmount(amount)});
+        const {url}=await request('purchaseCredits',{id:purchase.current,autoRenew:renew,amountCents:parseCreditAmount(amount),organizationId:connection?.organizationId});
         const target=new URL(url);if(target.protocol!=='https:'||target.hostname!=='checkout.stripe.com')throw Error('Checkout could not be opened');
         if(popup)popup.location.href=target.href;else await openExternal(target.href);
         purchase.current=crypto.randomUUID();
@@ -28,30 +29,31 @@ export function CreditSettings({connection,user,request,onRefresh,onSignIn}){
   };
   return h('section',{className:'bc-form'},h('h3',null,'Credits & billing'),
     !user?h('div',null,h('p',null,'Sign in to use your personal Bees balance on desktop and web.'),h('button',{onClick:onSignIn},'Sign in')):h('div',{className:'bc-form'},
-      h('p',null,h('strong',null,tokens(credits?.balance)+' purchased tokens available')),
-      h('p',{className:'bc-muted'},'Your balance belongs to your Bees user account and is shared across all organizations, desktop Clients, and web Clients. Creating another organization does not grant more credits.'),
-      h('p',null,'One-time grant: 10k starter credits. Starter credits equal provider usage in dollars × 1,000,000. Starter credits are used before purchased tokens.'),
-      typeof credits?.starterRemainingUsd==='number'?h('p',{role:'status'},starterCredits(credits.starterRemainingUsd)+' starter credits remaining.'):null,
+      h('p',null,h('strong',null,(connection?.organizationId?'Organization: ':'Personal: ')+count(credits?.balance)+' purchased credits available')),
+      h('p',{className:'bc-muted'},'Your selected organization shares this balance across its members and Clients. Personal work uses your separate personal balance. Organization owners and admins manage purchases and auto-renew.'),
+      h('p',null,'Your personal one-time grant of 50k starter credits is separate from purchased organization credits. $1 buys 1 million credits; credits are not tokens.'),
+      typeof credits?.starterRemainingCredits==='number'?h('p',{role:'status'},count(credits.starterRemainingCredits)+' starter credits remaining.'):typeof credits?.starterRemainingUsd==='number'?h('p',{role:'status'},starterCredits(credits.starterRemainingUsd)+' starter credits remaining.'):null,
       credits?.starterMessage?h('p',{role:'status'},credits.starterMessage):null,
-      h('p',{className:'bc-muted'},'Purchased tokens count input and output, including cached input and reasoning reported in those totals.'),
-      credits?.heldTokens?h('p',{role:'status'},tokens(credits.heldTokens)+' tokens are reserved for running or unconfirmed requests. Unused reservations are returned when usage is confirmed.'):null,
+      h('p',{className:'bc-muted'},'Each model is charged at its current OpenRouter price plus 30%, including provider-reported caching and reasoning costs. See AI connections for model prices.'),
+      credits?.heldTokens?h('p',{role:'status'},count(credits.heldTokens)+' credits are reserved for running or unconfirmed requests. Unused reservations are returned when usage is confirmed.'):null,
       credits?.suspended?h('p',{className:'bc-error',role:'alert'},'Credit spending is paused. Contact support@bees.bot for a balance review.'):null,
       connection?.message?h('p',{role:'status'},connection.message):null,
       credits?.billingError?h('p',{className:'bc-error',role:'alert'},credits.billingError):null,
       error?h('p',{className:'bc-error',role:'alert'},error):null,
       h('button',{disabled:busy,onClick:()=>void act(async()=>{})},'Refresh balance'),
-      h('hr',{style:{width:'100%',border:0,borderTop:'1px solid var(--line)',margin:'8px 0'}}),h('h4',null,'Add credits · $1 per million tokens'),
+      h('hr',{style:{width:'100%',border:0,borderTop:'1px solid var(--line)',margin:'8px 0'}}),h('h4',null,'Add credits · $1 per million credits'),
       h('label',{className:'bc-field'},h('span',null,'Amount in USD · minimum $10'),h('input',{type:'number',min:10,max:999999.99,step:0.01,required:true,disabled:busy,value:amount,onChange:e=>{setAmount(e.target.value);purchase.current=crypto.randomUUID();}})),
-      h('p',null,amountCents?`${price} buys ${tokens(amountCents*10000)} tokens.`:'Enter an amount of at least $10 USD.'),
+      h('p',null,amountCents?`${price} buys ${count(amountCents*10000)} credits.`:'Enter an amount of at least $10 USD.'),
       h('label',{className:'bc-check'},h('input',{type:'checkbox',checked:renew,disabled:busy,onChange:e=>{setRenew(e.target.checked);purchase.current=crypto.randomUUID();}}),
-        `Use this amount for auto-renew: charge ${price} whenever my balance reaches 100,000 tokens. Repeat until I turn it off.`),
-      h('button',{className:'bc-primary',disabled:busy||!amountCents||!connection?.available||!credits?.purchasingEnabled||!user.emailVerified||credits?.suspended,onClick:buy},'Buy tokens · '+price),
+        `Use this amount for auto-renew: charge ${price} whenever my balance reaches 100,000 credits. Repeat until I turn it off.`),
+      h('button',{className:'bc-primary',disabled:!canManage||busy||!amountCents||!connection?.available||!credits?.purchasingEnabled||!user.emailVerified||credits?.suspended,onClick:buy},'Buy credits · '+price),
       !user.emailVerified?h('p',{className:'bc-muted'},'Verify your email before purchasing or using Bees Credits.'):null,
+      !canManage?h('p',{className:'bc-muted'},'Ask your organization owner or admin to add credits or manage auto-renew.'):null,
       !credits?.purchasingEnabled?h('p',{className:'bc-muted'},'Credit purchases are not configured on this server yet.'):null,
       h('p',null,credits?.autoRenew?`Auto-renew is on: $${(credits.renewalCents/100).toFixed(2)} per refill.`:'Auto-renew is off. No automatic charges.'),
       credits?.hasPaymentMethod?h('p',{className:'bc-muted'},'Auto-renew uses the card saved during a checkout with auto-renew selected. To replace it, buy credits with auto-renew selected using your new card.'):null,
-      credits?.hasPaymentMethod?h('button',{disabled:busy||!amountCents,onClick:()=>void act(()=>request('creditAutoRenew',{enabled:true,amountCents:parseCreditAmount(amount)}))},credits.autoRenew?'Save auto-renew amount · '+price:'Enable auto-renew · '+price+' per refill'):null,
-      credits?.autoRenew?h('button',{disabled:busy,onClick:()=>void act(()=>request('creditAutoRenew',{enabled:false}))},'Turn off auto-renew'):null,
+      credits?.hasPaymentMethod?h('button',{disabled:!canManage||busy||!amountCents,onClick:()=>void act(()=>request('creditAutoRenew',{enabled:true,amountCents:parseCreditAmount(amount),organizationId:connection?.organizationId}))},credits.autoRenew?'Save auto-renew amount · '+price:'Enable auto-renew · '+price+' per refill'):null,
+      credits?.autoRenew?h('button',{disabled:!canManage||busy,onClick:()=>void act(()=>request('creditAutoRenew',{enabled:false,organizationId:connection?.organizationId}))},'Turn off auto-renew'):null,
       credits?.paymentPending?h('p',{role:'status'},'A recharge is processing. A charge already in progress may complete after auto-renew is turned off.'):null));
 }
 
@@ -66,8 +68,8 @@ export function FirstStart({user,organizations=[],accounts=[],busy,error,onSignI
     error?h('p',{className:'bc-error',role:'alert'},error):null,
     h('div',{className:'bc-onboarding-options'},
       h('section',{className:'bc-form bc-onboarding-option'},h('h2',null,'Create a Bees organization'),
-        h('p',null,'Get 10k starter credits for your first task. Use the same personal balance on desktop and web.'),
-        h('p',{className:'bc-muted'},'One grant per Bees user, shared across organizations. Add 10 million tokens for $10 when you need more.'),
+        h('p',null,'Get 50k starter credits for your first task. Use the same personal balance on desktop and web.'),
+        h('p',{className:'bc-muted'},'One grant per Bees user, shared across organizations. Add 10 million credits for $10 when you need more.'),
         accounts.length>1?h('label',{className:'bc-field'},h('span',null,'Account'),h('select',{'aria-label':'Account for new organization',value:accountId,disabled:busy,onChange:e=>{setAccountId(e.target.value);setOrganizationId('');}},accounts.map(account=>h('option',{key:account.id,value:account.id},account.user.email)))):null,
         !user?h('button',{className:'bc-primary',disabled:busy,onClick:onSignIn},'Sign in or create an account'):
         !user.emailVerified?h('div',null,h('p',null,'Verify your email to create an organization and use starter credits.'),h('button',{disabled:busy,onClick:()=>void onVerify(accountId).then(ok=>setSent(ok&&accountId))},'Send verification email'),sent===accountId?h('p',{className:'bc-notice',role:'status'},'Check your email to verify your account.'):null):
