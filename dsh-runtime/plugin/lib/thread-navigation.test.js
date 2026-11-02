@@ -157,13 +157,141 @@ function appHarness({snapshot,selected=null,thread=null,team=null,settingsSnapsh
   try{const result=run(render,renderPanel,effects);if(result?.then)return result.finally(restore);restore();return result;}catch(error){restore();throw error;}
 }
 
-test('web entry shows sign-in instead of a workspace before authentication',()=>{
+test('web entry waits for authentication before showing sign-in or a workspace',()=>{
   for(const snapshot of [null,{user:null,threads:[],organizations:[]}])appHarness({snapshot},render=>{
     const tree=render();
-    assert(tree.some(node=>node.type==='h1'&&node.props.children==='Sign up / Sign in'));
+    assert.equal(tree.some(node=>node.type==='h1'&&node.props.children==='Sign up / Sign in'),!!snapshot);
     assert(!tree.some(node=>node.type===BeesNavigation||node.type===ThreadWorkspace));
     if(snapshot)assert(tree.some(node=>node.type.name==='Login'));
-    else assert(tree.some(node=>node.props.role==='status'&&node.props.children==='Checking your sign-in…'));
+    else {
+      assert(tree.some(node=>node.props.role==='status'&&node.props.children==='Loading your workspace…'));
+      assert(!tree.some(node=>node.type.name==='Login'));
+    }
+  });
+});
+
+test('switching web organizations shows loading until the new workspace arrives',async t=>{
+  const previous=globalThis.fetch;t.after(()=>{globalThis.fetch=previous;});
+  const accounts=['alice','bob'].map(id=>({id,active:id==='alice',user:{id,email:id+'@example.com',emailVerified:true},organizations:[{id:id+'-org',name:id}]}));
+  const snapshot={onboarding:'cloud',user:accounts[0].user,accounts,organizations:accounts[0].organizations,teams:[],threads:[]};
+  for(const [accountId,status] of [['alice',200],['bob',200],['bob',503]]){
+    let finish,requested;
+    const loading=new Promise(resolve=>{requested=resolve;});
+    const next={...snapshot,user:accounts.find(account=>account.id===accountId).user,settings:{selectedOrganizationId:'next-org'}};
+    globalThis.fetch=async(_url,options)=>{
+      if(options?.body){const input=JSON.parse(options.body);assert.equal(input.action,'selectOrganization');assert.equal(input.accountId,accountId);return {ok:true,json:async()=>({ok:true})};}
+      return new Promise(resolve=>{finish=()=>resolve({ok:status===200,status,json:async()=>status===200?next:{error:'Workspace unavailable'}});requested();});
+    };
+    await appHarness({snapshot},async render=>{
+      const pending=render().find(node=>node.type===BeesNavigation).props.onOrganization('next-org',accountId);
+      await loading;
+      let tree=render();
+      assert(tree.some(node=>node.props.role==='status'&&node.props.children==='Loading your workspace…'));
+      assert(!tree.some(node=>node.type==='h1'||node.type.name==='Login'||node.type===BeesNavigation||node.type===ThreadWorkspace));
+      finish();await pending;tree=render();
+      assert(!tree.some(node=>node.type.name==='Login'||node.props.children==='Sign up / Sign in'));
+      if(status===200)assert.equal(tree.find(node=>node.type===BeesNavigation).props.organizationId,'next-org');
+      else assert(tree.some(node=>node.props.role==='alert'&&node.props.children==='Workspace unavailable'));
+    });
+  }
+});
+
+test('web orgs restore their own workspace while refreshing without blocking navigation',async t=>{
+  const previous=globalThis.fetch;t.after(()=>{globalThis.fetch=previous;});
+  for(const otherAccount of ['alice','bob']){
+    const accounts=['alice','bob'].map(id=>({id,active:id==='alice',user:{id,email:id+'@example.com',emailVerified:true},organizations:[{id:'org1',name:'One'},{id:'org2',name:'Two'}]}));
+    const team={id:'alice-team',title:'Alice team',organizationId:'org1',ownerClientId:'alice-client'};
+    const thread={id:'alice-thread',title:'Saved conversation',teamId:team.id,ownerClientId:'alice-client',runs:[]};
+    const snapshot={clientId:'alice-client',onboarding:'cloud',user:accounts[0].user,accounts,settings:{selectedOrganizationId:'org1'},organizations:accounts[0].organizations,teams:[team],threads:[thread]};
+    const otherOrg=otherAccount==='alice'?'org2':'org1',otherTeam={...team,id:'other-team',title:'Other team',organizationId:otherOrg};
+    const other={...snapshot,clientId:otherAccount+'-client',user:accounts.find(a=>a.id===otherAccount).user,accounts:accounts.map(a=>({...a,active:a.id===otherAccount})),settings:{selectedOrganizationId:otherOrg},teams:[otherTeam],threads:[]};
+    const reads=[];let denied=false;
+    globalThis.fetch=async(_url,options)=>{
+      if(options?.body){assert.equal(JSON.parse(options.body).action,'selectOrganization');return {ok:!denied,status:403,json:async()=>denied?{error:'Organization membership required'}:{ok:true}};}
+      return new Promise(resolve=>reads.push((value,status=200)=>resolve({ok:status===200,status,json:async()=>value})));
+    };
+    await appHarness({snapshot,selected:thread.id,thread,team},async render=>{
+      const choose=(org,account)=>render().find(node=>node.type===BeesNavigation).props.onOrganization(org,account);
+      render().find(node=>node.type===TeamSection).props.onToggle();
+      let pending=choose(otherOrg,otherAccount);await new Promise(setImmediate);
+      reads.shift()(other);await pending;
+      assert.equal(render().find(node=>node.type===TeamSection).props.team.id,'other-team');
+      assert(!render().some(node=>node.type===ThreadWorkspace),'Another org must not show Alice’s conversation');
+      denied=true;await choose('org1','alice');
+      assert.equal(render().find(node=>node.type===TeamSection).props.team.id,'other-team','A denied selection never restores its cached data');
+      denied=false;await choose('org1','alice');
+      let tree=render(),rail=tree.find(node=>node.type===BeesNavigation);
+      assert.equal(reads.length,1,'Fresh data is requested in the background');assert.equal(rail.props.busy,false);
+      assert.equal(rail.props.accounts.find(a=>a.active).id,'alice');
+      assert.equal(tree.find(node=>node.type===TeamSection).props.expanded,false);
+      assert(tree.some(node=>node.type==='h2'&&node.props.children===thread.title));
+      assert(tree.some(node=>node.type===ThreadWorkspace));
+      reads.shift()({...snapshot,teams:[{...team,title:'Updated by another user'}]});await new Promise(setImmediate);
+      assert.equal(render().find(node=>node.type===TeamSection).props.team.title,'Updated by another user');
+      await choose(otherOrg,otherAccount);const stale=reads.shift();
+      await choose('org1','alice');const fresh=reads.shift();
+      stale({error:'Expired old request'},401);await new Promise(setImmediate);
+      assert.equal(render().find(node=>node.type===BeesNavigation).props.accounts.find(a=>a.active).id,'alice','A late failure from another org cannot sign out this one');
+      fresh(snapshot);await new Promise(setImmediate);
+      await choose(otherOrg,otherAccount);const late=reads.shift();
+      await choose('org1','alice');const unavailable=reads.shift();
+      late(other);unavailable({error:'Workspace unavailable'},503);await new Promise(setImmediate);
+      tree=render();assert.equal(tree.find(node=>node.type===BeesNavigation).props.accounts.find(a=>a.active).id,'alice');
+      assert(tree.some(node=>node.type==='h2'&&node.props.children===thread.title),'A background failure keeps the cached workspace visible');
+    });
+  }
+});
+
+test('signing out removes cached web workspaces',async t=>{
+  const previous=globalThis.fetch;t.after(()=>{globalThis.fetch=previous;});
+  const account={id:'alice',active:true,user:{id:'alice',email:'alice@example.com',emailVerified:true},organizations:[{id:'org1'},{id:'org2'}]};
+  const snapshot={onboarding:'cloud',user:account.user,accounts:[account],organizations:account.organizations,settings:{selectedOrganizationId:'org1'},teams:[],threads:[]};
+  let finish;
+  globalThis.fetch=async(_url,options)=>options?.body?{ok:true,json:async()=>({ok:true})}:new Promise(resolve=>{finish=value=>resolve({ok:true,json:async()=>value});});
+  await appHarness({snapshot},async render=>{
+    let pending=render().find(node=>node.type===BeesNavigation).props.onOrganization('org2','alice');await new Promise(setImmediate);
+    finish({...snapshot,settings:{selectedOrganizationId:'org2'}});await pending;
+    render().find(node=>node.type===BeesNavigation).props.onAccount();
+    pending=render().find(node=>node.props['aria-label']==='Sign out of alice@example.com').props.onClick();await new Promise(setImmediate);
+    finish({...snapshot,settings:{selectedOrganizationId:'org2'}});await pending;
+    pending=render().find(node=>node.type===BeesNavigation).props.onOrganization('org1','alice');await new Promise(setImmediate);
+    assert(render().some(node=>node.props.children==='Loading your workspace…'),'Even a reauthenticated account must fetch again after sign-out');
+    finish(snapshot);await pending;
+  });
+});
+
+test('web orgs keep syncing in place and pause polling only during selection',async t=>{
+  const previous={fetch:globalThis.fetch,document:globalThis.document,setInterval:globalThis.setInterval,clearInterval:globalThis.clearInterval};
+  t.after(()=>{Object.assign(globalThis,previous);});
+  let tick,finishSelection;
+  globalThis.document={title:'Bees',createElement:()=>({remove(){}}),head:{append(){}},addEventListener(){},removeEventListener(){}};
+  globalThis.setInterval=(fn,ms)=>{assert.equal(ms,5000);tick=fn;return 1;};globalThis.clearInterval=()=>{};
+  const account={id:'alice',active:true,user:{id:'alice',emailVerified:true},organizations:[{id:'org1'},{id:'org2'}]};
+  const team={id:'team',organizationId:'org1',title:'Original'};
+  const snapshot={onboarding:'cloud',user:account.user,accounts:[account],settings:{selectedOrganizationId:'org1'},organizations:account.organizations,teams:[team],threads:[]};
+  const reads=[];
+  globalThis.fetch=async(_url,options)=>{
+    if(options?.body)return new Promise(resolve=>{finishSelection=()=>resolve({ok:true,json:async()=>({ok:true})});});
+    return new Promise(resolve=>reads.push((value,status=200)=>resolve({ok:status===200,status,json:async()=>value})));
+  };
+  await appHarness({snapshot},async(render,_panel,effects)=>{
+    render();const cleanup=effects.find(effect=>effect.deps?.length===0).fn();
+    try{
+      reads.shift()(snapshot);await new Promise(setImmediate);
+      tick();reads.shift()({...snapshot,teams:[{...team,title:'Edited by a teammate'}]});await new Promise(setImmediate);
+      assert.equal(render().find(node=>node.type===TeamSection).props.team.title,'Edited by a teammate');
+      tick();const stale=reads.shift();
+      const pending=render().find(node=>node.type===BeesNavigation).props.onOrganization('org2','alice');
+      tick();assert.equal(reads.length,0,'No active-org poll starts while the server selection is changing');
+      stale({error:'Old session expired'},401);await new Promise(setImmediate);
+      assert(render().some(node=>node.type===BeesNavigation),'An old poll cannot sign out a new selection');
+      finishSelection();await new Promise(setImmediate);
+      const next={...snapshot,settings:{selectedOrganizationId:'org2'}};reads.shift()(next);await pending;
+      tick();reads.shift()({...next,teams:[{...team,organizationId:'org2',title:'Updated in org2'}]});await new Promise(setImmediate);
+      assert.equal(render().find(node=>node.type===TeamSection).props.team.title,'Updated in org2');
+      tick();reads.shift()({error:'Sign in again'},401);await new Promise(setImmediate);
+      assert(render().some(node=>node.type.name==='Login'),'A current authentication failure still requires sign-in');
+    }finally{cleanup();}
   });
 });
 
@@ -244,7 +372,10 @@ test('Accounts gives every row its own sign-out and preserves other account view
       assert(render().filter(node=>node.props.children==='Sign out').every(node=>node.props.disabled));
       await pending;
       assert.equal(requests[0].action,'logout');assert.equal(requests[0].accountId,target.id);
-      if(mode==='last')assert(!render().some(node=>node.type===SettingsPage));
+      if(mode==='last'){
+        assert(!render().some(node=>node.type===SettingsPage));
+        assert(render().some(node=>node.type.name==='Login'));
+      }
       else {
         const page=render().find(node=>node.type===SettingsPage);assert.equal(page.props.title,'Accounts');
         assert.equal(nodes(page).filter(node=>node.props.className==='bc-person').length,accounts.length-(mode==='failed'?0:1));
