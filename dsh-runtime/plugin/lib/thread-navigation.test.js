@@ -320,6 +320,20 @@ test('desktop and web open the selected account server for organization setup',(
   }
 });
 
+test('add organization in settings opens onboarding for the selected account',()=>{
+  for(const hosted of [false,true]){
+    const urls=[],snapshot={teams:[],threads:[],organizations:[],accounts:[{id:'alice',active:true,url:'https://directory.example',user:{email:'alice@example.com'},organizations:[]}]};
+    appHarness({snapshot,hosted},render=>{
+      window.__TAURI__=hosted?undefined:{core:{invoke:(_action,{url})=>{urls.push(url);}}};
+      window.open=url=>{urls.push(url);return {opener:null};};
+      render().find(node=>node.type===BeesNavigation).props.onGlobal('organizations');
+      const group=render().find(node=>node.type===SettingsPage).props.groups.find(group=>group.title==='Organizations');
+      group.extra.props.onClick();
+      assert.deepEqual(urls,['https://directory.example/onboarding']);
+    });
+  }
+});
+
 test('local org settings create without sign-in and keep the built-in teams separate',()=>{
   const org={id:'studio',name:'Studio',role:'owner',local:true};
   const snapshot={teams:[{id:'default',title:'Default'},{id:'studio-team',title:'Studio team',organizationId:org.id}],threads:[],organizations:[org],localOrganizations:[org],settings:{selectedOrganizationId:org.id},localActive:true};
