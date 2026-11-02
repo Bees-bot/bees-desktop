@@ -1,5 +1,5 @@
-# Builds the Intel Mac, Linux and Windows apps that this Mac cannot. scripts/release.sh
-# starts it, downloads the results, signs the updates and publishes. Nothing here publishes.
+# Builds all desktop platforms. scripts/release.sh downloads the results,
+# signs the updates and publishes. Nothing here publishes.
 
 name: Build desktop
 
@@ -20,8 +20,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - os: macos-15
+            bundles: dmg
           - os: macos-15-intel
-            bundles: app
+            bundles: dmg
           # the oldest runner on purpose: a linux build only runs on systems with its glibc or newer
           - os: ubuntu-22.04
             bundles: appimage,deb
@@ -73,8 +75,18 @@ jobs:
           security list-keychain -d user -s "$keychain" login.keychain-db
           rm "$certificate"
 
+      - name: Build and notarize the Mac installer
+        if: runner.os == 'macOS'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npx tauri build --verbose --bundles ${{ matrix.bundles }}
+
       # verbose, or a failed linuxdeploy prints nothing but its name
-      - run: npx tauri build --verbose --bundles ${{ matrix.bundles }}
+      - name: Build Windows or Linux
+        if: runner.os != 'macOS'
+        run: npx tauri build --verbose --bundles ${{ matrix.bundles }}
 
       # the bundled libwayland-client breaks EGL on newer mesa (fedora 44 aborts on start), the system one works.
       # tauri can't pass linuxdeploy --exclude-library, so rerun the copy it cached on the app folder it left behind
@@ -89,16 +101,20 @@ jobs:
           rm "$OUTPUT" *.AppDir/usr/lib/libwayland-client.so.0
           ~/.cache/tauri/linuxdeploy-x86_64.AppImage --appimage-extract-and-run --appdir *.AppDir --exclude-library 'libwayland-client.so*' --output appimage
 
-      # artifacts drop symlinks and execute bits, which an app bundle needs. the release script notarizes it.
+      # artifacts drop symlinks and execute bits, which an app bundle needs
       - name: Pack the Mac app
         if: runner.os == 'macOS'
-        run: COPYFILE_DISABLE=1 tar -czf src-tauri/target/release/bundle/Bees.app.tar.gz -C src-tauri/target/release/bundle/macos "Bees Client.app"
+        run: |
+          codesign --verify --deep --strict -vv "src-tauri/target/release/bundle/macos/Bees Client.app"
+          xcrun stapler validate "src-tauri/target/release/bundle/macos/Bees Client.app"
+          COPYFILE_DISABLE=1 tar -czf src-tauri/target/release/bundle/Bees.app.tar.gz -C src-tauri/target/release/bundle/macos "Bees Client.app"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.os }}
           path: |
             src-tauri/target/release/bundle/Bees.app.tar.gz
+            src-tauri/target/release/bundle/dmg/*.dmg
             src-tauri/target/release/bundle/appimage/*.AppImage
             src-tauri/target/release/bundle/deb/*.deb
             src-tauri/target/release/bundle/nsis/*-setup.exe
