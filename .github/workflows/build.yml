@@ -111,6 +111,7 @@ jobs:
         run: |
           try() { for attempt in 1 2 3 4 5 6; do "$@" && return; sleep 20; done; return 1; }
           codesign --verify --deep --strict -vv "src-tauri/target/release/bundle/macos/Bees Client.app"
+          try xcrun stapler staple "src-tauri/target/release/bundle/macos/Bees Client.app"
           try xcrun stapler validate "src-tauri/target/release/bundle/macos/Bees Client.app"
           COPYFILE_DISABLE=1 tar -czf src-tauri/target/release/bundle/Bees.app.tar.gz -C src-tauri/target/release/bundle/macos "Bees Client.app"
           staging=$(mktemp -d)
