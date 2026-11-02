@@ -102,3 +102,26 @@ test('recovery sends one contextual message without clearing a typed draft or at
     }
   }finally{configure(React);}
 });
+
+test('composer restores unsent prompts across navigation and reload and keeps discussion separate',async t=>{
+  const prior=globalThis.localStorage,values=new Map(),saved=[];let states=[],index=0,effects=[];
+  globalThis.localStorage={getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,value),removeItem:key=>values.delete(key)};
+  const configure=react=>configureRuntime(name=>({react,'react-dom':{},'@deepseek-ai/dsh-client-ui-primitives':{MarkdownText:({text})=>text}})[name],{hosted:true});
+  t.after(()=>{configure(React);if(prior===undefined)delete globalThis.localStorage;else globalThis.localStorage=prior;});
+  configure({...React,useState:initial=>{const key=index++;if(!(key in states))states[key]=typeof initial==='function'?initial():initial;return [states[key],value=>{states[key]=typeof value==='function'?value(states[key]):value;}];},useRef:initial=>({current:initial}),useEffect:fn=>effects.push(fn)});
+  const nodes=node=>!React.isValidElement(node)?[]:[node,...React.Children.toArray(node.props.children).flatMap(nodes)];
+  const props={thread:{id:'draft',draft:true,draftPrompt:'Saved on the client',messages:[]},peerNames:new Map(),canWrite:true,storageKey:'client-a:draft:prompt',onDraftChange:async value=>saved.push(value)};
+  const render=(extra={},mount=false)=>{if(mount)states=[];index=0;effects=[];const tree=nodes(ThreadConversation({...props,...extra}));if(mount)for(const effect of effects)effect();return tree;};
+  assert.equal(render({},true).find(node=>node.type==='textarea').props.value,'Saved on the client');
+  let tree=render();tree.find(node=>node.type==='textarea').props.onChange({target:{value:'Still writing\nmy prompt'}});
+  assert.equal(values.get(props.storageKey),'Still writing\nmy prompt');assert.equal(saved.at(-1),'Still writing\nmy prompt');
+  assert.equal(render({discussion:true,storageKey:'client-a:draft:discussion',onDraftChange:undefined},true).find(node=>node.type==='textarea').props.value,'');
+  assert.equal(render({storageKey:'client-b:draft:prompt'},true).find(node=>node.type==='textarea').props.value,'Saved on the client','Another account never receives a local draft');
+  tree=render({},true);assert.equal(tree.find(node=>node.type==='textarea').props.value,'Still writing\nmy prompt');
+  assert.equal(saved.at(-1),'Still writing\nmy prompt','A browser-local edit is retried after reopening');
+  let sent;
+  tree=render({onSend:async(text,discussion,accepted)=>{sent=text;accepted();}});
+  tree.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});
+  assert.equal(sent,'Still writing\nmy prompt');assert.equal(values.has(props.storageKey),false);
+  assert.equal(render().find(node=>node.type==='textarea').props.value,'');
+});

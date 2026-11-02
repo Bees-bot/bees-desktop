@@ -1,11 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { hostedClientActivity } from './hosted-lifecycle.mjs';
+import { hostedClientActivity,isFreeClient } from './hosted-lifecycle.mjs';
 
 const directoryUrl = 'https://directory.test', idleMs = 5 * 60_000;
 const id = name => createHash('sha256').update(directoryUrl + '\n' + name).digest('hex');
 const free = { balance: 0, heldTokens: 0, autoRenew: false, paymentPending: false };
+
+test('a member of a funded organization keeps paid hosted scheduling behavior without a personal balance',()=>{
+  assert.equal(isFreeClient(free),true);
+  assert.equal(isFreeClient({...free,hasOrganizationCredits:true}),false);
+});
 
 function fixture() {
   let clock = 0;

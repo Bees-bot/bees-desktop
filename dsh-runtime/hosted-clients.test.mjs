@@ -23,7 +23,7 @@ test('hosted releases invalidate browser assets and missing assets return 404',a
  }finally{await Promise.all(servers.map(close));await rm(assets,{recursive:true,force:true});}
 });
 test('hosted gateway authenticates each request and routes only to the matching account client',async()=>{
- const servers=[];const directory=createServer(async(req,res)=>{res.setHeader('content-type','application/json');if(req.url==='/api/me'){const user=String(req.headers.authorization??'').slice(7);if(!['alice','bob'].includes(user)){res.statusCode=401;return res.end('{}');}return res.end(JSON.stringify({user:{id:user,email:user+'@example.com'}}));}if(req.url==='/api/auth/sign-in/email'){const chunks=[];for await(const c of req)chunks.push(c);return res.end(JSON.stringify({token:JSON.parse(Buffer.concat(chunks)).email.split('@')[0]}));}res.statusCode=404;res.end('{}');});servers.push(directory);
+ const servers=[];const directory=createServer(async(req,res)=>{res.setHeader('content-type','application/json');if(req.url==='/api/me'){const user=String(req.headers.authorization??'').slice(7);if(!['alice','bob'].includes(user)){res.statusCode=401;return res.end('{}');}return res.end(JSON.stringify({user:{id:user,email:user+'@example.com',emailVerified:true}}));}if(req.url==='/api/organizations')return res.end(JSON.stringify({organizations:[{id:'member-org'}]}));if(req.url==='/api/auth/sign-in/email'){const chunks=[];for await(const c of req)chunks.push(c);return res.end(JSON.stringify({token:JSON.parse(Buffer.concat(chunks)).email.split('@')[0]}));}res.statusCode=404;res.end('{}');});servers.push(directory);
  try{
   const directoryUrl=await listen(directory),clients={};
   for(const user of ['alice','bob']){const server=createServer((req,res)=>{res.setHeader('content-type','application/json');assert.equal(req.headers.authorization,'Bearer private-'+user);res.end(JSON.stringify({account:user,path:req.url}));});servers.push(server);clients[user]={url:await listen(server),token:'private-'+user};}
@@ -58,8 +58,9 @@ test('one browser retains all accounts and organizations while commands and sign
    if(creditsUnavailable){res.statusCode=503;return res.end('{}');}
    return res.end(JSON.stringify({credits:creditOverride===undefined?{balance:token==='alice'?0:100,heldTokens:0,autoRenew:false,paymentPending:false}:creditOverride}));
   }
+  if(req.url==='/api/organizations')return res.end(JSON.stringify({organizations:[{id:token+'-org'}]}));
   if(req.url!=='/api/me'){res.statusCode=404;return res.end('{}');}
-  res.end(JSON.stringify({user:{id:token,email:token+'@example.com'}}));
+  res.end(JSON.stringify({user:{id:token,email:token+'@example.com',emailVerified:true}}));
  });servers.push(directory);
  try{
   const directoryUrl=await listen(directory),clients={},jar=new Map();
@@ -106,9 +107,11 @@ test('one browser retains all accounts and organizations while commands and sign
   }
   assert.equal((await request({action:'createOrganization',settingsAccountId:'unknown',name:'New studio'})).status,401);
   assert.equal((await request({action:'switchAccount',accountId:'unknown'})).status,401);
+  assert.equal((await request({action:'logout',accountId:'unknown'})).status,401);
   // Renaming a cookie cannot substitute another user's credentials for an account.
   const aliceCookie='bees_hosted_account_'+alice.id;
   jar.set(aliceCookie,'bob');assert.equal((await request({action:'switchAccount',accountId:alice.id})).status,401);
+  assert.equal((await request({action:'logout',accountId:alice.id})).status,401);assert.deepEqual(stopped,[]);
   assert.equal((await request({action:'createOrganization',settingsAccountId:alice.id,name:'New studio'})).status,401);jar.set(aliceCookie,'alice');
   assert.equal((await request({action:'selectOrganization',accountId:alice.id,organizationId:'bob-org'})).status,403);
   assert.equal(jar.get('bees_hosted_session'),'bob','Failed selection keeps the prior view');
@@ -119,9 +122,11 @@ test('one browser retains all accounts and organizations while commands and sign
   // The gateway holds no in-memory login state; browser cookies restore every account.
   await close(gateway);gateway=createHostedGateway({directoryUrl,assets:'/unused',provision});servers.push(gateway);url=await listen(gateway);
   assert.equal((await request()).value.accounts.length,2);
-  creditsUnavailable=true;assert.equal((await request({action:'logout'})).status,503);assert(jar.has(aliceCookie));assert.deepEqual(stopped,[]);creditsUnavailable=false;
-  stopFailed=true;assert.equal((await request({action:'logout'})).status,503);assert(jar.has(aliceCookie));stopFailed=false;
-  assert.equal((await request({action:'logout',userId:'bob',credits:{balance:100}})).status,200);
+  await request({action:'switchAccount',accountId:bob.id});
+  creditsUnavailable=true;assert.equal((await request({action:'logout',accountId:alice.id})).status,503);assert(jar.has(aliceCookie));assert.deepEqual(stopped,[]);creditsUnavailable=false;
+  stopFailed=true;assert.equal((await request({action:'logout',accountId:alice.id})).status,503);assert(jar.has(aliceCookie));stopFailed=false;
+  assert.equal((await request({action:'logout',accountId:alice.id,userId:'bob',credits:{balance:100}})).status,200);
+  assert.equal(jar.get('bees_hosted_session'),'bob','Signing out another account keeps the active view');
   assert.deepEqual(stopped,['alice']);assert(!provisioned.has('alice'));assert(provisioned.has('bob'));
   assert(!jar.has(aliceCookie));result=await request();assert.equal(result.value.user.id,'bob');assert.equal(result.value.accounts.length,1);
   assert.equal((await request({action:'switchAccount',accountId:alice.id})).status,401);
@@ -141,5 +146,58 @@ test('one browser retains all accounts and organizations while commands and sign
    creditOverride=unknown;await request({action:'login',session:'alice'});await request({action:'logout'});
    assert.deepEqual(stopped,['alice','alice'],'Unknown credit status never shuts down a paid client');
   }
+ }finally{await Promise.all(servers.map(close));}
+});
+
+test('web work requires a verified organization and stale onboarding cannot bypass setup',async()=>{
+ const servers=[];let member=false,verified=true,available=true,provisions=0;
+ const directory=createServer((req,res)=>{
+  res.setHeader('content-type','application/json');
+  if(req.headers.authorization!=='Bearer member')return res.writeHead(401).end('{}');
+  if(req.url==='/api/me')return res.end(JSON.stringify({user:{id:'member',email:'member@example.test',emailVerified:verified}}));
+  if(req.url==='/api/organizations')return res.writeHead(available?200:503).end(JSON.stringify({organizations:member?[{id:'org'}]:[]}));
+  res.writeHead(404).end('{}');
+ });servers.push(directory);
+ const worker=createServer((req,res)=>{res.setHeader('content-type','application/json');res.end(JSON.stringify({user:{id:'member'},onboarding:'local',organizations:member?[{id:'org'}]:[],threads:[],ok:true}));});servers.push(worker);
+ try{
+  const directoryUrl=await listen(directory),workerUrl=await listen(worker);
+  const gateway=createHostedGateway({directoryUrl,assets:'/unused',provision:async()=>{provisions++;return {url:workerUrl,token:'worker'};}});servers.push(gateway);const url=await listen(gateway);
+  const request=input=>fetch(url+'/bees-api/threads',{headers:{cookie:'bees_hosted_session=member',...(input?{'content-type':'application/json'}:{})},...(input?{method:'POST',body:JSON.stringify(input)}:{})});
+  assert.equal((await fetch(url+'/bees-api/threads')).status,401);assert.equal(provisions,0);
+  for(const action of ['create','run','preferences','createLocalOrganization'])assert.equal((await request({action})).status,403);
+  assert.equal((await fetch(url+'/bees-api/thread-file?threadId=old',{headers:{cookie:'bees_hosted_session=member'}})).status,403);
+  assert.equal(provisions,0,'Work cannot start a worker before onboarding');
+  const snapshot=await (await request()).json();assert.equal(snapshot.onboarding,null);assert.equal(snapshot.user.emailVerified,true);
+  for(const action of ['organizations','acceptOrganization','verifyEmail','completeOnboarding'])assert.equal((await request({action})).status,200,'Setup and joining remain available');
+  member=true;assert.equal((await request({action:'create'})).status,200);
+  verified=false;assert.equal((await request({action:'run'})).status,403);assert.equal((await (await request()).json()).onboarding,null);
+  verified=true;available=false;assert.equal((await request({action:'run'})).status,503);
+ }finally{await Promise.all(servers.map(close));}
+});
+
+test('an existing portal session opens its ready organization directly and signs out cleanly',async()=>{
+ const servers=[];let valid=true,selected=null,onboarding=null;const actions=[];
+ const directory=createServer((req,res)=>{
+  res.setHeader('content-type','application/json');
+  if(req.url==='/api/auth/get-session'){assert.match(req.headers.cookie,/bees.session_token=portal/);return res.end(JSON.stringify(valid?{session:{token:'member'},user:{id:'member'}}:null));}
+  if(req.url==='/api/auth/sign-out'){valid=false;res.setHeader('set-cookie','bees.session_token=; Max-Age=0; Path=/');return res.end('{}');}
+  if(req.url==='/api/me'&&valid&&req.headers.authorization==='Bearer member')return res.end(JSON.stringify({user:{id:'member',email:'member@example.test',emailVerified:true}}));
+  res.writeHead(401).end('{}');
+ });servers.push(directory);
+ const worker=createServer(async(req,res)=>{
+  res.setHeader('content-type','application/json');
+  if(req.method==='POST'){const chunks=[];for await(const c of req)chunks.push(c);const input=JSON.parse(Buffer.concat(chunks));actions.push(input.action);if(input.action==='completeOnboarding'){assert.equal(input.mode,'cloud');selected=input.organizationId;onboarding='cloud';}return res.end('{}');}
+  res.end(JSON.stringify({onboarding,organizations:[{id:'ready-org'}],settings:{selectedOrganizationId:selected},threads:[]}));
+ });servers.push(worker);
+ try{
+  const directoryUrl=await listen(directory),workerUrl=await listen(worker);
+  const gateway=createHostedGateway({directoryUrl,publicUrl:directoryUrl,assets:'/unused',provision:async user=>{assert.equal(user.id,'member');return {url:workerUrl,token:'worker'};}});servers.push(gateway);const url=await listen(gateway);
+  const response=await fetch(url+'/bees-api/threads',{headers:{cookie:'bees.session_token=portal'}});assert.equal(response.status,200);
+  const value=await response.json();assert.equal(value.onboarding,'cloud');assert.equal(value.settings.selectedOrganizationId,'ready-org');
+  assert.deepEqual(actions,['resumeSession','completeOnboarding']);assert.match(response.headers.get('set-cookie'),/bees_hosted_session=member/);
+  const again=await fetch(url+'/bees-api/threads',{headers:{cookie:'bees_hosted_session=member'}});assert.equal(again.status,200);assert.equal(actions.filter(action=>action==='completeOnboarding').length,1);
+  const logout=await fetch(url+'/bees-api/threads',{method:'POST',headers:{cookie:'bees_hosted_session=member; bees.session_token=portal','content-type':'application/json'},body:JSON.stringify({action:'logout'})});
+  assert.equal(logout.status,200);assert(logout.headers.getSetCookie().some(cookie=>cookie.startsWith('bees.session_token=;')));
+  const signedOut=await fetch(url+'/bees-api/threads',{headers:{cookie:'bees.session_token=portal'}});assert.equal(signedOut.status,401);
  }finally{await Promise.all(servers.map(close));}
 });

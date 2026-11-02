@@ -7,6 +7,57 @@ import {randomUUID} from 'node:crypto';
 import {ThreadClient} from './thread-client.js';
 import {DEFAULT_WORKFLOW,CHAT_WORKFLOW,WORKFLOW_TEMPLATES,processName} from './thread-workflow.js';
 
+test('a first read preserves sync failures, recovers when the owner returns, and retains cached work offline',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'bees-first-sync-')),client=new ThreadClient(join(root,'web')),owner=new ThreadClient(join(root,'owner'));
+ try{
+  const original=owner.store.create('Desktop research','alice');
+  const doc=owner.store.mutate(original.id,randomUUID(),d=>{d.shared=true;});
+  owner.store.message(doc.id,randomUUID(),'Saved on desktop','alice');
+  const authority={id:doc.id,kind:'thread',owner_client_id:owner.store.clientId,owner_user_id:'alice',epoch:1};
+  client.refresh=async()=>{};
+  client.roster.threads=[authority];
+  const now=new Date().toISOString();
+  client.roster.clients=[{id:client.store.clientId,last_seen_at:now},{id:owner.store.clientId,last_seen_at:new Date(Date.now()-60000).toISOString()}];
+  let requests=0;
+  client.peer={send:async(id,target,input)=>{requests++;assert.equal(id,doc.id);assert.equal(target,owner.store.clientId);assert.equal(input.kind,'snapshot');return owner.store.document(id);}};
+  const read=()=>client.command({action:'read',threadId:doc.id});
+  await assert.rejects(read(),{status:408,message:"The owner's Bees Client can't be reached right now."});
+  assert.equal(requests,0);assert(!client.store.list().some(row=>row.id===doc.id),'Failed downloads must not create empty threads');
+  client.roster.clients[1].last_seen_at=now;
+  const synced=await read();assert.equal(synced.title,'Desktop research');assert.equal(synced.messages[0].text,'Saved on desktop');assert.equal(synced.unavailable,undefined);
+  client.roster.clients[1].last_seen_at=new Date(Date.now()-60000).toISOString();
+  const cached=await read();assert.equal(cached.messages[0].text,'Saved on desktop');assert.match(cached.unavailable,/can't be reached/);
+  client.store.drop(doc.id);
+  for(const status of [401,403,502]){
+   const failure=Object.assign(Error('Sync failure '+status),{status});client.refresh=async()=>{throw failure;};
+   await assert.rejects(read(),error=>error===failure);
+  }
+ }finally{client.store.close();owner.store.close();await rm(root,{recursive:true,force:true});}
+});
+
+test('web reads of an offline desktop-owned thread explain how to transfer it without masking access errors',async t=>{
+ const priorHosted=process.env.BEES_HOSTED_CLIENT;process.env.BEES_HOSTED_CLIENT='1';
+ t.after(()=>{if(priorHosted===undefined)delete process.env.BEES_HOSTED_CLIENT;else process.env.BEES_HOSTED_CLIENT=priorHosted;});
+ const root=await mkdtemp(join(tmpdir(),'bees-desktop-transfer-')),client=new ThreadClient(join(root,'web')),desktop=new ThreadClient(join(root,'desktop'));
+ try{
+  client.directory.user={id:'alice'};client.refresh=async()=>{};
+  const original=desktop.store.create('Desktop research','alice'),doc=desktop.store.mutate(original.id,randomUUID(),d=>{d.shared=true;});
+  const authority={id:doc.id,kind:'thread',owner_client_id:desktop.store.clientId,owner_user_id:'alice',epoch:1};
+  client.roster.threads=[authority];
+  client.roster.clients=[{id:desktop.store.clientId,name:'My Mac',last_seen_at:new Date(0).toISOString()}];
+  const read=()=>client.command({action:'read',threadId:doc.id});
+  const message='This thread is active in your desktop client. To transfer it to the web client, open Bees Desktop and select this thread. Finish or stop any active work, then go to Settings → Transfer, choose Bees Cloud, and click Offer transfer. Return to the web client and click Accept transfer. Keep both clients open until the transfer finishes.';
+  await assert.rejects(read(),{status:408,message});
+  client.store.import(doc,authority);assert.equal((await read()).unavailable,message);client.store.drop(doc.id);
+  for(const change of [()=>{authority.owner_user_id='bob';},()=>{client.roster.clients[0].name='Bees Cloud';},()=>{authority.kind='team';},()=>{delete process.env.BEES_HOSTED_CLIENT;}]){
+   authority.owner_user_id='alice';authority.kind='thread';client.roster.clients[0].name='My Mac';process.env.BEES_HOSTED_CLIENT='1';change();
+   await assert.rejects(read(),{status:408,message:"The owner's Bees Client can't be reached right now."});
+  }
+  process.env.BEES_HOSTED_CLIENT='1';authority.kind='thread';
+  for(const status of [401,403,502]){const failure=Object.assign(Error('Failure '+status),{status});client.refresh=async()=>{throw failure;};await assert.rejects(read(),error=>error===failure);}
+ }finally{client.store.close();desktop.store.close();await rm(root,{recursive:true,force:true});}
+});
+
 test('snapshots omit empty Chat and Goal placeholders at any revision while preserving saved work',async()=>{
  const root=await mkdtemp(join(tmpdir(),'bees-empty-drafts-'));let client=new ThreadClient(root);
  try{
@@ -105,4 +156,71 @@ test('stopped runs retain team execution context and report a readable cancellat
   assert.equal(run.status,'cancelled');assert.equal(run.error,'Stopped before it finished.');
   assert.equal(run.partial,undefined);assert.equal(client.store.document(doc.id).messages.at(-1).text,'Reply so far');
  }finally{client.store.close();await rm(root,{recursive:true,force:true});}
+});
+
+test('drafts preserve prompt, files, folders and settings across restart, then start in the same thread',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'bees-draft-'));let client;let executed;
+ const command=(action,threadId,values={})=>client.command({action,threadId,operationId:randomUUID(),...values});
+ try{
+  client=new ThreadClient(root,{execute:async input=>{executed=input;return 'Done';}});
+  const draft=await command('create',null,{draft:true,templateId:'chat'});
+  assert.equal((await command('create',null,{draft:true,templateId:'chat'})).id,draft.id,'Unused team screens reuse one empty draft');
+  assert.equal(client.store.list().find(row=>row.id===draft.id).draftTouched,false);
+  const prompt='  Prepare the report\nusing these notes.  ';
+  const op=randomUUID();await client.command({action:'draft',threadId:draft.id,operationId:op,text:prompt});
+  await client.command({action:'draft',threadId:draft.id,operationId:op,text:'duplicate'});
+  assert.equal(client.store.get(draft.id).draftPrompt,prompt);
+  const attachment=await command('attach',draft.id,{name:'notes.txt',path:'reference/notes.txt',content:Buffer.from('Source notes').toString('base64')});
+  await command('folder',draft.id,{path:'reference/empty'});
+  await command('configure',draft.id,{instructions:'Use the attached sources.',workflow:CHAT_WORKFLOW,processId:'chat'});
+  assert.equal(executed,undefined);assert.equal(client.store.get(draft.id).messages.length,0);
+  assert.equal(client.store.get(draft.id).title,'Draft thread');
+  assert.notEqual((await command('create',null,{draft:true,templateId:'chat'})).id,draft.id,'A saved draft is never recycled');
+  client.store.close();client=new ThreadClient(root,{execute:async input=>{executed=input;return 'Done';}});
+  const saved=await command('read',draft.id),row=(await client.snapshot()).threads.find(row=>row.id===draft.id);
+  assert.equal(saved.draftPrompt,prompt);assert.equal(row.preview,prompt);assert.equal(row.draft,true);assert.equal(row.draftTouched,true);
+  assert.deepEqual(saved.folders,['reference/empty']);assert.equal(saved.instructions,'Use the attached sources.');
+  assert.equal(client.store.object(saved,attachment.artifacts[0].id).bytes.toString(),'Source notes');
+  await command('discussion',draft.id,{text:'Discuss before starting'});
+  await command('message',draft.id,{text:prompt});assert.equal(client.store.get(draft.id).title,'Draft thread');
+  await command('run',draft.id,{text:prompt});await Promise.all([...client.finishing]);
+  assert.equal(executed.thread.id,draft.id);assert.equal(executed.thread.artifacts[0].path,'reference/notes.txt');
+  assert.equal(executed.run.instructions,'Use the attached sources.');assert.deepEqual(executed.run.workflow,CHAT_WORKFLOW);
+  assert.equal(client.store.get(draft.id).title,prompt.trim());assert.equal(client.store.get(draft.id).draft,undefined);
+  assert.equal(client.store.get(draft.id).draftPrompt,undefined);
+  await assert.rejects(command('draft',draft.id,{text:'Stale save'}),/already started/);
+ }finally{client?.store.close();await rm(root,{recursive:true,force:true});}
+});
+
+test('manual titles survive starting a draft, including names that look like placeholders',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'bees-draft-title-'));const client=new ThreadClient(root,{execute:async()=> 'Done'});
+ const command=(action,threadId,values={})=>client.command({action,threadId,operationId:randomUUID(),...values});
+ try{
+  for(const title of ['My report','New thread','Draft thread']){
+   const draft=await command('create',null,{draft:true});
+   await command('configure',draft.id,{title});
+   await command('message',draft.id,{text:'Automatic title'});await command('run',draft.id,{text:'Automatic title'});
+   await Promise.all([...client.finishing]);assert.equal(client.store.get(draft.id).title,title);
+  }
+  const ordinary=await command('create');await command('configure',ordinary.id,{title:'New chat'});
+  await command('message',ordinary.id,{text:'Keep the name'});assert.equal(client.store.get(ordinary.id).title,'New chat');
+  const draft=await command('create',null,{draft:true});
+  for(const value of [null,{},'x'.repeat(100001)])await assert.rejects(command('draft',draft.id,{text:value}),/Invalid draft prompt/);
+  await command('draft',draft.id,{text:''});assert.equal(client.store.get(draft.id).draftTouched,false);
+  client.store.preference(`frozen:${draft.id}`,true);
+  await assert.rejects(command('draft',draft.id,{text:'Forbidden'}),/transferred/);
+ }finally{client.store.close();await rm(root,{recursive:true,force:true});}
+});
+
+test('organization invitation cancellation uses the scoped DELETE route and validates IDs',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'bees-org-invites-')),client=new ThreadClient(root),requests=[];
+  try{
+    client.directory.request=async(...args)=>{requests.push(args);return {ok:true};};
+    const organizationId=randomUUID(),invitationId=randomUUID();
+    assert.deepEqual(await client.command({action:'cancelOrganizationInvitation',organizationId,invitationId}),{ok:true});
+    assert.deepEqual(requests,[[`/organizations/${organizationId}/invitations/${invitationId}`,{},'DELETE']]);
+    await assert.rejects(client.command({action:'cancelOrganizationInvitation',organizationId:'../other',invitationId}));
+    await assert.rejects(client.command({action:'cancelOrganizationInvitation',organizationId,invitationId:'../other'}));
+    assert.equal(requests.length,1);
+  }finally{client.store.close();await rm(root,{recursive:true,force:true});}
 });

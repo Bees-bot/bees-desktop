@@ -111,6 +111,14 @@ if(state){const channel=new BroadcastChannel('bees-sign-in-'+state);channel.post
       const accountPrefix='bees_hosted_account_';
       const sessions=new Map([...cookies].filter(([name])=>new RegExp('^'+accountPrefix+'[a-f0-9]{64}$').test(name)).map(([name,token])=>[name.slice(accountPrefix.length),token]));
       const cookie=(name,value)=>res.setHeader('set-cookie',[...(res.getHeader('set-cookie')??[]),`${name}=${encodeURIComponent(value)}; HttpOnly; SameSite=Lax; Path=/${publicUrl?.startsWith('https:')?'; Secure':''}${value?'':'; Max-Age=0'}`]);
+      const sameOrigin=new URL(publicUrl??'http://'+req.headers.host).origin===directory.origin;
+      const forwardCookies=response=>{if(sameOrigin)res.setHeader('set-cookie',[...(res.getHeader('set-cookie')??[]),...response.headers.getSetCookie()]);};
+      const portalSession=async()=>{
+        if(!sameOrigin||!/(?:^|;\s*)(?:__Secure-)?bees\.session_token=/.test(req.headers.cookie??''))return null;
+        const response=await fetch(directory.origin+'/api/auth/get-session',{headers:{cookie:req.headers.cookie},signal:AbortSignal.timeout(10000)});
+        if(response.status===401)return null;if(!response.ok)throw Error('Could not check your sign-in. Try again.');
+        forwardCookies(response);return response.json();
+      };
       const identify=async token=>{
         const response=await fetch(directory.origin+'/api/me',{headers:{authorization:'Bearer '+token},signal:AbortSignal.timeout(10000)});
         if(response.status===401)return null;
@@ -118,44 +126,60 @@ if(state){const channel=new BroadcastChannel('bees-sign-in-'+state);channel.post
         const {user}=await response.json();return {id:hash(directory.origin+'\n'+user.id),user,token};
       };
       const switching=['switchAccount','selectOrganization'].includes(input?.action);
-      const targetAccountId=switching?input.accountId:input?.settingsAccountId;
-      let token=cookies.get('bees_hosted_session')||sessions.values().next().value;
+      const targetAccountId=switching||input?.action==='logout'?input.accountId:input?.settingsAccountId;
+      const activeToken=cookies.get('bees_hosted_session')||sessions.values().next().value;
+      let token=activeToken;
       if(targetAccountId!=null){token=sessions.get(targetAccountId);if(!token)return json(res,401,{error:'Sign in to this account again'});}
       if(input?.action==='logout'){
         const account=token?await identify(token):null;
+        if(targetAccountId!=null&&account?.id!==targetAccountId)return json(res,401,{error:'Sign in to this account again'});
         if(account&&provision.stop){
           const response=await fetch(directory.origin+'/api/directory/credits',{headers:{authorization:'Bearer '+token},signal:AbortSignal.timeout(20000)});
           if(!response.ok)throw Error('Could not check credits before stopping this hosted client. Try signing out again.');
           const {credits}=await response.json();
           if(isFreeClient(credits))await provision.stop(account.user);
         }
+        if(account&&(await portalSession())?.user?.id===account.user.id){
+          const response=await fetch(directory.origin+'/api/auth/sign-out',{method:'POST',headers:{cookie:req.headers.cookie,origin:directory.origin,'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(10000)});
+          if(!response.ok)throw Error('Could not sign out. Try again.');forwardCookies(response);
+        }
         for(const [id,session] of sessions)if(session===token)cookie(accountPrefix+id,'');
-        cookie('bees_hosted_session','');return json(res,200,{ok:true});
+        if(token===activeToken)cookie('bees_hosted_session','');return json(res,200,{ok:true});
       }
       if(input?.action==='login'){
         if(input.session)token=String(input.session);
         else {
           const r=await fetch(directory.origin+'/api/auth/'+(input.name?'sign-up/email':'sign-in/email'),{method:'POST',headers:{'content-type':'application/json',origin:directory.origin,'x-forwarded-for':String(req.headers['x-real-ip']??req.socket.remoteAddress??'')},body:JSON.stringify({email:input.email,password:input.password,...(input.name?{name:input.name}:{})}),signal:AbortSignal.timeout(20000)});
-          const value=await r.json();if(!r.ok)return json(res,r.status,{error:value.message??'Sign in failed'});token=r.headers.get('set-auth-token')??value.token;
+          const value=await r.json();if(!r.ok)return json(res,r.status,{error:value.message??'Sign in failed'});forwardCookies(r);token=r.headers.get('set-auth-token')??value.token;
         }
       }
-      if(!token)return json(res,401,{error:'Sign in to Bees Client'});
-      let account=await identify(token);
+      let account=token?await identify(token):null,fromPortal=false;
       if(!account&&req.method==='GET'&&url.pathname==='/bees-api/threads'){
         for(const [id,session] of sessions){
           const candidate=await identify(session);if(!candidate||candidate.id!==id){cookie(accountPrefix+id,'');continue;}
           account=candidate;token=session;cookie('bees_hosted_session',token);break;
         }
       }
+      if(!account&&input?.action!=='login'){
+        const session=await portalSession();
+        if(typeof session?.session?.token==='string'){token=session.session.token;account=await identify(token);fromPortal=!!account;}
+      }
+      if(!token)return json(res,401,{error:'Sign in to Bees Client'});
       if(!account)return json(res,401,{error:'Sign in again'});
       if(targetAccountId!=null&&targetAccountId!==account.id)return json(res,401,{error:'Sign in to this account again'});
+      if(!(req.method==='GET'&&url.pathname==='/bees-api/threads')&&!['login','switchAccount','organizations','acceptOrganization','verifyEmail','completeOnboarding','settingsSnapshot'].includes(input?.action)){
+        const response=await fetch(directory.origin+'/api/organizations',{headers:{authorization:'Bearer '+token},signal:AbortSignal.timeout(10000)});
+        if(!response.ok)return json(res,response.status===401?401:503,{error:'Could not verify your organization. Try again.'});
+        const {organizations}=await response.json();
+        if(!account.user.emailVerified||!Array.isArray(organizations)||!organizations.length)return json(res,403,{error:'Verify your email and complete organization onboarding before using Bees on the web.'});
+      }
       activity.touch(account.user);
       const client=await provision(account.user,token);
-      if(input?.action==='login'){
+      if(input?.action==='login'||fromPortal){
         const resumed=await fetch(client.url+'/bees-api/threads',{method:'POST',headers:{authorization:'Bearer '+client.token,'content-type':'application/json'},body:JSON.stringify({action:'resumeSession',session:token}),signal:AbortSignal.timeout(20000)});
         if(!resumed.ok)throw Error('Hosted client account enrollment failed');
         cookie(accountPrefix+account.id,token);cookie('bees_hosted_session',token);
-        return json(res,200,{user:account.user});
+        if(input?.action==='login')return json(res,200,{user:account.user});
       }
       if(input?.action==='resumeSession')return json(res,403,{error:'Sign in through Bees Cloud'});
       if(input?.action==='switchAccount'){cookie('bees_hosted_session',token);return json(res,200,{ok:true});}
@@ -163,7 +187,14 @@ if(state){const channel=new BroadcastChannel('bees-sign-in-'+state);channel.post
       if(req.method==='GET'&&url.pathname==='/bees-api/threads'){
         const snapshot=await fetch(client.url+'/bees-api/threads',{headers:{authorization:'Bearer '+client.token},signal:AbortSignal.timeout(60000)});
         if(!snapshot.ok)return json(res,snapshot.status,{error:'Could not load this account'});
-        const value=await snapshot.json();
+        let value=await snapshot.json();
+        const organization=value.organizations?.find(org=>org.id===value.settings?.selectedOrganizationId)??value.organizations?.[0];
+        if(account.user.emailVerified&&organization&&(value.onboarding!=='cloud'||value.settings?.selectedOrganizationId!==organization.id)){
+          const enrolled=await fetch(client.url+'/bees-api/threads',{method:'POST',headers:{authorization:'Bearer '+client.token,'content-type':'application/json'},body:JSON.stringify({action:'completeOnboarding',mode:'cloud',organizationId:organization.id}),signal:AbortSignal.timeout(20000)});
+          if(!enrolled.ok)return json(res,enrolled.status,{error:'Could not open your organization. Refresh and try again.'});
+          const refreshed=await fetch(client.url+'/bees-api/threads',{headers:{authorization:'Bearer '+client.token},signal:AbortSignal.timeout(60000)});
+          if(!refreshed.ok)return json(res,refreshed.status,{error:'Could not load your organization'});value=await refreshed.json();
+        }
         const accounts=await Promise.all([...sessions].filter(([id])=>id!==account.id).map(async([id,session])=>{
           const other=await identify(session).catch(()=>undefined);if(other===undefined)return null;if(!other||other.id!==id){cookie(accountPrefix+id,'');return null;}
           try{
@@ -178,7 +209,7 @@ if(state){const channel=new BroadcastChannel('bees-sign-in-'+state);channel.post
         accounts.push({id:account.id,user:account.user,url:directory.origin,active:true,organizations:value.organizations??[],organizationError:value.organizationError??null});
         if(sessions.get(account.id)!==token)cookie(accountPrefix+account.id,token);
         if(!cookies.get('bees_hosted_session'))cookie('bees_hosted_session',token);
-        return json(res,200,{...value,localActive:false,accounts:accounts.filter(Boolean).sort((a,b)=>(a.user.email??'').localeCompare(b.user.email??''))});
+        return json(res,200,{...value,user:account.user,onboarding:account.user.emailVerified&&value.organizations?.length?'cloud':null,localActive:false,accounts:accounts.filter(Boolean).sort((a,b)=>(a.user.email??'').localeCompare(b.user.email??''))});
       }
       const response=await fetch(client.url+url.pathname+url.search,{method:req.method,headers:{authorization:'Bearer '+client.token,'content-type':'application/json'},...(bytes?{body:bytes}:{}),signal:AbortSignal.timeout(60000)});
       const headers={'content-type':response.headers.get('content-type')??'application/octet-stream','cache-control':'no-store','x-content-type-options':'nosniff'};

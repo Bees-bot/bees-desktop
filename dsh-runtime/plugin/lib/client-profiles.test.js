@@ -162,6 +162,15 @@ test('accounts retain separate databases and sign-out does not expose the previo
     await assert.rejects(profiles.command({action:'startLogin',url:'https://directory.example',provider:'google'}),/Server needs an update/);
     await assert.rejects(profiles.login({url:'https://directory.example',email:'alice@example.com',password:'example-password'}),/Server needs an update/);
     assert.equal(emailRequests,before);assert.equal(profiles.active.store.clientId,alice);
+    await assert.rejects(profiles.command({action:'logout',accountId:'unknown'}),/Sign in/);
+    legacy=false;await profiles.login({url:'https://directory.example',session:'bob'});
+    const activeClient=profiles.active,otherClient=profiles.clients.get(profiles.state.accounts[aliceAccount.id]);
+    await profiles.command({action:'logout',accountId:aliceAccount.id});
+    assert.equal(profiles.active,activeClient);assert.equal(profiles.active.directory.token,'bob');
+    assert.equal(otherClient.directory.token,null);assert.equal(otherClient.closing,true);
+    assert.deepEqual((await profiles.snapshot()).accounts.map(account=>account.id),[bob.id]);
+    await profiles.close();profiles=await new ClientProfiles(root).start();
+    assert.equal(profiles.active.directory.user.id,'bob');assert.deepEqual((await profiles.snapshot()).accounts.map(account=>account.id),[bob.id]);
   }finally{await profiles.close();globalThis.fetch=original;await rm(root,{recursive:true,force:true});}
 });
 

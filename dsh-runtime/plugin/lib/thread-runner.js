@@ -86,6 +86,8 @@ export class ThreadRunner {
     });
   }
   async execute({thread,team,run,signal,store,directory}){
+    const creditOrganizationId=team?.organizationId??thread.organizationId??null;
+    await this.credits?.sync({store,directory},false,creditOrganizationId);
     const workflow=run.workflow??DEFAULT_WORKFLOW;
     const chat=workflow.length===1&&workflow[0].kind==='chat',chatKey=chatSessionKey(thread.id);
     const identity=JSON.stringify([team?.id,workflow[0]?.agent?.id,workflow[0]?.agent?.presetId??'standard']);
@@ -146,7 +148,7 @@ export class ThreadRunner {
       const selection=agent?.model||fallback;
       let model=await resolveThreadModel(typeof selection==='string'?{provider:selection.slice(0,selection.indexOf('/')),model:selection.slice(selection.indexOf('/')+1)}:selection,this.ctx.llm);
       if(agent?.reasoningEffort)model={...model,reasoningEffort:agent.reasoningEffort};
-      if(this.credits)model=this.credits.resolve(store,model);
+      if(this.credits)model=this.credits.resolve(store,model,creditOrganizationId);
       if(!model?.model||!this.ctx.llm.listProviders().some(p=>p.id===model.provider))throw threadError(selection?`The AI model ${typeof selection==='string'?selection:selection.model} is not connected. Pick another in Settings.`:'No AI model is connected. Add one in Global settings, under AI connections.');
       return model;
     };
@@ -169,7 +171,7 @@ export class ThreadRunner {
         const startSeq=owner.session.snapshotEvents().length;
         if(!parentId)fromSeq=startSeq;
         setSandboxMode(owner.session,stage.kind==='review'?'read-only':'workspace-write');this.ctx.approval.setPolicy(owner,'ask');
-        this.credits?.mount(agentCtx,store);
+        this.credits?.mount(agentCtx,store,creditOrganizationId,owner.session);
         trackThreadAgent(agentCtx,{agent:owner,store,threadId:thread.id,runId:run.id,stageIndex:index,parentId,fromSeq:startSeq,title:parentId?undefined:role?.name});
         // the stage agent's reply as it streams, so the screen shows words before the stage ends
         if(!parentId){let live='',timer;

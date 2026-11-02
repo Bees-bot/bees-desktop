@@ -32,10 +32,15 @@ export class ClientProfiles {
     const client=await this.open(slot);client.directory.url=signed.url;await client.directory.resume(signed.session,client.identity.cert,client.peer.endpoints);await client.refresh();
     this.state.accounts[key]=slot;this.state.active=slot;this.active=client;this.save();return user;
   }
-  async logout(){const prior=this.state.active,client=this.active;
-    if(this.savedDirectory(this.state.anonymous).url&&this.savedDirectory(this.state.anonymous).url!==client.directory.url)this.state.anonymous='personal-'+this.key(client.directory.url,'anonymous');
-    if(Object.values(this.state.accounts).includes(this.state.anonymous))this.state.anonymous='personal-'+randomUUID();this.state.active=this.state.anonymous;this.active=await this.open(this.state.active);
-    this.active.directory.url=client.directory.url;this.active.directory.save();this.save();
+  async logout(accountId){
+    const account=accountId==null?null:this.accounts().find(account=>account.id===accountId);
+    if(accountId!=null&&!account)throw threadError('Sign in to this account again',401);
+    const prior=account?this.state.accounts[account.id]:this.state.active,client=await this.open(prior);
+    if(prior===this.state.active){
+      if(this.savedDirectory(this.state.anonymous).url&&this.savedDirectory(this.state.anonymous).url!==client.directory.url)this.state.anonymous='personal-'+this.key(client.directory.url,'anonymous');
+      if(Object.values(this.state.accounts).includes(this.state.anonymous))this.state.anonymous='personal-'+randomUUID();this.state.active=this.state.anonymous;this.active=await this.open(this.state.active);
+      this.active.directory.url=client.directory.url;this.active.directory.save();this.save();
+    }
     // Signed-out accounts must stop syncing, serving peers, and running schedules.
     if(prior!==this.state.active){this.clients.delete(prior);client.directory.token=null;client.directory.save();await client.close();}return {ok:true};}
   async settingsClient(accountId){
@@ -66,9 +71,9 @@ export class ClientProfiles {
         await this.command({action:'selectOrganization',accountId:null,organizationId:null});
       }else if(input.mode==='cloud'){
         if(!this.active.directory.user||!this.active.directory.token)throw threadError('Sign in to create an organization',401);
-        const org=input.organizationId?this.active.organizations().find(org=>org.id===input.organizationId):await this.active.command({action:'createOrganization',name:input.name});
-        if(!org)throw threadError('Organization membership required',403);
         await this.active.command({action:'organizations'});
+        const org=this.active.organizations().find(org=>org.id===input.organizationId);
+        if(!org)throw threadError('Organization membership required',403);
         await this.active.command({action:'preferences',values:{selectedOrganizationId:org.id}});
       }else throw threadError('Choose a Bees or local organization');
       this.state.onboarding=input.mode;this.save();return {ok:true};
@@ -106,7 +111,7 @@ export class ClientProfiles {
       return result.user;
     }
     if(input.action==='resumeSession'){const user=await this.active.directory.resume(input.session,this.active.identity.cert,this.active.peer.endpoints);await this.active.refresh();return user;}
-    if(input.action==='login')return this.login(input);if(input.action==='logout')return this.logout();return this.active.command(input);
+    if(input.action==='login')return this.login(input);if(input.action==='logout')return this.logout(input.accountId);return this.active.command(input);
   }
   async close(){this.pendingLogin?.close();await Promise.all([...this.clients.values()].map(c=>c.close()));}
 }
