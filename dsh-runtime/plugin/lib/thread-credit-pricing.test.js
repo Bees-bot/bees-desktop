@@ -15,6 +15,10 @@ test('desktop and web show starter credits as dollars times one million',()=>{
   assert(settings.includes(display+' starter credits remaining.'));assert(settings.includes('0 purchased credits available'));
   assert(settings.includes('50k starter credits'));assert(settings.includes('credits are not tokens')); assert(!settings.includes('$0.01'));
  }
+ const monthly=JSON.stringify(CreditSettings({user:{emailVerified:true},connection:{credits:{balance:1000000,billingSchedule:'monthly_advance'}}}));
+ assert(monthly.includes('monthly Net 30 invoice'));assert(monthly.includes('1,000,000 credits available'));assert(monthly.includes('Monthly invoice autopay is managed separately.'));
+ const upfront=JSON.stringify(CreditSettings({user:{emailVerified:true},connection:{credits:{balance:1000000,billingSchedule:'monthly_upfront'}}}));
+ assert(upfront.includes('paid upfront'));assert(upfront.includes('New credits become available after payment'));assert(!upfront.includes('monthly Net 30 invoice'));
  const unavailable=JSON.stringify(CreditSettings({user:{emailVerified:true},connection:{credits:{starterRemainingUsd:null,starterMessage:'Temporarily unavailable'}}}));
  assert(!unavailable.includes('starter credits remaining.'));assert(unavailable.includes('Temporarily unavailable'));
  const onboarding=JSON.stringify(FirstStart({}));assert(onboarding.includes('50k starter credits'));assert(!onboarding.includes('$0.01'));

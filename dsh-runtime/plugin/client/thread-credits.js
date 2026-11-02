@@ -28,8 +28,9 @@ export function CreditSettings({connection,user,request,onRefresh,onSignIn}){
     });
   };
   return h('section',{className:'bc-form'},h('h3',null,'Credits & billing'),
+    credits?.billingSchedule==='monthly_upfront'?h('p',null,'Your Pro subscription and monthly credit advances are paid upfront. Last month’s confirmed usage sets the credit target; unused credits carry forward and reduce the amount due. New credits become available after payment. Optional support and training purchases are one-time items.'):credits?.billingSchedule==='monthly_advance'?h('p',null,'Your monthly Net 30 invoice combines seats and a credit advance based on last month’s confirmed usage, less credits carried forward. Invoiced credits are available before payment is due. Additional purchases below are optional and paid immediately.'):null,
     !user?h('div',null,h('p',null,'Sign in to use your personal Bees balance on desktop and web.'),h('button',{onClick:onSignIn},'Sign in')):h('div',{className:'bc-form'},
-      h('p',null,h('strong',null,(connection?.organizationId?'Organization: ':'Personal: ')+count(credits?.balance)+' purchased credits available')),
+      h('p',null,h('strong',null,(connection?.organizationId?'Organization: ':'Personal: ')+count(credits?.balance)+(['monthly_advance','monthly_upfront'].includes(credits?.billingSchedule)?' credits available':' purchased credits available'))),
       h('p',{className:'bc-muted'},'Your selected organization shares this balance across its members and Clients. Personal work uses your separate personal balance. Organization owners and admins manage purchases and auto-renew.'),
       h('p',null,'Your personal one-time grant of 50k starter credits is separate from purchased organization credits. $1 buys 1 million credits; credits are not tokens.'),
       typeof credits?.starterRemainingCredits==='number'?h('p',{role:'status'},count(credits.starterRemainingCredits)+' starter credits remaining.'):typeof credits?.starterRemainingUsd==='number'?h('p',{role:'status'},starterCredits(credits.starterRemainingUsd)+' starter credits remaining.'):null,
@@ -50,7 +51,7 @@ export function CreditSettings({connection,user,request,onRefresh,onSignIn}){
       !user.emailVerified?h('p',{className:'bc-muted'},'Verify your email before purchasing or using Bees Credits.'):null,
       !canManage?h('p',{className:'bc-muted'},'Ask your organization owner or admin to add credits or manage auto-renew.'):null,
       !credits?.purchasingEnabled?h('p',{className:'bc-muted'},'Credit purchases are not configured on this server yet.'):null,
-      h('p',null,credits?.autoRenew?`Auto-renew is on: $${(credits.renewalCents/100).toFixed(2)} per refill.`:'Auto-renew is off. No automatic charges.'),
+      h('p',null,credits?.autoRenew?`Auto-renew is on: $${(credits.renewalCents/100).toFixed(2)} per refill.`:['monthly_advance','monthly_upfront'].includes(credits?.billingSchedule)?'Optional credit refills are off. Monthly invoice autopay is managed separately.':'Auto-renew is off. No automatic charges.'),
       credits?.hasPaymentMethod?h('p',{className:'bc-muted'},'Auto-renew uses the card saved during a checkout with auto-renew selected. To replace it, buy credits with auto-renew selected using your new card.'):null,
       credits?.hasPaymentMethod?h('button',{disabled:!canManage||busy||!amountCents,onClick:()=>void act(()=>request('creditAutoRenew',{enabled:true,amountCents:parseCreditAmount(amount),organizationId:connection?.organizationId}))},credits.autoRenew?'Save auto-renew amount · '+price:'Enable auto-renew · '+price+' per refill'):null,
       credits?.autoRenew?h('button',{disabled:!canManage||busy,onClick:()=>void act(()=>request('creditAutoRenew',{enabled:false,organizationId:connection?.organizationId}))},'Turn off auto-renew'):null,
