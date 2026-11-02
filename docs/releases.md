@@ -31,6 +31,11 @@ Nothing builds on a tag or a schedule.
 Compilation runs on GitHub. After publishing, install the DMG and open it once.
 A build that packages fine can still fail to start.
 
+Run the `Install check` workflow with a published release tag to check installers
+on clean machines. Before publication, pass `build_run` to check that run's build
+artifacts with read-only permissions. If a Mac build came from a separate run,
+pass its run ID in `apple_build_run` or `intel_build_run`.
+
 GitHub displays these download labels, matching the processor and package format built:
 
 | Download label | How to choose |

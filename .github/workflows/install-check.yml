@@ -1,4 +1,4 @@
-# Installs a published release on clean Linux, Windows and Mac machines and checks the engine starts.
+# Installs release files or build artifacts on clean machines and checks the engine starts.
 # Run by hand only, the free minutes are shared.
 
 name: Install check
@@ -9,13 +9,26 @@ on:
       tag:
         description: Release to install
         required: true
+      build_run:
+        description: Build run to check instead of published release files (optional)
+        required: false
+      apple_build_run:
+        description: Separate Apple silicon build run, if needed (defaults to build_run)
+        required: false
+      intel_build_run:
+        description: Separate Intel Mac build run, if needed (defaults to build_run)
+        required: false
 
 permissions:
   contents: read
+  actions: read
 
 env:
   GH_TOKEN: ${{ github.token }}
   TAG: ${{ inputs.tag }}
+  BUILD_RUN: ${{ inputs.build_run }}
+  APPLE_BUILD_RUN: ${{ inputs.apple_build_run }}
+  INTEL_BUILD_RUN: ${{ inputs.intel_build_run }}
 
 jobs:
   linux:
@@ -29,7 +42,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Install the deb
         run: |
-          gh release download "$TAG" -p '*_amd64.deb' -p '*_amd64.AppImage'
+          if [[ -n "$BUILD_RUN" ]]; then
+            gh run download --repo "$GITHUB_REPOSITORY" -n ubuntu-22.04 -D build -- "$BUILD_RUN"
+            mv build/deb/*.deb Bees_check_amd64.deb
+            mv build/appimage/*.AppImage Bees_check_amd64.AppImage
+          else
+            gh release download "$TAG" -p '*_amd64.deb' -p '*_amd64.AppImage'
+          fi
           sudo apt-get update && sudo apt-get install -y ./Bees_*_amd64.deb xvfb
           PKG=$(dpkg-deb -f Bees_*_amd64.deb Package) && dpkg -L "$PKG" | grep -E '^/usr/bin/'
           echo "BIN=$(dirname "$(dpkg -L "$PKG" | grep '/bees-node$')")" >> "$GITHUB_ENV"
@@ -55,7 +74,12 @@ jobs:
       - name: Install silently
         shell: pwsh
         run: |
-          gh release download $env:TAG -p '*_x64-setup.exe'
+          if ($env:BUILD_RUN) {
+            gh run download --repo $env:GITHUB_REPOSITORY -n windows-2025 -D build -- $env:BUILD_RUN
+            Move-Item build/nsis/*-setup.exe Bees_check_x64-setup.exe
+          } else {
+            gh release download $env:TAG -p '*_x64-setup.exe'
+          }
           Start-Process -Wait -FilePath (Get-Item Bees_*_x64-setup.exe).FullName -ArgumentList '/S'
           $node = Get-ChildItem $env:LOCALAPPDATA, $env:ProgramFiles -Recurse -Depth 3 -Filter bees-node.exe -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $node) { throw 'bees-node.exe not found after install' }
@@ -79,8 +103,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Install from the dmg
         run: |
-          gh release download "$TAG" -p "*_${{ matrix.arch }}.dmg"
-          MNT=$(hdiutil attach -nobrowse Bees_*.dmg | grep -o '/Volumes/.*' | head -1)
+          if [[ -n "$BUILD_RUN" ]]; then
+            run_id=$BUILD_RUN
+            if [[ '${{ matrix.arch }}' == aarch64 && -n "$APPLE_BUILD_RUN" ]]; then run_id=$APPLE_BUILD_RUN; fi
+            if [[ '${{ matrix.arch }}' == x64 && -n "$INTEL_BUILD_RUN" ]]; then run_id=$INTEL_BUILD_RUN; fi
+            gh run download --repo "$GITHUB_REPOSITORY" -n '${{ matrix.os }}' -D build -- "$run_id"
+            mv build/dmg/*.dmg Bees_check_${{ matrix.arch }}.dmg
+          else
+            gh release download "$TAG" -p "*_${{ matrix.arch }}.dmg"
+          fi
+          MNT=$(hdiutil attach -nobrowse Bees_*_${{ matrix.arch }}.dmg | grep -o '/Volumes/.*' | head -1)
           cp -R "$MNT/Bees Client.app" /Applications/ && hdiutil detach "$MNT"
       - name: Check signature and notarization
         run: |
