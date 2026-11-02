@@ -5,7 +5,52 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ThreadStore } from './thread-store.js';
-import { ThreadRunner, guardThreadTool, resolveThreadModel } from './thread-runner.js';
+import { ThreadRunner, guardThreadTool, resolveThreadModel, mountThreadApprovals } from './thread-runner.js';
+import { Context } from '@deepseek-ai/cordis';
+import { createScope, scopeTarget } from '@deepseek-ai/dsh-scope';
+import { ApprovalService } from '@deepseek-ai/dsh-user-approval';
+
+test('nested helpers prompt once per tool call and return a runtime-recognized approval', async t => {
+  const ctx = new Context(), prompts = [], signal = new AbortController().signal;
+  const service = await ctx.plugin(ApprovalService, { policy: 'ask' });
+  t.after(() => service.dispose());
+  const runner = { wait: async (...args) => { prompts.push(args); return { approved }; } };
+  const store = { document: () => ({ runs: [{ id: 'run', status: 'running' }] }) };
+  let approved = true;
+  let hiddenPrompts = 0;
+  ctx.on('approval/request', () => { hiddenPrompts++; return 'unavailable'; });
+  const makeAgent = () => {
+    const events = [{ type: 'turn/start' }];
+    return { session: { get seq() { return events.length; }, eventAt: seq => events[seq],
+      append: (type, data) => events.push({ type, data }) } };
+  };
+  const parent = makeAgent(), child = makeAgent(), grandchild = makeAgent();
+  for (const [owner, ancestor] of [[parent], [child, parent], [grandchild, child]]) {
+    const scope = createScope(ctx, owner, ancestor ? { parent: ancestor } : undefined);
+    t.after(() => scope.dispose());
+    mountThreadApprovals(scope.ctx, { owner, runner, store, threadId: 'thread', runId: 'run', signal, stage: { kind: 'work' } });
+  }
+  const execute = (agent, callId) => ctx.waterfall(scopeTarget(ctx, agent), 'tools/pre-execute',
+    { agent, callId, name: 'mcp__mail__send', arguments: { body: 'Hello' }, signal }, async () => ({ kind: 'allow' }));
+  assert.deepEqual(await execute(grandchild, 'first'), { kind: 'allow' });
+  assert.equal(prompts.length, 1, 'Ancestor handlers must not prompt again for the same execution');
+  prompts.length = 0;
+  await Promise.all([execute(child, 'second'), execute(grandchild, 'third')]);
+  assert.equal(prompts.length, 2, 'Separate calls with identical arguments each need approval');
+  prompts.length = 0;
+  assert.equal(await ctx.approval.request({ agent: grandchild, toolName: 'bash', callId: 'fourth', signal }), 'allowed-once');
+  assert.equal(prompts.length, 1);
+  approved = false;
+  await assert.rejects(execute(child, 'denied'), /not approved/);
+  assert.equal(await ctx.approval.request({ agent: child, toolName: 'bash', callId: 'denied', signal }), 'rejected');
+  assert.equal(hiddenPrompts, 0, 'The thread answerer must run before the hidden host UI');
+  prompts.length = 0;
+  const reviewer = makeAgent(), reviewScope = createScope(ctx, reviewer, { parent });
+  t.after(() => reviewScope.dispose());
+  mountThreadApprovals(reviewScope.ctx, { owner: reviewer, runner, store, threadId: 'thread', runId: 'run', signal, stage: { kind: 'review' } });
+  await assert.rejects(execute(reviewer, 'review'), /Review stages cannot perform integration actions/);
+  assert.equal(prompts.length, 0);
+});
 
 test('saved Latest Codex selections resolve to the newest available family model',async()=>{
   const llm={listModels:async provider=>{assert.equal(provider,'openai-codex');return ['gpt-6-luna','gpt-5.6-luna','gpt-6.9-luna','gpt-6.10-luna','gpt-99-luna-preview','gpt-6-sol','gpt-5.6-terra'].map(id=>({id}));}};

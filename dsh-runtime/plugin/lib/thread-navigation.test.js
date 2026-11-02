@@ -4,7 +4,7 @@ import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {configureRuntime} from '../client/runtime.js';
 import {BeesNavigation,TeamMenu,TeamSection,SettingsScopePicker} from '../client/thread-navigation.js';
-import {SettingsPage,SettingsNav,ThreadDetails} from '../client/thread-panels.js';
+import {SettingsPage,SettingsNav,ThreadDetails,SentInvitations} from '../client/thread-panels.js';
 import {TeamProcesses} from '../client/thread-processes.js';
 import {OrganizationAppearance,OrganizationIcon,readOrganizationImage} from '../client/thread-organization-appearance.js';
 import {ThreadApp,ThreadConversation} from '../client/thread-app.js';
@@ -411,6 +411,39 @@ test('thread add-ons use the active team without opening settings',async t=>{
     assert.equal(requests.at(-1).threadId,team.id);
     assert.equal(requests.at(-1).action,'saveIntegration');
     assert.equal(requests.at(-1).settingsAccountId,undefined,'Thread add-ons use the active account');
+  }
+});
+
+test('team Members lists pending sent invitations for that team only',()=>{
+  const team={id:'research',title:'Research',ownerClientId:'local',ownerUserId:'alice',shared:true};
+  const snapshot={clientId:'local',user:{id:'alice'},teams:[team],threads:[],organizations:[],directory:{threads:[],clients:[],participants:[{thread_id:team.id,user_id:'alice',role:'owner',name:'Alice'}],sentInvitations:[
+    {id:'invite',thread_id:team.id,email:'colleague@example.com',role:'editor'},
+    {id:'other',thread_id:'other-team',email:'other@example.com',role:'viewer'}
+  ]}};
+  appHarness({snapshot,settingsTeam:team},render=>{
+    render().find(node=>node.type===BeesNavigation).props.onGlobal('ai');
+    let page=render().find(node=>node.type===SettingsPage);
+    page.props.groups.find(group=>group.title==='Teams').selector.props.onSelect(team.id);
+    render().find(node=>node.type===SettingsPage).props.onSelect('members','team');
+    const tree=render();
+    const list=tree.find(node=>node.type===SentInvitations);
+    assert.equal(list.props.scope,'team');
+    assert.deepEqual(list.props.invitations.map(invite=>invite.email),['colleague@example.com']);
+  });
+});
+
+test('organization and team sent invitations share labeled columns, counts, expiry and empty states',()=>{
+  configure(true);
+  for(const [scope,role,access] of [['organization','admin','Admin'],['team','editor','Can contribute and run work']]){
+    const markup=renderToStaticMarkup(React.createElement(SentInvitations,{scope,invitations:[
+      {id:'invite',email:'colleague@example.com',role,expires_at:'2026-11-06T12:00:00Z'}
+    ]}));
+    for(const label of ['Sent invitations (1)','Email','Access','Status','Expires','colleague@example.com',access,'Pending'])assert(markup.includes(label),label);
+    assert.match(markup,/<time dateTime="2026-11-06T12:00:00.000Z">/);
+    assert.match(markup,/scope="col"/);
+    const empty=renderToStaticMarkup(React.createElement(SentInvitations,{scope}));
+    assert(empty.includes('Sent invitations (0)'));assert(empty.includes('No pending invitations.'));
+    assert(!empty.includes('<table'));
   }
 });
 
@@ -855,11 +888,11 @@ test('organization Members is separate from General and refreshes invitations af
   const previous=globalThis.fetch;t.after(()=>{globalThis.fetch=previous;});
   const org={id:'studio',name:'Studio',role:'admin'},invite={id:'pending',email:'guest@example.com',role:'member',expires_at:'2026-12-01T00:00:00Z'};
   const snapshot={teams:[],threads:[],organizations:[org],settings:{selectedOrganizationId:org.id}},requests=[];
-  const roster={members:[{user_id:'owner',email:'owner@example.com',role:'owner'},{user_id:'member',email:'member@example.com',role:'member'}],clients:[],invitations:[]};
+  const roster={members:[{user_id:'owner',email:'owner@example.com',role:'owner'},{user_id:'member',email:'member@example.com',role:'member'}],clients:[],invitations:[],sentInvitations:[]};
   globalThis.fetch=async(_url,options)=>{
     const input=options?.body?JSON.parse(options.body):null;requests.push(input);
-    if(input?.action==='inviteOrganization')roster.invitations=[invite];
-    if(input?.action==='cancelOrganizationInvitation')roster.invitations=[];
+    if(input?.action==='inviteOrganization')roster.sentInvitations=roster.invitations=[invite];
+    if(input?.action==='cancelOrganizationInvitation')roster.sentInvitations=roster.invitations=[];
     return {ok:true,json:async()=>input?.action==='organizationMembers'?{...roster}:snapshot};
   };
   await appHarness({snapshot},async(render,renderPanel)=>{
@@ -873,21 +906,22 @@ test('organization Members is separate from General and refreshes invitations af
     page.props.onSelect('organization-members','global');
     let panel=render().find(node=>node.type.name==='OrganizationsPanel'),pending;
     const perform=panel.props.perform;panel={...panel,props:{...panel.props,perform:fn=>pending=perform(fn)}};
-    content=renderPanel(panel);
+    const membersContent=()=>renderPanel(panel).flatMap(node=>node.type===SentInvitations?nodes(SentInvitations(node.props)):[node]);
+    content=membersContent();
     assert(!content.some(node=>node.props['aria-label']==='Organization name'));
     assert.equal(content.filter(node=>node.type==='button'&&node.props.children==='Remove').length,1);
     assert(content.some(node=>node.props.children==='No pending invitations.'));
     content.find(node=>node.props['aria-label']==='Invite colleague by email').props.onChange({target:{value:' guest@example.com '}});
-    content=renderPanel(panel);content.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await pending;
-    content=renderPanel(panel);assert(content.some(node=>node.type==='button'&&node.props.children==='Cancel invitation'));
+    content=membersContent();content.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await pending;
+    content=membersContent();assert(content.some(node=>node.type==='button'&&node.props.children==='Cancel invitation'));
     await content.find(node=>node.type==='button'&&node.props.children==='Cancel invitation').props.onClick();
-    content=renderPanel(panel);assert(content.some(node=>node.props.children==='No pending invitations.'));
+    content=membersContent();assert(content.some(node=>node.props.children==='No pending invitations.'));
     assert.deepEqual(requests.filter(input=>['inviteOrganization','cancelOrganizationInvitation'].includes(input?.action)).map(({action,organizationId,email,invitationId})=>({action,organizationId,email,invitationId})),[
       {action:'inviteOrganization',organizationId:org.id,email:invite.email,invitationId:undefined},
       {action:'cancelOrganizationInvitation',organizationId:org.id,email:undefined,invitationId:invite.id}
     ]);
     content=renderPanel(panel,{organizations:[{...org,role:'member'}],invitations:[]},{...roster,invitations:[invite]});
-    assert(!content.some(node=>node.props['aria-label']==='Invite colleague by email'||['Remove','Cancel invitation'].includes(node.props.children)));
+    assert(!content.some(node=>node.props['aria-label']==='Invite colleague by email'||node.type===SentInvitations||['Remove','Cancel invitation'].includes(node.props.children)));
     content=renderPanel({...panel,props:{...panel.props,local:true}});
     assert(!content.some(node=>node.type==='form'||node.props.children==='Current members'));
   });

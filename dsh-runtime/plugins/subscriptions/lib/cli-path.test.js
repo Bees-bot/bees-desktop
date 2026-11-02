@@ -82,9 +82,9 @@ esac
   }
 });
 
-test("Claude path controls support typing, browsing, cancellation, and errors", async () => {
-  let cursor = 0, client, selected = null, pickerOptions, pendingRead;
-  const state = [], dependencies = [], effects = [], calls = [];
+test("Claude path controls support typing, browsing, cancellation, and errors", async (t) => {
+  let cursor = 0, client, selected = null, pickerOptions, pendingRead, authId = 0, openError;
+  const state = [], dependencies = [], effects = [], cleanups = [], calls = [];
   const status = { codex: false, codexModels: [], claude: {
     configured: true, enabled: false, path: "/old/claude", version: "Claude Code", models: ["default"]
   } };
@@ -95,17 +95,25 @@ test("Claude path controls support typing, browsing, cancellation, and errors", 
       if (!(index in state)) state[index] = typeof initial === "function" ? initial() : initial;
       return [state[index], (value) => { state[index] = typeof value === "function" ? value(state[index]) : value; }];
     },
+    useRef(initial) { const index = cursor++; return state[index] ??= { current: initial }; },
     useEffect(fn, deps) {
       const index = cursor++;
-      if (!dependencies[index] || deps.some((value, i) => value !== dependencies[index][i])) effects.push(fn);
+      if (!dependencies[index] || deps.some((value, i) => value !== dependencies[index][i])) effects.push(() => { cleanups[index]?.(); cleanups[index] = fn(); });
       dependencies[index] = deps;
     }
   };
   vm.runInNewContext(readFileSync(new URL("./client.js", import.meta.url), "utf8"), {
+    AbortController, AbortSignal,
     window: { __ModuleLoader__: { load: ({ factory }) => { client = factory(() => React); } } },
     fetch: async (_url, options) => {
       if (options?.method === "POST") {
         const input = JSON.parse(options.body); calls.push(input);
+        if (input.action === "codex_start") return Response.json({ id: ++authId, authUrl: "https://auth.example/" });
+        if (input.action === "codex_await") return new Promise((_, reject) => {
+          options.signal?.throwIfAborted();
+          options.signal?.addEventListener("abort", () => reject(options.signal.reason), { once: true });
+        });
+        if (input.action === "codex_cancel") return Response.json({ ok: true });
         if (input.path === "/invalid") return { ok: false, json: async () => ({ error: "Choose a working executable" }) };
         status.claude.path = input.path || "/detected/claude";
       }
@@ -117,6 +125,7 @@ test("Claude path controls support typing, browsing, cancellation, and errors", 
   const render = () => {
     cursor = 0;
     const tree = client.SubscriptionSettings({ modelSettings: scope, preferences: scope, Button: "button",
+      openExternal: async () => { if (openError) throw new Error(openError); },
       pickFile: async (options) => { pickerOptions = options; return selected; } });
     effects.splice(0).forEach((fn) => fn());
     return tree;
@@ -160,4 +169,26 @@ test("Claude path controls support typing, browsing, cancellation, and errors", 
   input().props.onChange({ target: { value: "/typed/while-loading/claude" } });
   finishRead(); await new Promise(setImmediate);
   assert.equal(input().props.value, "/typed/while-loading/claude", "a slow status response never overwrites the user's draft");
+
+  await t.test("Codex sign-in cancels, retries, and releases Claude controls on browser failure or unmount", async () => {
+    const button = label => nodes(render()).find(node => node.type === "button" && node.children.includes(label));
+    for (const action of ["cancel", "cancel", "browser failure", "unmount"]) {
+      openError = action === "browser failure" ? "Browser did not open" : null;
+      const attempt = button("Sign in").props.onClick();
+      await new Promise(setImmediate);
+      if (!openError) {
+        assert.equal(button("Waiting for sign-in…").props.disabled, true);
+        assert.equal(input().props.disabled, true);
+        if (action === "unmount") cleanups.forEach(cleanup => cleanup?.());
+        else button("Cancel sign in").props.onClick();
+      }
+      await attempt;
+      assert.equal(button("Sign in").props.disabled, false);
+      assert.equal(input().props.disabled, false);
+      assert.equal(button("Cancel sign in"), undefined);
+      assert.equal(calls.at(-1).action, "codex_cancel");
+      assert.equal(calls.at(-1).id, authId);
+      assert.match(text(render()), openError ? /Browser did not open/ : /sign-in cancelled/);
+    }
+  });
 });

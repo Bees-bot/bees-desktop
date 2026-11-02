@@ -5,6 +5,36 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ThreadStore, checkpointDigest } from './thread-store.js';
+import { MAX_FILE_BYTES, MAX_FILE_TRANSFER_BYTES, fileTransferLimit, checkUploadSizes } from './file-limits.js';
+
+test('desktop files have no configured byte cap while Cloud retains upload and storage limits',t=>{
+  const prior=process.env.BEES_HOSTED_CLIENT;
+  t.after(()=>{if(prior===undefined)delete process.env.BEES_HOSTED_CLIENT;else process.env.BEES_HOSTED_CLIENT=prior;});
+  delete process.env.BEES_HOSTED_CLIENT;
+  const root=mkdtempSync(join(tmpdir(),'bees-folder-size-')),store=new ThreadStore(root);
+  try{
+    const doc=store.create('Folder'),bytes=Buffer.alloc(MAX_FILE_BYTES+1_000_000,1),id=randomUUID();
+    const files=[{name:'large.bin',size:bytes.length}];
+    checkUploadSizes(files,false);
+    store.attach(doc.id,id,'large.bin',bytes,'local','folder/large.bin');
+    assert.equal(store.object(store.document(doc.id),id).bytes.length,bytes.length);
+    assert.equal(fileTransferLimit(),Infinity);
+    const large=store.document(doc.id);large.artifacts[0].size=300_000_000;
+    assert.doesNotThrow(()=>store.validate(large));
+    process.env.BEES_HOSTED_CLIENT='1';
+    assert.throws(()=>checkUploadSizes(files,true),/large.bin.*100 MB/);
+    assert.doesNotThrow(()=>checkUploadSizes([{name:'boundary.bin',size:MAX_FILE_BYTES}],true));
+    assert.throws(()=>store.putObject(bytes),/100 MB/);
+    assert.throws(()=>store.validate(large),/Invalid attachment/);
+    assert.equal(fileTransferLimit(),MAX_FILE_TRANSFER_BYTES);
+    assert(MAX_FILE_TRANSFER_BYTES>Math.ceil(MAX_FILE_BYTES/3)*4);
+    const full=store.document(doc.id);
+    full.artifacts=Array.from({length:3},(_,i)=>({...full.artifacts[0],id:randomUUID(),name:`file${i}`,path:`file${i}`,size:MAX_FILE_BYTES}));
+    assert.throws(()=>store.validate(full),/Thread file limit/);
+    delete process.env.BEES_HOSTED_CLIENT;
+    assert.doesNotThrow(()=>store.validate(full));
+  }finally{store.close();rmSync(root,{recursive:true,force:true});}
+});
 
 test('first message names placeholder threads once and preserves custom titles',()=>{
   const root=mkdtempSync(join(tmpdir(),'bees-thread-title-'));const store=new ThreadStore(root);

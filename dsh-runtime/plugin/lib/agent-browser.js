@@ -76,7 +76,7 @@ function serially(mode, work) {
 }
 
 /**
- * The browser the person signs in with, when Bees can read its sign-ins. Asked once per launch of the app: the answer
+ * The supported default browser, or installed Chrome as an opt-in fallback. Asked once per launch of the app: the answer
  * only changes when they change their own settings, and every run would otherwise pay for osascript.
  */
 export function defaultBrowser() {
@@ -128,6 +128,9 @@ function askMacOs() {
     // a chromium browser that never ran has no switch to turn on yet
     if (CHROMIUM[app.id] && existsSync(join(support(CHROMIUM[app.id]), "Local State"))) {
       return { name, binary: app.binary, path: app.path, support: support(CHROMIUM[app.id]) };
+    }
+    if (existsSync(CHROME) && existsSync(join(support(CHROMIUM["com.google.Chrome"]), "Local State"))) {
+      return { name: "Google Chrome", binary: CHROME, path: "/Applications/Google Chrome.app", support: support(CHROMIUM["com.google.Chrome"]), fallback: true };
     }
     // firefox or safari cookies replayed from chrome look stolen, so google and linkedin sign the person out of both
     return { name };

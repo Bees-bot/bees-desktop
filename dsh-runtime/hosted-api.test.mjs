@@ -17,5 +17,10 @@ test('hosted worker exposes only its narrow authenticated API and preserves stre
   assert.equal(await (await fetch(url+'/bees-api/thread-file?thread=example',{headers})).text(),'private file');
   assert.equal(await (await fetch(url+'/bees-api/threads',{method:'POST',headers,body:'{"action":"read"}'})).text(),'{"action":"read"}');
   assert.deepEqual(seen,['/healthz','/bees-api/thread-file?thread=example','/bees-api/threads']);
+  const upload=JSON.stringify({action:'attach',content:Buffer.alloc(12_000_001).toString('base64')});
+  assert(Buffer.byteLength(upload)>16_000_000);
+  const uploaded=await fetch(url+'/bees-api/threads',{method:'POST',headers,body:upload});
+  assert.equal(uploaded.status,200);
+  assert.equal(await uploaded.text(),upload);
  }finally{await close(proxy);await close(runtime);}
 });

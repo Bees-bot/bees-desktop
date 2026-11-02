@@ -54,7 +54,10 @@ test('agent add-on restrictions apply to team and legacy connections; browser de
     mounted.length = 0; await integrations.mount(ctx, client.store, thread.id, root, { mcpAccess: 'none', mcpServers: [] }); assert.deepEqual(mounted, []);
     assert.equal(browserMode(client.store, teamId, true), 'personal');
     assert.equal(browserMode(client.store, teamId, false), 'own');
+    assert.equal(browserMode(client.store, teamId, { fallback: true }), 'own', 'A fallback browser needs explicit opt-in');
     client.store.preference('browser:' + teamId, 'own'); assert.equal(browserMode(client.store, teamId, true), 'own');
+    assert.equal(browserMode(client.store, teamId, { fallback: true }), 'own');
     client.store.preference('browser:' + teamId, 'personal'); assert.equal(browserMode(client.store, teamId, false), 'own');
+    assert.equal(browserMode(client.store, teamId, { fallback: true }), 'personal');
   } finally { await client.close(); rmSync(root, { recursive: true, force: true }); }
 });

@@ -12,16 +12,32 @@ export async function composioConnectionError(error, request) {
 export function IntegrationSettings({ threadId, canManage, signedIn, onSignIn, request, perform, page = 'addons', scope='team' }) {
   const [data, setData] = useState(null), [catalogId, setCatalogId] = useState('playwright');
   const [transport, setTransport] = useState('stdio'), [notice, setNotice] = useState('');
+  const [loadError, setLoadError] = useState(''), [attempt, setAttempt] = useState(0);
   const load = async () => setData(await request('integrations', threadId));
-  useEffect(() => { if (canManage) void perform(load); }, [threadId, canManage]);
+  useEffect(() => {
+    let current = true;
+    setData(null); setLoadError('');
+    if (!canManage) return;
+    const timer = setTimeout(() => {
+      current = false; setLoadError('Loading add-ons timed out. Try again.');
+    }, 20000);
+    void request('integrations', threadId).then(
+      value => { if (current) setData(value); },
+      error => { if (current) setLoadError(error.message); }
+    ).finally(() => clearTimeout(timer));
+    return () => { current = false; clearTimeout(timer); };
+  }, [threadId, canManage, attempt]);
   if (!canManage) return h('p', { className: 'bc-muted' }, 'Team owners and editors can manage add-ons on their own computers.');
+  if (!data && loadError) return h('div', { className: 'bc-form' },
+    h('p', { className: 'bc-error', role: 'alert' }, loadError),
+    h('button', { type: 'button', onClick: () => setAttempt(value => value + 1) }, 'Try again'));
   if (!data) return h('p', { role: 'status' }, 'Loading add-ons…');
   const entry = data.catalog.find(row => row.id === catalogId);
   const provider = data.servers.find(server => server.catalogId === 'composio');
   const access = async enabled => {
-    if (provider?.enabled === enabled) return;
-    setData(await request(provider ? 'toggleIntegration' : 'saveIntegration', threadId,
-      provider ? { serverId: provider.id, enabled } : { catalogId: 'composio' }));
+    if (provider?.enabled === enabled && !provider.inherited) return;
+    setData(await request(provider && !provider.inherited ? 'toggleIntegration' : 'saveIntegration', threadId,
+      provider && !provider.inherited ? { serverId: provider.id, enabled } : { catalogId: 'composio', enabled }));
   };
   const change = (action, values) => perform(async () => { setNotice(''); setData(await request(action, threadId, values)); setNotice('Saved. Changes apply to the next run.'); });
   const save = event => {
@@ -43,20 +59,21 @@ export function IntegrationSettings({ threadId, canManage, signedIn, onSignIn, r
   if (page === 'browser') return h('section', { className: 'bc-form' },
     h('h3', null, 'Browser'), h('label', { className: 'bc-check' },
       h('input', { type: 'checkbox', role: 'switch', checked: data.browser.mode === 'personal', disabled: !data.browser.personalAvailable,
-        onChange: event => change('setBrowser', { mode: event.target.checked ? 'personal' : 'own' }) }), 'Use your own browser'),
+        onChange: event => change('setBrowser', { mode: event.target.checked ? 'personal' : 'own' }) }), `Use your own browser${data.browser.name ? ` (${data.browser.name})` : ''}`),
     h('p', { className: 'bc-muted' }, data.browser.mode === 'personal'
       ? `Runs use their own tabs in ${data.browser.name}, with your existing sign-ins. ${data.browser.setup}`
       : 'Runs use an isolated browser. Your personal browser and sign-ins stay separate.'),
     !data.browser.personalAvailable ? h('p', { className: 'bc-muted' }, hosted
       ? 'Personal browser access works only in the Bees desktop app.'
-      : 'Personal browser access requires a supported Chromium browser as your Mac’s default browser.') : null,
+      : 'Open Google Chrome once, or use a supported Chromium browser as your Mac’s default browser.') : null,
     data.browser.warning ? h('p', { className: 'bc-muted' }, data.browser.warning) : null,
     h('p', null, 'Turn on Browser or Chrome DevTools in Add-ons to give every thread in this team browser tools.'),
     !hosted && data.browser.mode === 'personal' ? h('button', { onClick: () => perform(() => request('openBrowser', threadId)) }, 'Open browser') : null,
     notice ? h('p', { role: 'status' }, notice) : null);
   return h('section', { className: 'bc-form' }, h('h3', null, 'Add-ons'),
     h('p', { className: 'bc-muted' }, scope === 'team' ? 'Connect apps and tools for every thread in this team.' : 'Connect apps and tools for this thread.'),
-    h(ComposioApps, { threadId, signedIn, onSignIn, request, provider, onAccess: access, scope }),
+    h(ComposioApps, { threadId, signedIn, onSignIn, request, provider, onAccess: access,
+      onSelection: async (toolkit, accounts) => setData(await request('setComposioAccounts', threadId, { toolkit, accounts })), scope }),
     h('div', { className: 'bc-addon-heading' }, h('h3', null, 'MCP add-ons'),
       data.servers.some(server => server.catalogId !== 'composio') ? h('button', { onClick: () => perform(load) }, 'Refresh') : null),
     ...data.servers.filter(server => server.catalogId !== 'composio').map(server => h('div', { className: 'bc-card bc-addon-row', key: server.id },
@@ -90,10 +107,11 @@ export function IntegrationSettings({ threadId, canManage, signedIn, onSignIn, r
     notice ? h('p', { role: 'status' }, notice) : null);
 }
 
-export function ComposioApps({ threadId, signedIn, onSignIn, request, provider, onAccess, scope = 'team' }) {
+export function ComposioApps({ threadId, signedIn, onSignIn, request, provider, onAccess, onSelection, scope = 'team' }) {
   const [search, setSearch] = useState(''), [apps, setApps] = useState(null);
   const [pending, setPending] = useState(''), [error, setError] = useState(null), [notice, setNotice] = useState('');
   const [connecting, setConnecting] = useState(null);
+  const [accounts, setAccounts] = useState({}), [aliases, setAliases] = useState({});
   const generation = useRef(0), enabled = !!provider?.enabled;
   const browse = async cursor => {
     const current = ++generation.current, query = cursor ? apps.query : search;
@@ -102,7 +120,7 @@ export function ComposioApps({ threadId, signedIn, onSignIn, request, provider, 
       const page = await request('composioApps', threadId, { search: query, cursor });
       if (current === generation.current) {
         setApps(previous => ({ ...page, query, items: cursor ? [...previous.items, ...page.items] : page.items }));
-        if (connecting && page.items.some(app => app.slug === connecting.slug && app.connected)) {
+        if (connecting && !connecting.accountId && !connecting.multiple && page.items.some(app => app.slug === connecting.slug && app.connected)) {
           setConnecting(null); setNotice(`${connecting.name} connected.`);
         } else if (!connecting) setNotice('');
       }
@@ -110,7 +128,7 @@ export function ComposioApps({ threadId, signedIn, onSignIn, request, provider, 
     finally { if (current === generation.current) setPending(''); }
   };
   useEffect(() => {
-    setApps(null); setError(null); setPending(''); setConnecting(null);
+    setApps(null); setError(null); setPending(''); setConnecting(null); setAccounts({}); setAliases({});
     if (signedIn) void browse();
     return () => { generation.current++; };
   }, [threadId, signedIn]);
@@ -121,10 +139,15 @@ export function ComposioApps({ threadId, signedIn, onSignIn, request, provider, 
       if (stopped || checking) return;
       clearTimeout(timer); checking = true;
       try {
-        const page = await request('composioApps', threadId, { search: connecting.slug });
+        const checkingAccount = connecting.accountId || connecting.multiple;
+        const page = await request(checkingAccount ? 'composioAccounts' : 'composioApps', threadId,
+          checkingAccount ? { toolkit: connecting.slug } : { search: connecting.slug });
         if (stopped) return;
-        const app = page.items.find(app => app.slug === connecting.slug);
-        if (app?.connected) {
+        const connected = checkingAccount ? page.items.some(account => account.status === 'ACTIVE' && (connecting.accountId
+          ? account.id === connecting.accountId : !connecting.previousIds.includes(account.id))) : page.items.some(app => app.slug === connecting.slug && app.connected);
+        const app = checkingAccount ? { ...connecting, connected: true } : page.items.find(app => app.slug === connecting.slug);
+        if (checkingAccount) setAccounts(previous => ({ ...previous, [connecting.slug]: page }));
+        if (connected) {
           setApps(previous => previous && ({ ...previous, items: previous.items.map(item => item.slug === app.slug ? app : item) }));
           setConnecting(null); setNotice(`${connecting.name} connected.`);
         } else if (++attempts < 60) timer = setTimeout(check, 5000);
@@ -145,12 +168,26 @@ export function ComposioApps({ threadId, signedIn, onSignIn, request, provider, 
     setPending(key); setError(null); setNotice('');
     try { await action(); } catch (error) { setError(await composioConnectionError(error, request)); } finally { setPending(''); }
   };
-  const connect = app => act(app.slug, async () => {
+  const loadAccounts = (app, cursor) => act('accounts:' + app.slug, async () => {
+    const current = generation.current;
+    const page = await request('composioAccounts', threadId, { toolkit: app.slug, cursor });
+    if (current === generation.current) setAccounts(previous => ({ ...previous, [app.slug]: {
+      ...page, items: cursor ? [...previous[app.slug].items, ...page.items] : page.items
+    } }));
+  });
+  const selectAccounts = (app, selected) => act('selection:' + app.slug, async () => {
     await onAccess(true);
-    if (app.connected || app.noAuth) { setNotice(`${app.name} is ready for this ${scope}.`); return; }
-    const { url } = await request('connectComposioApp', threadId, { toolkit: app.slug });
+    await onSelection(app.slug, selected.map(({ id, label }) => ({ id, label })));
+    setNotice('Account selection saved. Changes apply to the next run.');
+  });
+  const connect = (app, multiple = false) => act(app.slug, async () => {
+    await onAccess(true);
+    if (!multiple && (app.connected || app.noAuth)) { setNotice(`${app.name} is ready for this ${scope}.`); return; }
+    const alias = aliases[app.slug]?.trim();
+    const { url, accountId } = await request('connectComposioApp', threadId, { toolkit: app.slug, ...(alias ? { alias } : {}) });
     await openExternal(url);
-    setConnecting(app);
+    setConnecting({ ...app, multiple, accountId, previousIds: (accounts[app.slug]?.items ?? []).map(account => account.id) });
+    setAliases(previous => ({ ...previous, [app.slug]: '' }));
     setNotice(`Finish connecting ${app.name} in your browser. Its status will update automatically.`);
   });
   const needsSignIn = !signedIn || error?.status === 401;
@@ -173,13 +210,35 @@ export function ComposioApps({ threadId, signedIn, onSignIn, request, provider, 
           h('p', null, error.message), h('button', { disabled: !!pending, onClick: () => void browse() }, 'Try again')) : null,
         pending === 'loading' ? h('p', { role: 'status', className: 'bc-muted' }, 'Loading apps…') : null,
         notice ? h('p', { role: 'status' }, notice) : null,
+        connecting ? h('button', { type: 'button', onClick: () => { setConnecting(null); setNotice('Sign in cancelled. Select Connect to try again.'); } }, 'Cancel sign in') : null,
         apps && !apps.items.length ? h('p', { className: 'bc-muted' }, 'No matching apps. Try another name.') : null,
         apps ? h('div', { className: 'bc-composio-grid', 'aria-busy': pending === 'loading' }, apps.items.map(app =>
           h('article', { className: 'bc-card bc-composio-app', key: app.slug },
             h('div', { className: 'bc-app-title' }, h('span', { className: 'bc-app-symbol', 'aria-hidden': true }, app.name.slice(0, 1)), h('strong', null, app.name)),
             app.description ? h('p', { className: 'bc-muted' }, app.description) : null,
             enabled && (app.connected || app.noAuth) ? h('small', null, app.connected ? 'Connected' : 'Ready to use')
-              : h('button', { disabled: !!pending || connecting?.slug === app.slug, onClick: () => void connect(app) }, connecting?.slug === app.slug ? 'Waiting for sign-in…' : pending === app.slug ? 'Connecting…' : app.connected || app.noAuth ? `Use in this ${scope}` : 'Connect')))) : null,
+              : h('button', { disabled: !!pending || connecting?.slug === app.slug, onClick: () => void connect(app) }, connecting?.slug === app.slug ? 'Waiting for sign-in…' : pending === app.slug ? 'Connecting…' : app.connected || app.noAuth ? `Use in this ${scope}` : 'Connect'),
+            !app.noAuth ? h('div', { className: 'bc-form' },
+              h('button', { disabled: !!pending, onClick: () => void loadAccounts(app) }, accounts[app.slug] ? 'Refresh accounts' : 'Manage accounts'),
+              accounts[app.slug] ? h('div', { className: 'bc-form', 'aria-label': `${app.name} accounts` },
+                h('small', null, `Choose the accounts this ${scope} can use. Select several to use them in one process.`),
+                ...accounts[app.slug].items.map(account => {
+                  const selected = provider?.accountSelections?.[app.slug] ?? accounts[app.slug].items.filter(row => row.status === 'ACTIVE').slice(0, 1);
+                  const checked = selected.some(row => row.id === account.id);
+                  return h('label', { className: 'bc-check', key: account.id }, h('input', {
+                    type: 'checkbox', checked, disabled: !!pending || !checked && account.status !== 'ACTIVE',
+                    onChange: event => void selectAccounts(app, event.target.checked ? [...selected, account] : selected.filter(row => row.id !== account.id))
+                  }), account.label, account.status !== 'ACTIVE' ? ` (${account.status.toLowerCase()})` : '');
+                }),
+                provider?.accountSelections?.[app.slug]?.filter(selected => !accounts[app.slug].items.some(account => account.id === selected.id)).map(account => h('label', { className: 'bc-check', key: account.id },
+                  h('input', { type: 'checkbox', checked: true, disabled: !!pending, onChange: () => void selectAccounts(app, provider.accountSelections[app.slug].filter(row => row.id !== account.id)) }),
+                  account.label, accounts[app.slug].nextCursor ? ' (load more accounts to check status)' : ' (unavailable; deselect to continue)')),
+                accounts[app.slug].nextCursor ? h('button', { disabled: !!pending, onClick: () => void loadAccounts(app, accounts[app.slug].nextCursor) }, 'Show more accounts') : null,
+                h('label', { className: 'bc-field' }, h('span', null, 'Name for new account'), h('input', { value: aliases[app.slug] ?? '', maxLength: 100, placeholder: 'e.g. Client A',
+                  onChange: event => setAliases(previous => ({ ...previous, [app.slug]: event.target.value })) })),
+                h('button', { disabled: !!pending || connecting?.slug === app.slug, onClick: () => void connect(app, true) },
+                  connecting?.slug === app.slug ? 'Waiting for sign-in…' : 'Add another account'),
+                h('small', null, 'Sign in with the intended account in the authorization window.')) : null) : null))) : null,
         apps?.nextCursor ? h('button', { disabled: !!pending, onClick: () => void browse(apps.nextCursor) }, 'Show more apps') : null,
         h('small', null, `Connections belong to your Bees account. Connecting an app lets agents in this ${scope} use it.`)));
 }

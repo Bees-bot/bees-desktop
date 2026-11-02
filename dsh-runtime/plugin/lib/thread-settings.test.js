@@ -147,3 +147,54 @@ test('org icons and colors validate, survive directory refresh and restart, and 
     assert.equal(iconForeground('#eab308'),'#182018');assert.equal(iconForeground('#2563eb'),'#ffffff');
   }finally{client.store.close();other.store.close();rmSync(root,{recursive:true,force:true});rmSync(otherRoot,{recursive:true,force:true});}
 });
+
+test('one process mounts 21 pinned accounts, keeps selections local, and overrides inherited account choices', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'bees-multi-account-'));
+  const integrations = new ThreadIntegrations({ credentials: {} });
+  let client = new ThreadClient(root, { integrations });
+  try {
+    const team = (await client.snapshot()).teams[0], first = await client.command({ action: 'create' }), second = await client.command({ action: 'create' });
+    const selected = Array.from({ length: 21 }, (_, i) => ({ id: `ca_${i}`, label: `Client ${i}` }));
+    const requests = [], mounted = [];
+    const directory = { token: 'client-token', url: 'https://bees.example', request: async (path, body) => {
+      requests.push({ path, body });
+      return { token: `token-${body.accountId ?? 'default'}`, ...body };
+    } };
+    await integrations.save(client.store, team.id, { catalogId: 'composio' });
+    await integrations.command(client.store, team.id, { action: 'setComposioAccounts', toolkit: 'facebook', accounts: selected }, directory);
+    assert(!JSON.stringify(client.store.document(team.id)).includes('ca_0'));
+    const ctx = { plugin(_plugin, config) { mounted.push(config); return Promise.resolve(); } };
+    const mapping = await integrations.mount(ctx, client.store, first.id, root, undefined, directory);
+    assert.equal(mapping.length, 21); assert.equal(mounted.length, 22);
+    assert.equal(new Set(mounted.map(config => config.serverName)).size, 22);
+    assert(mounted.every(config => /^[a-zA-Z0-9_-]{1,32}$/.test(config.serverName)));
+    assert.deepEqual(requests[0].body, { excludedToolkits: ['facebook'] });
+    assert.deepEqual(requests.slice(1).map(request => request.body), selected.map(account => ({ toolkit: 'facebook', accountId: account.id })));
+    assert.equal(mounted[1].headers.Authorization, 'Bearer token-ca_0');
+    assert.equal(mapping[0].label, 'Client 0');
+    assert.equal(integrations.snapshot(client.store, first.id).servers[0].inherited, true);
+    const names = mounted.map(config => config.serverName);
+    client.store.close(); client = new ThreadClient(root, { integrations });
+    requests.length = 0; mounted.length = 0;
+    await integrations.mount(ctx, client.store, second.id, root, undefined, directory);
+    assert.deepEqual(mounted.map(config => config.serverName), names, 'Selections and tool identities survive restart');
+    await integrations.save(client.store, first.id, { catalogId: 'composio' });
+    assert.deepEqual(integrations.snapshot(client.store, first.id).servers[0].accountSelections.facebook, selected);
+    await integrations.command(client.store, first.id, { action: 'setComposioAccounts', toolkit: 'facebook', accounts: [selected[7]] }, directory);
+    mounted.length = 0; requests.length = 0;
+    await integrations.mount(ctx, client.store, first.id, root, undefined, directory);
+    assert.equal(mounted.length, 2); assert.deepEqual(requests[1].body, { toolkit: 'facebook', accountId: 'ca_7' });
+    await integrations.command(client.store, first.id, { action: 'setComposioAccounts', toolkit: 'facebook', accounts: [] }, directory);
+    mounted.length = 0; requests.length = 0;
+    await integrations.mount(ctx, client.store, first.id, root, undefined, directory);
+    assert.equal(mounted.length, 1); assert.deepEqual(requests[0].body, { excludedToolkits: ['facebook'] });
+    for (const accounts of [[{ id: '../bad', label: 'Bad' }], [{ id: 'ca_a', label: 42 }], [selected[0], selected[0]]]) {
+      await assert.rejects(integrations.command(client.store, first.id, { action: 'setComposioAccounts', toolkit: 'facebook', accounts }, directory), /valid connected accounts/);
+    }
+    const provider = client.store.preference(`integrations:${first.id}`)[0];
+    await assert.rejects(integrations.config(client.store, first.id, provider, root, first.id, {
+      ...directory, request: async () => ({ token: 'old-server-token' })
+    }, { toolkit: 'facebook', accountId: 'ca_7' }), /Update Bees Server/);
+    await assert.rejects(client.localCommand(first.id, { action: 'setComposioAccounts', operationId: randomUUID(), toolkit: 'facebook', accounts: selected }, 'remote-user'), /Unknown thread command/);
+  } finally { client.store.close(); rmSync(root, { recursive: true, force: true }); }
+});
