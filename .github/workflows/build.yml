@@ -109,8 +109,9 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          try() { for attempt in 1 2 3 4 5 6; do "$@" && return; sleep 20; done; return 1; }
           codesign --verify --deep --strict -vv "src-tauri/target/release/bundle/macos/Bees Client.app"
-          xcrun stapler validate "src-tauri/target/release/bundle/macos/Bees Client.app"
+          try xcrun stapler validate "src-tauri/target/release/bundle/macos/Bees Client.app"
           COPYFILE_DISABLE=1 tar -czf src-tauri/target/release/bundle/Bees.app.tar.gz -C src-tauri/target/release/bundle/macos "Bees Client.app"
           staging=$(mktemp -d)
           trap 'rm -rf "$staging"' EXIT
@@ -120,9 +121,9 @@ jobs:
           dmg_path=src-tauri/target/release/bundle/dmg/Bees.dmg
           hdiutil create -quiet -ov -volname Bees -srcfolder "$staging" -format UDZO "$dmg_path"
           codesign --sign "$APPLE_SIGNING_IDENTITY" --timestamp "$dmg_path"
-          xcrun notarytool submit "$dmg_path" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
-          xcrun stapler staple "$dmg_path"
-          spctl --assess --type open --context context:primary-signature "$dmg_path"
+          try xcrun notarytool submit "$dmg_path" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          try xcrun stapler staple "$dmg_path"
+          try spctl --assess --type open --context context:primary-signature "$dmg_path"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

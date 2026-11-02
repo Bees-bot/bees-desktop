@@ -5,6 +5,24 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 
+test('Mac packaging retries transient Apple errors and still fails after repeated errors', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/build.yml', import.meta.url), 'utf8');
+  const retry = workflow.match(/^\s+(try\(\) \{[^\n]+\})$/m);
+  assert.ok(retry, 'Mac network retry function is present');
+  execFileSync('bash', ['-eu', '-c', `
+    ${retry[1]}
+    sleep() { :; }
+    attempts=0
+    flaky() { attempts=$((attempts + 1)); test "$attempts" -eq 3; }
+    try flaky
+    test "$attempts" -eq 3
+    attempts=0
+    fails() { attempts=$((attempts + 1)); return 1; }
+    if try fails; then exit 1; fi
+    test "$attempts" -eq 6
+  `]);
+});
+
 test('release collects the installers and update packages from all four build jobs', t => {
   const script = readFileSync(new URL('./release.sh', import.meta.url), 'utf8');
   const collect = script.match(/  while IFS= read -r -d '' file; do\n[\s\S]*?\n  done < <\(find[^\n]+/);
