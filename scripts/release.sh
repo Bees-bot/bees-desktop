@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 repo=Bees-bot/bees-desktop
-key=../bees-signing/bees-updater-v2.key
+key=../bees-signing/bees-updater.key
 die() { echo "stop: $*" >&2; exit 1; }
 # the line here drops for a minute at a time, so every long network call gets retried
 try() { for n in 1 2 3 4 5 6; do "$@" && return; sleep 60; done; die "kept failing: $*"; }
