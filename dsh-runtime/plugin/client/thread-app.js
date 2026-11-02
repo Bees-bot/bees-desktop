@@ -64,6 +64,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const [error,setError]=useState(''), [notice,setNotice]=useState(''), [busy,setBusy]=useState(false), [preview,setPreview]=useState(null);
   const [email,setEmail]=useState(''), [role,setRole]=useState('viewer'), [target,setTarget]=useState(''), [inviteLink,setInviteLink]=useState('');
   const selectedRef=useRef(selected), profileEpoch=useRef(0), selectionEpoch=useRef(0), draftWrites=useRef(new Map()), loginReturn=useRef(null); selectedRef.current=selected;
+  const workspaces=useRef(new Map()),switchingOrganization=useRef(false);
   const preference=useAppearance(preferences,data?.settings);
   const [readError,setReadError]=useState(''),[teamReadError,setTeamReadError]=useState('');
   const teamRows=data?.teams??[],teamIds=new Set(teamRows.map(t=>t.id));
@@ -111,7 +112,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     const blockDrop=event=>{if(!event.dataTransfer?.types?.includes('Files'))return;if(event.type==='dragover'&&!event.defaultPrevented)event.dataTransfer.dropEffect='none';event.preventDefault();};
     document.addEventListener('dragover',blockDrop);document.addEventListener('drop',blockDrop);
     // a call that failed while the server was down left its error up after the connection came back
-    let alive=true;const tick=()=>{if(alive)void refresh().then(next=>{if(!next?.connectionError)setError(e=>e===offline?'':e);}).catch(e=>{setError(e.message);setData(previous=>hosted&&e.status===401?null:previous?{...previous,connectionError:e.message}:previous);if(hosted&&e.status===401)setDialog(null);});};
+    let alive=true;const tick=()=>{if(!alive||switchingOrganization.current)return;const epoch=profileEpoch.current;void refresh().then(next=>{if(alive&&epoch===profileEpoch.current&&!next?.connectionError)setError(e=>e===offline?'':e);}).catch(e=>{if(!alive||epoch!==profileEpoch.current)return;setError(e.message);setData(previous=>hosted&&e.status===401?{user:null}:previous?{...previous,connectionError:e.message}:previous);if(hosted&&e.status===401){profileEpoch.current++;workspaces.current.clear();setDialog(null);}});};
     tick();const timer=setInterval(tick,5000);
     return()=>{alive=false;clearInterval(timer);document.removeEventListener('pointerdown',dismissMenus,true);document.removeEventListener('toggle',revealMenu,true);document.removeEventListener('dragover',blockDrop);document.removeEventListener('drop',blockDrop);style.remove();document.title=previousTitle;};
   },[]);
@@ -121,10 +122,10 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     const found=!!id&&(data.threads.some(t=>t.id===id)||!!data.directory?.threads.some(t=>t.id===id&&t.kind!=='team'));
     if(!found&&data.connectionError)return;restored.current=true;if(found&&!selectedRef.current)select(id);},[data]);
   useEffect(()=>{if(restored.current)try{selected?localStorage.setItem('bees:open-thread',selected):localStorage.removeItem('bees:open-thread');}catch{}},[selected]);
-  useEffect(()=>{setPreview(null);setThread(null);setReadError('');if(selected)void read(selected).catch(()=>{});},[selected]);
+  useEffect(()=>{setPreview(null);setThread(previous=>previous?.id===selected?previous:null);setReadError('');if(selected)void read(selected).catch(()=>{});},[selected]);
   // Retry even before the first copy arrives; close threads removed from the directory.
   useEffect(()=>{if(selected)void read(selected).catch(()=>{if(selectedRef.current===selected&&data&&!data.connectionError&&!data.threads.some(t=>t.id===selected)&&!data.directory?.threads.some(t=>t.id===selected)){select(null);setNotice('That thread was deleted, or you no longer have access to it.');}});},[data]);
-  useEffect(()=>{setTeam(null);setTeamReadError('');if(currentTeamId)void readTeam(currentTeamId).catch(()=>{});},[currentTeamId]);
+  useEffect(()=>{setTeam(previous=>previous?.id===currentTeamId?previous:null);setTeamReadError('');if(currentTeamId)void readTeam(currentTeamId).catch(()=>{});},[currentTeamId]);
   useEffect(()=>{if(currentTeamId)void readTeam(currentTeamId).catch(()=>{});},[data]);
   useEffect(()=>{if(preferences?.getSnapshot().status==='ready')(ctx?.get?.('theme')??ctx?.theme)?.setTheme(theme.dark?'dark':'light');},[ctx,theme.id]);
   useEffect(()=>{if(typeof document==='undefined')return;const root=document.documentElement,styles=themeStyle(theme);for(const [prop,val] of Object.entries(styles))root.style.setProperty(prop,val);root.style.colorScheme=theme.dark?'dark':'light';root.setAttribute('data-bees-theme',theme.id);},[theme.id]);
@@ -136,13 +137,29 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const selectSettingsAccount=id=>{settingsEpoch.current++;setSettingsAccountId(id);setSettingsData(null);setSettingsOrganizationId(null);setSettingsTeamId(null);setSettingsTeam(null);};
   const selectSettingsOrganization=(id,accountId=configAccountId)=>{if(accountId!==configAccountId)selectSettingsAccount(accountId);setSettingsOrganizationId(id);setSettingsTeamId(null);setSettingsSection('organizations');setDialog('settings');};
   const chooseOrganization=(id,accountId)=>perform(async()=>{
-    profileEpoch.current++;await command('selectOrganization',null,{accountId,organizationId:id});clearAccount();setOrganizationId(id);await refresh();
+    if(hosted&&data?.user)workspaces.current.set(JSON.stringify([data.accounts?.find(account=>account.active)?.id??null,selectedOrganizationId]),{data,selected,thread,teamId,team,collapsed,navigation});
+    profileEpoch.current++;switchingOrganization.current=true;
+    try{await command('selectOrganization',null,{accountId,organizationId:id});}finally{switchingOrganization.current=false;}
+    const cached=hosted?workspaces.current.get(JSON.stringify([accountId??null,id??null])):null;
+    clearAccount(true);setOrganizationId(id);
+    if(cached){
+      setData({...cached.data,accounts:(data.accounts??[]).map(account=>({...account,active:account.id===accountId}))});
+      selectedRef.current=cached.selected;setSelected(cached.selected);setThread(cached.thread);setTeamId(cached.teamId);setTeam(cached.team);setCollapsed(cached.collapsed);setNavigation(cached.navigation);
+    }
+    const epoch=profileEpoch.current;
+    const updating=refresh().catch(e=>{
+      if(epoch!==profileEpoch.current)return;
+      if(hosted&&e.status===401){profileEpoch.current++;workspaces.current.clear();setData({user:null});}
+      else setData(previous=>previous?{...previous,connectionError:e.message}:previous);
+      setError(e.message);
+    });
+    if(!cached)await updating;
   });
   const saveAppearance=values=>perform(async()=>{
     if(preferences){if(preferences.getSnapshot().status!=='ready')throw Error('Settings are still loading');for(const [key,value] of Object.entries(values))await preferences.set(key,value);}
     else {await command('preferences',null,{values});await refresh();}
   });
-  const clearAccount=()=>{profileEpoch.current++;settingsEpoch.current++;setSettingsAccountId(undefined);setSettingsOrganizationId(undefined);setSettingsTeamId(null);setSettingsTeam(null);setSettingsData(null);select(null);setOrganizationId(undefined);setTeamId(null);setTeam(null);setCollapsed({});setThread(null);setPreview(null);setSuggestion(null);setData(null);};
+  const clearAccount=(keepWorkspaces=false)=>{if(!keepWorkspaces)workspaces.current.clear();profileEpoch.current++;settingsEpoch.current++;setSettingsAccountId(undefined);setSettingsOrganizationId(undefined);setSettingsTeamId(null);setSettingsTeam(null);setSettingsData(null);select(null);setOrganizationId(undefined);setTeamId(null);setTeam(null);setCollapsed({});setThread(null);setPreview(null);setSuggestion(null);setData(null);};
   const create=(templateId='goals',id=currentTeamId)=>perform(async()=>{
     select(null);setComposing(true);setTeamId(id);setNewTemplate(templateId);setCollapsed(values=>({...values,[id]:false}));
     const epoch=selectionEpoch.current,profile=profileEpoch.current;
@@ -252,7 +269,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     own?h('button',{className:'bc-primary',type:'submit',disabled:busy||active||!data?.user||!transferClients.length},active?'Wait for the run to finish':thread?.frozen?'Resend offer':'Offer transfer'):null,
     own&&authority?.transfer_client_id?h('button',{type:'button',onClick:()=>act('cancelTransfer')},'Cancel pending transfer'):null);
   const verifyEmail=()=>perform(async()=>{await command('verifyEmail');setNotice('Check your email to verify your account.');});
-  const signOut=account=>perform(async()=>{await command('logout',null,{accountId:account.id});if(account.active)clearAccount();const next=await refresh().catch(error=>{if(!hosted||error.status!==401)throw error;});setDialog(hosted&&!next?.user?'login':'account');});
+  const signOut=account=>perform(async()=>{await command('logout',null,{accountId:account.id});profileEpoch.current++;workspaces.current.clear();if(account.active)clearAccount();const next=await refresh().catch(error=>{if(!hosted||error.status!==401)throw error;setData({user:null});});setDialog(hosted&&!next?.user?'login':'account');});
   const account=h('section',{className:'bc-form'},h('h3',null,'Accounts'),
     (data?.accounts??[]).map(account=>h('div',{key:account.id,className:'bc-person'},h('span',null,h('strong',null,account.user.email),h('small',{className:'bc-account-server'},account.url)),h('button',{disabled:busy,'aria-label':'Sign out of '+account.user.email,onClick:()=>signOut(account)},'Sign out'))),
     data?.user&&!data.user.emailVerified?h(React.Fragment,null,h('p',{className:'bc-muted'},'Your email isn’t verified yet. You need that to accept invitations or invite people to an organization.'),h('button',{disabled:busy,onClick:verifyEmail},'Send verification email')):null,
@@ -313,8 +330,10 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     {title:'Organizations',scope:'global',extra:h('button',{type:'button',className:'bc-icon',disabled:busy||!data,'aria-label':'Add organization',title:'Add organization',onClick:()=>configAccountId||hosted&&data?.user?void perform(()=>openOrganizationSetup(configAccountId)):openGlobal('organizations')},icon('plus')),selector:h(SettingsScopePicker,{label:'Organizations to configure',icon,busy,rows:[...!hosted?[{id:'local',title:'Local Org'}]:[],...settingsOrganizations],selected:configOrganizationId?(configAccountId??'')+':'+configOrganizationId:'local',onSelect:key=>{if(key==='local'){selectSettingsOrganization(null,null);return;}const row=settingsOrganizations.find(row=>row.id===key);selectSettingsOrganization(row.organization.id,row.accountId);}}),items:[['organizations','General'],['organization-members','Members']]},
     {title:'Teams',scope:'team',extra:h('button',{type:'button',className:'bc-icon',disabled:busy||!data,'aria-label':'Add team',title:'Add team',onClick:()=>createTeam()},icon('plus')),selector:h(SettingsScopePicker,{label:'Teams to configure',icon,busy,rows:settingsTeams.map(row=>({id:row.id,title:row.title})),selected:configTeamId,onSelect:id=>{setSettingsTeamId(id);setDialog('team');}}),items:settingsTeams.length?TEAM_SETTINGS:[]}
   ];
-  if(hosted&&!data?.user)return h('main',{className:'bc-app bc-onboarding-app','data-bees-theme':theme.id,style:themeStyle(theme)},h('section',{className:'bc-first-start'},h('section',{className:'bc-onboarding',style:{maxWidth:480}},
-    h('h1',null,'Sign up / Sign in'),!data&&!error?h('p',{role:'status'},'Checking your sign-in…'):h(React.Fragment,null,
+  if(hosted&&!data)return h('main',{className:'bc-app bc-onboarding-app','data-bees-theme':theme.id,style:themeStyle(theme)},h('section',{className:'bc-first-start'},
+    h('p',{role:error?'alert':'status'},error||'Loading your workspace…')));
+  if(hosted&&!data.user)return h('main',{className:'bc-app bc-onboarding-app','data-bees-theme':theme.id,style:themeStyle(theme)},h('section',{className:'bc-first-start'},h('section',{className:'bc-onboarding',style:{maxWidth:480}},
+    h('h1',null,'Sign up / Sign in'),h(React.Fragment,null,
       error&&error!== 'Sign in to Bees Client'?h('p',{role:'alert',className:'bc-error'},error):null,
       h(Login,{server:data?.serverUrl,request:(action,values)=>command(action,null,values),onComplete:async()=>{await refresh();setError('');setDialog(null);}})))));
   if(data?.onboarding===null&&(hosted||!roster.invitations?.length&&!roster.threads.some(t=>t.owner_user_id!==data.user?.id)))return h('div',{className:'bc-app bc-onboarding-app','data-bees-theme':theme.id,style:themeStyle(theme)},
