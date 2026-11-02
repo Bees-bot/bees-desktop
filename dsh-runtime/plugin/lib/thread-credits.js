@@ -1,6 +1,7 @@
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai';
 import { openrouterProvider } from '@earendil-works/pi-ai/providers/openrouter';
 import { threadError } from './thread-store.js';
+import {tokenSavingsContext,withTokenSavings} from './thread-token-savings.js';
 
 const prefix='bees-credits-';
 export const isAccountAIProvider=provider=>provider.startsWith(prefix)||provider.startsWith('bees-free-');
@@ -14,12 +15,19 @@ export function creditsAdapter(provider,ai,baseUrl,resolveApiKey){
     reasoning:ai.reasoningEffort==='none'?'off':ai.reasoningEffort||undefined,
     configuredMaxTokens:new Map(models.map(model=>[model.id,model.maxTokens])),modelErrors:new Map(),
     headers:ai.organizationId?{'X-Bees-Organization':ai.organizationId}:{},
-    piProvider:{...base,id:provider,name:'Bees Credits',baseUrl,getModels:()=>models}}]]);
+    piProvider:{...base,id:provider,name:'Bees Credits',baseUrl,getModels:()=>models,
+      streamSimple:(model,context,options)=>base.streamSimple(model,context,{...options,headers:{...options.headers,
+        ...(tokenSavingsContext.getStore()?{'X-Bees-Optimization':JSON.stringify(tokenSavingsContext.getStore())}:{})}})}}]]);
   return new PiAiAdapter({profiles:()=>profiles,resolveApiKey});
 }
 
 export class ThreadCredits {
-  constructor(ctx){this.ctx=ctx;this.accounts=new Map();}
+  constructor(ctx){this.ctx=ctx;this.accounts=new Map();this.sessions=new Map();
+    ctx.on('llm/stream',(options,next)=>{
+      const session=this.sessions.get(options.sessionId);
+      return session&&isAccountAIProvider(options.provider)?withTokenSavings(options,next,session):next();
+    });
+  }
   scope(store,organizationId){return organizationId===undefined?store.preference('settings')?.selectedOrganizationId??null:organizationId;}
   entry(store,organizationId){return this.accounts.get(store)?.get(this.scope(store,organizationId)??'personal');}
   async sync(client,force=false,organizationId){
@@ -75,7 +83,9 @@ export class ThreadCredits {
   }
   models(store){const ai=this.entry(store)?.ai;return ai?.available?(ai.models??[ai.model]).map(model=>({id:'bees-credits/'+model.id,name:model.name,group:model.group,pricing:model.pricing})):[];}
   view(store){const entry=this.entry(store);return {available:!!entry?.ai?.available,message:entry?.message??'',credits:entry?.ai?.credits??null,organizationId:this.scope(store),canManage:entry?.ai?.canManage??!this.scope(store),reasoningEfforts:entry?.ai?.reasoningEfforts??[],defaultReasoningEffort:entry?.ai?.reasoningEffort??'',reasoningEffort:store.preference('creditReasoningEffort')??''};}
-  mount(agentCtx,store,organizationId){agentCtx.on('llm/stream',(options,next)=>{
+  mount(agentCtx,store,organizationId,session){
+    if(session)agentCtx.effect(()=>{this.sessions.set(session.id,session);return()=>{if(this.sessions.get(session.id)===session)this.sessions.delete(session.id);};},'Thread token savings');
+    agentCtx.on('llm/stream',(options,next)=>{
     if(isAccountAIProvider(options.provider)&&options.provider!==this.entry(store,organizationId)?.provider)throw threadError('Bees Credits belong to another account or organization');
     return next();
   });}

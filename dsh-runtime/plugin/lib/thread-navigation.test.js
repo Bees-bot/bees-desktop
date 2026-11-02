@@ -7,7 +7,7 @@ import {BeesNavigation,TeamMenu,TeamSection,SettingsScopePicker} from '../client
 import {SettingsPage,SettingsNav,ThreadDetails} from '../client/thread-panels.js';
 import {TeamProcesses} from '../client/thread-processes.js';
 import {OrganizationAppearance,OrganizationIcon,readOrganizationImage} from '../client/thread-organization-appearance.js';
-import {ThreadApp} from '../client/thread-app.js';
+import {ThreadApp,ThreadConversation} from '../client/thread-app.js';
 import {FirstStart} from '../client/thread-credits.js';
 import {threadCss} from '../client/thread-style.js';
 import {ThreadWorkspace} from '../client/thread-layout.js';
@@ -140,20 +140,56 @@ const nodes=node=>!React.isValidElement(node)?[]:[node,...React.Children.toArray
 function appHarness({snapshot,selected=null,thread=null,team=null,settingsSnapshot=snapshot,settingsTeam=null,settingsAccountId,hosted=true},run){
   const previousWindow=globalThis.window,previousFrame=globalThis.requestAnimationFrame;
   globalThis.window={};globalThis.requestAnimationFrame=()=>{};
-  const states=[snapshot,selected,thread];let index=0;
+  const states=[snapshot,selected,thread],refs=[];let index=0,refIndex=0;
   states[10]=settingsAccountId;states[13]=settingsSnapshot;states[14]=settingsTeam;states[18]=team;
   configureRuntime(name=>({react:{...React,useState:initial=>{
     const key=index++;if(!(key in states))states[key]=typeof initial==='function'?initial():initial;
     return [states[key],value=>{states[key]=typeof value==='function'?value(states[key]):value;}];
-  },useRef:value=>({current:value}),useEffect:()=>{}},'react-dom':{},'@deepseek-ai/dsh-client-ui-primitives':{},'@bees/dsh-custom-ai':{},'@bees/dsh-subscriptions':{}})[name],{hosted});
-  const render=()=>{index=0;return nodes(ThreadApp({}));};
-  const renderPanel=(element,data)=>{index=100;if(data)states[100]=data;return nodes(element.type(element.props));};
-  try{run(render,renderPanel);}finally{
+  },useRef:value=>refs[refIndex++]??={current:value},useEffect:()=>{}},'react-dom':{},'@deepseek-ai/dsh-client-ui-primitives':{},'@bees/dsh-custom-ai':{},'@bees/dsh-subscriptions':{}})[name],{hosted});
+  const render=()=>{index=0;refIndex=0;return nodes(ThreadApp({}));};
+  const renderPanel=(element,data,members)=>{index=100;refIndex=100;if(data)states[100]=data;if(members)states[101]=members;return nodes(element.type(element.props));};
+  const restore=()=>{
     configure(true);
     if(previousWindow===undefined)delete globalThis.window;else globalThis.window=previousWindow;
     if(previousFrame===undefined)delete globalThis.requestAnimationFrame;else globalThis.requestAnimationFrame=previousFrame;
-  }
+  };
+  try{const result=run(render,renderPanel);if(result?.then)return result.finally(restore);restore();return result;}catch(error){restore();throw error;}
 }
+
+test('Accounts gives every row its own sign-out and preserves other account views',async t=>{
+  const previous=globalThis.fetch;t.after(()=>{globalThis.fetch=previous;});
+  for(const mode of ['active','other','local','last','failed']){
+    const accounts=[{id:'alice',active:mode!=='local',url:'https://directory.example',user:{email:'alice@example.com',emailVerified:true},organizations:[]},...mode==='last'?[]:[{id:'bob',url:'https://directory.example',user:{email:'bob@example.com'},organizations:[]}]];
+    const snapshot={teams:[],threads:[],organizations:[],accounts,user:mode==='local'?null:accounts[0].user},requests=[];
+    const target=accounts[mode==='other'||mode==='local'?1:0];
+    globalThis.fetch=async(_url,options)=>{
+      const input=options?.body?JSON.parse(options.body):null;requests.push(input);
+      if(mode==='failed')return {ok:false,status:503,json:async()=>({error:'Try signing out again'})};
+      return {ok:mode!=='last'||!!input,status:401,json:async()=>input?{ok:true}:mode==='last'?{error:'Sign in again'}:{...snapshot,accounts:accounts.filter(account=>account!==target)}};
+    };
+    await appHarness({snapshot,hosted:mode!=='local'},async render=>{
+      render().find(node=>node.type===BeesNavigation).props.onAccount();
+      const tree=render(),rows=tree.filter(node=>node.props.className==='bc-person');
+      assert.equal(rows.length,accounts.length);
+      for(const [index,row] of rows.entries()){
+        const button=nodes(row).find(node=>node.type==='button');
+        assert.equal(button.props.children,'Sign out');assert.equal(button.props['aria-label'],'Sign out of '+accounts[index].user.email);
+      }
+      assert(!tree.some(node=>node.props.children==='Sign out of this account'));
+      const button=tree.find(node=>node.props['aria-label']==='Sign out of '+target.user.email);
+      const pending=button.props.onClick();
+      assert(render().filter(node=>node.props.children==='Sign out').every(node=>node.props.disabled));
+      await pending;
+      assert.equal(requests[0].action,'logout');assert.equal(requests[0].accountId,target.id);
+      if(mode==='last')assert(!render().some(node=>node.type===SettingsPage));
+      else {
+        const page=render().find(node=>node.type===SettingsPage);assert.equal(page.props.title,'Accounts');
+        assert.equal(nodes(page).filter(node=>node.props.className==='bc-person').length,accounts.length-(mode==='failed'?0:1));
+        if(mode==='failed')assert(render().some(node=>node.props.role==='alert'&&node.props.children==='Try signing out again'));
+      }
+    });
+  }
+});
 
 test('thread add-ons use the active team without opening settings',async t=>{
   const previousFetch=globalThis.fetch,requests=[];t.after(()=>{globalThis.fetch=previousFetch;});
@@ -202,15 +238,15 @@ test('the organization rail stays compact and every action has a tooltip',()=>{
   for(const button of nodes(tree).filter(node=>node.type==='button'))assert(button.props.title,button.props['aria-label']);
 });
 
-test('first setup uses the chosen account and clears the previous account organization',async t=>{
+test('first setup opens organization setup for the chosen account and can select an existing organization',async t=>{
   const previousFetch=globalThis.fetch;t.after(()=>{globalThis.fetch=previousFetch;});
   const accounts=[{id:'alice',active:true,user:{email:'alice@example.com',emailVerified:true},organizations:[{id:'alice-org',name:'Alice org'}]},{id:'bob',user:{email:'bob@example.com',emailVerified:true},organizations:[{id:'bob-org',name:'Bob org'}]}];
   const snapshot={onboarding:null,teams:[],threads:[],organizations:accounts[0].organizations,accounts,user:accounts[0].user},requests=[];
   globalThis.fetch=async(_url,options)=>{requests.push(options?.body?JSON.parse(options.body):null);return {ok:true,json:async()=>snapshot};};
-  let pending;
+  let pending,setupAccount;
   appHarness({snapshot,hosted:false},(render,renderPanel)=>{
     let first=render().find(node=>node.type===FirstStart);const onCloud=first.props.onCloud;
-    first={...first,props:{...first.props,onCloud:values=>pending=onCloud(values)}};
+    first={...first,props:{...first.props,onCreate:accountId=>{setupAccount=accountId;},onCloud:values=>pending=onCloud(values)}};
     let content=renderPanel(first);
     content.find(node=>node.type==='select'&&!node.props['aria-label']).props.onChange({target:{value:'alice-org'}});
     content.find(node=>node.props['aria-label']==='Account for new organization').props.onChange({target:{value:'bob'}});
@@ -218,12 +254,26 @@ test('first setup uses the chosen account and clears the previous account organi
     const orgPicker=content.find(node=>node.type==='select'&&!node.props['aria-label']);
     assert.equal(orgPicker.props.value,'');assert(orgPicker.props.children.flat().some(node=>node.props?.value==='bob-org'));
     assert(!orgPicker.props.children.flat().some(node=>node.props?.value==='alice-org'));
-    content.find(node=>node.type==='input').props.onChange({target:{value:'Studio'}});
+    content=renderPanel(first);content.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});
+    assert.equal(setupAccount,'bob');
+    orgPicker.props.onChange({target:{value:'bob-org'}});
     content=renderPanel(first);content.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});
   });
   await pending;
   assert.equal(requests[0].action,'switchAccount');assert.equal(requests[0].accountId,'bob');
-  assert.equal(requests[1].action,'completeOnboarding');assert.equal(requests[1].name,'Studio');assert.equal(requests[1].organizationId,undefined);
+  assert.equal(requests[1].action,'completeOnboarding');assert.equal(requests[1].organizationId,'bob-org');
+});
+
+test('desktop and web open the selected account server for organization setup',()=>{
+  for(const hosted of [false,true]){
+    const urls=[],snapshot={onboarding:null,teams:[],threads:[],organizations:[],accounts:[{id:'alice',active:true,url:'https://directory.example',user:{email:'alice@example.com',emailVerified:true},organizations:[]}]};
+    appHarness({snapshot,hosted},render=>{
+      window.__TAURI__=hosted?undefined:{core:{invoke:(_action,{url})=>{urls.push(url);}}};
+      window.open=url=>{urls.push(url);return {opener:null};};
+      render().find(node=>node.type===FirstStart).props.onCreate('alice');
+      assert.deepEqual(urls,['https://directory.example/onboarding']);
+    });
+  }
 });
 
 test('local org settings create without sign-in and keep the built-in teams separate',()=>{
@@ -267,30 +317,29 @@ test('switching from team General between built-in and named local orgs keeps wi
   });
 });
 
-for(const local of [false,true])test(`organization creation chooses an account from ${local?'local':'signed-in'} settings`,async t=>{
+for(const local of [false,true])test(`organization setup chooses an account from ${local?'local':'signed-in'} settings`,async t=>{
   const previousFetch=globalThis.fetch;t.after(()=>{globalThis.fetch=previousFetch;});
   const accounts=[{id:'alice',active:true,user:{email:'alice@example.com'},organizations:[]},{id:'bob',user:{email:'bob@example.com'},organizations:[]}];
-  const snapshot={teams:[],threads:[],organizations:[],accounts},org={id:'bob-studio',name:'Studio'},requests=[];
-  globalThis.fetch=async(_url,options)=>{const input=options?.body?JSON.parse(options.body):null;requests.push(input);return {ok:true,json:async()=>input?.action==='createOrganization'?org:snapshot};};
-  let pending;
+  const snapshot={teams:[],threads:[],organizations:[],accounts},requests=[];
+  globalThis.fetch=async(_url,options)=>{const input=options?.body?JSON.parse(options.body):null;requests.push(input);return {ok:true,json:async()=>snapshot};};
+  let pending,setupAccount;
   appHarness({snapshot,settingsAccountId:local?null:'alice',hosted:false},(render,renderPanel)=>{
     render().find(node=>node.type===BeesNavigation).props.onGlobal('organizations');
     if(local)render().find(node=>node.type===SettingsPage).props.groups.find(group=>group.title==='Organizations').selector.props.onSelect('local');
     let panel=render().find(node=>node.type.name==='OrganizationsPanel');
-    const perform=panel.props.perform;panel={...panel,props:{...panel.props,perform:fn=>pending=perform(fn)}};
+    const perform=panel.props.perform;panel={...panel,props:{...panel.props,perform:fn=>pending=perform(fn),onCreate:accountId=>{setupAccount=accountId;}}};
     let content=renderPanel(panel);
     if(local){content.find(node=>node.type==='input'&&node.props.type==='checkbox').props.onChange({target:{checked:false}});content=renderPanel(panel);}
-    content.find(node=>node.props['aria-label']==='Organization name').props.onChange({target:{value:' Studio '}});
     const picker=content.find(node=>node.props['aria-label']==='Account for new organization');
     assert.deepEqual(picker.props.children.map(option=>option.props.children),accounts.map(account=>account.user.email));
     picker.props.onChange({target:{value:'bob'}});
     content=renderPanel(panel);
-    assert.equal(content.find(node=>node.props['aria-label']==='Organization name').props.value,' Studio ');
+    assert.equal(content.find(node=>node.props['aria-label']==='Organization name'),undefined);
     assert.equal(content.find(node=>node.props['aria-label']==='Account for new organization').props.value,'bob');
     content.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});
   });
   await pending;
-  assert.equal(requests[0].action,'createOrganization');assert.equal(requests[0].name,'Studio');assert.equal(requests[0].settingsAccountId,'bob');
+  assert.equal(setupAccount,'bob');assert(!requests.some(input=>input?.action==='createOrganization'));
   assert(!requests.some(input=>input?.action==='selectOrganization'||input?.action==='switchAccount'),'Creating an org must not change the active chat account');
 });
 
@@ -400,19 +449,29 @@ test('General hides and unhides teams for the configured account, including read
   }
 });
 
-test('clicking a team name leaves settings for its welcome screen and organization settings omit the account dropdown',()=>{
-  const snapshot={teams:[{id:'research',title:'Research'},{id:'design',title:'Design'}],threads:[],defaultTeamId:'research',organizations:[],accounts:[{id:'account',active:true,user:{email:'me@example.com'},organizations:[]}]};
-  appHarness({snapshot},render=>{
+test('clicking a team name opens the full draft workspace and keeps organization settings compact',async t=>{
+  const prior=globalThis.fetch;t.after(()=>{globalThis.fetch=prior;});
+  const draft={id:'draft',teamId:'design',title:'Draft thread',draft:true,draftTouched:false,ownerClientId:'local',messages:[],artifacts:[],runs:[]};
+  const snapshot={clientId:'local',teams:[{id:'research',title:'Research'},{id:'design',title:'Design'}],threads:[draft],defaultTeamId:'research',organizations:[],accounts:[{id:'account',active:true,user:{email:'me@example.com'},organizations:[]}]},requests=[];
+  globalThis.fetch=async(_url,options)=>{const input=options?.body?JSON.parse(options.body):null;requests.push(input);return {ok:true,json:async()=>input?draft:snapshot};};
+  await appHarness({snapshot},async render=>{
     render().find(node=>node.type===BeesNavigation).props.onGlobal('ai');
     const settings=render(),page=settings.find(node=>node.type===SettingsPage);
-    assert(page);
     const organization=page.props.groups.find(group=>group.title==='Organizations');
     assert.equal(organization.selector.type,SettingsScopePicker);
     assert(!nodes(organization.selector).some(node=>node.type==='select'));
-    settings.find(node=>node.type===TeamSection&&node.props.team.id==='design').props.onOpen();
-    const welcome=render();assert(!welcome.some(node=>node.type===SettingsPage));
-    assert(welcome.some(node=>node.type==='h2'&&node.props.children==='What would you like to get done?'));
-    assert(welcome.some(node=>node.type==='p'&&node.props.children==='Start a goal in Design. Add files and people as you go.'));
+    await settings.find(node=>node.type===TeamSection&&node.props.team.id==='design').props.onOpen();
+    const tree=render();assert(!tree.some(node=>node.type===SettingsPage));
+    assert(!tree.some(node=>node.props.className?.includes('bc-welcome')));
+    const workspace=tree.find(node=>node.type===ThreadWorkspace);assert(workspace);
+    for(const page of ['conversation','files','settings','schedule'])assert(workspace.props.renderWidget(page));
+    assert(!tree.some(node=>node.props.className?.startsWith('bc-thread-row')),'An untouched draft is hidden from the sidebar');
+    const composer=workspace.props.renderWidget('conversation');assert.equal(composer.type,ThreadConversation);
+    await composer.props.onDraftChange('Prepare my report');
+    const updated=render(),row=updated.find(node=>node.props.className==='bc-thread-row active');assert(row);
+    assert(nodes(row).some(node=>node.type==='small'&&node.props.children==='Draft · Prepare my report'));
+    assert.equal(requests[0].action,'create');assert.equal(requests[0].teamId,'design');assert.equal(requests[0].draft,true);
+    assert(requests.some(input=>input?.action==='draft'&&input.text==='Prepare my report'));
   });
 });
 
@@ -554,4 +613,73 @@ test('settings Escape closes once and leaves fields and handled events alone',()
     configure(true);
   }
   assert.equal(listeners.size,0);
+});
+
+test('rapid prompt edits save in order and finish before the draft starts',async t=>{
+  const previous=globalThis.fetch;t.after(()=>{globalThis.fetch=previous;});
+  const team={id:'team',title:'Research',ownerClientId:'local'};
+  const thread={id:'draft',teamId:team.id,title:'Draft thread',ownerClientId:'local',draft:true,draftTouched:false,messages:[],artifacts:[],runs:[]};
+  const snapshot={clientId:'local',teams:[team],threads:[thread],organizations:[],accounts:[{id:'account-a',active:true,user:{email:'a@example.com'}}]},requests=[];
+  let release;
+  globalThis.fetch=async(_url,options)=>{
+    const input=options?.body?JSON.parse(options.body):null;requests.push(input);
+    if(input?.action==='draft'&&input.text==='First')await new Promise(resolve=>{release=resolve;});
+    return {ok:true,json:async()=>input?thread:snapshot};
+  };
+  await appHarness({snapshot,selected:thread.id,thread,team},async render=>{
+    const composer=render().find(node=>node.type===ThreadWorkspace).props.renderWidget('conversation');
+    const saving=composer.props.onDraftChange('First');
+    composer.props.onDraftChange('Second');composer.props.onDraftChange('Final prompt');
+    assert.deepEqual(requests.map(input=>input?.text),['First']);
+    render().find(node=>node.type===BeesNavigation).props.onGlobal('ai');
+    const sending=composer.props.onSend('Final prompt');
+    await Promise.resolve();assert(!requests.some(input=>input?.action==='message'||input?.action==='run'));
+    release();await saving;await sending;
+    assert.deepEqual(requests.filter(input=>input?.action==='draft').map(input=>input.text),['First','Final prompt']);
+    assert(requests.filter(input=>input?.action==='draft').every(input=>input.settingsAccountId==='account-a'));
+    assert(requests.findIndex(input=>input?.action==='message')>requests.findLastIndex(input=>input?.action==='draft'));
+    assert.equal(requests.find(input=>input?.action==='run').text,'Final prompt');
+  });
+});
+
+test('organization Members is separate from General and refreshes invitations after inviting and canceling',async t=>{
+  const previous=globalThis.fetch;t.after(()=>{globalThis.fetch=previous;});
+  const org={id:'studio',name:'Studio',role:'admin'},invite={id:'pending',email:'guest@example.com',role:'member',expires_at:'2026-12-01T00:00:00Z'};
+  const snapshot={teams:[],threads:[],organizations:[org],settings:{selectedOrganizationId:org.id}},requests=[];
+  const roster={members:[{user_id:'owner',email:'owner@example.com',role:'owner'},{user_id:'member',email:'member@example.com',role:'member'}],clients:[],invitations:[]};
+  globalThis.fetch=async(_url,options)=>{
+    const input=options?.body?JSON.parse(options.body):null;requests.push(input);
+    if(input?.action==='inviteOrganization')roster.invitations=[invite];
+    if(input?.action==='cancelOrganizationInvitation')roster.invitations=[];
+    return {ok:true,json:async()=>input?.action==='organizationMembers'?{...roster}:snapshot};
+  };
+  await appHarness({snapshot},async(render,renderPanel)=>{
+    render().find(node=>node.type===BeesNavigation).props.onGlobal('organizations');
+    const page=render().find(node=>node.type===SettingsPage);
+    assert.deepEqual(page.props.groups.find(group=>group.title==='Organizations').items,[['organizations','General'],['organization-members','Members']]);
+    const general=render().find(node=>node.type.name==='OrganizationsPanel');
+    let content=renderPanel(general,{organizations:[org],invitations:[]},roster);
+    assert(content.some(node=>node.props.children==='Set up Bees Pro organization'));
+    assert(!content.some(node=>node.props['aria-label']==='Invite colleague by email'));
+    page.props.onSelect('organization-members','global');
+    let panel=render().find(node=>node.type.name==='OrganizationsPanel'),pending;
+    const perform=panel.props.perform;panel={...panel,props:{...panel.props,perform:fn=>pending=perform(fn)}};
+    content=renderPanel(panel);
+    assert(!content.some(node=>node.props['aria-label']==='Organization name'));
+    assert.equal(content.filter(node=>node.type==='button'&&node.props.children==='Remove').length,1);
+    assert(content.some(node=>node.props.children==='No pending invitations.'));
+    content.find(node=>node.props['aria-label']==='Invite colleague by email').props.onChange({target:{value:' guest@example.com '}});
+    content=renderPanel(panel);content.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await pending;
+    content=renderPanel(panel);assert(content.some(node=>node.type==='button'&&node.props.children==='Cancel invitation'));
+    await content.find(node=>node.type==='button'&&node.props.children==='Cancel invitation').props.onClick();
+    content=renderPanel(panel);assert(content.some(node=>node.props.children==='No pending invitations.'));
+    assert.deepEqual(requests.filter(input=>['inviteOrganization','cancelOrganizationInvitation'].includes(input?.action)).map(({action,organizationId,email,invitationId})=>({action,organizationId,email,invitationId})),[
+      {action:'inviteOrganization',organizationId:org.id,email:invite.email,invitationId:undefined},
+      {action:'cancelOrganizationInvitation',organizationId:org.id,email:undefined,invitationId:invite.id}
+    ]);
+    content=renderPanel(panel,{organizations:[{...org,role:'member'}],invitations:[]},{...roster,invitations:[invite]});
+    assert(!content.some(node=>node.props['aria-label']==='Invite colleague by email'||['Remove','Cancel invitation'].includes(node.props.children)));
+    content=renderPanel({...panel,props:{...panel.props,local:true}});
+    assert(!content.some(node=>node.type==='form'||node.props.children==='Current members'));
+  });
 });

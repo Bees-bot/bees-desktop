@@ -117,11 +117,13 @@ if(state){const channel=new BroadcastChannel('bees-sign-in-'+state);channel.post
         const {user}=await response.json();return {id:hash(directory.origin+'\n'+user.id),user,token};
       };
       const switching=['switchAccount','selectOrganization'].includes(input?.action);
-      const targetAccountId=switching?input.accountId:input?.settingsAccountId;
-      let token=cookies.get('bees_hosted_session')||sessions.values().next().value;
+      const targetAccountId=switching||input?.action==='logout'?input.accountId:input?.settingsAccountId;
+      const activeToken=cookies.get('bees_hosted_session')||sessions.values().next().value;
+      let token=activeToken;
       if(targetAccountId!=null){token=sessions.get(targetAccountId);if(!token)return json(res,401,{error:'Sign in to this account again'});}
       if(input?.action==='logout'){
         const account=token?await identify(token):null;
+        if(targetAccountId!=null&&account?.id!==targetAccountId)return json(res,401,{error:'Sign in to this account again'});
         if(account&&provision.stop){
           const response=await fetch(directory.origin+'/api/directory/credits',{headers:{authorization:'Bearer '+token},signal:AbortSignal.timeout(20000)});
           if(!response.ok)throw Error('Could not check credits before stopping this hosted client. Try signing out again.');
@@ -129,7 +131,7 @@ if(state){const channel=new BroadcastChannel('bees-sign-in-'+state);channel.post
           if(isFreeClient(credits))await provision.stop(account.user);
         }
         for(const [id,session] of sessions)if(session===token)cookie(accountPrefix+id,'');
-        cookie('bees_hosted_session','');return json(res,200,{ok:true});
+        if(token===activeToken)cookie('bees_hosted_session','');return json(res,200,{ok:true});
       }
       if(input?.action==='login'){
         if(input.session)token=String(input.session);

@@ -7,7 +7,7 @@ const model={id:'test/paid-model',name:'Bees Credits',contextWindow:131072,maxTo
 const configuration=()=>({kind:'credits',available:true,model,credits:{balance:100000}});
 function harness(){
  const adapters=new Map();
- const service=new ThreadCredits({llm:{registerAdapter:([id],adapter)=>{assert(!adapters.has(id));adapters.set(id,adapter);return()=>adapters.delete(id);}}});
+ const service=new ThreadCredits({on:()=>{},llm:{registerAdapter:([id],adapter)=>{assert(!adapters.has(id));adapters.set(id,adapter);return()=>adapters.delete(id);}}});
  const client=name=>({store:{clientId:randomUUID(),preferences:new Map(),preference(key,value){if(arguments.length>1)this.preferences.set(key,value);return this.preferences.get(key)??null;}},directory:{url:'https://bees.test',user:{id:name},token:name,request:async path=>{assert.equal(path,'/ai');return {ai:configuration()};}}});
  return {adapters,service,client};
 }

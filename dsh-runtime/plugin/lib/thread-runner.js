@@ -153,7 +153,7 @@ export class ThreadRunner {
         const startSeq=owner.session.snapshotEvents().length;
         if(!parentId)fromSeq=startSeq;
         setSandboxMode(owner.session,stage.kind==='review'?'read-only':'workspace-write');this.ctx.approval.setPolicy(owner,'ask');
-        this.credits?.mount(agentCtx,store,creditOrganizationId);
+        this.credits?.mount(agentCtx,store,creditOrganizationId,owner.session);
         trackThreadAgent(agentCtx,{agent:owner,store,threadId:thread.id,runId:run.id,stageIndex:index,parentId,fromSeq:startSeq,title:parentId?undefined:role?.name});
         // the stage agent's reply as it streams, so the screen shows words before the stage ends
         if(!parentId){let live='',timer;
