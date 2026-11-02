@@ -45,9 +45,7 @@ publish)
     || die "package.json, tauri.conf.json and Cargo.toml disagree on the version."
   notes=$(awk -v h="## $version" '$0 == h { on = 1; next } /^## / { on = 0 } on' CHANGELOG.md)
   [[ -n ${notes//[[:space:]]/} ]] || die "CHANGELOG.md has no ## $version notes."
-  notes="**Manual upgrade from 0.2.x:** download your installer below and install it once. The updater signing key has changed. Subsequent updates from this release use the new key automatically. Replace any earlier 0.30.0 draft build with this installer too.
-
-Choose your download from **Assets** below:
+  notes="Choose your download from **Assets** below:
 - **Mac:** choose Apple silicon or Intel. Check Apple menu > About This Mac for your chip or processor.
 - **Windows:** choose the .exe installer for Intel/AMD 64-bit computers.
 - **Linux:** choose the .deb installer if your distribution uses DEB packages, or the standalone .AppImage to run without installing a DEB package. Both are for Intel/AMD 64-bit computers. Ubuntu 22.04 and 24.04 are covered by our installation checks; other distributions are unverified. AppImage still requires compatible system libraries.
@@ -97,8 +95,6 @@ $notes"
   for file in "${updates[@]}"; do
     TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$(cat "$key.password") try npx -y @tauri-apps/cli@2.12.1 signer sign --app-version "$version" -f "$key" "$out/$file"
   done
-  # Old clients keep their original feed; only builds trusting the new key use v2.
-  cp docs/updater-0.2.json "$out/bees-update.json"
   V=$version BASE=https://github.com/$repo/releases/download/$tag OUT=$out node -e '
     const { V: version, BASE, OUT } = process.env;
     const entry = (file) => ({ signature: require("fs").readFileSync(`${OUT}/${file}.sig`, "utf8").trim(), url: `${BASE}/${file}` });
@@ -109,12 +105,12 @@ $notes"
       "linux-x86_64": entry(`Bees_${version}_amd64.AppImage`),
       "linux-x86_64-deb": entry(`Bees_${version}_amd64.deb`),
     } }, null, 2));
-  ' > "$out/bees-update-v2.json"
+  ' > "$out/bees-update.json"
   files=("Bees_${version}_aarch64.dmg" "Bees_${version}_x64.dmg" "${updates[@]}")
   (cd "$out" && shasum -a 256 "${files[@]}" > SHA256SUMS)
   downloads=src-tauri/target/releases/$version
   mkdir -p "$downloads"
-  for download in "${files[@]}" bees-update.json bees-update-v2.json SHA256SUMS; do cp "$out/$download" "$downloads/"; done
+  for download in "${files[@]}" bees-update.json SHA256SUMS; do cp "$out/$download" "$downloads/"; done
   (cd "$downloads" && shasum -a 256 -c SHA256SUMS)
   echo "downloads: $PWD/$downloads"
 
@@ -123,7 +119,7 @@ $notes"
   draft() { gh release view "$tag" --repo $repo >/dev/null 2>&1 || gh release create "$tag" --repo $repo --target "$sha" --title "Bees $tag" --notes "$notes" --draft; }
   try draft
   [[ $(try gh release view "$tag" --repo $repo --json isDraft --jq .isDraft) == true ]] || die "$tag is published; refusing to replace its files."
-  for file in "${files[@]}" bees-update.json bees-update-v2.json SHA256SUMS; do
+  for file in "${files[@]}" bees-update.json SHA256SUMS; do
     # GitHub displays the label after #; filenames stay stable for updates and install checks.
     case "$file" in
       *_aarch64.dmg) label="Mac (Apple silicon) - installer (.dmg)" ;;
@@ -133,8 +129,7 @@ $notes"
       *_amd64.AppImage) label="Linux (Intel/AMD 64-bit) - standalone app (.AppImage)" ;;
       *_aarch64.app.tar.gz) label="Automatic update only - Mac (Apple silicon)" ;;
       *_x64.app.tar.gz) label="Automatic update only - Mac (Intel)" ;;
-      bees-update.json) label="Legacy 0.2.x update manifest (not an installer)" ;;
-      bees-update-v2.json) label="Automatic update only - manifest (.json)" ;;
+      bees-update.json) label="Automatic update only - manifest (.json)" ;;
       SHA256SUMS) label="SHA-256 checksums (not an installer)" ;;
     esac
     try gh release upload "$tag" --repo $repo --clobber "$out/$file#$label"
@@ -142,8 +137,8 @@ $notes"
   # a draft left by an earlier run may point at an older commit
   try gh release edit "$tag" --repo $repo --target "$sha" --notes "$notes" --draft=false --latest
   rm -rf "$out"
-  live=$(curl -fsSL https://github.com/$repo/releases/latest/download/bees-update-v2.json | node -p 'JSON.parse(require("fs").readFileSync(0)).version') \
-    || die "$tag is published but bees-update-v2.json could not be read back."
+  live=$(curl -fsSL https://github.com/$repo/releases/latest/download/bees-update.json | node -p 'JSON.parse(require("fs").readFileSync(0)).version') \
+    || die "$tag is published but bees-update.json could not be read back."
   [[ $live == "$version" ]] || die "$tag is published but strangers are offered '$live'."
   echo "done: https://github.com/$repo/releases/tag/$tag"
   ;;

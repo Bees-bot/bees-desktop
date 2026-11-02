@@ -4,7 +4,6 @@ Notable changes, newest first. Dates are release dates.
 
 ## 0.30.0
 
-- Install 0.30.0 manually once when upgrading from 0.2.x or an earlier 0.30.0 draft. The updater signing key has been replaced; future updates from this release are automatic. Older clients keep their original 0.2.3 update feed.
 - Add a Check for updates button at the top of desktop Settings, with feedback when Bees is up to date or the check fails.
 - Label release downloads by platform, processor and package format, with a selection guide to help choose the right installer.
 - Keep the organization bar compact with hover tooltips, choose the account for a new organization, and simplify team menus with Create team instead of New chat.
