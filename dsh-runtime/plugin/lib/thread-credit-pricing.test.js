@@ -22,6 +22,7 @@ test('desktop and web show starter credits as dollars times one million',()=>{
  const unavailable=JSON.stringify(CreditSettings({user:{emailVerified:true},connection:{credits:{starterRemainingUsd:null,starterMessage:'Temporarily unavailable'}}}));
  assert(!unavailable.includes('starter credits remaining.'));assert(unavailable.includes('Temporarily unavailable'));
  const onboarding=JSON.stringify(FirstStart({}));assert(onboarding.includes('50k starter credits'));assert(!onboarding.includes('$0.01'));
+ assert(onboarding.includes('Set up your organization'));assert(!onboarding.includes('local organization'));assert(!onboarding.includes('work locally'));assert(!onboarding.includes('Continue locally'));
 });
 
 test('model choices pin the default, group recommendations before other models, and show marked-up prices and tiers',async()=>{

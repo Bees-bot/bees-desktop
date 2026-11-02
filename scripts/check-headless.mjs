@@ -149,7 +149,9 @@ const webSession='synthetic-web-proof-session';
 if(web){
   directory=createServer((req,res)=>{
     res.setHeader('content-type','application/json');
-    if(req.url!=='/api/me'||req.headers.authorization!=='Bearer '+webSession)return res.writeHead(401).end('{}');
+    if(req.headers.authorization!=='Bearer '+webSession)return res.writeHead(401).end('{}');
+    if(req.url==='/api/organizations')return res.end(JSON.stringify({organizations:[{id:'proof-org',name:'Proof organization'}]}));
+    if(req.url!=='/api/me')return res.writeHead(404).end('{}');
     res.end(JSON.stringify({user:{id:'local',name:'Web proof',email:'proof@example.invalid',emailVerified:true}}));
   });
   await new Promise(done=>directory.listen(0,'127.0.0.1',done));

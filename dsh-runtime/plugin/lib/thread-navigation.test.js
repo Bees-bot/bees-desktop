@@ -138,6 +138,7 @@ test('team controls toggle independently and open the team welcome screen',()=>{
 
 const nodes=node=>!React.isValidElement(node)?[]:[node,...React.Children.toArray(node.props.children).flatMap(nodes)];
 function appHarness({snapshot,selected=null,thread=null,team=null,settingsSnapshot=snapshot,settingsTeam=null,settingsAccountId,hosted=true},run){
+  if(hosted&&snapshot&&!Object.hasOwn(snapshot,'user'))snapshot.user={id:'test-user',emailVerified:true};
   const previousWindow=globalThis.window,previousFrame=globalThis.requestAnimationFrame;
   globalThis.window={};globalThis.requestAnimationFrame=()=>{};
   const states=[snapshot,selected,thread],refs=[],effects=[];let index=0,refIndex=0;
@@ -155,6 +156,24 @@ function appHarness({snapshot,selected=null,thread=null,team=null,settingsSnapsh
   };
   try{const result=run(render,renderPanel,effects);if(result?.then)return result.finally(restore);restore();return result;}catch(error){restore();throw error;}
 }
+
+test('web entry shows sign-in instead of a workspace before authentication',()=>{
+  for(const snapshot of [null,{user:null,threads:[],organizations:[]}])appHarness({snapshot},render=>{
+    const tree=render();
+    assert(tree.some(node=>node.type==='h1'&&node.props.children==='Sign up / Sign in'));
+    assert(!tree.some(node=>node.type===BeesNavigation||node.type===ThreadWorkspace));
+    if(snapshot)assert(tree.some(node=>node.type.name==='Login'));
+    else assert(tree.some(node=>node.props.role==='status'&&node.props.children==='Checking your sign-in…'));
+  });
+});
+
+test('web onboarding cannot be bypassed by saved chats or pending invitations',()=>{
+  const snapshot={user:{id:'me',emailVerified:true},onboarding:null,organizations:[],threads:[],directory:{threads:[{id:'shared',owner_user_id:'someone-else'}],invitations:[{id:'invite'}],participants:[],clients:[]}};
+  appHarness({snapshot},render=>{
+    const tree=render();assert(tree.some(node=>node.type===FirstStart));
+    assert(!tree.some(node=>node.type===BeesNavigation||node.type===ThreadWorkspace));
+  });
+});
 
 test('a thread without a local copy retries after a failed first read and clears its error on recovery',async t=>{
   const previous=globalThis.fetch;t.after(()=>{globalThis.fetch=previous;});
@@ -449,7 +468,7 @@ for(const source of ['settings','menu'])test(`${source} team creation uses its o
 test('thread rows omit decorative icons and Settings lists all teams without a hidden teams menu',()=>{
   const thread={id:'thread',teamId:'research',title:'Weekly status',preview:'Current progress',ownerClientId:'local',runs:[{status:'running'}]};
   const snapshot={clientId:'local',teams:[{id:'research',title:'Research'},{id:'frozen',title:'Frozen',frozen:true},{id:'hidden',title:'Hidden'}],threads:[thread],organizations:[],settings:{hiddenTeamIds:['hidden']}};
-  appHarness({snapshot,selected:thread.id},render=>{
+  appHarness({snapshot,selected:thread.id,hosted:false},render=>{
     const tree=render(),row=tree.find(node=>node.props.className==='bc-thread-row active');
     assert(row);assert(!nodes(row).some(node=>node.props.className==='bc-thread-symbol'));
     assert(nodes(row).some(node=>node.props.className==='bc-thread-copy'));
@@ -591,6 +610,7 @@ test('settings scope icons show organization appearance and team initials with h
 
 
 test('thread pane starts with search without a global overflow menu',t=>{
+  configure(false);t.after(()=>configure(true));
   const prior=globalThis.window;globalThis.window={};
   t.after(()=>{if(prior===undefined)delete globalThis.window;else globalThis.window=prior;});
   const markup=renderToStaticMarkup(React.createElement(ThreadApp,{}));
