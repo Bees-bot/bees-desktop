@@ -140,21 +140,65 @@ const nodes=node=>!React.isValidElement(node)?[]:[node,...React.Children.toArray
 function appHarness({snapshot,selected=null,thread=null,team=null,settingsSnapshot=snapshot,settingsTeam=null,settingsAccountId,hosted=true},run){
   const previousWindow=globalThis.window,previousFrame=globalThis.requestAnimationFrame;
   globalThis.window={};globalThis.requestAnimationFrame=()=>{};
-  const states=[snapshot,selected,thread],refs=[];let index=0,refIndex=0;
+  const states=[snapshot,selected,thread],refs=[],effects=[];let index=0,refIndex=0;
   states[10]=settingsAccountId;states[13]=settingsSnapshot;states[14]=settingsTeam;states[18]=team;
   configureRuntime(name=>({react:{...React,useState:initial=>{
     const key=index++;if(!(key in states))states[key]=typeof initial==='function'?initial():initial;
     return [states[key],value=>{states[key]=typeof value==='function'?value(states[key]):value;}];
-  },useRef:value=>refs[refIndex++]??={current:value},useEffect:()=>{}},'react-dom':{},'@deepseek-ai/dsh-client-ui-primitives':{},'@bees/dsh-custom-ai':{},'@bees/dsh-subscriptions':{}})[name],{hosted});
-  const render=()=>{index=0;refIndex=0;return nodes(ThreadApp({}));};
+  },useRef:value=>refs[refIndex++]??={current:value},useEffect:(fn,deps)=>effects.push({fn,deps})},'react-dom':{},'@deepseek-ai/dsh-client-ui-primitives':{},'@bees/dsh-custom-ai':{},'@bees/dsh-subscriptions':{}})[name],{hosted});
+  const render=()=>{index=0;refIndex=0;effects.length=0;return nodes(ThreadApp({}));};
   const renderPanel=(element,data,members)=>{index=100;refIndex=100;if(data)states[100]=data;if(members)states[101]=members;return nodes(element.type(element.props));};
   const restore=()=>{
     configure(true);
     if(previousWindow===undefined)delete globalThis.window;else globalThis.window=previousWindow;
     if(previousFrame===undefined)delete globalThis.requestAnimationFrame;else globalThis.requestAnimationFrame=previousFrame;
   };
-  try{const result=run(render,renderPanel);if(result?.then)return result.finally(restore);restore();return result;}catch(error){restore();throw error;}
+  try{const result=run(render,renderPanel,effects);if(result?.then)return result.finally(restore);restore();return result;}catch(error){restore();throw error;}
 }
+
+test('a thread without a local copy retries after a failed first read and clears its error on recovery',async t=>{
+  const previous=globalThis.fetch;t.after(()=>{globalThis.fetch=previous;});
+  const authority={id:'remote-thread',kind:'thread',team_id:'team',owner_client_id:'desktop'};
+  const snapshot={clientId:'web',teams:[{id:'team',title:'Research'}],defaultTeamId:'team',threads:[],organizations:[],directory:{threads:[authority],participants:[],clients:[],invitations:[]}};
+  let online=false,requests=0;
+  const failure="The owner's Bees Client can't be reached right now.";
+  globalThis.fetch=async(_url,options)=>{
+    const input=JSON.parse(options.body);assert.equal(input.action,'read');
+    if(input.threadId==='team')return {ok:true,json:async()=>snapshot.teams[0]};
+    assert.equal(input.threadId,authority.id);requests++;
+    return {ok:online,status:online?200:408,json:async()=>online?{id:authority.id,title:'Desktop research',messages:[],runs:[],artifacts:[]}:{error:failure}};
+  };
+  await appHarness({snapshot,selected:authority.id},async(render,_renderPanel,effects)=>{
+    render();
+    const refreshReads=()=>effects.filter(effect=>effect.deps?.length===1&&effect.deps[0]===snapshot).forEach(effect=>effect.fn());
+    refreshReads();await new Promise(setImmediate);
+    let tree=render();assert.equal(requests,1);
+    assert(tree.some(node=>node.props.role==='alert'&&node.props.children[0]===failure));
+    assert(tree.some(node=>node.props.children==='Thread awaiting sync'));
+    online=true;refreshReads();await new Promise(setImmediate);
+    tree=render();assert.equal(requests,2,'Refresh must retry even when the first read left thread null');
+    assert(!tree.some(node=>node.props.role==='alert'));
+    assert(tree.some(node=>node.type==='h2'&&node.props.children==='Desktop research'));
+  });
+});
+
+test('team sync errors clear when a later refresh reaches its owner',async t=>{
+  const previous=globalThis.fetch;t.after(()=>{globalThis.fetch=previous;});
+  const snapshot={clientId:'web',teams:[{id:'team',title:'Research',shared:true}],defaultTeamId:'team',threads:[],organizations:[]};
+  let online=false;
+  globalThis.fetch=async(_url,options)=>{
+    const input=JSON.parse(options.body);assert.equal(input.action,'read');assert.equal(input.threadId,'team');
+    return {ok:online,status:online?200:408,json:async()=>online?{id:'team',title:'Research',shared:true}:{error:'Team owner is offline'}};
+  };
+  await appHarness({snapshot},async(render,_renderPanel,effects)=>{
+    render();effects.filter(effect=>effect.deps?.length===1&&effect.deps[0]==='team').forEach(effect=>effect.fn());
+    await new Promise(setImmediate);
+    let tree=render();assert(tree.some(node=>node.props.role==='alert'&&node.props.children[0]==='Team owner is offline'));
+    online=true;effects.filter(effect=>effect.deps?.length===1&&effect.deps[0]===snapshot).forEach(effect=>effect.fn());
+    await new Promise(setImmediate);
+    tree=render();assert(!tree.some(node=>node.props.role==='alert'));
+  });
+});
 
 test('Accounts gives every row its own sign-out and preserves other account views',async t=>{
   const previous=globalThis.fetch;t.after(()=>{globalThis.fetch=previous;});
