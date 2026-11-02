@@ -4,6 +4,8 @@ Notable changes, newest first. Dates are release dates.
 
 ## Unreleased
 
+- Add a Check for updates button at the top of desktop Settings, with feedback when Bees is up to date or the check fails.
+- Label release downloads by platform, processor and package format, with a selection guide to help choose the right installer.
 - Keep the organization bar compact with hover tooltips, choose the account for a new organization, and simplify team menus with Create team instead of New chat.
 - Hide old empty Chat and Goal placeholders while preserving saved thread content and settings.
 - Stop free hosted Clients after five minutes without browser contact once active work finishes; keep their saved data and restart them on the next request.

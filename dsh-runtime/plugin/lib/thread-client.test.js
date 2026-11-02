@@ -35,6 +35,29 @@ test('a first read preserves sync failures, recovers when the owner returns, and
  }finally{client.store.close();owner.store.close();await rm(root,{recursive:true,force:true});}
 });
 
+test('web reads of an offline desktop-owned thread explain how to transfer it without masking access errors',async t=>{
+ const priorHosted=process.env.BEES_HOSTED_CLIENT;process.env.BEES_HOSTED_CLIENT='1';
+ t.after(()=>{if(priorHosted===undefined)delete process.env.BEES_HOSTED_CLIENT;else process.env.BEES_HOSTED_CLIENT=priorHosted;});
+ const root=await mkdtemp(join(tmpdir(),'bees-desktop-transfer-')),client=new ThreadClient(join(root,'web')),desktop=new ThreadClient(join(root,'desktop'));
+ try{
+  client.directory.user={id:'alice'};client.refresh=async()=>{};
+  const original=desktop.store.create('Desktop research','alice'),doc=desktop.store.mutate(original.id,randomUUID(),d=>{d.shared=true;});
+  const authority={id:doc.id,kind:'thread',owner_client_id:desktop.store.clientId,owner_user_id:'alice',epoch:1};
+  client.roster.threads=[authority];
+  client.roster.clients=[{id:desktop.store.clientId,name:'My Mac',last_seen_at:new Date(0).toISOString()}];
+  const read=()=>client.command({action:'read',threadId:doc.id});
+  const message='This thread is active in your desktop client. To transfer it to the web client, open Bees Desktop and select this thread. Finish or stop any active work, then go to Settings → Transfer, choose Bees Cloud, and click Offer transfer. Return to the web client and click Accept transfer. Keep both clients open until the transfer finishes.';
+  await assert.rejects(read(),{status:408,message});
+  client.store.import(doc,authority);assert.equal((await read()).unavailable,message);client.store.drop(doc.id);
+  for(const change of [()=>{authority.owner_user_id='bob';},()=>{client.roster.clients[0].name='Bees Cloud';},()=>{authority.kind='team';},()=>{delete process.env.BEES_HOSTED_CLIENT;}]){
+   authority.owner_user_id='alice';authority.kind='thread';client.roster.clients[0].name='My Mac';process.env.BEES_HOSTED_CLIENT='1';change();
+   await assert.rejects(read(),{status:408,message:"The owner's Bees Client can't be reached right now."});
+  }
+  process.env.BEES_HOSTED_CLIENT='1';authority.kind='thread';
+  for(const status of [401,403,502]){const failure=Object.assign(Error('Failure '+status),{status});client.refresh=async()=>{throw failure;};await assert.rejects(read(),error=>error===failure);}
+ }finally{client.store.close();desktop.store.close();await rm(root,{recursive:true,force:true});}
+});
+
 test('snapshots omit empty Chat and Goal placeholders at any revision while preserving saved work',async()=>{
  const root=await mkdtemp(join(tmpdir(),'bees-empty-drafts-'));let client=new ThreadClient(root);
  try{

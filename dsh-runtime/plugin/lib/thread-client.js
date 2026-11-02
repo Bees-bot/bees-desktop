@@ -235,9 +235,12 @@ export class ThreadClient {
     if(input.action==='read'){
       let doc;
       try{doc=await this.sync(id);}catch(e){
+        const authority=this.roster.threads.find(t=>t.id===id),owner=this.roster.clients.find(c=>c.id===authority?.owner_client_id);
+        const desktopOwned=process.env.BEES_HOSTED_CLIENT&&authority?.kind==='thread'&&authority.owner_client_id!==this.store.clientId&&authority.owner_user_id===this.directory.user?.id&&owner&&owner.name!=='Bees Cloud';
+        const connectionMessage=desktopOwned?'This thread is active in your desktop client. To transfer it to the web client, open Bees Desktop and select this thread. Finish or stop any active work, then go to Settings → Transfer, choose Bees Cloud, and click Offer transfer. Return to the web client and click Accept transfer. Keep both clients open until the transfer finishes.':"The owner's Bees Client can't be reached right now.";
         // A failed first sync has no cached copy; preserve the connection or access error.
-        try{doc=this.store.get(id);}catch{throw e;}
-        if(doc.ownerClientId!==this.store.clientId||doc.shared)doc.unavailable=e.status===403?'You no longer have access to this thread.':e.status===502?"Bees can't be reached right now.":!e.status||e.status===408?"The owner's Bees Client can't be reached right now.":e.message;
+        try{doc=this.store.get(id);}catch{if(desktopOwned&&(!e.status||e.status===408))throw threadError(connectionMessage,e.status??408);throw e;}
+        if(doc.ownerClientId!==this.store.clientId||doc.shared)doc.unavailable=e.status===403?'You no longer have access to this thread.':e.status===502?"Bees can't be reached right now.":!e.status||e.status===408?connectionMessage:e.message;
       }
       await this.options.recoverActivity?.(this.store,doc);
       return {...this.store.get(id),teamId:doc.teamId??this.store.preference(`team:${id}`),...(doc.unavailable?{unavailable:doc.unavailable}:{}),frozen:doc.ownerClientId===this.store.clientId&&!!this.store.preference(`frozen:${id}`)};

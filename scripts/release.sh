@@ -70,6 +70,15 @@ publish)
     || die "package.json, tauri.conf.json and Cargo.toml disagree on the version."
   notes=$(awk -v h="## $version" '$0 == h { on = 1; next } /^## / { on = 0 } on' CHANGELOG.md)
   [[ -n ${notes//[[:space:]]/} ]] || die "CHANGELOG.md has no ## $version notes."
+  notes="Choose your download from **Assets** below:
+- **Mac:** choose Apple silicon or Intel. Check Apple menu > About This Mac for your chip or processor.
+- **Windows:** choose the .exe installer for Intel/AMD 64-bit computers.
+- **Linux:** choose the .deb installer if your distribution uses DEB packages, or the standalone .AppImage to run without installing a DEB package. Both are for Intel/AMD 64-bit computers. Ubuntu 22.04 and 24.04 are covered by our installation checks; other distributions are unverified. AppImage still requires compatible system libraries.
+- Files marked **Automatic update only** are used by Bees itself. They are not installers.
+
+### Changes
+
+$notes"
   rc=0; git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null || rc=$?
   [[ $rc == 2 ]] || die "$tag already exists or github could not be reached. a used version is never reused."
   [[ -r $key && -r $key.password ]] || die "the updater key is missing from ../bees-signing."
@@ -131,7 +140,21 @@ publish)
   trap - EXIT
   draft() { gh release view "$tag" --repo $repo >/dev/null 2>&1 || gh release create "$tag" --repo $repo --target "$sha" --title "Bees $tag" --notes "$notes" --draft; }
   try draft
-  for file in "${files[@]}" bees-update.json SHA256SUMS; do try gh release upload "$tag" --repo $repo --clobber "$out/$file"; done
+  for file in "${files[@]}" bees-update.json SHA256SUMS; do
+    # GitHub displays the label after #; filenames stay stable for updates and install checks.
+    case "$file" in
+      *_aarch64.dmg) label="Mac (Apple silicon) - installer (.dmg)" ;;
+      *_x64.dmg) label="Mac (Intel) - installer (.dmg)" ;;
+      *_x64-setup.exe) label="Windows (Intel/AMD 64-bit) - installer (.exe)" ;;
+      *_amd64.deb) label="Linux (Intel/AMD 64-bit) - DEB installer (.deb)" ;;
+      *_amd64.AppImage) label="Linux (Intel/AMD 64-bit) - standalone app (.AppImage)" ;;
+      *_aarch64.app.tar.gz) label="Automatic update only - Mac (Apple silicon)" ;;
+      *_x64.app.tar.gz) label="Automatic update only - Mac (Intel)" ;;
+      bees-update.json) label="Automatic update only - manifest (.json)" ;;
+      SHA256SUMS) label="SHA-256 checksums (not an installer)" ;;
+    esac
+    try gh release upload "$tag" --repo $repo --clobber "$out/$file#$label"
+  done
   # a draft left by an earlier run may point at an older commit
   try gh release edit "$tag" --repo $repo --target "$sha" --notes "$notes" --draft=false --latest
   rm -rf "$out"
