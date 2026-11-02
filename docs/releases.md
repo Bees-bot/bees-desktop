@@ -8,8 +8,8 @@ Nothing builds on a tag or a schedule.
 
 ## One-time setup
 
-- The updater key at `../bees-signing/bees-updater-v2.key`, with its password in
-  `bees-updater-v2.key.password` next to it. Its public half is `plugins.updater.pubkey` in
+- The updater key at `../bees-signing/bees-updater.key`, with its password in
+  `bees-updater.key.password` next to it. Its public half is `plugins.updater.pubkey` in
   `src-tauri/tauri.conf.json`. Lose the key and installed copies can never update again, so
   keep a backup somewhere safe. Never commit it.
 - `gh` signed in with write access to `Bees-bot/bees-desktop`, and Node 24.7 or a newer 24.x.
