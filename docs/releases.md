@@ -32,10 +32,30 @@ Nothing builds on a tag or a schedule. The Mac builds Apple Silicon itself and s
 The build takes most of this machine's memory, so close heavy apps first. After publishing,
 install the DMG and open it once. A build that packages fine can still fail to start.
 
+GitHub displays these download labels, matching the processor and package format built:
+
+| Download label | How to choose |
+| --- | --- |
+| Mac (Apple silicon) - installer (.dmg) | About This Mac shows an Apple chip. |
+| Mac (Intel) - installer (.dmg) | About This Mac shows an Intel processor. |
+| Windows (Intel/AMD 64-bit) - installer (.exe) | Windows on an Intel/AMD 64-bit computer. This is not a native ARM build. |
+| Linux (Intel/AMD 64-bit) - DEB installer (.deb) | Install with a DEB package manager. The install-check workflow covers Ubuntu 22.04 and 24.04; it does not verify Debian or other distributions. |
+| Linux (Intel/AMD 64-bit) - standalone app (.AppImage) | Run without installing a DEB package. System-library requirements still apply; this is not a promise of compatibility with every Linux distribution. |
+
+The release notes include a short selection guide. Update-only files and checksums
+are labeled separately. The underlying filenames stay unchanged for automatic
+updates, direct links and install checks.
+
+These choices follow Apple's [chip and processor identification guide](https://support.apple.com/en-us/116943)
+and Tauri's [DEB](https://v2.tauri.app/distribute/debian/) and
+[AppImage](https://v2.tauri.app/distribute/appimage/) documentation. Package format
+alone does not establish distribution compatibility.
+
 ## In-app updates
 
 The app checks `releases/latest/download/bees-update.json` at launch and every six hours,
-and offers to install a newer version and restart. If runs are still active it asks once the
+and offers to install a newer version and restart. Users can also choose **Check for updates**
+at the top of desktop Settings. If runs are still active it asks once the
 download is done, since installing replaces the files the running app uses. Each signature carries
 its version, and the app refuses an update whose manifest names a different one.
 
