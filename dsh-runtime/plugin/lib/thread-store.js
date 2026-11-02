@@ -49,7 +49,7 @@ export class ThreadStore {
     while(Buffer.byteLength(canonical(doc))>8_000_000){const before=doc.runs.length+doc.messages.length;drop(doc.runs,Math.ceil(doc.runs.length/50));drop(doc.messages,Math.ceil(doc.messages.length/50));if(doc.runs.length+doc.messages.length===before)break;}
     return doc;}
   preference(key,value){if(value!==undefined)this.db.prepare('INSERT INTO preferences VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key,JSON.stringify(value));return JSON.parse(this.db.prepare('SELECT value FROM preferences WHERE key=?').get(key)?.value??'null');}
-  list(){return this.db.prepare('SELECT document,staged FROM threads ORDER BY json_extract(document,\'$.updatedAt\') DESC').all().map(({document,staged})=>{const d=JSON.parse(document);return {id:d.id,kind:d.kind??'thread',teamId:d.teamId??this.preference(`team:${d.id}`),processId:d.processId,organizationId:d.organizationId,title:d.title,legacySettings:d.kind!=='team'&&(d.kind===undefined||!!d.instructions||!!d.memory?.length||!!d.schedule||this.preference(`integrations:${d.id}`)!==null||this.preference(`browser:${d.id}`)!==null),ownerClientId:d.ownerClientId,ownerUserId:d.ownerUserId,shared:d.shared,revision:d.revision,updatedAt:d.updatedAt,preview:d.messages.at(-1)?.text?.slice(0,120)??'',runs:d.runs.map(r=>({id:r.id,status:r.status})),staged:!!staged};});}
+  list(){return this.db.prepare('SELECT document,staged FROM threads ORDER BY json_extract(document,\'$.updatedAt\') DESC').all().map(({document,staged})=>{const d=JSON.parse(document);return {id:d.id,kind:d.kind??'thread',teamId:d.teamId??this.preference(`team:${d.id}`),processId:d.processId,organizationId:d.organizationId,title:d.title,draft:d.draft,draftTouched:d.draftTouched,legacySettings:d.kind!=='team'&&(d.kind===undefined||!!d.instructions||!!d.memory?.length||!!d.schedule||this.preference(`integrations:${d.id}`)!==null||this.preference(`browser:${d.id}`)!==null),ownerClientId:d.ownerClientId,ownerUserId:d.ownerUserId,shared:d.shared,revision:d.revision,updatedAt:d.updatedAt,preview:(d.draftPrompt||d.messages.at(-1)?.text||'').slice(0,120),runs:d.runs.map(r=>({id:r.id,status:r.status})),staged:!!staged};});}
   // its files go on the next start, when no thread lists them
   drop(id){validId(id);this.db.prepare('DELETE FROM threads WHERE id=?').run(id);for(const key of ['team','frozen','browser','integrations','scheduled-thread'])this.db.prepare('DELETE FROM preferences WHERE key=?').run(`${key}:${id}`);rmSync(join(this.root,'runs',id),{recursive:true,force:true});}
   teamFor(id){const doc=this.get(id),teamId=doc.teamId??this.preference(`team:${id}`);return teamId&&this.db.prepare('SELECT 1 FROM threads WHERE id=?').get(teamId)?this.get(teamId):null;}
@@ -58,6 +58,7 @@ export class ThreadStore {
   save(doc,staged=false){this.validate(doc);this.db.prepare('INSERT INTO threads VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,document=excluded.document,staged=excluded.staged').run(doc.id,doc.revision,canonical(doc),Number(staged));return doc;}
   validate(doc){
     validId(doc.id);validId(doc.ownerClientId);text(doc.ownerUserId,200);text(doc.title,180);
+    if(doc.draft!==undefined&&typeof doc.draft!=='boolean'||doc.draftTouched!==undefined&&typeof doc.draftTouched!=='boolean'||doc.titleManuallySet!==undefined&&typeof doc.titleManuallySet!=='boolean'||doc.draftPrompt!==undefined&&(typeof doc.draftPrompt!=='string'||doc.draftPrompt.length>100000))throw threadError('Invalid thread draft');
     if(doc.organizationId!==undefined)validId(doc.organizationId);
     if(doc.processId!==undefined&&doc.processId!=='custom'&&!WORKFLOW_TEMPLATES.some(t=>t.id===doc.processId))validId(doc.processId);
     if(doc.processes!==undefined){
@@ -99,7 +100,7 @@ export class ThreadStore {
       if(run.pending?.kind==='review'&&!ids.has(run.pending.reviewId))throw threadError('The pending review is missing.');
     }
   }
-  create(title,userId='local',workflow=DEFAULT_WORKFLOW,teamId,kind='thread',{processId,organizationId}={}) {const at=now();return this.save({id:randomUUID(),kind,...(teamId?{teamId:validId(teamId)}:{}),...(processId?{processId}:{}),...(organizationId?{organizationId}:{}),title:text(title,180),ownerClientId:this.clientId,ownerUserId:userId,shared:false,epoch:1,revision:1,createdAt:at,updatedAt:at,messages:[],artifacts:[],runs:[],memory:[],workflow});}
+  create(title,userId='local',workflow=DEFAULT_WORKFLOW,teamId,kind='thread',{processId,organizationId,draft=false}={}) {const at=now();return this.save({id:randomUUID(),kind,...(teamId?{teamId:validId(teamId)}:{}),...(processId?{processId}:{}),...(organizationId?{organizationId}:{}),...(draft?{draft:true,draftTouched:false,draftPrompt:''}:{}),title:text(title,180),ownerClientId:this.clientId,ownerUserId:userId,shared:false,epoch:1,revision:1,createdAt:at,updatedAt:at,messages:[],artifacts:[],runs:[],memory:[],workflow});}
   writable(doc){if(doc.staged||doc.ownerClientId!==this.clientId)throw threadError('Changes must be accepted by the owning client',409);if(this.preference(`frozen:${doc.id}`))throw threadError('This thread is being transferred',409);}
   mutate(id,operation,fn){
     validId(operation);const doc=this.get(id);this.writable(doc);delete doc.staged;
@@ -109,13 +110,14 @@ export class ThreadStore {
   }
   message(id,operation,body,authorId,kind='user',files){return this.mutate(id,operation,doc=>{
     const messageText=text(body,100000),attached=Array.isArray(files)?files.filter(f=>doc.artifacts.some(a=>a.id===f)).slice(0,20):[];
-    if(['New thread','New goal','New chat'].includes(doc.title)&&!doc.messages.length&&(kind==='user'||kind==='discussion'))doc.title=messageText.slice(0,80).trim();
+    if(!doc.draft&&!doc.titleManuallySet&&['New thread','New goal','New chat'].includes(doc.title)&&!doc.messages.length&&(kind==='user'||kind==='discussion'))doc.title=messageText.slice(0,80).trim();
+    if(doc.draft)doc.draftTouched=true;
     doc.messages.push({id:operation,authorId,text:messageText,kind,createdAt:now(),...(attached.length?{files:attached}:{})});
   });}
   objectPath(hash){if(!/^[a-f0-9]{64}$/.test(hash))throw threadError('Invalid file digest');return join(this.root,'objects',hash);}
   putObject(bytes,expected){if(!Buffer.isBuffer(bytes)||bytes.length>10_000_000)throw threadError('Files must be 10 MB or smaller');const hash=digest(bytes);if(expected&&expected!==hash)throw threadError('File integrity check failed');const path=this.objectPath(hash);if(existsSync(path)){if(lstatSync(path).isSymbolicLink()||digest(readFileSync(path))!==hash)throw threadError('Stored file failed verification');}else writeFileSync(path,bytes,{flag:'wx',mode:0o600});return hash;}
   object(doc,id){const artifact=doc.artifacts.find(a=>a.id===validId(id));if(!artifact)throw threadError('File is not part of this thread',404);const path=this.objectPath(artifact.digest);if(!existsSync(path)||lstatSync(path).isSymbolicLink())throw threadError('File has not arrived on this client',404);const bytes=readFileSync(path);if(bytes.length!==artifact.size||digest(bytes)!==artifact.digest)throw threadError('File integrity check failed');return {artifact,bytes};}
-  attach(id,operation,name,bytes,authorId,path){name=text(name,200);if(/[\x00-\x1f/\\]/.test(name)||['.','..'].includes(name))throw threadError('Invalid attachment name');if(path!==undefined)threadPath(path);const doc=this.get(id);this.writable(doc);validId(operation);if(doc.operations?.includes(operation))return this.document(id);const hash=this.putObject(bytes);return this.mutate(id,operation,doc=>{doc.artifacts.push({id:operation,name,...(path!==undefined?{path}:{}),digest:hash,size:bytes.length,authorId,createdAt:now()});});}
+  attach(id,operation,name,bytes,authorId,path){name=text(name,200);if(/[\x00-\x1f/\\]/.test(name)||['.','..'].includes(name))throw threadError('Invalid attachment name');if(path!==undefined)threadPath(path);const doc=this.get(id);this.writable(doc);validId(operation);if(doc.operations?.includes(operation))return this.document(id);const hash=this.putObject(bytes);return this.mutate(id,operation,doc=>{if(doc.draft)doc.draftTouched=true;doc.artifacts.push({id:operation,name,...(path!==undefined?{path}:{}),digest:hash,size:bytes.length,authorId,createdAt:now()});});}
   import(doc,authority,{staged=false}={}) {
     this.validate(doc);
     if((doc.kind??'thread')!==(authority.kind??'thread')||(doc.teamId??null)!==(authority.team_id??null))throw threadError('Snapshot does not match its team authority',409);

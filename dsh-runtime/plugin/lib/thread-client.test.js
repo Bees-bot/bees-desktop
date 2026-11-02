@@ -106,3 +106,70 @@ test('stopped runs retain team execution context and report a readable cancellat
   assert.equal(run.partial,undefined);assert.equal(client.store.document(doc.id).messages.at(-1).text,'Reply so far');
  }finally{client.store.close();await rm(root,{recursive:true,force:true});}
 });
+
+test('drafts preserve prompt, files, folders and settings across restart, then start in the same thread',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'bees-draft-'));let client;let executed;
+ const command=(action,threadId,values={})=>client.command({action,threadId,operationId:randomUUID(),...values});
+ try{
+  client=new ThreadClient(root,{execute:async input=>{executed=input;return 'Done';}});
+  const draft=await command('create',null,{draft:true,templateId:'chat'});
+  assert.equal((await command('create',null,{draft:true,templateId:'chat'})).id,draft.id,'Unused team screens reuse one empty draft');
+  assert.equal(client.store.list().find(row=>row.id===draft.id).draftTouched,false);
+  const prompt='  Prepare the report\nusing these notes.  ';
+  const op=randomUUID();await client.command({action:'draft',threadId:draft.id,operationId:op,text:prompt});
+  await client.command({action:'draft',threadId:draft.id,operationId:op,text:'duplicate'});
+  assert.equal(client.store.get(draft.id).draftPrompt,prompt);
+  const attachment=await command('attach',draft.id,{name:'notes.txt',path:'reference/notes.txt',content:Buffer.from('Source notes').toString('base64')});
+  await command('folder',draft.id,{path:'reference/empty'});
+  await command('configure',draft.id,{instructions:'Use the attached sources.',workflow:CHAT_WORKFLOW,processId:'chat'});
+  assert.equal(executed,undefined);assert.equal(client.store.get(draft.id).messages.length,0);
+  assert.equal(client.store.get(draft.id).title,'Draft thread');
+  assert.notEqual((await command('create',null,{draft:true,templateId:'chat'})).id,draft.id,'A saved draft is never recycled');
+  client.store.close();client=new ThreadClient(root,{execute:async input=>{executed=input;return 'Done';}});
+  const saved=await command('read',draft.id),row=(await client.snapshot()).threads.find(row=>row.id===draft.id);
+  assert.equal(saved.draftPrompt,prompt);assert.equal(row.preview,prompt);assert.equal(row.draft,true);assert.equal(row.draftTouched,true);
+  assert.deepEqual(saved.folders,['reference/empty']);assert.equal(saved.instructions,'Use the attached sources.');
+  assert.equal(client.store.object(saved,attachment.artifacts[0].id).bytes.toString(),'Source notes');
+  await command('discussion',draft.id,{text:'Discuss before starting'});
+  await command('message',draft.id,{text:prompt});assert.equal(client.store.get(draft.id).title,'Draft thread');
+  await command('run',draft.id,{text:prompt});await Promise.all([...client.finishing]);
+  assert.equal(executed.thread.id,draft.id);assert.equal(executed.thread.artifacts[0].path,'reference/notes.txt');
+  assert.equal(executed.run.instructions,'Use the attached sources.');assert.deepEqual(executed.run.workflow,CHAT_WORKFLOW);
+  assert.equal(client.store.get(draft.id).title,prompt.trim());assert.equal(client.store.get(draft.id).draft,undefined);
+  assert.equal(client.store.get(draft.id).draftPrompt,undefined);
+  await assert.rejects(command('draft',draft.id,{text:'Stale save'}),/already started/);
+ }finally{client?.store.close();await rm(root,{recursive:true,force:true});}
+});
+
+test('manual titles survive starting a draft, including names that look like placeholders',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'bees-draft-title-'));const client=new ThreadClient(root,{execute:async()=> 'Done'});
+ const command=(action,threadId,values={})=>client.command({action,threadId,operationId:randomUUID(),...values});
+ try{
+  for(const title of ['My report','New thread','Draft thread']){
+   const draft=await command('create',null,{draft:true});
+   await command('configure',draft.id,{title});
+   await command('message',draft.id,{text:'Automatic title'});await command('run',draft.id,{text:'Automatic title'});
+   await Promise.all([...client.finishing]);assert.equal(client.store.get(draft.id).title,title);
+  }
+  const ordinary=await command('create');await command('configure',ordinary.id,{title:'New chat'});
+  await command('message',ordinary.id,{text:'Keep the name'});assert.equal(client.store.get(ordinary.id).title,'New chat');
+  const draft=await command('create',null,{draft:true});
+  for(const value of [null,{},'x'.repeat(100001)])await assert.rejects(command('draft',draft.id,{text:value}),/Invalid draft prompt/);
+  await command('draft',draft.id,{text:''});assert.equal(client.store.get(draft.id).draftTouched,false);
+  client.store.preference(`frozen:${draft.id}`,true);
+  await assert.rejects(command('draft',draft.id,{text:'Forbidden'}),/transferred/);
+ }finally{client.store.close();await rm(root,{recursive:true,force:true});}
+});
+
+test('organization invitation cancellation uses the scoped DELETE route and validates IDs',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'bees-org-invites-')),client=new ThreadClient(root),requests=[];
+  try{
+    client.directory.request=async(...args)=>{requests.push(args);return {ok:true};};
+    const organizationId=randomUUID(),invitationId=randomUUID();
+    assert.deepEqual(await client.command({action:'cancelOrganizationInvitation',organizationId,invitationId}),{ok:true});
+    assert.deepEqual(requests,[[`/organizations/${organizationId}/invitations/${invitationId}`,{},'DELETE']]);
+    await assert.rejects(client.command({action:'cancelOrganizationInvitation',organizationId:'../other',invitationId}));
+    await assert.rejects(client.command({action:'cancelOrganizationInvitation',organizationId,invitationId:'../other'}));
+    assert.equal(requests.length,1);
+  }finally{client.store.close();await rm(root,{recursive:true,force:true});}
+});

@@ -106,9 +106,11 @@ test('one browser retains all accounts and organizations while commands and sign
   }
   assert.equal((await request({action:'createOrganization',settingsAccountId:'unknown',name:'New studio'})).status,401);
   assert.equal((await request({action:'switchAccount',accountId:'unknown'})).status,401);
+  assert.equal((await request({action:'logout',accountId:'unknown'})).status,401);
   // Renaming a cookie cannot substitute another user's credentials for an account.
   const aliceCookie='bees_hosted_account_'+alice.id;
   jar.set(aliceCookie,'bob');assert.equal((await request({action:'switchAccount',accountId:alice.id})).status,401);
+  assert.equal((await request({action:'logout',accountId:alice.id})).status,401);assert.deepEqual(stopped,[]);
   assert.equal((await request({action:'createOrganization',settingsAccountId:alice.id,name:'New studio'})).status,401);jar.set(aliceCookie,'alice');
   assert.equal((await request({action:'selectOrganization',accountId:alice.id,organizationId:'bob-org'})).status,403);
   assert.equal(jar.get('bees_hosted_session'),'bob','Failed selection keeps the prior view');
@@ -119,9 +121,11 @@ test('one browser retains all accounts and organizations while commands and sign
   // The gateway holds no in-memory login state; browser cookies restore every account.
   await close(gateway);gateway=createHostedGateway({directoryUrl,assets:'/unused',provision});servers.push(gateway);url=await listen(gateway);
   assert.equal((await request()).value.accounts.length,2);
-  creditsUnavailable=true;assert.equal((await request({action:'logout'})).status,503);assert(jar.has(aliceCookie));assert.deepEqual(stopped,[]);creditsUnavailable=false;
-  stopFailed=true;assert.equal((await request({action:'logout'})).status,503);assert(jar.has(aliceCookie));stopFailed=false;
-  assert.equal((await request({action:'logout',userId:'bob',credits:{balance:100}})).status,200);
+  await request({action:'switchAccount',accountId:bob.id});
+  creditsUnavailable=true;assert.equal((await request({action:'logout',accountId:alice.id})).status,503);assert(jar.has(aliceCookie));assert.deepEqual(stopped,[]);creditsUnavailable=false;
+  stopFailed=true;assert.equal((await request({action:'logout',accountId:alice.id})).status,503);assert(jar.has(aliceCookie));stopFailed=false;
+  assert.equal((await request({action:'logout',accountId:alice.id,userId:'bob',credits:{balance:100}})).status,200);
+  assert.equal(jar.get('bees_hosted_session'),'bob','Signing out another account keeps the active view');
   assert.deepEqual(stopped,['alice']);assert(!provisioned.has('alice'));assert(provisioned.has('bob'));
   assert(!jar.has(aliceCookie));result=await request();assert.equal(result.value.user.id,'bob');assert.equal(result.value.accounts.length,1);
   assert.equal((await request({action:'switchAccount',accountId:alice.id})).status,401);
