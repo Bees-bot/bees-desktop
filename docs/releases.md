@@ -1,14 +1,15 @@
 # Releasing Bees
 
-`scripts/release.sh` starts `.github/workflows/build.yml` on GitHub for Apple silicon,
+`npm run release` runs `scripts/release.sh publish`, which starts
+`.github/workflows/build.yml` on GitHub for Apple silicon,
 Intel Mac, Linux and Windows. Mac jobs sign and notarize their installers. The local
 script downloads the builds, signs automatic updates and publishes the release.
 Nothing builds on a tag or a schedule.
 
 ## One-time setup
 
-- The updater key at `../bees-signing/bees-updater.key`, with its password in
-  `bees-updater.key.password` next to it. Its public half is `plugins.updater.pubkey` in
+- The updater key at `../bees-signing/bees-updater-v2.key`, with its password in
+  `bees-updater-v2.key.password` next to it. Its public half is `plugins.updater.pubkey` in
   `src-tauri/tauri.conf.json`. Lose the key and installed copies can never update again, so
   keep a backup somewhere safe. Never commit it.
 - `gh` signed in with write access to `Bees-bot/bees-desktop`, and Node 24.7 or a newer 24.x.
@@ -23,10 +24,14 @@ Nothing builds on a tag or a schedule.
 1. Keep user-visible changes under `## Unreleased` in `CHANGELOG.md` as features merge.
 2. `scripts/release.sh prepare 0.2.1` sets the version everywhere, turns Unreleased into the
    0.2.1 notes, and opens a PR. Merging it releases nothing.
-3. On a clean, current `main`, `scripts/release.sh publish` builds all platforms on GitHub,
+3. On a clean, current `main`, `npm run release` builds all platforms on GitHub,
    signs and notarizes both Mac apps and disk images, signs every update with
    the updater key, and publishes the GitHub release as latest with the installers,
-   `bees-update.json` and `SHA256SUMS`. It refuses a version that was already released.
+   `bees-update-v2.json`, the legacy `bees-update.json` and `SHA256SUMS`.
+   It refuses a version that was already released.
+
+Local copies are kept in `src-tauri/target/releases/<version>/`, with checksums
+verified before upload.
 
 Compilation runs on GitHub. After publishing, install the DMG and open it once.
 A build that packages fine can still fail to start.
@@ -57,11 +62,19 @@ alone does not establish distribution compatibility.
 
 ## In-app updates
 
-The app checks `releases/latest/download/bees-update.json` at launch and every six hours,
+Starting with 0.30.0, the app checks `releases/latest/download/bees-update-v2.json`
+at launch and every six hours,
 and offers to install a newer version and restart. Users can also choose **Check for updates**
 at the top of desktop Settings. If runs are still active it asks once the
 download is done, since installing replaces the files the running app uses. Each signature carries
 its version, and the app refuses an update whose manifest names a different one.
+
+The original 0.2.x updater key was lost. Those users must install 0.30.0 manually
+once; later updates use the replacement key automatically. Any earlier 0.30.0
+draft installer must also be replaced manually. `docs/updater-0.2.json` is the exact
+signed manifest from 0.2.3. Every release retains it as `bees-update.json`, so old
+clients can still reach 0.2.3 and are never offered builds signed by the new key.
+Keep both update feeds and never replace the legacy manifest with a newer version.
 
 Version 0.1.1 polls `latest.json` in this repository and trusts a different key. Its data
 lives in a database the 0.2 series does not read, so it must never be offered a 0.2 build:
@@ -69,7 +82,7 @@ never publish a `latest.json` here, and never sign a release with the old `updat
 
 ## Failure and recovery
 
-- Keep the lid open for the whole run, about 90 minutes. A locked keychain stops signing.
+- Keep the publishing machine awake and online for the whole run, about 90 minutes.
 - The script stops at the first failed step and publishes nothing until the end, so fix the
-  cause and run `publish` again. That rebuilds everything and reuses the unpublished draft.
+  cause and run `npm run release` again. That rebuilds everything and reuses the unpublished draft.
 - A published version is never rebuilt. Ship a new patch version instead.

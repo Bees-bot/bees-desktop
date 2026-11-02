@@ -25,7 +25,8 @@
     "build:hosted": "node scripts/build-hosted-ui.mjs",
     "check:hosted": "node --test dsh-runtime/hosted-*.test.mjs",
     "check:client": "node --test dsh-runtime/headless.test.mjs dsh-runtime/hosted-*.test.mjs dsh-runtime/plugin/lib/thread-*.test.js dsh-runtime/plugin/lib/client-profiles.test.js",
-    "check:ai": "node --test dsh-runtime/plugins/custom-ai/lib/*.test.js"
+    "check:ai": "node --test dsh-runtime/plugins/custom-ai/lib/*.test.js",
+    "release": "bash scripts/release.sh publish"
   },
   "dependencies": {
     "@tauri-apps/api": "2.11.1"

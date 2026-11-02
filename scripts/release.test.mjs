@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -55,9 +56,50 @@ test('release collects the installers and update packages from all four build jo
   }
 });
 
+test('new-key releases preserve the legacy feed and publish a separate signed-version feed', t => {
+  const root = new URL('../', import.meta.url);
+  const config = JSON.parse(readFileSync(new URL('src-tauri/tauri.conf.json', root), 'utf8'));
+  assert.deepEqual(config.plugins.updater.endpoints, ['https://github.com/Bees-bot/bees-desktop/releases/latest/download/bees-update-v2.json']);
+  assert.equal(config.plugins.updater.requireSignedVersion, true);
+  const publicKey = Buffer.from(config.plugins.updater.pubkey, 'base64').toString('utf8').trim().split('\n');
+  assert.match(publicKey[0], /^untrusted comment: minisign public key/);
+  assert.equal(Buffer.from(publicKey[1], 'base64').length, 42);
+  const legacyBytes = readFileSync(new URL('docs/updater-0.2.json', root));
+  assert.equal(createHash('sha256').update(legacyBytes).digest('hex'), '39160c52a2cbf094e95e9e18de552e1401392d3494c3b4993de6ef853567539c');
+  const legacy = JSON.parse(legacyBytes);
+  assert.equal(legacy.version, '0.2.3');
+  for (const entry of Object.values(legacy.platforms)) {
+    assert.match(entry.url, /^https:\/\/github\.com\/Bees-bot\/bees-desktop\/releases\/download\/v0\.2\.3\//);
+  }
+  const script = readFileSync(new URL('./release.sh', import.meta.url), 'utf8');
+  const start = script.indexOf('  # Old clients keep their original feed;');
+  const end = script.indexOf('\n  files=(', start);
+  assert.ok(start > 0 && end > start);
+  const out = mkdtempSync(join(tmpdir(), 'bees feeds '));
+  t.after(() => rmSync(out, { recursive: true, force: true }));
+  const files = ['aarch64.app.tar.gz', 'x64.app.tar.gz', 'x64-setup.exe', 'amd64.AppImage', 'amd64.deb'];
+  for (const file of files) writeFileSync(join(out, `Bees_0.30.0_${file}.sig`), `signature for ${file}\n`);
+  execFileSync('bash', ['-eu', '-c', `
+    out=$1
+    version=0.30.0
+    repo=Bees-bot/bees-desktop
+    tag=v0.30.0
+    ${script.slice(start, end)}
+  `, 'feed-test', out], { cwd: new URL('../', import.meta.url) });
+  assert.deepEqual(readFileSync(join(out, 'bees-update.json')), legacyBytes);
+  const current = JSON.parse(readFileSync(join(out, 'bees-update-v2.json'), 'utf8'));
+  assert.equal(current.version, '0.30.0');
+  assert.deepEqual(Object.keys(current.platforms).sort(), Object.keys(legacy.platforms).sort());
+  for (const entry of Object.values(current.platforms)) {
+    assert.match(entry.url, /^https:\/\/github\.com\/Bees-bot\/bees-desktop\/releases\/download\/v0\.30\.0\/Bees_0\.30\.0_/);
+    const file = files.find(name => entry.url.endsWith(name));
+    assert.equal(entry.signature, `signature for ${file}`);
+  }
+});
+
 test('release uploads have friendly labels without changing filenames', () => {
   const script = readFileSync(new URL('./release.sh', import.meta.url), 'utf8');
-  const upload = script.match(/  for file in "\$\{files\[@\]\}" bees-update\.json SHA256SUMS; do\n[\s\S]*?\n  done/);
+  const upload = script.match(/  for file in "\$\{files\[@\]\}" bees-update\.json bees-update-v2\.json SHA256SUMS; do\n[\s\S]*?\n  done/);
   assert.ok(upload, 'release upload loop is present');
   const downloads = [
     ['Bees_0.9.0_aarch64.dmg', 'Mac (Apple silicon) - installer (.dmg)'],
@@ -67,7 +109,8 @@ test('release uploads have friendly labels without changing filenames', () => {
     ['Bees_0.9.0_x64-setup.exe', 'Windows (Intel/AMD 64-bit) - installer (.exe)'],
     ['Bees_0.9.0_amd64.AppImage', 'Linux (Intel/AMD 64-bit) - standalone app (.AppImage)'],
     ['Bees_0.9.0_amd64.deb', 'Linux (Intel/AMD 64-bit) - DEB installer (.deb)'],
-    ['bees-update.json', 'Automatic update only - manifest (.json)'],
+    ['bees-update.json', 'Legacy 0.2.x update manifest (not an installer)'],
+    ['bees-update-v2.json', 'Automatic update only - manifest (.json)'],
     ['SHA256SUMS', 'SHA-256 checksums (not an installer)'],
   ];
   const output = execFileSync('bash', ['-eu', '-c', `
@@ -77,7 +120,7 @@ test('release uploads have friendly labels without changing filenames', () => {
     out='/tmp/release files'
     files=("$@")
     ${upload[0]}
-  `, 'release-test', ...downloads.slice(0, -2).map(([file]) => file)], { encoding: 'utf8' });
+  `, 'release-test', ...downloads.slice(0, -3).map(([file]) => file)], { encoding: 'utf8' });
   assert.deepEqual(output.split('\0').slice(0, -1), downloads.flatMap(([file, label]) => [
     'gh', 'release', 'upload', 'v0.9.0', '--repo', 'Bees-bot/bees-desktop',
     '--clobber', `/tmp/release files/${file}#${label}`,
