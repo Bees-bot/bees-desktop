@@ -62,6 +62,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const [email,setEmail]=useState(''), [role,setRole]=useState('viewer'), [target,setTarget]=useState(''), [inviteLink,setInviteLink]=useState('');
   const selectedRef=useRef(selected), profileEpoch=useRef(0), selectionEpoch=useRef(0), draftWrites=useRef(new Map()), loginReturn=useRef(null); selectedRef.current=selected;
   const preference=useAppearance(preferences,data?.settings);
+  const [readError,setReadError]=useState(''),[teamReadError,setTeamReadError]=useState('');
   const teamRows=data?.teams??[],teamIds=new Set(teamRows.map(t=>t.id));
   const selectedOrganizationId=organizationId===undefined?(data?.settings?.selectedOrganizationId??null):organizationId;
   const allTeams=[...teamRows,...(data?.directory?.threads??[]).filter(t=>t.kind==='team'&&!teamIds.has(t.id)).map(t=>({id:t.id,organizationId:t.organization_id,title:'Shared team',ownerClientId:t.owner_client_id,shared:true}))];
@@ -83,8 +84,8 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const theme=THEME_PRESETS.find(t=>t.id===preference.themePreset)??THEME_PRESETS.find(t=>t.id==='corporate');
   const refresh=async()=>{const epoch=profileEpoch.current;const next=await api();if(epoch===profileEpoch.current)setData(next);return next;};
   const openOrganizationSetup=accountId=>openExternal(new URL('/onboarding',data?.accounts?.find(account=>account.id===accountId)?.url??data?.serverUrl??'https://app.bees.bot').href);
-  const read=async id=>{const epoch=profileEpoch.current;const value=await command('read',id);if(epoch===profileEpoch.current&&selectedRef.current===id)setThread(value);return value;};
-  const readTeam=async id=>{const epoch=profileEpoch.current;const value=await command('read',id);if(epoch===profileEpoch.current&&teamRef.current===id)setTeam(value);return value;};
+  const read=async id=>{const epoch=profileEpoch.current;try{const value=await command('read',id);if(epoch===profileEpoch.current&&selectedRef.current===id){setThread(value);setReadError('');}return value;}catch(e){if(epoch===profileEpoch.current&&selectedRef.current===id)setReadError(e.message);throw e;}};
+  const readTeam=async id=>{const epoch=profileEpoch.current;try{const value=await command('read',id);if(epoch===profileEpoch.current&&teamRef.current===id){setTeam(value);setTeamReadError('');}return value;}catch(e){if(epoch===profileEpoch.current&&teamRef.current===id)setTeamReadError(e.message);throw e;}};
   const perform=async fn=>{setBusy(true);setError('');setNotice('');try{return await fn();}catch(e){setError(e.message);}finally{setBusy(false);}};
   const act=(action,values={})=>perform(async()=>{const id=selected;const result=await command(action,id,values);await refresh();if(id)await read(id);return result;});
   const saveTitle=()=>{const trimmed=titleDraft.trim();setRenamingTitle(false);if(trimmed&&trimmed!==thread?.title)void act('configure',{title:trimmed});};
@@ -117,10 +118,10 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     const found=!!id&&(data.threads.some(t=>t.id===id)||!!data.directory?.threads.some(t=>t.id===id&&t.kind!=='team'));
     if(!found&&data.connectionError)return;restored.current=true;if(found&&!selectedRef.current)select(id);},[data]);
   useEffect(()=>{if(restored.current)try{selected?localStorage.setItem('bees:open-thread',selected):localStorage.removeItem('bees:open-thread');}catch{}},[selected]);
-  useEffect(()=>{setPreview(null);setThread(null);if(selected)void read(selected).catch(e=>{if(selectedRef.current===selected)setError(e.message);});},[selected]);
-  // the owner deleted it or took our access away, so close it instead of showing the old copy
-  useEffect(()=>{if(selected&&thread)void read(selected).catch(()=>{if(selectedRef.current===selected&&data&&!data.connectionError&&!data.threads.some(t=>t.id===selected)&&!data.directory?.threads.some(t=>t.id===selected)){select(null);setNotice('That thread was deleted, or you no longer have access to it.');}});},[data]);
-  useEffect(()=>{setTeam(null);if(currentTeamId)void readTeam(currentTeamId).catch(e=>setError(e.message));},[currentTeamId]);
+  useEffect(()=>{setPreview(null);setThread(null);setReadError('');if(selected)void read(selected).catch(()=>{});},[selected]);
+  // Retry even before the first copy arrives; close threads removed from the directory.
+  useEffect(()=>{if(selected)void read(selected).catch(()=>{if(selectedRef.current===selected&&data&&!data.connectionError&&!data.threads.some(t=>t.id===selected)&&!data.directory?.threads.some(t=>t.id===selected)){select(null);setNotice('That thread was deleted, or you no longer have access to it.');}});},[data]);
+  useEffect(()=>{setTeam(null);setTeamReadError('');if(currentTeamId)void readTeam(currentTeamId).catch(()=>{});},[currentTeamId]);
   useEffect(()=>{if(currentTeamId)void readTeam(currentTeamId).catch(()=>{});},[data]);
   useEffect(()=>{if(preferences?.getSnapshot().status==='ready')(ctx?.get?.('theme')??ctx?.theme)?.setTheme(theme.dark?'dark':'light');},[ctx,theme.id]);
   useEffect(()=>{if(typeof document==='undefined')return;const root=document.documentElement,styles=themeStyle(theme);for(const [prop,val] of Object.entries(styles))root.style.setProperty(prop,val);root.style.colorScheme=theme.dark?'dark':'light';root.setAttribute('data-bees-theme',theme.id);},[theme.id]);
@@ -191,7 +192,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const roster=data?.directory??{threads:[],participants:[],clients:[],invitations:[]};
   const known=new Set(data?.threads?.map(t=>t.id));
   const threadTeamId=t=>allTeams.some(team=>team.id===t.teamId)?t.teamId:data?.defaultTeamId;
-  const threads=[...(data?.threads??[]),...roster.threads.filter(t=>t.kind!=='team'&&!known.has(t.id)).map(t=>({id:t.id,teamId:t.team_id,title:'Shared thread',shared:true,ownerClientId:t.owner_client_id}))]
+  const threads=[...(data?.threads??[]),...roster.threads.filter(t=>t.kind!=='team'&&!known.has(t.id)).map(t=>({id:t.id,teamId:t.team_id,title:'Thread awaiting sync',shared:true,ownerClientId:t.owner_client_id}))]
     .filter(t=>!(t.draft&&!t.draftTouched)&&visibleTeams.some(team=>team.id===threadTeamId(t))&&(t.id===query.trim()||(t.title+' '+(t.preview??'')).toLowerCase().includes(query.trim().toLowerCase())));
   const authority=roster.threads.find(t=>t.id===selected), participants=roster.participants.filter(p=>p.thread_id===selected);
   const owner=roster.clients.find(c=>c.id===(authority?.owner_client_id??thread?.ownerClientId));
@@ -366,7 +367,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
         selected?h('div',{className:'bc-actions'},
           h('button',{title:'Invite to team',onClick:()=>openTeamSettings('members')},icon('share'),'Invite'),
           h('span',{className:'bc-layout-toolbar',ref:setLayoutToolbar})):null),
-      error&&!modalOpen?h('div',{className:'bc-error',role:'alert'},error,h('button',{className:'bc-icon','aria-label':'Dismiss error',onClick:()=>setError('')},icon('close'))):null,
+      (error||readError||teamReadError)&&!modalOpen?h('div',{className:'bc-error',role:'alert'},error||readError||teamReadError,h('button',{className:'bc-icon','aria-label':'Dismiss error',onClick:()=>{setError('');setReadError('');setTeamReadError('');}},icon('close'))):null,
       notice&&!modalOpen?h('div',{className:'bc-notice',role:'status'},notice):null,
       !modalOpen&&(orphan(selected)||orphan(teamId))?h('div',{className:'bc-notice'},'The Bees Client that held this is gone. ',orphan(selected)?h('button',{className:'danger',disabled:busy,onClick:()=>removeGone(selected)},'Remove thread'):null,orphan(teamId)?h('button',{className:'danger',disabled:busy,onClick:()=>removeGone(teamId)},'Remove team'):null):null,
       data&&!data.models?.length&&!data.credits?.available?h('div',{className:'bc-notice'},hosted?'Bees needs Bees Credits to reply on the web. ':'Connect an AI model so Bees can reply. ',h('button',{className:'bc-primary',onClick:()=>{setSettingsSection(hosted?'credits':'ai');setDialog('settings');}},hosted?'Open Credits & billing':'Open AI connections')):null,

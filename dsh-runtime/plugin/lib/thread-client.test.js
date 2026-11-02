@@ -7,6 +7,34 @@ import {randomUUID} from 'node:crypto';
 import {ThreadClient} from './thread-client.js';
 import {DEFAULT_WORKFLOW,CHAT_WORKFLOW,WORKFLOW_TEMPLATES,processName} from './thread-workflow.js';
 
+test('a first read preserves sync failures, recovers when the owner returns, and retains cached work offline',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'bees-first-sync-')),client=new ThreadClient(join(root,'web')),owner=new ThreadClient(join(root,'owner'));
+ try{
+  const original=owner.store.create('Desktop research','alice');
+  const doc=owner.store.mutate(original.id,randomUUID(),d=>{d.shared=true;});
+  owner.store.message(doc.id,randomUUID(),'Saved on desktop','alice');
+  const authority={id:doc.id,kind:'thread',owner_client_id:owner.store.clientId,owner_user_id:'alice',epoch:1};
+  client.refresh=async()=>{};
+  client.roster.threads=[authority];
+  const now=new Date().toISOString();
+  client.roster.clients=[{id:client.store.clientId,last_seen_at:now},{id:owner.store.clientId,last_seen_at:new Date(Date.now()-60000).toISOString()}];
+  let requests=0;
+  client.peer={send:async(id,target,input)=>{requests++;assert.equal(id,doc.id);assert.equal(target,owner.store.clientId);assert.equal(input.kind,'snapshot');return owner.store.document(id);}};
+  const read=()=>client.command({action:'read',threadId:doc.id});
+  await assert.rejects(read(),{status:408,message:"The owner's Bees Client can't be reached right now."});
+  assert.equal(requests,0);assert(!client.store.list().some(row=>row.id===doc.id),'Failed downloads must not create empty threads');
+  client.roster.clients[1].last_seen_at=now;
+  const synced=await read();assert.equal(synced.title,'Desktop research');assert.equal(synced.messages[0].text,'Saved on desktop');assert.equal(synced.unavailable,undefined);
+  client.roster.clients[1].last_seen_at=new Date(Date.now()-60000).toISOString();
+  const cached=await read();assert.equal(cached.messages[0].text,'Saved on desktop');assert.match(cached.unavailable,/can't be reached/);
+  client.store.drop(doc.id);
+  for(const status of [401,403,502]){
+   const failure=Object.assign(Error('Sync failure '+status),{status});client.refresh=async()=>{throw failure;};
+   await assert.rejects(read(),error=>error===failure);
+  }
+ }finally{client.store.close();owner.store.close();await rm(root,{recursive:true,force:true});}
+});
+
 test('snapshots omit empty Chat and Goal placeholders at any revision while preserving saved work',async()=>{
  const root=await mkdtemp(join(tmpdir(),'bees-empty-drafts-'));let client=new ThreadClient(root);
  try{

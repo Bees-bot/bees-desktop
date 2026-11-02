@@ -234,7 +234,11 @@ export class ThreadClient {
     }
     if(input.action==='read'){
       let doc;
-      try{doc=await this.sync(id);}catch(e){doc=this.store.get(id);if(doc.ownerClientId!==this.store.clientId||doc.shared)doc.unavailable=e.status===403?'You no longer have access to this thread.':e.status===502?"Bees can't be reached right now.":!e.status||e.status===408?"The owner's Bees Client can't be reached right now.":e.message;}
+      try{doc=await this.sync(id);}catch(e){
+        // A failed first sync has no cached copy; preserve the connection or access error.
+        try{doc=this.store.get(id);}catch{throw e;}
+        if(doc.ownerClientId!==this.store.clientId||doc.shared)doc.unavailable=e.status===403?'You no longer have access to this thread.':e.status===502?"Bees can't be reached right now.":!e.status||e.status===408?"The owner's Bees Client can't be reached right now.":e.message;
+      }
       await this.options.recoverActivity?.(this.store,doc);
       return {...this.store.get(id),teamId:doc.teamId??this.store.preference(`team:${id}`),...(doc.unavailable?{unavailable:doc.unavailable}:{}),frozen:doc.ownerClientId===this.store.clientId&&!!this.store.preference(`frozen:${id}`)};
     }
