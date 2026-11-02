@@ -65,9 +65,9 @@ export function FirstStart({user,organizations=[],accounts=[],busy,error,onSignI
   user=account?.user??user;organizations=account?.organizations??organizations;
   useEffect(()=>{let alive=true;setInvites([]);if(user?.emailVerified)void invitations(accountId).then(rows=>{if(alive)setInvites(rows);},()=>{});return()=>{alive=false;};},[accountId,user?.emailVerified]);
   return h('main',{className:'bc-first-start'},h('section',{className:'bc-onboarding'},
-    h('h1',null,'How would you like to start?'),h('p',{className:'bc-muted'},'Choose a Bees organization with starter credits, or work locally with your own AI.'),
+    h('h1',null,hosted?'Set up your organization':'How would you like to start?'),h('p',{className:'bc-muted'},hosted?'Create a Bees Pro organization or join an organization to use Bees on the web.':'Choose a Bees organization with starter credits, or work locally with your own AI.'),
     error?h('p',{className:'bc-error',role:'alert'},error):null,
-    h('div',{className:'bc-onboarding-options'},
+    h('div',{className:'bc-onboarding-options',style:hosted?{gridTemplateColumns:'1fr'}:undefined},
       h('section',{className:'bc-form bc-onboarding-option'},h('h2',null,'Set up a Bees Pro organization'),
         h('p',null,'Get 50k starter credits for your first task. Use the same personal balance on desktop and web.'),
         h('p',{className:'bc-muted'},'One grant per Bees user, shared across organizations. Add 10 million credits for $10 when you need more.'),
@@ -82,8 +82,7 @@ export function FirstStart({user,organizations=[],accounts=[],busy,error,onSignI
             h('option',{value:''},'Create a new organization'),organizations.map(org=>h('option',{key:org.id,value:org.id},org.name)))):null,
           h('button',{type:'submit',className:'bc-primary',disabled:busy},organizationId?'Use this organization':'Set up new organization'),
           h('button',{type:'button',disabled:busy,onClick:()=>onRefresh(accountId)},'Refresh organizations'))),
-      h('section',{className:'bc-form bc-onboarding-option'},h('h2',null,'Use a local organization'),
+      !hosted?h('section',{className:'bc-form bc-onboarding-option'},h('h2',null,'Use a local organization'),
         h('p',null,'Work on your computer and connect your own local model or AI provider. No Bees credits or account are required.'),
-        hosted?h('div',null,h('p',{className:'bc-muted'},'Models running on your computer require Bees Desktop.'),h('button',{disabled:busy,onClick:()=>void openExternal('https://bees.bot/download/')},'Get Bees Desktop')):
-        h('button',{disabled:busy,onClick:onLocal},'Continue locally and configure AI')))));
+        h('button',{disabled:busy,onClick:onLocal},'Continue locally and configure AI')):null)));
 }
