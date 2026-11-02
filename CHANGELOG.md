@@ -2,7 +2,7 @@
 
 Notable changes, newest first. Dates are release dates.
 
-## Unreleased
+## 0.30.0
 
 - Add a Check for updates button at the top of desktop Settings, with feedback when Bees is up to date or the check fails.
 - Label release downloads by platform, processor and package format, with a selection guide to help choose the right installer.
