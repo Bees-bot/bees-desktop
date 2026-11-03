@@ -2,6 +2,11 @@
 
 Notable changes, newest first. Dates are release dates.
 
+## 0.3.2
+
+- Show purchased and reserved AI balances in dollars and allow credit purchases starting at $1.
+- Support the updated Bees server credit format. Update to this version to keep using Bees-provided AI after the billing migration.
+
 ## 0.3.1
 
 - Add a Check for updates button at the top of desktop Settings, with feedback when Bees is up to date or the check fails.

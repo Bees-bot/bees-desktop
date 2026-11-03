@@ -3,25 +3,25 @@ import assert from 'node:assert/strict';
 import {parseCreditAmount} from './credit-pricing.js';
 import {configureRuntime} from '../client/runtime.js';
 import {CreditSettings,FirstStart} from '../client/thread-credits.js';
-test('credit amounts preserve cents exactly and reject amounts below the $10 minimum',()=>{
- for(const [input,cents] of [['10',1000],['25',2500],['10.01',1001],['30.5',3050],['999999.99',99999999]])assert.equal(parseCreditAmount(input),cents);
- for(const input of ['9.99','-10','1e2','NaN','10.001','1000000',''])assert.throws(()=>parseCreditAmount(input),/at least/);
+test('credit amounts preserve cents exactly and reject amounts below the $1 minimum',()=>{
+ for(const [input,cents] of [['1',100],['10',1000],['25',2500],['10.01',1001],['30.5',3050],['999999.99',99999999]])assert.equal(parseCreditAmount(input),cents);
+ for(const input of ['0.99','-10','1e2','NaN','10.001','1000000',''])assert.throws(()=>parseCreditAmount(input),/at least/);
 });
-test('desktop and web show starter credits as dollars times one million',()=>{
+test('desktop and web show starter and purchased balances in dollars',()=>{
  const React={createElement:(type,props,...children)=>({type,props,children}),createContext:()=>({}),useState:value=>[value,()=>{}],useRef:value=>({current:value}),useEffect:()=>{}};
  configureRuntime(name=>({react:React,'react-dom':{},'@deepseek-ai/dsh-client-ui-primitives':{},'@bees/dsh-custom-ai':{},'@bees/dsh-subscriptions':{}})[name],{hosted:true});
- for(const [usd,display] of [[0.01,'10,000'],[0.009999,'9,999'],[0.004,'4,000'],[0.0000001,'0.1'],[0,'0']]){
+ for(const [usd,display] of [[0.01,'$0.01'],[0.009999,'$0.01'],[0.004,'$0.00'],[0.0000001,'$0.00'],[0,'$0.00']]){
   const settings=JSON.stringify(CreditSettings({user:{emailVerified:true},connection:{available:true,credits:{balance:0,starterRemainingUsd:usd}}}));
-  assert(settings.includes(display+' starter credits remaining.'));assert(settings.includes('0 purchased credits available'));
-  assert(settings.includes('50k starter credits'));assert(settings.includes('credits are not tokens')); assert(!settings.includes('$0.01'));
+  assert(settings.includes(display+' starter balance remaining.'));assert(settings.includes('$0.00 purchased balance available'));
+  assert(settings.includes('$0.05 starter grant'));assert(!settings.includes('million'));
  }
- const monthly=JSON.stringify(CreditSettings({user:{emailVerified:true},connection:{credits:{balance:1000000,billingSchedule:'monthly_advance'}}}));
- assert(monthly.includes('monthly Net 30 invoice'));assert(monthly.includes('1,000,000 credits available'));assert(monthly.includes('Monthly invoice autopay is managed separately.'));
- const upfront=JSON.stringify(CreditSettings({user:{emailVerified:true},connection:{credits:{balance:1000000,billingSchedule:'monthly_upfront'}}}));
+ const monthly=JSON.stringify(CreditSettings({user:{emailVerified:true},connection:{credits:{balance:1,billingSchedule:'monthly_advance'}}}));
+ assert(monthly.includes('monthly Net 30 invoice'));assert(monthly.includes('$1.00 available'));assert(monthly.includes('Monthly invoice autopay is managed separately.'));
+ const upfront=JSON.stringify(CreditSettings({user:{emailVerified:true},connection:{credits:{balance:1,billingSchedule:'monthly_upfront'}}}));
  assert(upfront.includes('paid upfront'));assert(upfront.includes('New credits become available after payment'));assert(!upfront.includes('monthly Net 30 invoice'));
  const unavailable=JSON.stringify(CreditSettings({user:{emailVerified:true},connection:{credits:{starterRemainingUsd:null,starterMessage:'Temporarily unavailable'}}}));
- assert(!unavailable.includes('starter credits remaining.'));assert(unavailable.includes('Temporarily unavailable'));
- const onboarding=JSON.stringify(FirstStart({}));assert(onboarding.includes('50k starter credits'));assert(!onboarding.includes('$0.01'));
+ assert(!unavailable.includes('starter balance remaining.'));assert(unavailable.includes('Temporarily unavailable'));
+ const onboarding=JSON.stringify(FirstStart({}));assert(onboarding.includes('$0.05 in starter AI usage'));
  assert(onboarding.includes('Set up your organization'));assert(!onboarding.includes('local organization'));assert(!onboarding.includes('work locally'));assert(!onboarding.includes('Continue locally'));
 });
 

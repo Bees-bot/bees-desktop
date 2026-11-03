@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { ThreadCredits, creditsAdapter } from './thread-credits.js';
 
 const model={id:'test/paid-model',name:'Bees Credits',contextWindow:131072,maxTokens:8192};
-const configuration=()=>({kind:'credits',available:true,model,credits:{balance:100000}});
+const configuration=()=>({kind:'credits',available:true,model,credits:{balance:0.1}});
 function harness(){
  const adapters=new Map();
  const service=new ThreadCredits({on:()=>{},llm:{registerAdapter:([id],adapter)=>{assert(!adapters.has(id));adapters.set(id,adapter);return()=>adapters.delete(id);}}});
@@ -38,7 +38,7 @@ test('refreshes the balance and operator model while preserving user-added model
 test('keeps organization adapters and balances separate and preserves explicit model and effort choices across refreshes',async()=>{
  const {service,adapters,client}=harness(),alice=client('alice');
  const orgA=randomUUID(),orgB=randomUUID(),alternative={...model,id:'test/alternative',name:'Alternative'};
- alice.directory.request=async(_path,body)=>({ai:{...configuration(),organizationId:body.organizationId,canManage:false,modelSelection:true,models:[model,alternative],reasoningEfforts:['none','low','high'],credits:{balance:body.organizationId===orgA?1000:2000}}});
+ alice.directory.request=async(_path,body)=>({ai:{...configuration(),organizationId:body.organizationId,canManage:false,modelSelection:true,models:[model,alternative],reasoningEfforts:['none','low','high'],credits:{balance:body.organizationId===orgA?0.001:0.002}}});
  alice.store.preference('settings',{selectedOrganizationId:orgA});await service.sync(alice);
  alice.store.preference('model','bees-credits/'+alternative.id);alice.store.preference('creditReasoningEffort','high');await service.sync(alice,true);
  assert.equal(alice.store.preference('model'),'bees-credits/'+alternative.id);
@@ -47,7 +47,7 @@ test('keeps organization adapters and balances separate and preserves explicit m
  assert.equal(adapters.get(a.provider).config.profiles().get(a.provider).headers['X-Bees-Organization'],orgA);
  alice.store.preference('settings',{selectedOrganizationId:orgB});await service.sync(alice);
  const b=service.resolve(alice.store,{provider:'bees-credits',model:alternative.id},orgB);
- assert.notEqual(a.provider,b.provider);assert.equal(service.view(alice.store).credits.balance,2000);assert.equal(service.view(alice.store).canManage,false);
+ assert.notEqual(a.provider,b.provider);assert.equal(service.view(alice.store).credits.balance,0.002);assert.equal(service.view(alice.store).canManage,false);
  assert.equal(service.resolve(alice.store,{provider:'bees-credits',model:alternative.id},orgA).provider,a.provider);
  assert.throws(()=>service.resolve(alice.store,{provider:'bees-credits',model:'removed'},orgA),/available/);
  alice.directory.request=async()=>{throw Object.assign(Error('revoked'),{status:403});};await service.sync(alice,true,orgA);

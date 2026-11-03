@@ -19,7 +19,7 @@ export function ModelPricing({models,current}){
   const money=value=>'$'+Number(value).toLocaleString('en-US',{maximumFractionDigits:6});
   const rows=[{label:'Base rate',...pricing},...(pricing.tiers??[]).map(tier=>({...tier,label:`From ${tier.minInputTokens.toLocaleString()} input tokens`}))];
   return h('section',{className:'bc-card bc-form','aria-label':'Selected model pricing'},h('strong',null,model.name),
-    h('p',{className:'bc-muted'},'Prices include the 30% Bees markup over OpenRouter. $1 equals 1 million credits. Actual provider cost determines the credits used.'),
+    h('p',{className:'bc-muted'},'Prices include the 30% Bees markup over OpenRouter. Actual provider cost determines the credits used.'),
     rows.map(row=>h('div',{key:row.label},h('strong',null,row.label),
       h('p',null,`Per 1M tokens: input ${money(row.input)} · output ${money(row.output)} · cached input ${money(row.cacheRead)} · cache writes ${money(row.cacheWrite)}.`),
       row.request?h('p',null,money(row.request)+' per request.'):null)));
