@@ -2,8 +2,7 @@ import { h, useEffect, useRef, useState, hosted } from './runtime.js';
 import { openExternal } from './common.js';
 import { parseCreditAmount } from '../lib/credit-pricing.js';
 
-const count=value=>Number(value??0).toLocaleString();
-const starterCredits=value=>(value*1000000).toLocaleString('en-US',{maximumFractionDigits:6});
+const dollars=value=>'$'+Number(value??0).toFixed(2);
 export function CreditSettings({connection,user,request,onRefresh,onSignIn}){
   const credits=connection?.credits;
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[renew,setRenew]=useState(credits?.autoRenew??false),[amount,setAmount]=useState(((credits?.renewalCents??1000)/100).toFixed(2));
@@ -28,25 +27,25 @@ export function CreditSettings({connection,user,request,onRefresh,onSignIn}){
     });
   };
   return h('section',{className:'bc-form'},h('h3',null,'Credits & billing'),
-    credits?.billingSchedule==='monthly_upfront'?h('p',null,'Your Pro subscription and monthly credit advances are paid upfront. Last month’s confirmed usage sets the credit target; unused credits carry forward and reduce the amount due. New credits become available after payment. Optional support and training purchases are one-time items.'):credits?.billingSchedule==='monthly_advance'?h('p',null,'Your monthly Net 30 invoice combines seats and a credit advance based on last month’s confirmed usage, less credits carried forward. Invoiced credits are available before payment is due. Additional purchases below are optional and paid immediately.'):null,
+    credits?.billingSchedule==='monthly_upfront'?h('p',null,'Your Pro subscription and monthly credit advances are paid upfront. Last month’s confirmed usage sets the credit target; unused credits carry forward and reduce the amount due. New credits become available after payment. Optional professional services purchases are one-time items.'):credits?.billingSchedule==='monthly_advance'?h('p',null,'Your monthly Net 30 invoice combines seats and a credit advance based on last month’s confirmed usage, less credits carried forward. Invoiced credits are available before payment is due. Additional purchases below are optional and paid immediately.'):null,
     !user?h('div',null,h('p',null,'Sign in to use your personal Bees balance on desktop and web.'),h('button',{onClick:onSignIn},'Sign in')):h('div',{className:'bc-form'},
-      h('p',null,h('strong',null,(connection?.organizationId?'Organization: ':'Personal: ')+count(credits?.balance)+(['monthly_advance','monthly_upfront'].includes(credits?.billingSchedule)?' credits available':' purchased credits available'))),
+      h('p',null,h('strong',null,(connection?.organizationId?'Organization: ':'Personal: ')+dollars(credits?.balance)+(['monthly_advance','monthly_upfront'].includes(credits?.billingSchedule)?' available':' purchased balance available'))),
       h('p',{className:'bc-muted'},'Your selected organization shares this balance across its members and Clients. Personal work uses your separate personal balance. Organization owners and admins manage purchases and auto-renew.'),
-      h('p',null,'Your personal one-time grant of 50k starter credits is separate from purchased organization credits. $1 buys 1 million credits; credits are not tokens.'),
-      typeof credits?.starterRemainingCredits==='number'?h('p',{role:'status'},count(credits.starterRemainingCredits)+' starter credits remaining.'):typeof credits?.starterRemainingUsd==='number'?h('p',{role:'status'},starterCredits(credits.starterRemainingUsd)+' starter credits remaining.'):null,
+      h('p',null,'Your personal one-time $0.05 starter grant is separate from purchased organization balances.'),
+      typeof credits?.starterRemainingUsd==='number'?h('p',{role:'status'},dollars(credits.starterRemainingUsd)+' starter balance remaining.'):null,
       credits?.starterMessage?h('p',{role:'status'},credits.starterMessage):null,
       h('p',{className:'bc-muted'},'Each model is charged at its current OpenRouter price plus 30%, including provider-reported caching and reasoning costs. See AI connections for model prices.'),
-      credits?.heldTokens?h('p',{role:'status'},count(credits.heldTokens)+' credits are reserved for running or unconfirmed requests. Unused reservations are returned when usage is confirmed.'):null,
+      credits?.heldUsd?h('p',{role:'status'},dollars(credits.heldUsd)+' is reserved for running or unconfirmed requests. Unused reservations are returned when usage is confirmed.'):null,
       credits?.suspended?h('p',{className:'bc-error',role:'alert'},'Credit spending is paused. Contact support@bees.bot for a balance review.'):null,
       connection?.message?h('p',{role:'status'},connection.message):null,
       credits?.billingError?h('p',{className:'bc-error',role:'alert'},credits.billingError):null,
       error?h('p',{className:'bc-error',role:'alert'},error):null,
       h('button',{disabled:busy,onClick:()=>void act(async()=>{})},'Refresh balance'),
-      h('hr',{style:{width:'100%',border:0,borderTop:'1px solid var(--line)',margin:'8px 0'}}),h('h4',null,'Add credits · $1 per million credits'),
-      h('label',{className:'bc-field'},h('span',null,'Amount in USD · minimum $10'),h('input',{type:'number',min:10,max:999999.99,step:0.01,required:true,disabled:busy,value:amount,onChange:e=>{setAmount(e.target.value);purchase.current=crypto.randomUUID();}})),
-      h('p',null,amountCents?`${price} buys ${count(amountCents*10000)} credits.`:'Enter an amount of at least $10 USD.'),
+      h('hr',{style:{width:'100%',border:0,borderTop:'1px solid var(--line)',margin:'8px 0'}}),h('h4',null,'Add AI credits'),
+      h('label',{className:'bc-field'},h('span',null,'Amount in USD · minimum $1'),h('input',{type:'number',min:1,max:999999.99,step:0.01,required:true,disabled:busy,value:amount,onChange:e=>{setAmount(e.target.value);purchase.current=crypto.randomUUID();}})),
+      h('p',null,amountCents?`${price} will be added to your AI balance.`:'Enter an amount of at least $1 USD.'),
       h('label',{className:'bc-check'},h('input',{type:'checkbox',checked:renew,disabled:busy,onChange:e=>{setRenew(e.target.checked);purchase.current=crypto.randomUUID();}}),
-        `Use this amount for auto-renew: charge ${price} whenever my balance reaches 100,000 credits. Repeat until I turn it off.`),
+        `Use this amount for auto-renew: charge ${price} whenever my balance reaches $0.10. Repeat until I turn it off.`),
       h('button',{className:'bc-primary',disabled:!canManage||busy||!amountCents||!connection?.available||!credits?.purchasingEnabled||!user.emailVerified||credits?.suspended,onClick:buy},'Buy credits · '+price),
       !user.emailVerified?h('p',{className:'bc-muted'},'Verify your email before purchasing or using Bees Credits.'):null,
       !canManage?h('p',{className:'bc-muted'},'Ask your organization owner or admin to add credits or manage auto-renew.'):null,
@@ -65,12 +64,12 @@ export function FirstStart({user,organizations=[],accounts=[],busy,error,onSignI
   user=account?.user??user;organizations=account?.organizations??organizations;
   useEffect(()=>{let alive=true;setInvites([]);if(user?.emailVerified)void invitations(accountId).then(rows=>{if(alive)setInvites(rows);},()=>{});return()=>{alive=false;};},[accountId,user?.emailVerified]);
   return h('main',{className:'bc-first-start'},h('section',{className:'bc-onboarding'},
-    h('h1',null,hosted?'Set up your organization':'How would you like to start?'),h('p',{className:'bc-muted'},hosted?'Create a Bees Pro organization or join an organization to use Bees on the web.':'Choose a Bees organization with starter credits, or work locally with your own AI.'),
+    h('h1',null,hosted?'Set up your organization':'How would you like to start?'),h('p',{className:'bc-muted'},hosted?'Create a Bees organization or join an organization to use Bees on the web.':'Choose a Bees organization with starter credits, or work locally with your own AI.'),
     error?h('p',{className:'bc-error',role:'alert'},error):null,
     h('div',{className:'bc-onboarding-options',style:hosted?{gridTemplateColumns:'1fr'}:undefined},
-      h('section',{className:'bc-form bc-onboarding-option'},h('h2',null,'Set up a Bees Pro organization'),
-        h('p',null,'Get 50k starter credits for your first task. Use the same personal balance on desktop and web.'),
-        h('p',{className:'bc-muted'},'One grant per Bees user, shared across organizations. Add 10 million credits for $10 when you need more.'),
+      h('section',{className:'bc-form bc-onboarding-option'},h('h2',null,'Setup Bees Org'),
+        h('p',null,'Get $0.05 in starter AI usage for your first task. Use the same personal balance on desktop and web.'),
+        h('p',{className:'bc-muted'},'One grant per Bees user, shared across organizations. Add to your AI balance when you need more, starting at $1.'),
         h('p',{className:'bc-muted'},'New organizations require an agreement and payment setup in your browser. When finished, return here and refresh organizations.'),
         accounts.length>1?h('label',{className:'bc-field'},h('span',null,'Account'),h('select',{'aria-label':'Account for new organization',value:accountId,disabled:busy,onChange:e=>{setAccountId(e.target.value);setOrganizationId('');}},accounts.map(account=>h('option',{key:account.id,value:account.id},account.user.email)))):null,
         !user?h('button',{className:'bc-primary',disabled:busy,onClick:onSignIn},'Sign in or create an account'):
