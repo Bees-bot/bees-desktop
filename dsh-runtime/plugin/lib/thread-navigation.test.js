@@ -901,7 +901,7 @@ test('organization Members is separate from General and refreshes invitations af
     assert.deepEqual(page.props.groups.find(group=>group.title==='Organizations').items,[['organizations','General'],['organization-members','Members']]);
     const general=render().find(node=>node.type.name==='OrganizationsPanel');
     let content=renderPanel(general,{organizations:[org],invitations:[]},roster);
-    assert(content.some(node=>node.props.children==='Set up Bees Pro organization'));
+    assert(content.some(node=>node.props.children==='Setup Bees Org'));
     assert(!content.some(node=>node.props['aria-label']==='Invite colleague by email'));
     page.props.onSelect('organization-members','global');
     let panel=render().find(node=>node.type.name==='OrganizationsPanel'),pending;
