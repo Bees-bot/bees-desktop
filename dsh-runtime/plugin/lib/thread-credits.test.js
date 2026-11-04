@@ -58,14 +58,14 @@ test('never silently substitutes personal credits when an older server cannot se
  const {service,adapters,client}=harness(),alice=client('alice');alice.store.preference('settings',{selectedOrganizationId:randomUUID()});
  await service.sync(alice);assert.equal(adapters.size,0);assert.equal(service.view(alice.store).available,false);assert.equal(service.view(alice.store).canManage,false);
 });
-test('accepts a dollar starter allowance with zero purchased tokens and rejects invalid dollar balances',async()=>{
+test('accepts zero purchased credits and rejects invalid dollar balances',async()=>{
  const {service,adapters,client}=harness(),alice=client('alice');
- for(const starterRemainingUsd of [-1,0.06,NaN,'0.01']){
-  alice.directory.request=async()=>({ai:{...configuration(),credits:{balance:0,starterRemainingUsd}}});
+ for(const balance of [-1,NaN,'0.01']){
+  alice.directory.request=async()=>({ai:{...configuration(),credits:{balance}}});
   await service.sync(alice,true);assert.equal(adapters.size,0);
  }
- alice.directory.request=async()=>({ai:{...configuration(),credits:{balance:0,starterRemainingUsd:0.009999,starterLimitUsd:0.01}}});
- await service.sync(alice,true);assert.equal(adapters.size,1);assert.equal(service.view(alice.store).credits.starterRemainingUsd,0.009999);
+ alice.directory.request=async()=>({ai:{...configuration(),credits:{balance:0}}});
+ await service.sync(alice,true);assert.equal(adapters.size,1);assert.equal(service.view(alice.store).credits.balance,0);
  service.close(alice);
 });
 test('rejects legacy/untrusted configurations, handles older servers, and cannot reconnect after sign-out',async()=>{

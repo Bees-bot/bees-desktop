@@ -51,7 +51,6 @@ export class ThreadCredits {
         if(!ai){entry.dispose?.();entry.dispose=undefined;entry.ai=undefined;entry.message='';return;}
         const validModel=model=>typeof model?.id==='string'&&typeof model.name==='string'&&Number.isSafeInteger(model.contextWindow)&&model.contextWindow>0&&Number.isSafeInteger(model.maxTokens)&&model.maxTokens>0&&model.maxTokens<=model.contextWindow;
         if(ai.kind!=='credits'||typeof ai.available!=='boolean'||typeof ai.credits?.balance!=='number'||!Number.isFinite(ai.credits.balance)||ai.credits.balance<0||
-           ai.credits.starterRemainingUsd!=null&&(typeof ai.credits.starterRemainingUsd!=='number'||!Number.isFinite(ai.credits.starterRemainingUsd)||ai.credits.starterRemainingUsd<0||ai.credits.starterRemainingUsd>0.05)||
            !validModel(ai.model)||ai.models!==undefined&&(!Array.isArray(ai.models)||!ai.models.length||ai.models.some(model=>!validModel(model)))||
            organizationId&&ai.organizationId!==organizationId)
           throw Error('Invalid Bees Credits configuration');
