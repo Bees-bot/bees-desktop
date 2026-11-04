@@ -305,7 +305,7 @@ test('web onboarding cannot be bypassed by saved chats or pending invitations',(
 
 test('a thread without a local copy retries after a failed first read and clears its error on recovery',async t=>{
   const previous=globalThis.fetch;t.after(()=>{globalThis.fetch=previous;});
-  const authority={id:'remote-thread',kind:'thread',team_id:'team',owner_client_id:'desktop'};
+  const authority={id:'remote-thread',title:'Desktop research',kind:'thread',team_id:'team',owner_client_id:'desktop'};
   const snapshot={clientId:'web',teams:[{id:'team',title:'Research'}],defaultTeamId:'team',threads:[],organizations:[],directory:{threads:[authority],participants:[],clients:[],invitations:[]}};
   let online=false,requests=0;
   const failure="The owner's Bees Client can't be reached right now.";
@@ -321,11 +321,23 @@ test('a thread without a local copy retries after a failed first read and clears
     refreshReads();await new Promise(setImmediate);
     let tree=render();assert.equal(requests,1);
     assert(tree.some(node=>node.props.role==='alert'&&node.props.children[0]===failure));
-    assert(tree.some(node=>node.props.children==='Thread awaiting sync'));
+    assert(tree.some(node=>node.props.children==='Desktop research'));
     online=true;refreshReads();await new Promise(setImmediate);
     tree=render();assert.equal(requests,2,'Refresh must retry even when the first read left thread null');
     assert(!tree.some(node=>node.props.role==='alert'));
     assert(tree.some(node=>node.type==='h2'&&node.props.children==='Desktop research'));
+  });
+});
+
+test('remote conversations show Transfer here, remain read-only, and gate files and settings',()=>{
+  const authority={id:'remote-thread',title:'Research',kind:'thread',team_id:'team',owner_client_id:'desktop',owner_user_id:'alice',run_status:'running'};
+  const team={id:'team',title:'Customer work'},thread={id:authority.id,title:authority.title,teamId:team.id,ownerClientId:'desktop',ownerUserId:'alice',metadataOnly:true,messages:[{id:'message',text:'Conversation text'}],runs:[],artifacts:[]};
+  const snapshot={clientId:'web',user:{id:'alice',emailVerified:true},teams:[team],defaultTeamId:team.id,threads:[],organizations:[],directory:{capabilities:{transferRequests:true},threads:[authority],participants:[],clients:[{id:'desktop',name:'My Mac'}],invitations:[]}};
+  appHarness({snapshot,selected:thread.id,thread,team},render=>{
+    const tree=render();assert(tree.some(node=>node.type==='button'&&node.props.children==='Transfer here'));
+    const workspace=tree.find(node=>node.type===ThreadWorkspace);
+    const conversation=workspace.props.renderWidget('conversation');assert.equal(conversation.props.canWrite,false);assert.equal(conversation.props.thread.messages[0].text,'Conversation text');
+    for(const page of ['files','addons','settings'])assert.equal(workspace.props.renderWidget(page).props.children,'Transfer this thread here to access its files, settings, and execution.');
   });
 });
 

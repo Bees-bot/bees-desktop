@@ -70,7 +70,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const [readError,setReadError]=useState(''),[teamReadError,setTeamReadError]=useState('');
   const teamRows=data?.teams??[],teamIds=new Set(teamRows.map(t=>t.id));
   const selectedOrganizationId=organizationId===undefined?(data?.settings?.selectedOrganizationId??null):organizationId;
-  const allTeams=[...teamRows,...(data?.directory?.threads??[]).filter(t=>t.kind==='team'&&!teamIds.has(t.id)).map(t=>({id:t.id,organizationId:t.organization_id,title:'Shared team',ownerClientId:t.owner_client_id,shared:true}))];
+  const allTeams=[...teamRows,...(data?.directory?.threads??[]).filter(t=>t.kind==='team'&&!teamIds.has(t.id)).map(t=>({id:t.id,organizationId:t.organization_id,title:t.title||'Shared team',ownerClientId:t.owner_client_id,shared:true}))];
   const teams=allTeams.filter(t=>selectedOrganizationId?t.organizationId===selectedOrganizationId:!t.organizationId||!organizations.some(o=>o.id===t.organizationId));
   const hiddenTeamIds=data?.settings?.hiddenTeamIds??[],visibleTeams=teams.filter(t=>!hiddenTeamIds.includes(t.id));
   // an offline team can't take a new goal, so only land on one the user picked
@@ -80,7 +80,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const configAccountId=settingsAccountId===undefined?(data?.accounts?.find(account=>account.active)?.id??null):settingsAccountId;
   const configOrganizationId=settingsOrganizationId===undefined?selectedOrganizationId:settingsOrganizationId;
   const configTeamRows=settingsData?.teams??[];
-  const configTeams=[...configTeamRows,...(settingsData?.directory?.threads??[]).filter(row=>row.kind==='team'&&!configTeamRows.some(team=>team.id===row.id)).map(row=>({id:row.id,organizationId:row.organization_id,title:'Shared team'}))];
+  const configTeams=[...configTeamRows,...(settingsData?.directory?.threads??[]).filter(row=>row.kind==='team'&&!configTeamRows.some(team=>team.id===row.id)).map(row=>({id:row.id,organizationId:row.organization_id,title:row.title||'Shared team'}))];
   const settingsTeams=configTeams.filter(row=>configOrganizationId?row.organizationId===configOrganizationId:!row.organizationId||!settingsData?.organizations.some(org=>org.id===row.organizationId));
   const configTeamId=settingsTeams.find(row=>row.id===settingsTeamId)?.id??settingsTeams.find(row=>row.id===currentTeamId)?.id??settingsTeams[0]?.id;
   const settingsCommand=(action,id,values={})=>command(action,id,{...values,settingsAccountId:configAccountId});
@@ -212,16 +212,18 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const roster=data?.directory??{threads:[],participants:[],clients:[],invitations:[]};
   const known=new Set(data?.threads?.map(t=>t.id));
   const threadTeamId=t=>allTeams.some(team=>team.id===t.teamId)?t.teamId:data?.defaultTeamId;
-  const threads=[...(data?.threads??[]),...roster.threads.filter(t=>t.kind!=='team'&&!known.has(t.id)).map(t=>({id:t.id,teamId:t.team_id,title:'Thread awaiting sync',shared:true,ownerClientId:t.owner_client_id}))]
+  const threads=[...(data?.threads??[]),...roster.threads.filter(t=>t.kind!=='team'&&!known.has(t.id)).map(t=>({id:t.id,teamId:t.team_id,title:t.title||'Remote thread',shared:true,ownerClientId:t.owner_client_id}))]
     .filter(t=>!(t.draft&&!t.draftTouched)&&visibleTeams.some(team=>team.id===threadTeamId(t))&&(t.id===query.trim()||(t.title+' '+(t.preview??'')).toLowerCase().includes(query.trim().toLowerCase())));
   const authority=roster.threads.find(t=>t.id===selected), participants=roster.participants.filter(p=>p.thread_id===selected);
+  const transferRequest=roster.transferRequests?.find(r=>r.thread_id===selected);
   const owner=roster.clients.find(c=>c.id===(authority?.owner_client_id??thread?.ownerClientId));
+  const ownerUser=roster.participants.find(p=>p.user_id===(authority?.owner_user_id??thread?.ownerUserId));
   const own=!!thread&&thread.ownerClientId===data?.clientId, manage=!!thread&&(own||thread.ownerUserId===data?.user?.id);
   const run=thread?.runs?.at(-1), active=run?.status==='running';
   // the 5 second roster tick is too slow to watch a reply come in
   useEffect(()=>{if(!active||!selected)return;const timer=setInterval(()=>void read(selected).catch(()=>{}),1500);return()=>clearInterval(timer);},[active,selected]);
   const canEdit=!selected||!!thread&&(own||participants.some(p=>p.user_id===data?.user?.id&&p.role!=='viewer'));
-  const canWrite=canEdit&&!thread?.frozen&&!thread?.unavailable;
+  const canWrite=canEdit&&!thread?.metadataOnly&&!thread?.frozen&&!thread?.unavailable;
   const canConfigure=manage&&canWrite;
   const teamParticipants=roster.participants.filter(p=>p.thread_id===currentTeamId);
   const teamRole=teamParticipants.find(p=>p.user_id===data?.user?.id)?.role;
@@ -230,7 +232,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const settingsParticipants=(settingsData?.directory?.participants??[]).filter(p=>p.thread_id===configTeamId),teamOwn=!!settingsTeam&&settingsTeam.ownerClientId===settingsData?.clientId;
   const settingsRole=settingsParticipants.find(p=>p.user_id===settingsData?.user?.id)?.role;
   const canConfigureTeam=!!settingsTeam&&(teamOwn||settingsTeam.ownerUserId===settingsData?.user?.id)&&!settingsTeam.frozen&&!settingsTeam.unavailable;
-  const viewOnly=selected?!!thread&&!canEdit&&!thread.unavailable:teamRole==='viewer';
+  const viewOnly=selected?!!thread&&(thread.metadataOnly||!canEdit&&!thread.unavailable):teamRole==='viewer';
   const peerNames=new Map(roster.participants.map(p=>[p.user_id,p.name??p.email]));
   const transferClients=roster.clients.filter(c=>c.id!==data?.clientId&&(c.user_id===data?.user?.id||participants.some(p=>p.user_id===c.user_id&&p.role!=='viewer')));
   const previewFile=file=>setPreview({...file,url:`/bees-api/thread-file?thread=${selected}&artifact=${file.id}`});
@@ -242,11 +244,12 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const files=thread?h(ThreadFiles,{key:selected,thread,canWrite,busy,onAttach:attach,onPreview:previewFile,preview,onClosePreview:()=>setPreview(null)}):null;
   const signInForApps=(id=configTeamId)=>{loginReturn.current=id;setError('');setDialog('login');};
   const integrations=(section,inThread=false)=>{
-    const doc=inThread?team:settingsTeam,snapshot=inThread?data:settingsData,id=inThread?currentTeamId:configTeamId,role=inThread?teamRole:settingsRole;
+    const transferred=inThread&&thread?.integrationSnapshot;
+    const doc=transferred?thread:inThread?team:settingsTeam,snapshot=inThread?data:settingsData,id=transferred?selected:inThread?currentTeamId:configTeamId,role=inThread?teamRole:settingsRole;
     return doc?h(IntegrationSettings,{key:(inThread?data?.clientId:configAccountId)+id+section,threadId:id,
       canManage:(doc.ownerClientId===snapshot?.clientId||['owner','editor'].includes(role))&&!doc.unavailable&&!doc.frozen,
       signedIn:snapshot?.signedIn??!!snapshot?.user,onSignIn:()=>{if(inThread)openTeamSettings('addons',id);signInForApps(id);},
-      request:inThread?command:settingsCommand,perform,page:section}):h('p',{role:'status'},'Loading team add-ons…');
+      request:inThread?command:settingsCommand,perform,page:section,scope:transferred?'thread':'team'}):h('p',{role:'status'},'Loading team add-ons…');
   };
   const configuration=(section,note)=>settingsTeam?h(React.Fragment,null,canConfigureTeam||!note?null:h('p',{className:'bc-muted'},'Only the team owner can change shared settings.'),h(WorkflowSettings,{key:configAccountId+configTeamId+section+(canConfigureTeam?'':settingsTeam.revision),thread:settingsTeam,agents:settingsTeam.agents??[],scope:'team',section,disabled:!canConfigureTeam,busy,onSave:saveTeam})):h('p',{role:'status'},'Loading team settings…');
   const invitations=h('form',{className:'bc-form bc-card',onSubmit:event=>{event.preventDefault();void perform(async()=>{
@@ -265,7 +268,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     canConfigureTeam?h(SentInvitations,{scope:'team',invitations:(settingsData?.directory?.sentInvitations??[]).filter(invite=>invite.thread_id===configTeamId)}):null,
     canConfigureTeam?h('div',{className:'bc-form-section'},invitations):null);
   const transfer=h('form',{className:'bc-form',onSubmit:e=>{e.preventDefault();void act('transfer',{targetClientId:target});}},
-    h('h3',null,'Transfer thread'),h('p',{className:'bc-muted'},own?'Move the thread, its files and its runs to another computer in this thread. Sign in to its add-ons again there and choose browser access.':`Only ${owner?.name??'the computer running this thread'} can transfer it.`),
+    h('h3',null,'Transfer thread'),h('p',{className:'bc-muted'},own?'Move this thread, its files and its runs to another computer. App connections and MCP credentials follow transfers between your own clients. Local commands need setup on the destination.':`Choose Transfer here to request this thread from ${owner?.name??'its current machine'}. Another owner must approve your request.`),
     own?h('select',{'aria-label':'Move to',value:target,required:true,onChange:e=>setTarget(e.target.value)},h('option',{value:''},transferClients.length?'Choose a computer':'No other computer has joined this thread yet'),transferClients.map(c=>h('option',{key:c.id,value:c.id},c.name))):null,
     own?h('button',{className:'bc-primary',type:'submit',disabled:busy||active||!data?.user||!transferClients.length},active?'Wait for the run to finish':thread?.frozen?'Resend offer':'Offer transfer'):null,
     own&&authority?.transfer_client_id?h('button',{type:'button',onClick:()=>act('cancelTransfer')},'Cancel pending transfer'):null);
@@ -297,13 +300,14 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     :settingsSection==='account'?account
     :settingsSection==='instructions'?h('form',{className:'bc-form',key:data?.clientId,onSubmit:event=>{event.preventDefault();const systemInstructions=new FormData(event.currentTarget).get('instructions');void perform(async()=>{await command('preferences',null,{values:{systemInstructions}});await refresh();setNotice('System instructions saved.');});}},
       h('h3',null,'System instructions'),h('p',{className:'bc-muted'},'Used for new runs in every thread on this computer.'),h('textarea',{'aria-label':'System instructions',name:'instructions',rows:10,maxLength:20000,defaultValue:data?.settings?.systemInstructions??''}),h('button',{className:'bc-primary',disabled:busy||!data},'Save instructions'))
-    :h('section',{className:'bc-form'},h('h3',null,'Data & files'),h('p',null,'Threads keep their own files and folders. Add files or whole folders from a thread’s Files tab.'),h('p',{className:'bc-muted'},'Files and results travel with a shared or transferred thread. AI connections, browser access and add-on keys and sign-ins stay on the computer where you set them up.'));
+    :h('section',{className:'bc-form'},h('h3',null,'Data & files'),h('p',null,'Threads keep their own files and folders. Add files or whole folders from a thread’s Files tab.'),h('p',{className:'bc-muted'},'Thread details and files move when you transfer the thread. App connections and MCP credentials follow transfers between your own clients. AI connections and personal browser sessions stay on their original computer.'));
   const effectiveThread=thread&&{...thread,workflow:workflowFor(thread,team),instructions:[team?.instructions,thread.instructions].filter(Boolean).join('\n\n'),memory:[...(team?.memory??[]),...(thread.memory??[])]};
   const templates=[...WORKFLOW_TEMPLATES,...(team?.processes??[])];
   const conversation=discussion=>h(ThreadConversation,{key:selected??'welcome',thread:effectiveThread,discussion,peerNames,userId:data?.user?.id,userName:data?.user?.name||data?.user?.email?.split('@')[0],canWrite:selected?canWrite:false,viewOnly,manage,run,active,busy,act,onSend:send,storageKey:data?.clientId&&selected?`bees:composer:${data.clientId}:${selected}:${discussion?'discussion':'prompt'}`:undefined,onDraftChange:thread?.draft&&!discussion?value=>saveDraft(selected,value):undefined,onAttach:attach,onFiles:()=>navigate('files'),onOpenFile:file=>{navigate('files');previewFile(file);},suggestion:selected?null:suggestion,templates,
     templateId:thread?.processId&&templates.some(t=>t.id===thread.processId)?thread.processId:effectiveThread?(workflowTemplate(effectiveThread.workflow)?.id??'custom'):newTemplate,
     onTemplateChange:templateId=>{setNewTemplate(templateId);if(thread)void act('configure',{workflow:templates.find(t=>t.id===templateId).workflow,processId:templateId});}});
   const renderWidget=page=>!thread?h('p',{className:'bc-muted',role:'status'},'Connecting to this thread…')
+    :thread.metadataOnly&&!['conversation','discussion'].includes(page)?h('p',{className:'bc-muted',role:'status'},'Transfer this thread here to access its files, settings, and execution.')
     :['conversation','discussion'].includes(page)?conversation(page==='discussion')
     :page==='settings'?h('section',{className:'bc-conversation','aria-label':'Thread settings'},
       h('div',{className:'bc-settings-layout'},h(SettingsNav,{items:THREAD_SETTINGS,selected:threadSection,onSelect:section=>{setThreadSection(section);setNotice('');},label:'Thread settings sections'}),h('div',{className:'bc-settings-content'},threadContent)))
@@ -388,18 +392,26 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
           renamingTitle?h('form',{className:'bc-thread-title-form',onSubmit:e=>{e.preventDefault();saveTitle();}},
             h('input',{className:'bc-thread-title-input',value:titleDraft,autoFocus:true,'aria-label':'Thread title',maxLength:180,onChange:e=>setTitleDraft(e.target.value),onKeyDown:e=>{if(e.key==='Escape'){e.stopPropagation();setRenamingTitle(false);}},onBlur:saveTitle}))
           :h('div',{className:'bc-thread-title-row'},
-            h('h2',{onDoubleClick:canWrite&&selected&&thread?()=>{setTitleDraft(thread?.title||'');setRenamingTitle(true);}:undefined,title:canWrite&&selected&&thread?'Double-click to rename':undefined},thread?.title??(selected?'Loading thread…':'New thread')),
+            h('h2',{onDoubleClick:canWrite&&selected&&thread?()=>{setTitleDraft(thread?.title||'');setRenamingTitle(true);}:undefined,title:canWrite&&selected&&thread?'Double-click to rename':undefined},thread?.title??authority?.title??(selected?'Loading thread…':'New thread')),
             canWrite&&selected&&thread?h('button',{type:'button',className:'bc-icon bc-rename-button','aria-label':'Rename thread',title:'Rename thread',onClick:()=>{setTitleDraft(thread?.title||'');setRenamingTitle(true);}},icon('edit')):null),
-          h('p',null,thread?.draft?'Draft · Add your prompt, files, and settings before starting.':selected?(owner?.name??(own?'This machine':'Shared work')):'Choose a team to get started.')),
+          h('p',null,thread?.draft?'Draft · Add your prompt, files, and settings before starting.':selected?(thread?.metadataOnly?`${ownerUser?.name||ownerUser?.email||'Owner'} · `:'')+(owner?.name??(own?'This machine':'Shared work'))+(thread?.metadataOnly?` · ${authority?.run_status||'idle'} · Read-only conversation`:''):'Choose a team to get started.')),
         selected?h('div',{className:'bc-actions'},
           h('button',{title:'Invite to team',onClick:()=>openTeamSettings('members')},icon('share'),'Invite'),
           h('span',{className:'bc-layout-toolbar',ref:setLayoutToolbar})):null),
       (error||readError||teamReadError)&&!modalOpen?h('div',{className:'bc-error',role:'alert'},error||readError||teamReadError,h('button',{className:'bc-icon','aria-label':'Dismiss error',onClick:()=>{setError('');setReadError('');setTeamReadError('');}},icon('close'))):null,
       notice&&!modalOpen?h('div',{className:'bc-notice',role:'status'},notice):null,
+      data?.transferError&&!modalOpen?h('div',{className:'bc-notice',role:'status'},data.transferError):null,
+      !modalOpen?(roster.transferRequests??[]).filter(r=>!r.approved&&roster.threads.some(t=>t.id===r.thread_id&&t.owner_user_id===data?.user?.id)).map(r=>h('div',{className:'bc-notice',key:r.thread_id},
+        `${r.user_name||'A team member'} requests ${roster.threads.find(t=>t.id===r.thread_id)?.title||'a thread'} on ${r.client_name}. `,
+        h('button',{disabled:busy,onClick:()=>perform(async()=>{await command('transferDecision',r.thread_id,{decision:'approve'});await refresh();})},'Approve transfer'),
+        h('button',{disabled:busy,onClick:()=>perform(async()=>{await command('transferDecision',r.thread_id,{decision:'reject'});await refresh();})},'Decline'))):null,
+      authority?.kind==='thread'&&authority.owner_client_id!==data?.clientId&&roster.capabilities?.transferRequests?h('div',{className:'bc-notice',role:'status'},
+        transferRequest?transferRequest.approved?'Transfer requested. Waiting for the source machine to finish active work and deliver the thread.':'Waiting for the thread owner to approve this transfer.':`This thread is on ${owner?.name||'another machine'}. `,
+        !transferRequest&&(authority.owner_user_id===data?.user?.id||participants.some(p=>p.user_id===data?.user?.id&&p.role!=='viewer'))?h('button',{className:'bc-primary',disabled:busy,onClick:()=>act('requestTransfer')},'Transfer here'):null):null,
       !modalOpen&&(orphan(selected)||orphan(teamId))?h('div',{className:'bc-notice'},'The Bees Client that held this is gone. ',orphan(selected)?h('button',{className:'danger',disabled:busy,onClick:()=>removeGone(selected)},'Remove thread'):null,orphan(teamId)?h('button',{className:'danger',disabled:busy,onClick:()=>removeGone(teamId)},'Remove team'):null):null,
       data&&!data.models?.length&&!data.credits?.available?h('div',{className:'bc-notice'},hosted?'Bees needs Bees Credits to reply on the web. ':'Connect an AI model so Bees can reply. ',h('button',{className:'bc-primary',onClick:()=>{setSettingsSection(hosted?'credits':'ai');setDialog('settings');}},hosted?'Open Credits & billing':'Open AI connections')):null,
       thread?.frozen?h('div',{className:'bc-notice'},'This thread is frozen for transfer. The recipient must accept, or you can cancel the offer.'):null,
-      thread?.unavailable?h('div',{className:'bc-notice'},'Showing the copy saved here. ',thread.unavailable):null,
+      thread?.unavailable?h('div',{className:'bc-notice'},thread.metadataOnly?'':'Showing the copy saved here. ',thread.unavailable):null,
       authority?.transfer_client_id&&authority.transfer_client_id===data?.clientId?h('div',{className:'bc-notice'},'A thread transfer is waiting for you. ',h('button',{className:'bc-primary',onClick:()=>act('acceptTransfer')},'Accept transfer')):null,
       selected?h(ThreadWorkspace,{key:data.clientId,initialLayout:data.settings?.threadLayout,toolbar:layoutToolbar,navigation,renderWidget,
         onSave:async threadLayout=>{await command('preferences',null,{values:{threadLayout}});await refresh();}})
@@ -463,7 +475,7 @@ export function ThreadConversation({thread,discussion,peerNames,userId,userName,
         ?h(ReviewScreen,{key:run.pending.reviewId,review:run.reviews.find(review=>review.id===run.pending.reviewId),runId:run.id,act,readOnly:!canWrite||!manage,interrupted:run.status==='uncertain'})
         :h('fieldset',{disabled:!canWrite||run.pending.kind==='approval'&&!manage,className:'bc-fieldset'},h(Question,{key:run.pending.id,run,threadId:thread.id,act}))):null,h('div',{ref:end})):null,
     h('form',{className:'bc-composer',onSubmit:e=>{e.preventDefault();const sent=draft;void onSend(sent,discussion,()=>{setDraft(current=>{if(current!==sent)return current;try{if(storageKey)localStorage.removeItem(storageKey);}catch{}return '';});setPending([]);},pending);}},
-      h('textarea',{placeholder:viewOnly?'You can view this but not send messages. Ask the owner for edit access.':discussion?'Message the people in this thread…':active?'You can send once Bees finishes.':chatting?'Chat with Bees…':'Ask Bees to get something done…','aria-label':discussion?'Discussion message':'Message',disabled:busy||!canWrite,value:draft,maxLength:100000,onChange:e=>changeDraft(e.target.value),onPaste:e=>{const files=busy?[]:pastedFiles(e);if(files.length){e.preventDefault();take(files);}},onKeyDown:e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();e.currentTarget.form.requestSubmit();}}}),
+      h('textarea',{placeholder:thread?.metadataOnly?'Transfer here to send messages or run this thread.':viewOnly?'You can view this but not send messages. Ask the owner for edit access.':discussion?'Message the people in this thread…':active?'You can send once Bees finishes.':chatting?'Chat with Bees…':'Ask Bees to get something done…','aria-label':discussion?'Discussion message':'Message',disabled:busy||!canWrite,value:draft,maxLength:100000,onChange:e=>changeDraft(e.target.value),onPaste:e=>{const files=busy?[]:pastedFiles(e);if(files.length){e.preventDefault();take(files);}},onKeyDown:e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();e.currentTarget.form.requestSubmit();}}}),
       pending.length?h('div',{className:'bc-pending-files'},pending.map(file=>h('span',{key:file.name},file.name,
         h('button',{type:'button',className:'bc-icon','aria-label':'Remove '+file.name,disabled:busy,onClick:()=>setPending(current=>current.filter(f=>f!==file))},icon('close'))))):null,
       h('div',{className:'bc-composer-footer'},h('button',{type:'button',className:'bc-icon','aria-label':'Attach files',title:'Attach files',disabled:busy||!canWrite,onClick:()=>picker.current?.click()},icon('plus')),

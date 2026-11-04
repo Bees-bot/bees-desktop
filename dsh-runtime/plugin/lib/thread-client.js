@@ -67,10 +67,43 @@ export class ThreadClient {
     const sharedBefore=new Set(this.store.list().filter(t=>t.shared).map(t=>t.id));this.roster=await this.directory.request('/');if(this.closing)return;this.connectionError=null;
     // a copy of someone else's thread that left the roster was deleted or taken from us, so it goes too
     for(const local of this.store.list())if(sharedBefore.has(local.id)&&!this.roster.threads.some(t=>t.id===local.id)){this.jobs.get(local.id)?.abort();if(local.ownerClientId!==this.store.clientId&&!local.staged)this.store.drop(local.id);else this.store.preference(`frozen:${local.id}`,true);}
-    for(const authority of this.roster.threads){const local=this.store.list().find(t=>t.id===authority.id);if(local?.ownerClientId===this.store.clientId&&authority.owner_client_id!==this.store.clientId){this.store.preference(`frozen:${authority.id}`,true);this.jobs.get(authority.id)?.abort();}if(local?.staged&&authority.owner_client_id===this.store.clientId){const doc=this.store.document(local.id);this.store.activateTransfer(local.id,authority,checkpointDigest(doc));this.store.preference(`frozen:${local.id}`,false);}}
+    for(const authority of this.roster.threads){const local=this.store.list().find(t=>t.id===authority.id);if(local?.ownerClientId===this.store.clientId&&authority.owner_client_id!==this.store.clientId){this.store.preference(`frozen:${authority.id}`,true);this.jobs.get(authority.id)?.abort();}if(local?.staged&&authority.owner_client_id===this.store.clientId){const doc=this.store.document(local.id);this.options.integrations?.activateTransfer(this.store,local.id);this.store.activateTransfer(local.id,authority,checkpointDigest(doc));this.store.preference(`frozen:${local.id}`,false);}}
     await this.command({action:'organizations'}).catch(error=>{this.organizationError=error.message;});
     await this.options.credits?.sync(this);
+    if(this.roster.capabilities?.transferRequests){
+      for(const row of this.store.list().filter(t=>t.ownerClientId===this.store.clientId&&!t.staged)){
+        const doc=this.store.document(row.id),team=this.store.teamFor(row.id);
+        const remote=this.roster.threads.find(t=>t.id===row.id);
+        if(remote&&remote.owner_client_id!==this.store.clientId)continue;
+        if(this.organizations().some(org=>org.local&&org.id===(team?.organizationId??doc.organizationId)))continue;
+        if(!doc.shared)await this.registerThread(row.id);
+        const status=doc.runs.some(r=>r.status==='running')?'running':doc.runs.some(r=>r.status==='waiting')?'waiting':'idle';
+        if(remote&&(remote.title!==doc.title||remote.run_status!==status)){await this.directory.request(`/threads/${row.id}/metadata`,{title:doc.title,status});remote.title=doc.title;remote.run_status=status;}
+      }
+      void this.fulfillTransfers();
+    }
     this.options.notify?.();
+  }
+  async fulfillTransfers(){
+    if(this.handlingTransfers||this.closing)return;
+    this.handlingTransfers=true;
+    try{
+      for(const request of this.roster.transferRequests??[]){
+        const authority=this.roster.threads.find(t=>t.id===request.thread_id);
+        if(!authority||!request.approved)continue;
+        if(authority.owner_client_id===this.store.clientId){
+          const doc=this.store.get(authority.id);
+          if(this.jobs.has(doc.id)||doc.runs.some(r=>['running','waiting'].includes(r.status)))continue;
+          if(authority.transfer_client_id&&authority.transfer_client_id!==request.client_id)continue;
+          await this.command({action:'transfer',threadId:doc.id,targetClientId:request.client_id});
+        }else if(request.client_id===this.store.clientId&&authority.transfer_client_id===this.store.clientId){
+          const asked=this.store.preference(`requestedTransfer:${authority.id}`),local=this.store.list().find(t=>t.id===authority.id);
+          if(asked?.epoch===Number(authority.epoch)&&asked.sourceClientId===authority.owner_client_id&&local?.staged)await this.command({action:'acceptTransfer',threadId:authority.id});
+        }
+      }
+      this.transferError=null;
+    }catch(error){this.transferError=error.message;}
+    finally{this.handlingTransfers=false;}
   }
   async authority(id){await this.refresh();const t=this.roster.threads.find(t=>t.id===id);if(!t)throw threadError('Thread access is unavailable',403);return t;}
   async fence(id){const doc=this.store.get(id);this.store.writable(doc);if(doc.shared){const t=await this.authority(id);if(t.owner_client_id!==this.store.clientId||Number(t.epoch)!==doc.epoch)throw threadError('This client no longer owns the thread',409);}return doc;}
@@ -83,13 +116,22 @@ export class ThreadClient {
       const template=workflowTemplate(doc.workflow);
       if(!['chat','goals'].includes(template?.id)||canonical(doc.workflow??DEFAULT_WORKFLOW)!==canonical(template.workflow))return true;
       return doc.messages.length||doc.runs.length||doc.artifacts.length||doc.folders?.length||doc.instructions||doc.memory?.length||doc.schedule||this.store.preference(`integrations:${row.id}`)!==null||this.store.preference(`browser:${row.id}`)!==null;
+    }).map(row=>{
+      const remote=this.roster.capabilities?.transferRequests&&this.roster.threads.find(t=>t.id===row.id&&t.owner_client_id!==this.store.clientId);
+      return remote?{id:row.id,kind:remote.kind,teamId:remote.team_id,organizationId:remote.organization_id,title:remote.title||row.title,ownerClientId:remote.owner_client_id,ownerUserId:remote.owner_user_id,shared:true,staged:row.staged,runs:[]}:row;
     });
-    return {product:'Bees Client',clientId:this.store.clientId,user:this.directory.user??null,signedIn:!!this.directory.token&&!this.directory.authRequired,organizations:this.organizations(),organizationError:this.organizationError??null,serverUrl:this.directory.url,connectionError:this.connectionError??null,threads:rows.filter(t=>t.kind!=='team'),teams:rows.filter(t=>t.kind==='team'&&(!t.shared||!this.directory.token||this.connectionError||this.roster.threads.some(row=>row.id===t.id))),defaultTeamId:this.store.preference('defaultTeam'),directory:{...this.roster,threads:this.roster.threads.map(t=>({...t,offline:this.offline(t.owner_client_id)}))},models:await this.options.models?.(this.store)??[],credits:this.options.credits?.view(this.store),agentPresets:await this.options.agentPresets?.()??[],defaultModel:this.store.preference('model'),settings:this.store.preference('settings')??{}};}
-  async registerThread(id,input={}){await this.fence(id);let doc=this.store.document(id);if(!this.directory.token)throw threadError('Sign in to share or transfer a thread',401);
+    return {product:'Bees Client',clientId:this.store.clientId,user:this.directory.user??null,signedIn:!!this.directory.token&&!this.directory.authRequired,organizations:this.organizations(),organizationError:this.organizationError??null,serverUrl:this.directory.url,connectionError:this.connectionError??null,transferError:this.transferError??null,threads:rows.filter(t=>t.kind!=='team'),teams:rows.filter(t=>t.kind==='team'&&(!t.shared||!this.directory.token||this.connectionError||this.roster.threads.some(row=>row.id===t.id))),defaultTeamId:this.store.preference('defaultTeam'),directory:{...this.roster,threads:this.roster.threads.map(t=>({...t,offline:this.offline(t.owner_client_id)}))},models:await this.options.models?.(this.store)??[],credits:this.options.credits?.view(this.store),agentPresets:await this.options.agentPresets?.()??[],defaultModel:this.store.preference('model'),settings:this.store.preference('settings')??{}};}
+  async registerThread(id,input={}){
+    this.registrations??=new Map();
+    if(this.registrations.has(id))return this.registrations.get(id);
+    const pending=this.registerDirectoryThread(id,input);this.registrations.set(id,pending);
+    try{return await pending;}finally{this.registrations.delete(id);}
+  }
+  async registerDirectoryThread(id,input={}){await this.fence(id);let doc=this.store.document(id);if(!this.directory.token)throw threadError('Sign in to share or transfer a thread',401);
     const team=this.store.teamFor(id);
     if(this.organizations().some(org=>org.local&&org.id===(team?.organizationId??doc.organizationId)))throw threadError('Local organizations cannot be shared',403);
     if(team&&!team.shared)await this.registerThread(team.id);
-    if(!doc.shared){const authority=await this.directory.request('/threads',{id:doc.id,clientId:this.store.clientId,kind:doc.kind??'thread',...(team?{teamId:team.id}:{}),...((input.organizationId??doc.organizationId)?{organizationId:input.organizationId??doc.organizationId}:{})});doc=this.store.mutate(id,randomUUID(),d=>{d.ownerUserId=this.directory.user.id;d.epoch=Number(authority.epoch);d.shared=true;if(team)d.teamId=team.id;});}
+    if(!doc.shared){const authority=await this.directory.request('/threads',{id:doc.id,clientId:this.store.clientId,kind:doc.kind??'thread',...(this.roster.capabilities?.transferRequests?{title:doc.title}:{}),...(team?{teamId:team.id}:{}),...((input.organizationId??doc.organizationId)?{organizationId:input.organizationId??doc.organizationId}:{})});doc=this.store.mutate(id,randomUUID(),d=>{d.ownerUserId=this.directory.user.id;d.epoch=Number(authority.epoch);d.shared=true;if(team)d.teamId=team.id;});}
     else if(team&&!doc.teamId){await this.directory.request(`/threads/${id}/team`,{teamId:team.id});doc=this.store.mutate(id,randomUUID(),d=>{d.teamId=team.id;});}
     return doc;
   }
@@ -98,16 +140,34 @@ export class ThreadClient {
     const invite=await this.directory.request(`/threads/${id}/invitations`,{email:input.email,role:input.role??'editor',title:this.store.get(id).title});await this.refresh();return {...invite,url:this.directory.url+'/app?invitation='+invite.id};
   }
   async receive(grant,input){
-    if(!input||!['snapshot','object','command','checkpoint'].includes(input.kind))throw threadError('Invalid peer operation');
+    if(!input||!['conversation','snapshot','object','command','checkpoint'].includes(input.kind))throw threadError('Invalid peer operation');
     const id=grant.thread_id;
+    if(input.kind==='conversation'){
+      const doc=this.store.document(id);
+      if(doc.epoch!==Number(grant.epoch)||doc.ownerClientId!==this.store.clientId)throw threadError('Thread ownership changed; refresh the conversation',409);
+      const messages=doc.messages.map(({id,authorId,kind,text,createdAt})=>({id,authorId,kind,text,createdAt}));
+      const run=doc.runs.at(-1);
+      if(run?.status==='running'&&run.partial)messages.push({id:run.id,authorId:'bees',kind:'assistant',text:run.partial,createdAt:run.createdAt});
+      return {messages};
+    }
     if(input.kind==='snapshot'||input.kind==='object'){
       const doc=this.store.document(id);if(doc.epoch!==Number(grant.epoch))throw threadError('Stale thread replica',409);
+      if(this.roster.capabilities?.transferRequests&&doc.kind!=='team'){
+        const authority=await this.authority(id);
+        if(authority.transfer_client_id!==grant.source_client_id)throw threadError('Transfer this thread here before accessing its details',403);
+      }
       if(input.kind==='snapshot')return doc;
       const {artifact,bytes}=this.store.object(doc,input.artifactId);return {artifact,content:bytes.toString('base64')};
     }
     if(input.kind==='checkpoint'){
       const authority=await this.authority(id);
       if(grant.source_client_id!==authority.owner_client_id||authority.transfer_client_id!==this.store.clientId||input.document.id!==id||checkpointDigest(input.document)!==authority.transfer_digest)throw threadError('Invalid transfer checkpoint',403);
+      if(input.document.integrationTransfer){
+        const transfer=input.document.integrationTransfer;
+        if(transfer.clientId!==this.store.clientId||grant.source_user_id!==this.directory.user?.id||authority.owner_user_id!==this.directory.user?.id)throw threadError('MCP credentials can only transfer between your own clients',403);
+        if(!this.options.integrations)throw threadError('Update this client to receive MCP connections',409);
+        await this.options.integrations.transferCheckpoint(this.store,id,transfer.digest,input.integrations);
+      }else if(input.integrations!==undefined)throw threadError('Unexpected MCP transfer checkpoint');
       this.store.import(input.document,authority,{staged:true});return {received:true,digest:checkpointDigest(input.document)};
     }
     if(!['owner','editor'].includes(grant.source_role))throw threadError('This participant can only view the thread',403);
@@ -115,6 +175,7 @@ export class ThreadClient {
       if(this.store.document(id).ownerUserId!==grant.source_user_id)throw threadError('Only the thread owner may change participants',403);
       return this.command({...input.command,threadId:id});
     }
+    if(this.roster.capabilities?.transferRequests&&this.store.get(id).kind!=='team')throw threadError('Transfer this thread here before changing or running it',409);
     return this.localCommand(id,input.command,grant.source_user_id);
   }
   // both stamps are server time, so a wrong laptop clock can't make an online owner look offline, and a revoked one has none
@@ -129,7 +190,7 @@ export class ThreadClient {
     const imported=this.store.import(doc,authority);
     await this.files(imported,authority.owner_client_id);return imported;
   }
-  async replicate(){if(this.replicating||!this.directory.token||this.closing)return;this.replicating=true;try{for(const t of this.roster.threads){if(this.closing)break;if(t.owner_client_id===this.store.clientId)continue;try{await this.syncAuthority(t);}catch{/* An offline owner keeps the last authorized copy available. */}}}finally{this.replicating=false;}}
+  async replicate(){if(this.replicating||!this.directory.token||this.closing||this.roster.capabilities?.transferRequests)return;this.replicating=true;try{for(const t of this.roster.threads){if(this.closing)break;if(t.owner_client_id===this.store.clientId)continue;try{await this.syncAuthority(t);}catch{/* An offline owner keeps the last authorized copy available. */}}}finally{this.replicating=false;}}
   async files(doc,source){for(const a of doc.artifacts){try{this.store.object(doc,a.id);continue;}catch{}const object=await this.peer.send(doc.id,source,{kind:'object',artifactId:a.id});if(object.artifact.digest!==a.digest||object.artifact.size!==a.size)throw threadError('File manifest changed');const bytes=Buffer.from(object.content,'base64');if(bytes.length!==a.size)throw threadError('Incomplete file transfer');this.store.putObject(bytes,a.digest);}}
   organizations(){const appearance=this.store.preference('organizationAppearance')??{};return [...this.store.preference('localOrganizations')??[],...this.store.preference('organizations')??[]].map(org=>({...org,...(appearance[org.id]?{appearance:appearance[org.id]}:{})}));}
   ensureOrganizationTeam(organization){
@@ -235,6 +296,17 @@ export class ThreadClient {
       return this.memory.command(input.action,input);
     }
     if(input.action==='read'){
+      if(this.directory.token&&this.roster.capabilities?.transferRequests){
+        let authority;
+        try{authority=await this.authority(id);}
+        catch(error){if(!this.store.list().some(t=>t.id===id&&t.ownerClientId===this.store.clientId&&!t.staged))throw error;}
+        if(authority&&authority.owner_client_id!==this.store.clientId){
+          const view={id,title:authority.title||'Remote thread',kind:authority.kind,teamId:authority.team_id,organizationId:authority.organization_id,ownerClientId:authority.owner_client_id,ownerUserId:authority.owner_user_id,shared:true,metadataOnly:true,status:authority.run_status,messages:[],runs:[],artifacts:[]};
+          if(authority.kind==='team')return view;
+          try{const result=await this.peer.send(id,authority.owner_client_id,{kind:'conversation'});if(!Array.isArray(result.messages)||result.messages.length>10001)throw threadError('Invalid conversation');return {...view,messages:result.messages.map(({id,authorId,kind,text,createdAt})=>({id,authorId,kind,text,createdAt}))};}
+          catch(error){return {...view,unavailable:error.status===403?'You no longer have access to this thread.':'The source machine is unavailable. Conversation text will load when it reconnects.'};}
+        }
+      }
       let doc;
       try{doc=await this.sync(id);}catch(e){
         const authority=this.roster.threads.find(t=>t.id===id),owner=this.roster.clients.find(c=>c.id===authority?.owner_client_id);
@@ -245,7 +317,7 @@ export class ThreadClient {
         if(doc.ownerClientId!==this.store.clientId||doc.shared)doc.unavailable=e.status===403?'You no longer have access to this thread.':e.status===502?"Bees can't be reached right now.":!e.status||e.status===408?connectionMessage:e.message;
       }
       await this.options.recoverActivity?.(this.store,doc);
-      return {...this.store.get(id),teamId:doc.teamId??this.store.preference(`team:${id}`),...(doc.unavailable?{unavailable:doc.unavailable}:{}),frozen:doc.ownerClientId===this.store.clientId&&!!this.store.preference(`frozen:${id}`)};
+      return {...this.store.get(id),teamId:doc.teamId??this.store.preference(`team:${id}`),integrationSnapshot:!!this.store.preference(`integrationSnapshot:${id}`),...(doc.unavailable?{unavailable:doc.unavailable}:{}),frozen:doc.ownerClientId===this.store.clientId&&!!this.store.preference(`frozen:${id}`)};
     }
     if(input.action==='leave'){
       // the roster row, since a team whose owner never came online has no copy here
@@ -270,9 +342,35 @@ export class ThreadClient {
     if(input.action==='transfer'){
       const frozen=this.store.preference(`frozen:${id}`);
       if(!frozen)await this.registerThread(id);
-      const checkpoint=frozen?{document:this.store.document(id),digest:checkpointDigest(this.store.document(id))}:this.store.prepareTransfer(id);
-      try{await this.directory.request(`/threads/${id}/transfer`,{targetClientId:input.targetClientId,epoch:checkpoint.document.epoch,digest:checkpoint.digest});await this.peer.send(id,input.targetClientId,{kind:'checkpoint',document:checkpoint.document});await this.refresh();return {offered:true};}
+      const authority=await this.authority(id),target=this.roster.clients.find(c=>c.id===input.targetClientId);
+      if(!target||target.revoked_at)throw threadError('Choose an enrolled client',409);
+      let checkpoint=frozen?{document:this.store.document(id),digest:checkpointDigest(this.store.document(id))}:this.store.prepareTransfer(id),integrations;
+      try{
+        const previous=checkpoint.document.integrationTransfer;
+        if(frozen&&previous){
+          if(previous.clientId!==input.targetClientId)throw threadError('Cancel the pending transfer before choosing another client');
+          integrations=await this.options.integrations.transferCheckpoint(this.store,id,previous.digest);
+        }else{
+          const document={...checkpoint.document};delete document.integrationTransfer;
+          if(this.options.integrations&&target.user_id===this.directory.user?.id){
+            integrations=await this.options.integrations.exportTransfer(this.store,id);
+            document.integrationTransfer={digest:checkpointDigest(integrations),clientId:target.id};
+            await this.options.integrations.transferCheckpoint(this.store,id,document.integrationTransfer.digest,integrations);
+          }
+          if(canonical(document)!==canonical(checkpoint.document)){document.revision++;this.store.save(document);checkpoint={document,digest:checkpointDigest(document)};}
+        }
+        await this.directory.request(`/threads/${id}/transfer`,{targetClientId:input.targetClientId,epoch:checkpoint.document.epoch,digest:checkpoint.digest});await this.peer.send(id,input.targetClientId,{kind:'checkpoint',document:checkpoint.document,...(integrations?{integrations}:{})});await this.refresh();return {offered:true};}
       catch(e){throw threadError('Transfer is pending. Keep this client running and retry delivery. '+e.message,409);}
+    }
+    if(input.action==='requestTransfer'){
+      const authority=await this.authority(id);
+      if(!this.roster.capabilities?.transferRequests)throw threadError('Update Bees Server to request a transfer here',409);
+      const result=await this.directory.request(`/threads/${id}/transfer/request`,{});
+      this.store.preference(`requestedTransfer:${id}`,{epoch:Number(authority.epoch),sourceClientId:authority.owner_client_id});
+      await this.refresh();return result;
+    }
+    if(input.action==='transferDecision'){
+      const result=await this.directory.request(`/threads/${id}/transfer/decision`,{decision:input.decision});await this.refresh();return result;
     }
     if(input.action==='cancelTransfer'){await this.directory.request(`/threads/${id}/transfer/cancel`,{});this.store.preference(`frozen:${id}`,false);await this.refresh();return this.store.document(id);}
     if(input.action==='acceptTransfer'){
@@ -280,10 +378,23 @@ export class ThreadClient {
       if(!doc.staged&&!this.store.get(id).staged)throw threadError('Wait for the source client to deliver the checkpoint',409);
       if(checkpointDigest(doc)!==authority.transfer_digest)throw threadError('Checkpoint verification failed');
       await this.files(doc,authority.owner_client_id);
+      if(authority.team_id){const team=this.roster.threads.find(t=>t.id===authority.team_id);if(team)await this.syncAuthority(team);}
+      if(doc.integrationTransfer){
+        const integrations=this.options.integrations;
+        if(!integrations||doc.integrationTransfer.clientId!==this.store.clientId||authority.owner_user_id!==this.directory.user?.id)throw threadError('MCP transfer is unavailable on this client',409);
+        const payload=await integrations.transferCheckpoint(this.store,id,doc.integrationTransfer.digest);
+        await integrations.installTransfer(this.store,id,payload);
+      }
       const accepted=await this.directory.request(`/threads/${id}/transfer/accept`,{epoch:doc.epoch,digest:authority.transfer_digest});
+      if(doc.integrationTransfer)this.options.integrations.activateTransfer(this.store,id);
       const result=this.store.activateTransfer(id,accepted,authority.transfer_digest);this.store.preference(`frozen:${id}`,false);await this.refresh();return result;
     }
-    const authority=this.roster.threads.find(t=>t.id===id);const local=this.store.list().find(t=>t.id===id);
+    let authority=this.roster.threads.find(t=>t.id===id);
+    if(this.roster.capabilities?.transferRequests&&authority?.kind==='thread'&&authority.owner_client_id!==this.store.clientId){
+      authority=await this.authority(id);
+      if(authority.owner_client_id!==this.store.clientId)throw threadError('Transfer this thread here before changing or running it',409);
+    }
+    const local=this.store.list().find(t=>t.id===id);
     if(authority&&authority.owner_client_id!==this.store.clientId)return this.peer.send(id,authority.owner_client_id,{kind:'command',command:input});
     if(!local)throw threadError('Thread unavailable',404);
     return this.localCommand(id,input,this.directory.user?.id??'local');

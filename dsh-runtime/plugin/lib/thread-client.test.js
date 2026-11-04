@@ -7,6 +7,28 @@ import {randomUUID} from 'node:crypto';
 import {ThreadClient} from './thread-client.js';
 import {DEFAULT_WORKFLOW,CHAT_WORKFLOW,WORKFLOW_TEMPLATES,processName} from './thread-workflow.js';
 
+test('opening a remote thread loads conversation text without files, execution state, MCP settings or a stored replica',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'bees-conversation-preview-')),client=new ThreadClient(root),owner=new ThreadClient(join(root,'owner'));
+ try{
+  const original=owner.store.create('Research','alice');owner.store.message(original.id,randomUUID(),'Conversation text','alice');
+  owner.store.mutate(original.id,randomUUID(),d=>{d.shared=true;d.instructions='Private execution instructions';d.messages[0].files=[randomUUID()];});
+  const authority={id:original.id,title:'Research',kind:'thread',team_id:randomUUID(),owner_client_id:owner.store.clientId,owner_user_id:'alice',epoch:1,run_status:'idle'};
+  client.directory.token='client-token';client.directory.user={id:'alice'};client.refresh=async()=>{};
+  client.roster={capabilities:{transferRequests:true},threads:[authority],participants:[],clients:[]};
+  const calls=[];
+  client.peer={send:async(id,target,input)=>{calls.push(input.kind);assert.equal(target,owner.store.clientId);return owner.receive({thread_id:id,epoch:1},input);}};
+  const preview=await client.command({action:'read',threadId:original.id});
+  assert.deepEqual(calls,['conversation']);assert.equal(preview.messages[0].text,'Conversation text');
+  assert.equal(preview.messages[0].files,undefined);assert.deepEqual(preview.artifacts,[]);assert.deepEqual(preview.runs,[]);assert.equal(preview.instructions,undefined);
+  assert.equal(client.store.list().some(row=>row.id===original.id),false);assert.equal(client.store.preference(`integrations:${original.id}`),null);
+  await client.replicate();assert.deepEqual(calls,['conversation']);
+  await assert.rejects(client.command({action:'run',threadId:original.id,operationId:randomUUID(),text:'Run remotely'}),/Transfer/);
+  const own=client.store.create('Local work','alice');client.store.message(own.id,randomUUID(),'Available offline','alice');
+  client.refresh=async()=>{throw Object.assign(Error('Server offline'),{status:503});};
+  assert.equal((await client.command({action:'read',threadId:own.id})).messages[0].text,'Available offline');
+ }finally{client.store.close();owner.store.close();await rm(root,{recursive:true,force:true});}
+});
+
 test('a first read preserves sync failures, recovers when the owner returns, and retains cached work offline',async()=>{
  const root=await mkdtemp(join(tmpdir(),'bees-first-sync-')),client=new ThreadClient(join(root,'web')),owner=new ThreadClient(join(root,'owner'));
  try{
