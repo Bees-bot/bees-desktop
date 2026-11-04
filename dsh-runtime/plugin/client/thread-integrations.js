@@ -77,9 +77,15 @@ export function IntegrationSettings({ threadId, canManage, signedIn, onSignIn, r
     h('div', { className: 'bc-addon-heading' }, h('h3', null, 'MCP add-ons'),
       data.servers.some(server => server.catalogId !== 'composio') ? h('button', { onClick: () => perform(load) }, 'Refresh') : null),
     ...data.servers.filter(server => server.catalogId !== 'composio').map(server => h('div', { className: 'bc-card bc-addon-row', key: server.id },
-      h('div', null, h('strong', null, server.label), h('small', null, server.serverName)),
+      h('div', null, h('strong', null, server.label), h('small', null, server.serverName),
+        server.needsSetup ? h('small', null, 'Setup required on this machine. Check the command and dependencies, then enable it here.') : null,
+        server.needsSetup ? h('code', null, server.transport === 'stdio' ? [server.command, ...server.args].join(' ') : server.url) : null),
       h('div', { className: 'bc-actions' }, h('label', { className: 'bc-check' }, h('input', {
-        type: 'checkbox', checked: server.enabled, onChange: event => change('toggleIntegration', { serverId: server.id, enabled: event.target.checked }),
+        type: 'checkbox', checked: server.enabled && !server.needsSetup, onChange: async event => {
+          const enabled=event.target.checked;
+          if(enabled&&server.needsSetup&&!await confirmAction(`Enable ${server.label} on this machine? Make sure its command, dependencies, and local paths are ready.`, 'Enable here'))return;
+          change('toggleIntegration', { serverId: server.id, enabled });
+        },
       }), 'Enabled'), h('button', { onClick: async () => { if (await confirmAction(`Remove ${server.label}? Bees stops using it here.`, 'Remove')) change('removeIntegration', { serverId: server.id }); } }, 'Remove')))),
     h('details', { className: 'bc-form bc-mcp-add' }, h('summary', null, 'Add an MCP add-on'),
     h('label', { className: 'bc-field' }, h('span', null, 'Add-on'),

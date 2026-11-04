@@ -7,12 +7,13 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials';
 import { MCP_CATALOG, catalogEntry, isBrowserCatalog } from './mcp-catalog.js';
 import { defaultBrowser, browserSetup, browserWarning, browserPort, startAgentBrowser, showAgentBrowser, closeAgentBrowser } from './agent-browser.js';
 import { googleConsent } from './google-consent.js';
-import { threadError, text, validId } from './thread-store.js';
+import { threadError, text, validId, checkpointDigest } from './thread-store.js';
 import { agentAllowsServer } from './thread-agents.js';
 
 const lib = dirname(fileURLToPath(import.meta.url));
 const secretRef = (store, threadId, serverId, key) => credentialRef(`BEES_THREAD_${store.clientId}_${threadId}_${serverId}_${key}`.replace(/[^a-zA-Z0-9_]/g, '_').toUpperCase());
 const rows = (store, id) => store.preference(`integrations:${id}`) ?? [];
+const machineBound = server => server.transport === 'stdio' || server.url && /^(localhost|.*\.localhost|127\..*|0\.0\.0\.0|\[::1\])$/.test(new URL(server.url).hostname);
 export const browserMode = (store, id, available = !process.env.BEES_HOSTED_CLIENT && defaultBrowser()) => {
   const saved = store.preference(`browser:${id}`);
   return available && saved !== 'own' && (!available.fallback || saved === 'personal') ? 'personal' : 'own';
@@ -21,7 +22,7 @@ export const browserMode = (store, id, available = !process.env.BEES_HOSTED_CLIE
 export class ThreadIntegrations {
   constructor(ctx) { this.ctx = ctx; this.consents = new Set(); }
   snapshot(store, id) {
-    const team = store.teamFor(id), servers = rows(store, id);
+    const team = store.preference(`integrationSnapshot:${id}`) ? null : store.teamFor(id), servers = rows(store, id);
     const inherited = team && !servers.some(server => server.catalogId === 'composio')
       ? rows(store, team.id).filter(server => server.catalogId === 'composio').map(server => ({ ...server, inherited: true })) : [];
     return { servers: [...servers, ...inherited], catalog: MCP_CATALOG, browser: {
@@ -81,7 +82,7 @@ export class ThreadIntegrations {
         for (const key of server.secretNames) await this.ctx.credentials.unset(secretRef(store, id, server.id, key));
       } else {
         if (typeof input.enabled !== 'boolean') throw threadError('Choose whether to turn this add-on on');
-        store.preference(`integrations:${id}`, current.map(row => row.id === server.id ? { ...row, enabled: input.enabled } : row));
+        store.preference(`integrations:${id}`, current.map(row => row.id === server.id ? { ...row, enabled: input.enabled, ...(input.enabled ? { needsSetup: false } : {}) } : row));
       }
     } else throw threadError('Unknown integration command');
     return this.snapshot(store, id);
@@ -129,6 +130,7 @@ export class ThreadIntegrations {
     return url.href;
   }
   async config(store, id, server, cwd, browserId=id, directory, selection = {}) {
+    if (server.needsSetup) throw threadError(`Set up ${server.label} on this machine before using it`);
     if (server.catalogId === 'composio') {
       if (!directory?.token || directory.authRequired) throw threadError('Sign in to Bees to use connected apps', 401);
       const result = await directory.request('/composio/session', selection);
@@ -162,11 +164,75 @@ export class ThreadIntegrations {
     return { transport: 'stdio', serverName: server.serverName, command: server.command === '{node}' ? process.execPath : server.command,
       args, env: credentials, cwd, failOnStartupError: true };
   }
+  connections(store, id) {
+    const team=store.preference(`integrationSnapshot:${id}`)?null:store.teamFor(id),localServers=rows(store,id),teamServers=(team?rows(store,team.id):[]).filter(server=>server.catalogId!=='composio'||!localServers.some(row=>row.catalogId==='composio'));
+    return [...teamServers.map(server=>({server,scope:team.id})),...localServers.filter(server=>!teamServers.some(row=>row.serverName===server.serverName)).map(server=>({server,scope:id}))];
+  }
+  async exportTransfer(store, id) {
+    const servers=[];
+    for(const {server,scope} of this.connections(store,id)){
+      const {needsSetup,...definition}=server,secrets=Object.create(null);
+      for(const key of server.secretNames){
+        const hit=await this.ctx.credentials.resolve(secretRef(store,scope,server.id,key));
+        if(hit?.value)secrets[key]=hit.value;
+      }
+      servers.push({server:definition,secrets});
+    }
+    // The nonce prevents a directory-visible digest from becoming a credential guessing oracle.
+    return {nonce:randomUUID(),servers};
+  }
+  validateTransfer(payload) {
+    const invalid=()=>{throw threadError('Invalid transferred MCP settings');};
+    if(!payload||typeof payload!=='object'||Object.keys(payload).some(k=>!['nonce','servers'].includes(k))||!Array.isArray(payload.servers)||payload.servers.length>80||Buffer.byteLength(JSON.stringify(payload))>2_000_000)invalid();
+    validId(payload.nonce);
+    const names=new Set(),ids=new Set();
+    for(const item of payload.servers){
+      if(!item||Object.keys(item).some(k=>!['server','secrets'].includes(k)))invalid();
+      const {server:s,secrets}=item;
+      if(!s||Object.keys(s).some(k=>!['id','serverName','label','catalogId','transport','command','args','url','secretNames','enabled','accountSelections'].includes(k)))invalid();
+      validId(s.id);text(s.label,120);
+      if(ids.has(s.id)||names.has(s.serverName)||typeof s.serverName!=='string'||!/^[a-zA-Z0-9_-]{1,32}$/.test(s.serverName)||typeof s.enabled!=='boolean'||!['stdio','streamable-http'].includes(s.transport)||typeof s.catalogId!=='string'||s.catalogId&&!catalogEntry(s.catalogId))invalid();
+      ids.add(s.id);names.add(s.serverName);
+      if(typeof s.command!=='string'||s.command.length>1000||s.transport==='stdio'&&!s.command.trim()||!Array.isArray(s.args)||s.args.length>80||s.args.some(a=>typeof a!=='string'||a.length>4000))invalid();
+      if(s.catalogId!=='composio'&&s.transport==='streamable-http')this.url(s.url);
+      else if(s.url!=='')invalid();
+      if(!Array.isArray(s.secretNames)||s.secretNames.length>40||s.secretNames.some(k=>typeof k!=='string'||!/^[a-zA-Z_][a-zA-Z0-9_-]{0,80}$/.test(k))||new Set(s.secretNames.map(k=>k.replaceAll('-','_').toUpperCase())).size!==s.secretNames.length)invalid();
+      if(!secrets||typeof secrets!=='object'||Array.isArray(secrets)||Object.entries(secrets).some(([k,v])=>!s.secretNames.includes(k)||typeof v!=='string'||v.length>16000))invalid();
+      if(s.accountSelections!==undefined){
+        if(s.catalogId!=='composio'||!s.accountSelections||typeof s.accountSelections!=='object'||Array.isArray(s.accountSelections)||Object.keys(s.accountSelections).length>100)invalid();
+        for(const [toolkit,accounts] of Object.entries(s.accountSelections)){
+          if(!/^[a-z0-9][a-z0-9_-]{0,79}$/.test(toolkit)||!Array.isArray(accounts)||accounts.length>100||accounts.some(a=>!a||Object.keys(a).some(k=>!['id','label'].includes(k))||!/^ca_[a-zA-Z0-9_-]{1,100}$/.test(a.id)||typeof a.label!=='string'||a.label.length>200)||new Set(accounts.map(a=>a.id)).size!==accounts.length)invalid();
+        }
+      }
+    }
+  }
+  async transferCheckpoint(store,id,digest,payload) {
+    const ref=secretRef(store,id,digest,'CHECKPOINT');
+    if(payload!==undefined){
+      this.validateTransfer(payload);
+      if(checkpointDigest(payload)!==digest)throw threadError('MCP checkpoint verification failed');
+      await this.ctx.credentials.set(ref,JSON.stringify(payload));return payload;
+    }
+    const hit=await this.ctx.credentials.resolve(ref);
+    if(!hit?.value)throw threadError('Wait for the source client to deliver the MCP checkpoint',409);
+    const saved=JSON.parse(hit.value);this.validateTransfer(saved);
+    if(checkpointDigest(saved)!==digest)throw threadError('MCP checkpoint verification failed');
+    return saved;
+  }
+  async installTransfer(store,id,payload) {
+    this.validateTransfer(payload);
+    // Credential writes finish before settings become visible or execution ownership is accepted.
+    for(const {server,secrets} of payload.servers)for(const [key,value] of Object.entries(secrets))await this.ctx.credentials.set(secretRef(store,id,server.id,key),value);
+    store.preference(`pendingIntegrations:${id}`,payload.servers.map(({server})=>({...server,...(machineBound(server)?{needsSetup:true}:{})})));
+  }
+  activateTransfer(store,id) {
+    const pending=store.preference(`pendingIntegrations:${id}`);
+    if(pending!==null){store.preference(`integrations:${id}`,pending);store.preference(`integrationSnapshot:${id}`,true);store.preference(`pendingIntegrations:${id}`,null);}
+  }
   async mount(agentCtx, store, id, cwd, agent, directory) {
-    const team=store.teamFor(id),localServers=rows(store,id),teamServers=(team?rows(store,team.id):[]).filter(server=>server.catalogId!=='composio'||!localServers.some(row=>row.catalogId==='composio'));
-    const connections=[...teamServers.map(server=>({server,scope:team.id})),...localServers.filter(server=>!teamServers.some(row=>row.serverName===server.serverName)).map(server=>({server,scope:id}))];
+    const team=store.teamFor(id),connections=this.connections(store,id);
     const accountTools=[];
-    for (const {server,scope} of connections.filter(({server}) => server.enabled && agentAllowsServer(agent, server.serverName))) {
+    for (const {server,scope} of connections.filter(({server}) => server.enabled && !server.needsSetup && agentAllowsServer(agent, server.serverName))) {
       const browserId=team&&store.preference(`browser:${team.id}`)!==null?team.id:scope;
       const selections=server.catalogId==='composio'?Object.entries(server.accountSelections??{}):[];
       const instances=[{server,selection:selections.length?{excludedToolkits:selections.map(([toolkit])=>toolkit)}:{}}];

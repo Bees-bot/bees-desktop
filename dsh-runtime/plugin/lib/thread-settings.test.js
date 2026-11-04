@@ -109,6 +109,40 @@ test('MCP connections are per thread, credentials never enter thread documents, 
   } finally {store.close();rmSync(root,{recursive:true,force:true});}
 });
 
+test('explicit MCP transfer carries effective cloud and remote settings, stages credentials privately and requires local setup',async()=>{
+  const roots=[mkdtempSync(join(tmpdir(),'bees-mcp-source-')),mkdtempSync(join(tmpdir(),'bees-mcp-target-'))],vaults=[new Map(),new Map()];
+  const integrations=vaults.map(vault=>new ThreadIntegrations({credentials:{set:async(k,v)=>vault.set(k,v),resolve:async k=>({value:vault.get(k)}),unset:async k=>vault.delete(k)}}));
+  const clients=roots.map((root,i)=>new ThreadClient(root,{integrations:integrations[i]}));
+  try{
+    const [source,target]=clients,[a,b]=integrations,team=source.store.get(source.store.preference('defaultTeam')),thread=await source.command({action:'create'});
+    await a.save(source.store,team.id,{catalogId:'composio'});
+    const cloud=source.store.preference(`integrations:${team.id}`)[0];
+    source.store.preference(`integrations:${team.id}`,[{...cloud,accountSelections:{gmail:[{id:'ca_work',label:'Work'}]}}]);
+    await a.save(source.store,team.id,{serverName:'docs',transport:'streamable-http',url:'https://docs.example/mcp',secrets:{Authorization:'private-transfer-token'}});
+    await a.save(source.store,thread.id,{serverName:'local',transport:'stdio',command:'node',args:['/source/only/server.js'],secrets:{API_KEY:'local-key'}});
+    assert.equal(target.store.preference(`integrations:${thread.id}`),null);
+    assert.equal(vaults[1].size,0,'Sign-in or viewing metadata does not copy credentials');
+    const payload=await a.exportTransfer(source.store,thread.id),digest=(await import('./thread-store.js')).checkpointDigest(payload);
+    assert.equal(payload.servers.length,3);
+    assert(!JSON.stringify(source.store.document(thread.id)).includes('private-transfer-token'));
+    await b.transferCheckpoint(target.store,thread.id,digest,payload);
+    assert.equal(target.store.preference(`integrations:${thread.id}`),null,'Delivery is staged until ownership is accepted');
+    await assert.rejects(b.transferCheckpoint(target.store,thread.id,digest,{...payload,nonce:randomUUID()}),/verification/);
+    const saved=await b.transferCheckpoint(target.store,thread.id,digest);
+    await b.installTransfer(target.store,thread.id,saved);
+    assert.equal(target.store.preference(`integrations:${thread.id}`),null);
+    b.activateTransfer(target.store,thread.id);
+    const rows=target.store.preference(`integrations:${thread.id}`),remote=rows.find(s=>s.serverName==='docs'),local=rows.find(s=>s.serverName==='local');
+    assert.equal((await b.config(target.store,thread.id,remote,roots[1])).headers.Authorization,'private-transfer-token');
+    assert.deepEqual(rows.find(s=>s.catalogId==='composio').accountSelections,{gmail:[{id:'ca_work',label:'Work'}]});
+    assert.equal(local.needsSetup,true);
+    await assert.rejects(b.config(target.store,thread.id,local,roots[1]),/Set up/);
+    assert(!JSON.stringify(rows).includes('private-transfer-token'));
+    const invalid=structuredClone(payload);invalid.servers[0].server.command=42;assert.throws(()=>b.validateTransfer(invalid),/Invalid/);
+    const duplicate=structuredClone(payload);duplicate.servers.push(duplicate.servers[0]);assert.throws(()=>b.validateTransfer(duplicate),/Invalid/);
+  }finally{clients.forEach(c=>c.store.close());roots.forEach(root=>rmSync(root,{recursive:true,force:true}));}
+});
+
 test('team integrations are shared across local threads, preserve legacy credentials and reject remote installation',async()=>{
   const root=mkdtempSync(join(tmpdir(),'bees-team-integrations-')),secrets=new Map();
   const integrations=new ThreadIntegrations({credentials:{set:async(k,v)=>secrets.set(JSON.stringify(k),v),resolve:async k=>({value:secrets.get(JSON.stringify(k))}),unset:async k=>secrets.delete(JSON.stringify(k))}});
