@@ -60,7 +60,9 @@ export class ThreadClient {
     this.roster={threads:[],participants:[],clients:[],invitations:[]};
   }
   async start(){this.memory?.start();this.identity=await peerCertificate(this.store.root);this.peer=await new ThreadPeer(this.directory,this.identity,(grant,input)=>this.receive(grant,input)).start();if(process.env.BEES_THREAD_SESSION&&!this.directory.token)await this.directory.resume(process.env.BEES_THREAD_SESSION,this.identity.cert,this.peer.endpoints);delete process.env.BEES_THREAD_SESSION;this.timer=setInterval(()=>{void this.refresh().then(()=>this.replicate()).catch(e=>{this.connectionError=e.message;});void this.scheduled();},5000);this.timer.unref();if(this.directory.token)await this.refresh().catch(e=>{this.connectionError=e.message;});return this;}
-  async refresh(){if(!this.directory.token||this.closing)return;const heartbeat=await this.directory.request('/heartbeat',{endpoints:this.peer.endpoints});if(heartbeat.user)this.directory.user=heartbeat.user;
+  // callers share one refresh that starts after the one in flight, so it still sees what they just changed
+  refresh(){return this.queued??=Promise.resolve(this.running).catch(()=>{}).then(()=>{this.queued=null;return this.running=this.pull();});}
+  async pull(){if(!this.directory.token||this.closing)return;const heartbeat=await this.directory.request('/heartbeat',{endpoints:this.peer.endpoints});if(heartbeat.user)this.directory.user=heartbeat.user;
     // a thread shared while the roster was in flight is missing from it, so only judge threads shared before the fetch
     const sharedBefore=new Set(this.store.list().filter(t=>t.shared).map(t=>t.id));this.roster=await this.directory.request('/');if(this.closing)return;this.connectionError=null;
     // a copy of someone else's thread that left the roster was deleted or taken from us, so it goes too
