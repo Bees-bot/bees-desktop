@@ -222,7 +222,7 @@ export class ThreadMemory {
     if (this.timer || this.stop.signal.aborted) return;
     const tick = () => {
       this.defaults();
-      if (this.database.prepare("SELECT 1 FROM bees_memory_settings WHERE enabled = 1 AND url = ? LIMIT 1").get(LOCAL_MEMORY_URL))
+      if (this.local?.downloadSupport || this.database.prepare("SELECT 1 FROM bees_memory_settings WHERE enabled = 1 AND url = ? LIMIT 1").get(LOCAL_MEMORY_URL))
         this.local?.ensure();
       for (const { team_id } of this.database.prepare("SELECT team_id FROM bees_memory_settings WHERE enabled = 1").all())
         void this.flush(team_id).catch(() => {});

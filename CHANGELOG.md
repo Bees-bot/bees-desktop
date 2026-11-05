@@ -2,6 +2,10 @@
 
 Notable changes, newest first. Dates are release dates.
 
+## Unreleased
+
+- Reduce desktop installer size by downloading LibreOffice, Sherpa/ONNX voice libraries, and `uv` in the background after first launch. Python and Hindsight install afterward while Bees remains usable.
+
 ## 0.3.2
 
 - Show purchased and reserved AI balances in dollars and allow credit purchases starting at $1.

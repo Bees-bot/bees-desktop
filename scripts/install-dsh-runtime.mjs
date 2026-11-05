@@ -83,3 +83,28 @@ const hmrEntry = path.join(
   runtimeRoot, "node_modules", "@deepseek-ai", "dsh-client-modules", "lib", "index.js",
 );
 await writeFile(hmrEntry, batchDshClientModules(await readFile(hmrEntry, "utf8")));
+
+// Keep upstream engine validation, but resolve downloaded binaries outside the signed app.
+const officeEntry = path.join(runtimeRoot, 'node_modules', '@deepseek-ai', 'libreoffice-kit', 'lib', 'index.js');
+await writeFile(officeEntry, timeDshStartup(await readFile(officeEntry, 'utf8'), [[
+  '\tconst details = platform === "linux" ? report() : {};',
+  '\tconst beesRuntime = await (await import("../../../../plugin/lib/optional-runtime.js")).prepareOptionalRuntime();\n' +
+  '\tif (beesRuntime) {\n' +
+  '\t\tconst external = createRequire(join(beesRuntime, "package.json"));\n' +
+  '\t\tresolvePackage = (name) => external.resolve(`${name}/package.json`);\n' +
+  '\t\tpackageExists = (name) => (external.resolve.paths(name) ?? []).some((directory) => lstatSync(join(directory, name), { throwIfNoEntry: false }) !== void 0);\n' +
+  '\t}\n\tconst details = platform === "linux" ? report() : {};',
+]]));
+
+// Keep the worker's native inference unchanged; only its module location moves to the verified cache.
+const speechWorker = path.join(runtimeRoot, 'node_modules', '@deepseek-ai', 'dsh-experimental-speech-to-text-sensevoice', 'lib', 'worker.js');
+await writeFile(speechWorker, timeDshStartup(await readFile(speechWorker, 'utf8'), [[
+  'import { createRequire } from "node:module";',
+  'import { createRequire } from "node:module";\nimport { join as beesJoin } from "node:path";\nlet beesSpeechRuntime;',
+], [
+  '\tdelete process.env.DSH_SPEECH_TOKEN;',
+  '\tdelete process.env.DSH_SPEECH_TOKEN;\n\tbeesSpeechRuntime = await (await import("../../../../plugin/lib/optional-runtime.js")).prepareOptionalRuntime();',
+], [
+  'const sherpa = createRequire(import.meta.url)("sherpa-onnx-node");',
+  'const sherpa = createRequire(beesSpeechRuntime ? beesJoin(beesSpeechRuntime, "package.json") : import.meta.url)("sherpa-onnx-node");',
+]]));

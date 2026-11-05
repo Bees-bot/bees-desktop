@@ -7,7 +7,7 @@ for (const [phase, script, args = []] of [
   ["build.frontend", "../node_modules/vite/bin/vite.js", ["build"]],
   ["build.dsh.install", "./install-dsh-runtime.mjs"],
   ["build.dsh.plugins", "./stage-dsh-plugin.mjs"],
-  ["build.bundled-runtimes", "./prepare-dsh-runtime.mjs"]
+  ["build.bundled-runtimes", "./prepare-dsh-runtime.mjs", process.argv.slice(2)]
 ]) {
   const started = performance.now();
   const log = (event) => console.error(`[bees-startup] ${JSON.stringify({

@@ -33,6 +33,15 @@ Nothing builds on a tag or a schedule.
 Local copies are kept in `src-tauri/target/releases/<version>/`, with checksums
 verified before upload.
 
+Desktop builds also produce `Bees_runtime_<version>_<platform>_<arch>.tar.gz` support
+packages containing LibreOffice, Sherpa/ONNX voice libraries, `uv`, and their licenses. Mac support packages are
+signed and notarized before their checksum is embedded in the app. The release must
+include all four support packages: installed clients download the exact archive
+named by their bundled manifest, never a moving `latest` runtime. First launch prepares
+these tools, Python, and Hindsight in the background without delaying chat. Cached
+support stays outside the signed app under the Client's `runtimes` directory.
+Development and headless builds retain their bundled tools.
+
 Compilation runs on GitHub. After publishing, install the DMG and open it once.
 A build that packages fine can still fail to start.
 

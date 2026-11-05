@@ -4,7 +4,7 @@
   "version": "0.3.2",
   "identifier": "bot.bees.desktop",
   "build": {
-    "beforeBuildCommand": "node scripts/prepare-desktop.mjs",
+    "beforeBuildCommand": "node scripts/prepare-desktop.mjs --downloadable",
     "beforeDevCommand": "node scripts/prepare-desktop.mjs",
     "frontendDist": "../dist"
   },
@@ -41,7 +41,7 @@
       "entitlements": "entitlements.plist"
     },
     "resources": {
-      "../dsh-runtime": "dsh-runtime",
+      "../.desktop-runtime/dsh-runtime": "dsh-runtime",
       "../NOTICE": "licenses/NOTICE",
       "../LICENSE-APACHE": "licenses/LICENSE-APACHE",
       "../LICENSE-MIT": "licenses/LICENSE-MIT",

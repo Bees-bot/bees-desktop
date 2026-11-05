@@ -78,6 +78,7 @@ $notes"
   try ci
   while IFS= read -r -d '' file; do
     case "$file" in
+      */Bees_runtime_*.tar.gz) destination="$(basename "$file")" ;;
       */macos-15/Bees.app.tar.gz) destination="Bees_${version}_aarch64.app.tar.gz" ;;
       */macos-15-intel/Bees.app.tar.gz) destination="Bees_${version}_x64.app.tar.gz" ;;
       */macos-15/*.dmg) destination="Bees_${version}_aarch64.dmg" ;;
@@ -88,7 +89,7 @@ $notes"
       *) die "unexpected build artifact: $file" ;;
     esac
     mv "$file" "$out/$destination"
-  done < <(find "$out/ci" \( -name "Bees.app.tar.gz" -o -name "*.dmg" -o -name "*-setup.exe" -o -name "*.AppImage" -o -name "*.deb" \) -print0)
+  done < <(find "$out/ci" \( -name 'Bees_runtime_*.tar.gz' -o -name "Bees.app.tar.gz" -o -name "*.dmg" -o -name "*-setup.exe" -o -name "*.AppImage" -o -name "*.deb" \) -print0)
 
   updates=("Bees_${version}_aarch64.app.tar.gz" "Bees_${version}_x64.app.tar.gz" "Bees_${version}_x64-setup.exe" "Bees_${version}_amd64.AppImage" "Bees_${version}_amd64.deb")
   # 2.12 binds each signature to the version, which requireSignedVersion in tauri.conf.json checks
@@ -106,7 +107,8 @@ $notes"
       "linux-x86_64-deb": entry(`Bees_${version}_amd64.deb`),
     } }, null, 2));
   ' > "$out/bees-update.json"
-  files=("Bees_${version}_aarch64.dmg" "Bees_${version}_x64.dmg" "${updates[@]}")
+  support=("Bees_runtime_${version}_darwin_arm64.tar.gz" "Bees_runtime_${version}_darwin_x64.tar.gz" "Bees_runtime_${version}_linux_x64.tar.gz" "Bees_runtime_${version}_win32_x64.tar.gz")
+  files=("Bees_${version}_aarch64.dmg" "Bees_${version}_x64.dmg" "${updates[@]}" "${support[@]}")
   (cd "$out" && shasum -a 256 "${files[@]}" > SHA256SUMS)
   downloads=src-tauri/target/releases/$version
   mkdir -p "$downloads"
@@ -122,6 +124,7 @@ $notes"
   for file in "${files[@]}" bees-update.json SHA256SUMS; do
     # GitHub displays the label after #; filenames stay stable for updates and install checks.
     case "$file" in
+      Bees_runtime_*.tar.gz) label="Downloaded by Bees - document, voice and memory support" ;;
       *_aarch64.dmg) label="Mac (Apple silicon) - installer (.dmg)" ;;
       *_x64.dmg) label="Mac (Intel) - installer (.dmg)" ;;
       *_x64-setup.exe) label="Windows (Intel/AMD 64-bit) - installer (.exe)" ;;

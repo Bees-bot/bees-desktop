@@ -3,27 +3,15 @@ import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { createServer } from "node:http";
-import { basename, dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { step } from "./startup.js";
+import { optionalRuntimeManifest, prepareOptionalRuntime, runtimeRoot } from './optional-runtime.js';
 
 export const LOCAL_MEMORY_URL = "http://127.0.0.1:8898";
 const version = "0.10.0";
-
-// Dev runs this file from dsh-runtime/plugin, the app from node_modules/@bees/dsh-plugin,
-// so find the runtime by name where the one copy of uv lives.
-function runtimeRoot() {
-  let directory = dirname(fileURLToPath(import.meta.url));
-  while (basename(directory) !== "dsh-runtime") {
-    const parent = dirname(directory);
-    if (parent === directory) throw new Error("Local memory installer is missing. Rebuild or reinstall Bees.");
-    directory = parent;
-  }
-  return directory;
-}
 
 /** One device-local service; workspace banks and delivery queues remain separate. */
 export class LocalMemory {
@@ -35,6 +23,7 @@ export class LocalMemory {
     this.status = "Preparing local memory";
     this.stop = new AbortController();
     this.retryAt = 0;
+    this.downloadSupport = Boolean(optionalRuntimeManifest());
   }
 
   models() {
@@ -143,19 +132,25 @@ export class LocalMemory {
       return;
     }
     await mkdir(this.directory, { recursive: true });
-    await this.target();
+    // Headless deployments retain their bundled tools and existing model-gated setup.
+    if (!this.downloadSupport) await this.target();
     const env = this.environment();
     const suffix = process.platform === "win32" ? ".exe" : "";
     const executable = join(env.UV_TOOL_BIN_DIR, `hindsight-api${suffix}`);
     if (!existsSync(executable)) {
-      this.status = "Installing local memory dependencies (first launch requires internet)";
-      const uv = join(runtimeRoot(), "memory-runtime", `uv${suffix}`);
+      this.status = 'Downloading document, voice and memory support (first launch requires internet)';
+      const support = await prepareOptionalRuntime(this.stop.signal);
+      this.stop.signal.throwIfAborted();
+      const uv = join(support ?? runtimeRoot(), "memory-runtime", `uv${suffix}`);
       if (!existsSync(uv)) throw new Error("Local memory installer is missing. Rebuild or reinstall Bees.");
+      this.status = "Installing Python and Hindsight in the background";
       this.spawn(uv, ["tool", "install", "--python", "3.12", "--with", "flashrank", `hindsight-api-slim[local-onnx,embedded-db]==${version}`], env);
       const result = await step("background.hindsight.install", () => this.exit);
       this.child = undefined;
       if (result.error || result.code !== 0) throw new Error("Local memory installation failed; check internet access. Bees will retry automatically.");
     }
+    // Office support prepares independently even when memory was installed by an earlier release.
+    await prepareOptionalRuntime(this.stop.signal);
     this.stop.signal.throwIfAborted();
     await step("background.hindsight.find-local-model", () => this.target());
     this.status = "Starting local Hindsight and its embedding model";

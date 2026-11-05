@@ -8,6 +8,7 @@ import {
   mkdtempSync,
   openSync,
   readdirSync,
+  readFileSync,
   readSync,
   rmSync
 } from "node:fs";
@@ -15,6 +16,7 @@ import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { publishArtifact } from "./publish-artifact.mjs";
 import { prepareMemoryInstaller } from "./prepare-memory-runtime.mjs";
+import { packageOptionalRuntime, stageDesktopRuntime } from "./package-optional-runtime.mjs";
 import "./check-node.mjs";
 
 const desktopRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -180,3 +182,12 @@ await prepareMemoryInstaller(resolve(desktopRoot, 'dsh-runtime', 'memory-runtime
 if (target === hostTarget) pruneRuntime(resolve(desktopRoot, "dsh-runtime"));
 
 signMacBundledRuntime(resolve(desktopRoot, "dsh-runtime"));
+
+if (!headless) {
+  const runtime = resolve(desktopRoot, 'dsh-runtime');
+  const version = JSON.parse(readFileSync(resolve(desktopRoot, 'package.json'), 'utf8')).version;
+  const manifest = process.argv.includes('--downloadable')
+    ? packageOptionalRuntime(runtime, resolve(desktopRoot, 'src-tauri/target/optional-runtime'), version, target, identity)
+    : null;
+  stageDesktopRuntime(runtime, resolve(desktopRoot, '.desktop-runtime/dsh-runtime'), manifest);
+}
