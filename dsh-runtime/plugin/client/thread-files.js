@@ -1,5 +1,7 @@
 import { h, useEffect, useRef, useState, MarkdownText } from './runtime.js';
 import { droppedFiles, when } from './common.js';
+import { SharedFolderSettings } from './thread-folders.js';
+import { sharedControlFile } from '../lib/shared-folder-files.js';
 
 const mediaTypes = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', avif: 'image/avif', bmp: 'image/bmp', ico: 'image/x-icon',
@@ -49,7 +51,7 @@ function FilePreview({ file }) {
 
 const outputNote = file => [file.path, file.createdAt && when(file.createdAt)].filter(part => part && part !== file.name).join(' · ');
 
-export function ThreadFiles({ thread, canWrite, busy, onAttach, onPreview, preview, onClosePreview }) {
+export function ThreadFiles({ thread, canWrite, busy, onAttach, onPreview, preview, onClosePreview, sharedFolders }) {
   const [folder, setFolder] = useState('');
   const fileInput = useRef(), folderInput = useRef();
   const prefix = folder ? folder + '/' : '';
@@ -67,16 +69,18 @@ export function ThreadFiles({ thread, canWrite, busy, onAttach, onPreview, previ
     const path = file.path ?? file.name;
     return path.startsWith(prefix) && !path.slice(prefix.length).includes('/');
   });
-  const upload = event => { const files = [...event.target.files]; event.target.value = ''; void onAttach(files, prefix); };
+  const attach = files => { const selected = files.filter(file => !(file.webkitRelativePath || file.name).split('/').some(sharedControlFile)); if (selected.length) void onAttach(selected, prefix); };
+  const upload = event => { const files = [...event.target.files]; event.target.value = ''; attach(files); };
   const fileButton = file => h('button', { className: 'bc-file' + (file.authorId === 'bees' ? ' bc-file-output' : ''), key: file.id, 'aria-pressed': preview?.id === file.id, onClick: () => onPreview(file) },
     h('span', null, h('strong', null, file.name), h('small', null, file.size < 1024 ? `${file.size} B` : file.size < 1048576 ? `${(file.size / 1024).toFixed(1)} KB` : `${(file.size / 1048576).toFixed(1)} MB`),
       file.authorId === 'bees' && outputNote(file) ? h('small', null, outputNote(file)) : null));
   return h('section', { className: 'bc-files' },
     h('div', { className: 'bc-form bc-files-list' },
+    sharedFolders ? h(SharedFolderSettings, { ...sharedFolders, threadId: thread.id }) : null,
     h('div', { className: 'bc-file-groups' },
       h('section', { className: 'bc-form', 'aria-label': 'Input files',
         onDragOver: event => { if (canWrite && !busy && event.dataTransfer.types.includes('Files')) event.preventDefault(); },
-        onDrop: event => { const dropped = canWrite && !busy ? droppedFiles(event) : []; if (dropped.length) { event.preventDefault(); void onAttach(dropped, prefix); } } },
+        onDrop: event => { const dropped = canWrite && !busy ? droppedFiles(event) : []; if (dropped.length) { event.preventDefault(); attach(dropped); } } },
         h('div', { className: 'bc-actions bc-files-toolbar' },
           h('h3', null, 'Input files'),
           h('nav', { className: 'bc-actions bc-breadcrumbs', 'aria-label': 'Folder path' },

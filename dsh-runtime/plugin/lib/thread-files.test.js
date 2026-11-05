@@ -84,3 +84,18 @@ test('Previews report unavailable files and pass cancellation to fetch', async t
   });
   await assert.rejects(readFilePreview({ name: 'missing.txt', url: '/file' }, controller.signal), /File has not arrived yet/);
 });
+
+test('folder uploads omit shared identity and probe files while retaining ordinary files', () => {
+  configureRuntime(name => ({ react: { ...React, useState: initial => [initial, () => {}], useRef: () => ({ current: null }) }, 'react-dom': {}, '@deepseek-ai/dsh-client-ui-primitives': {} })[name], { hosted: true });
+  try {
+    const calls = [], tree = ThreadFiles({ thread: { id: 'team', artifacts: [] }, canWrite: true, onAttach: (...args) => calls.push(args) });
+    const nodes = node => !node || typeof node !== 'object' ? [] : [node, ...React.Children.toArray(node.props?.children).flatMap(nodes)];
+    const upload = nodes(tree).find(node => node.type === 'input' && node.props.type === 'file');
+    const ordinary = { name: 'report.csv', webkitRelativePath: 'Project/report.csv' };
+    const target = { value: 'folder', files: [ordinary,
+      { name: '.bees-shared.json', webkitRelativePath: 'Project/.bees-shared.json' },
+      { name: '.BEES-PROBE-client-id' }, { name: '.bees-ack-client-id' }] };
+    upload.props.onChange({ target });
+    assert.deepEqual(calls, [[[ordinary], '']]); assert.equal(target.value, '');
+  } finally { configureRuntime(name => ({ react: React, 'react-dom': {}, '@deepseek-ai/dsh-client-ui-primitives': {} })[name], { hosted: true }); }
+});

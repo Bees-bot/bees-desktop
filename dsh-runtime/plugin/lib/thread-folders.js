@@ -99,6 +99,7 @@ export class ThreadFolders {
       }
     }
     this.save(state);
+    for (const client of clients) for (const row of client.store.list()) client.sharedFolders?.initialize(client.store.get(row.id));
     for (const row of moved) {
       if (!row.store.preference('executionFolder:' + row.id)) row.store.preference('executionFolder:' + row.id, row.prior);
       row.store.preference('runFolder:' + row.id, row.path);

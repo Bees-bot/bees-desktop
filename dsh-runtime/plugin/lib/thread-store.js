@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { validateTeamAgents } from './thread-agents.js';
 import { DEFAULT_WORKFLOW, WORKFLOW_TEMPLATES, isValidWorkflow } from './thread-workflow.js';
 import { validateReview, reviewValueErrors } from './thread-review.js';
+import { sharedControlFile } from './shared-folder-files.js';
 
 export const digest = value => createHash('sha256').update(value).digest('hex');
 export const canonical = value => JSON.stringify(value, (_key,v) => v && typeof v==='object' && !Array.isArray(v)
@@ -62,6 +63,12 @@ export class ThreadStore {
     if(doc.integrationTransfer!==undefined){const t=doc.integrationTransfer;if(!t||Object.keys(t).some(k=>!['digest','clientId'].includes(k))||!/^[a-f0-9]{64}$/.test(t.digest))throw threadError('Invalid MCP transfer checkpoint');validId(t.clientId);}
     if(doc.draft!==undefined&&typeof doc.draft!=='boolean'||doc.draftTouched!==undefined&&typeof doc.draftTouched!=='boolean'||doc.titleManuallySet!==undefined&&typeof doc.titleManuallySet!=='boolean'||doc.draftPrompt!==undefined&&(typeof doc.draftPrompt!=='string'||doc.draftPrompt.length>100000))throw threadError('Invalid thread draft');
     if(doc.organizationId!==undefined)validId(doc.organizationId);
+    if(doc.sharedFolders!==undefined){
+      const folders=doc.sharedFolders;
+      if(!folders||typeof folders!=='object'||Array.isArray(folders)||Object.keys(folders).length!==2||!Object.hasOwn(folders,'input')||!Object.hasOwn(folders,'output'))throw threadError('Invalid shared folder identities');
+      validId(folders.input);validId(folders.output);
+      if(folders.input===folders.output)throw threadError('Input and output folders must have separate identities');
+    }
     if(doc.processId!==undefined&&doc.processId!=='custom'&&!WORKFLOW_TEMPLATES.some(t=>t.id===doc.processId))validId(doc.processId);
     if(doc.processes!==undefined){
       if(doc.kind!=='team'||!Array.isArray(doc.processes)||doc.processes.length>40||new Set(doc.processes.map(p=>p?.id)).size!==doc.processes.length)throw threadError('Invalid team processes');
@@ -119,7 +126,7 @@ export class ThreadStore {
   objectPath(hash){if(!/^[a-f0-9]{64}$/.test(hash))throw threadError('Invalid file digest');return join(this.root,'objects',hash);}
   putObject(bytes,expected){if(!Buffer.isBuffer(bytes)||bytes.length>fileSizeLimit())throw threadError(`Files must be ${MAX_FILE_BYTES / 1_000_000} MB or smaller`);const hash=digest(bytes);if(expected&&expected!==hash)throw threadError('File integrity check failed');const path=this.objectPath(hash);if(existsSync(path)){if(lstatSync(path).isSymbolicLink()||digest(readFileSync(path))!==hash)throw threadError('Stored file failed verification');}else writeFileSync(path,bytes,{flag:'wx',mode:0o600});return hash;}
   object(doc,id){const artifact=doc.artifacts.find(a=>a.id===validId(id));if(!artifact)throw threadError('File is not part of this thread',404);const path=this.objectPath(artifact.digest);if(!existsSync(path)||lstatSync(path).isSymbolicLink())throw threadError('File has not arrived on this client',404);const bytes=readFileSync(path);if(bytes.length!==artifact.size||digest(bytes)!==artifact.digest)throw threadError('File integrity check failed');return {artifact,bytes};}
-  attach(id,operation,name,bytes,authorId,path){name=text(name,200);if(/[\x00-\x1f/\\]/.test(name)||['.','..'].includes(name))throw threadError('Invalid attachment name');if(path!==undefined)threadPath(path);const doc=this.get(id);this.writable(doc);validId(operation);if(doc.operations?.includes(operation))return this.document(id);const hash=this.putObject(bytes);return this.mutate(id,operation,doc=>{if(doc.draft)doc.draftTouched=true;doc.artifacts.push({id:operation,name,...(path!==undefined?{path}:{}),digest:hash,size:bytes.length,authorId,createdAt:now()});});}
+  attach(id,operation,name,bytes,authorId,path){name=text(name,200);if(sharedControlFile(name)||typeof path==='string'&&path.split('/').some(sharedControlFile))throw threadError('Bees shared folder markers and probes are not attachments');if(/[\x00-\x1f/\\]/.test(name)||['.','..'].includes(name))throw threadError('Invalid attachment name');if(path!==undefined)threadPath(path);const doc=this.get(id);this.writable(doc);validId(operation);if(doc.operations?.includes(operation))return this.document(id);const hash=this.putObject(bytes);return this.mutate(id,operation,doc=>{if(doc.draft)doc.draftTouched=true;doc.artifacts.push({id:operation,name,...(path!==undefined?{path}:{}),digest:hash,size:bytes.length,authorId,createdAt:now()});});}
   import(doc,authority,{staged=false}={}) {
     this.validate(doc);
     if((doc.kind??'thread')!==(authority.kind??'thread')||(doc.teamId??null)!==(authority.team_id??null))throw threadError('Snapshot does not match its team authority',409);

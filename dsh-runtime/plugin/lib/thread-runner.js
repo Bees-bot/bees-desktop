@@ -7,6 +7,7 @@ import { SessionId } from '@deepseek-ai/dsh-session';
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
 import { setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy';
 import { threadError } from './thread-store.js';
+import { sharedControlFile } from './shared-folder-files.js';
 import { scopeOf } from '@deepseek-ai/dsh-scope';
 import { FileLocks } from './file-locks.js';
 import { mountFileLocks, FILE_LOCK_INSTRUCTIONS } from './file-lock-tools.js';
@@ -128,7 +129,7 @@ export class ThreadRunner {
     // skip a file the thread already holds unchanged, so a follow-up returns only what changed and a failed run's files still come back
     const outputRoot=resolve(cwd,'outputs'),added=new Set(),returned=new Map(store.document(thread.id).artifacts.flatMap(a=>a.path?.startsWith('results/')?[[a.path.split('/').slice(2).join('/'),a.digest]]:[]));
     const collect=directory=>{for(const entry of readdirSync(directory,{withFileTypes:true})){
-      const path=join(directory,entry.name),stat=lstatSync(path);if(stat.isSymbolicLink())continue;
+      const path=join(directory,entry.name),stat=lstatSync(path);if(stat.isSymbolicLink()||sharedControlFile(entry.name))continue;
       // a built app's installed packages and build cache are not results, and one 150 MB cache file failed a finished run
       if(entry.isDirectory()){if(!['node_modules','.next','.git'].includes(entry.name))collect(path);continue;}if(!entry.isFile())continue;
       // a built app's .env holds its keys, which must not become thread files
