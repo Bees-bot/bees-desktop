@@ -120,7 +120,9 @@ jobs:
           ln -s /Applications "$staging/Applications"
           mkdir -p src-tauri/target/release/bundle/dmg
           dmg_path=src-tauri/target/release/bundle/dmg/Bees.dmg
-          hdiutil create -quiet -ov -volname Bees -srcfolder "$staging" -format UDZO "$dmg_path"
+          # converting a finished image to lzma takes the arm dmg from 206 MB to 71 MB, building lzma straight from the folder only gets 176 MB
+          hdiutil create -quiet -ov -volname Bees -srcfolder "$staging" -format UDRW "$RUNNER_TEMP/Bees-rw.dmg"
+          hdiutil convert -quiet "$RUNNER_TEMP/Bees-rw.dmg" -format ULMO -ov -o "$dmg_path"
           codesign --sign "$APPLE_SIGNING_IDENTITY" --timestamp "$dmg_path"
           try xcrun notarytool submit "$dmg_path" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
           try xcrun stapler staple "$dmg_path"
