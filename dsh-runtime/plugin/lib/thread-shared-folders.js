@@ -43,13 +43,16 @@ export class ThreadSharedFolders {
     return join(root, 'teams', team?.id ?? 'Default', ...(doc.kind === 'team' ? [] : ['threads', doc.id]), 'shared', purpose);
   }
   directory(path) {
-    if (typeof path !== 'string' || !isAbsolute(path) || !lstatSync(path).isDirectory()) throw threadError('Choose an existing absolute folder on this computer');
+    if (typeof path !== 'string' || !isAbsolute(path) || !lstatSync(path, { throwIfNoEntry: false })?.isDirectory()) throw Object.assign(threadError('Choose an existing absolute folder on this computer'), { code: 'ENOENT' });
     const actual = realpathSync(path), privateRoot = realpathSync(this.folders.privateRoot);
     if (inside(actual, privateRoot) || inside(privateRoot, actual)) throw threadError('Choose a shared folder separate from Bees private application data');
     return actual;
   }
   verify(doc, purpose, directory) {
-    const path = this.directory(directory), marker = readControl(join(path, SHARED_FOLDER_MARKER));
+    const path = this.directory(directory), file = join(path, SHARED_FOLDER_MARKER);
+    // a teammate often picks the folder before their file service has synced the marker
+    if (!lstatSync(file, { throwIfNoEntry: false })) throw Object.assign(threadError('This folder has no Bees marker yet. Wait for it to finish syncing, or use Set up folder on the computer that owns it.'), { code: 'ENOENT' });
+    const marker = readControl(file);
     if (canonical(marker) !== canonical(this.identity(doc, purpose))) throw threadError('This folder belongs to a different team, thread, or input/output folder');
     return path;
   }
@@ -138,7 +141,9 @@ export class ThreadSharedFolders {
         this.verify(doc, purpose, directory);
         if (!observed) {
           // The token travels only through the external folder, never through Bees peer transport.
-          const result = await this.client.peer.send(doc.id, targetClientId, { kind: 'shared-folder-probe', purpose, probeId: id });
+          // an offline client never answers, so stop at this check's deadline instead of the transport's minute
+          const result = await Promise.race([this.client.peer.send(doc.id, targetClientId, { kind: 'shared-folder-probe', purpose, probeId: id }), delay(end - Date.now())])
+            .catch(error => { if (error.status !== 408) throw error; });
           observed = result?.observed === true;
         }
         try { if (canonical(readControl(acknowledgment)) === canonical(probe)) return { status: 'confirmed', targetClientId, checkedAt: new Date().toISOString() }; }
@@ -149,7 +154,7 @@ export class ThreadSharedFolders {
     } finally {
       let cleanupFailed = false;
       // shortcut: unreachable peers may retain probes; add expired-file cleanup when background synchronization is introduced.
-      await this.client.peer.send(doc.id, targetClientId, { kind: 'shared-folder-probe', purpose, probeId: id, cleanup: true }).catch(() => {});
+      void this.client.peer.send(doc.id, targetClientId, { kind: 'shared-folder-probe', purpose, probeId: id, cleanup: true }).catch(() => {});
       for (const path of [challenge, acknowledgment]) try { unlinkSync(path); } catch (error) { if (error.code !== 'ENOENT') cleanupFailed = true; }
       if (cleanupFailed) throw threadError('Some temporary synchronization check files could not be removed. Check the shared folder permissions.');
     }
