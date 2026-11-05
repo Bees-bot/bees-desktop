@@ -22,7 +22,7 @@ export function RootFolderSettings({ ctx, folders, organization, busy, onSave })
       h('p', { className: 'bc-muted' }, 'Stop running work before changing folders. Existing run files are copied and their originals are kept. Private account data stays in Bees application storage.'),
       h('div', { className: 'bc-actions' },
         // dsh picks its chooser once at boot, so a phone added later by phone sharing would open finder on the mac
-        window.__TAURI__ || location.hostname === '127.0.0.1' ? h('button', { type: 'button', disabled: busy, onClick: choose }, 'Choose folder') : null,
+        location.hostname === '127.0.0.1' ? h('button', { type: 'button', disabled: busy, onClick: choose }, 'Choose folder') : null,
         h('button', { type: 'submit', className: 'bc-primary', disabled: busy || !directory.trim() }, 'Save folder'),
         row?.override ? h('button', { type: 'button', disabled: busy, onClick: () => onSave({ directory: null, organizationId: organization.id }) }, 'Use global root folder') : null)) : null,
     error ? h('p', { role: 'alert' }, error) : null);
