@@ -286,7 +286,7 @@ fn wait_ready(child: &mut Sidecar, url: &str, log: &Path, attempts: u32) -> Resu
 }
 
 /// What any sidecar needs to find its files and trust a certificate.
-const BASE_ENVIRONMENT: [&str; 16] = [
+const BASE_ENVIRONMENT: [&str; 17] = [
     "PATH",
     "HOME",
     "USER",
@@ -303,6 +303,8 @@ const BASE_ENVIRONMENT: [&str; 16] = [
     "SSL_CERT_FILE",
     "SSL_CERT_DIR",
     "NODE_EXTRA_CA_CERTS",
+    // tailscaled on a non-default socket, which phone sharing passes on as --socket
+    "TAILSCALE_SOCKET",
 ];
 
 /// Model credentials, only for the runtime that talks to a model.
