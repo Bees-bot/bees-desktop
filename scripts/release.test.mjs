@@ -5,6 +5,19 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 
+test('desktop dev commands wait for runtime staging before Cargo reads resources', () => {
+  const root = new URL('../', import.meta.url);
+  for (const name of ['tauri.conf.json', 'tauri.dev.conf.json']) {
+    const config = JSON.parse(readFileSync(new URL(`src-tauri/${name}`, root), 'utf8'));
+    assert.equal(config.build.beforeDevCommand.wait, true, name);
+    assert.match(config.build.beforeDevCommand.script, /scripts\/prepare-desktop\.mjs$/);
+  }
+  const command = execFileSync('make', ['-n', 'bees'], { cwd: root, encoding: 'utf8' });
+  const override = JSON.parse(command.match(/--config '([^']+)'/)[1]);
+  assert.equal(override.build.beforeDevCommand.wait, true, 'make bees must preserve the startup barrier');
+  assert.match(override.build.beforeDevCommand.script, /scripts\/prepare-desktop\.mjs$/);
+});
+
 test('Mac packaging retries transient Apple errors and still fails after repeated errors', () => {
   const workflow = readFileSync(new URL('../.github/workflows/build.yml', import.meta.url), 'utf8');
   const retry = workflow.match(/^\s+(try\(\) \{[^\n]+\})$/m);

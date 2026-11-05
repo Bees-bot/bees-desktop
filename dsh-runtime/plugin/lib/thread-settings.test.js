@@ -12,6 +12,68 @@ import { scheduleDraft } from '../client/thread-schedule-form.js';
 import { validOrganizationAppearance,iconForeground } from './organization-appearance.js';
 import { THEME_PRESETS, nextThemePreset } from './themes.js';
 
+test('old servers list connections by toolkit with app and account pagination', async () => {
+  const calls = [];
+  const directory = { token: 'test', request: async path => {
+    calls.push(path);
+    const url = new URL(path, 'http://test');
+    if (url.pathname === '/composio/accounts' && !url.searchParams.has('toolkit')) throw Object.assign(Error('Choose a valid Composio app'), { status: 400 });
+    if (url.pathname.endsWith('/toolkits')) return url.searchParams.has('cursor')
+      ? { items: [{ slug: 'github', name: 'GitHub', connected: true }], nextCursor: null }
+      : { items: [{ slug: 'gmail', name: 'Gmail', connected: true }, { slug: 'slack', connected: false }], nextCursor: 'apps2' };
+    if (url.searchParams.get('toolkit') === 'gmail') return url.searchParams.has('cursor')
+      ? { items: [{ id: 'ca_a' }, { id: 'ca_b' }], nextCursor: null }
+      : { items: [{ id: 'ca_a' }], nextCursor: 'accounts2' };
+    return { items: [{ id: 'ca_c' }], nextCursor: null };
+  } };
+  const result = await new ThreadIntegrations({}).command(null, 'team', { action: 'composioConnections' }, directory);
+  assert.deepEqual(result, { items: [
+    { id: 'ca_a', toolkit: 'gmail', appName: 'Gmail' }, { id: 'ca_b', toolkit: 'gmail', appName: 'Gmail' }
+  ], legacy: true, nextCursor: 'apps2' });
+  assert.equal(calls.length, 4, 'Return Gmail before requesting more catalog pages');
+  const next = await new ThreadIntegrations({}).command(null, 'team', { action: 'composioConnections', cursor: result.nextCursor }, directory);
+  assert.deepEqual(next, { items: [{ id: 'ca_c', toolkit: 'github', appName: 'GitHub' }], legacy: true, nextCursor: null });
+  await assert.rejects(new ThreadIntegrations({}).command(null, 'team', { action: 'composioConnections' },
+    { token: 'test', request: async () => { throw Object.assign(Error('Sign in'), { status: 401 }); } }), { status: 401 });
+});
+
+test('old-server account management gives an actionable update error', async () => {
+  for (const action of ['identifyComposioAccount', 'disconnectComposioAccount']) {
+    await assert.rejects(new ThreadIntegrations({}).command(null, 'team', { action, toolkit: 'gmail', accountId: 'ca_a', alias: 'Work' },
+      { token: 'test', request: async () => { throw Object.assign(Error('Not found'), { status: 404 }); } }), /Update Bees Server/);
+  }
+});
+
+test('connection names work on old servers, survive restart, and reach the agent with the original account ID', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'bees-account-names-'));
+  let store = new ThreadStore(root);
+  const integrations = new ThreadIntegrations({});
+  const directory = { token: 'test', url: 'https://bees.example', request: async (path, body) => {
+    if (path.startsWith('/composio/accounts')) return { items: [{ id: 'ca_one', toolkit: 'hubspot', label: '247892721', status: 'ACTIVE' }] };
+    assert.equal(path, '/composio/session');
+    return { token: 'session', ...body };
+  } };
+  try {
+    const thread = store.create('Test');
+    await integrations.save(store, thread.id, { catalogId: 'composio' });
+    await integrations.command(store, thread.id, { action: 'setComposioAccounts', toolkit: 'hubspot', accounts: [{ id: 'ca_one', label: '247892721' }] }, directory);
+    await integrations.command(store, thread.id, { action: 'renameComposioAccount', toolkit: 'hubspot', accountId: 'ca_one', alias: ' Client A CRM ' }, directory);
+    await assert.rejects(integrations.command(store, thread.id, { action: 'renameComposioAccount', toolkit: 'hubspot', accountId: 'ca_other', alias: 'client a crm' }, directory), /distinct name/);
+    await assert.rejects(integrations.command(store, thread.id, { action: 'renameComposioAccount', toolkit: 'hubspot', accountId: 'ca_one', alias: 'x'.repeat(101) }, directory), /at most 100/);
+    store.close(); store = new ThreadStore(root);
+    const page = await integrations.command(store, thread.id, { action: 'composioConnections' }, directory);
+    assert.equal(page.items[0].label, 'Client A CRM');
+    assert.equal(page.items[0].displayName, 'Client A CRM');
+    const mounted = [];
+    const mapping = await integrations.mount({ plugin(_plugin, config) { mounted.push(config); return Promise.resolve(); } }, store, thread.id, root, undefined, directory);
+    assert.equal(mapping[0].label, 'Client A CRM');
+    assert.equal(mapping[0].accountId, 'ca_one');
+    assert.equal(mounted[1].headers.Authorization, 'Bearer session');
+    await integrations.command(store, thread.id, { action: 'renameComposioAccount', toolkit: 'hubspot', accountId: 'ca_one', alias: '' }, directory);
+    assert.equal((await integrations.command(store, thread.id, { action: 'composioConnections' }, directory)).items[0].label, '247892721');
+  } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
 test('folder attachments retain nested paths and reject escapes, collisions and invalid imported folders', () => {
   const root=mkdtempSync(join(tmpdir(),'bees-folders-')), store=new ThreadStore(root);
   try {
@@ -96,6 +158,10 @@ test('MCP connections are per thread, credentials never enter thread documents, 
     assert.deepEqual(await integrations.command(store,first.id,{action:'composioApps',search:'gmail'},browseDirectory),{items:[{slug:'gmail',name:'Gmail'}]});
     assert.deepEqual(await integrations.command(store,first.id,{action:'connectComposioApp',toolkit:'gmail'},browseDirectory),{url:'https://connect.composio.dev/link/lt_test'});
     assert.deepEqual(requests,[{path:'/composio/toolkits?search=gmail',body:undefined},{path:'/composio/link',body:{toolkit:'gmail'}}]);
+    await integrations.command(store,first.id,{action:'composioConnections',cursor:'page 2'},browseDirectory);
+    await integrations.command(store,first.id,{action:'disconnectComposioAccount',toolkit:'gmail',accountId:'ca_work'},browseDirectory);
+    assert.deepEqual(requests.slice(-2),[{path:'/composio/accounts?cursor=page+2',body:undefined},{path:'/composio/disconnect',body:{toolkit:'gmail',accountId:'ca_work'}}]);
+    await assert.rejects(integrations.command(store,first.id,{action:'disconnectComposioAccount',toolkit:'gmail',accountId:'ca_work'},{}),/Sign in to Bees/);
     await assert.rejects(integrations.command(store,first.id,{action:'composioApps'},{}),/Sign in to Bees/);
     await assert.rejects(integrations.command(store,first.id,{action:'composioApps'},{...browseDirectory,authRequired:true}),/Sign in to Bees/);
     await integrations.command(store,first.id,{action:'toggleIntegration',serverId:composio.id,enabled:false});
