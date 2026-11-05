@@ -87,7 +87,8 @@ export class ThreadRunner {
     });
   }
   async execute({thread,team,run,signal,store,directory}){
-    const creditOrganizationId=team?.organizationId??thread.organizationId??null;
+    // only an organization you're a member of can pay, so a team guest or a local organization uses your own credits
+    const organizationId=team?.organizationId??thread.organizationId,creditOrganizationId=store.preference('organizations')?.some(org=>org.id===organizationId)?organizationId:null;
     await this.credits?.sync({store,directory},false,creditOrganizationId);
     const workflow=run.workflow??DEFAULT_WORKFLOW;
     const chat=workflow.length===1&&workflow[0].kind==='chat',chatKey=chatSessionKey(thread.id);
