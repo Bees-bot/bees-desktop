@@ -5,7 +5,10 @@
   "identifier": "bot.bees.desktop",
   "build": {
     "beforeBuildCommand": "node scripts/prepare-desktop.mjs --downloadable",
-    "beforeDevCommand": "node scripts/prepare-desktop.mjs",
+    "beforeDevCommand": {
+      "script": "node scripts/prepare-desktop.mjs",
+      "wait": true
+    },
     "frontendDist": "../dist"
   },
   "app": {

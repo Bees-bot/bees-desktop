@@ -13,6 +13,8 @@ import { agentAllowsServer } from './thread-agents.js';
 const lib = dirname(fileURLToPath(import.meta.url));
 const secretRef = (store, threadId, serverId, key) => credentialRef(`BEES_THREAD_${store.clientId}_${threadId}_${serverId}_${key}`.replace(/[^a-zA-Z0-9_]/g, '_').toUpperCase());
 const rows = (store, id) => store.preference(`integrations:${id}`) ?? [];
+const accountNames = store => store?.preference('composioAccountNames') ?? {};
+const accountLabel = (store, toolkit, account) => accountNames(store)[toolkit + ':' + account.id] ?? account.label;
 const machineBound = server => server.transport === 'stdio' || server.url && /^(localhost|.*\.localhost|127\..*|0\.0\.0\.0|\[::1\])$/.test(new URL(server.url).hostname);
 export const browserMode = (store, id, available = !process.env.BEES_HOSTED_CLIENT && defaultBrowser()) => {
   const saved = store.preference(`browser:${id}`);
@@ -32,8 +34,54 @@ export class ThreadIntegrations {
   }
   async command(store, id, input, directory) {
     if (input.action === 'integrations') return this.snapshot(store, id);
-    if (['composioApps', 'composioAccounts', 'connectComposioApp', 'setComposioAccounts'].includes(input.action)) {
+    if (['composioApps', 'composioAccounts', 'composioConnections', 'identifyComposioAccount','renameComposioAccount', 'disconnectComposioAccount', 'connectComposioApp', 'setComposioAccounts'].includes(input.action)) {
       if (!directory?.token || directory.authRequired) throw threadError('Sign in to Bees to connect your apps', 401);
+      const named = (page, toolkit) => ({ ...page, items: page.items.map(account => {
+        const name = accountNames(store)[(toolkit ?? account.toolkit) + ':' + account.id];
+        return name ? { ...account, label: name, displayName: name } : account;
+      }) });
+      if (input.action === 'renameComposioAccount') {
+        if (typeof input.toolkit !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,79}$/.test(input.toolkit) ||
+            typeof input.accountId !== 'string' || !/^ca_[a-zA-Z0-9_-]{1,100}$/.test(input.accountId) ||
+            typeof input.alias !== 'string' || input.alias.length > 100) throw threadError('Use a connection name of at most 100 characters.');
+        const names = accountNames(store), key = input.toolkit + ':' + input.accountId, name = input.alias.trim();
+        if (name && Object.entries(names).some(([other, value]) => other !== key && other.startsWith(input.toolkit + ':') && value.toLowerCase() === name.toLowerCase())) throw threadError('Another connection for this app already has that name. Choose a distinct name.');
+        if (name) names[key] = name; else delete names[key];
+        store.preference('composioAccountNames', names);
+        return { ok: true };
+      }
+      if (input.action === 'composioConnections') {
+        const query = new URLSearchParams();
+        if (input.cursor) query.set('cursor', input.cursor);
+        try { return named(await directory.request('/composio/accounts?' + query)); }
+        catch (error) {
+          if (error.status !== 400 || !error.message.includes('Choose a valid Composio app')) throw error;
+          // Older servers require a toolkit. Return one catalog page instead of scanning every app.
+          const items = [], seenApps = new Set(), seenAccounts = new Set();
+          const cursor = input.cursor;
+          const apps = await directory.request('/composio/toolkits?' + new URLSearchParams({ search: '', ...(cursor ? { cursor } : {}) }));
+          for (const app of apps.items.filter(app => app.connected && !app.noAuth && !seenApps.has(app.slug))) {
+            seenApps.add(app.slug);
+            let accountCursor;
+            const cursors = new Set();
+            do {
+              const page = await directory.request('/composio/accounts?' + new URLSearchParams({ toolkit: app.slug, ...(accountCursor ? { cursor: accountCursor } : {}) }));
+              for (const account of page.items) if (!seenAccounts.has(account.id)) {
+                seenAccounts.add(account.id); items.push({ ...account, toolkit: app.slug, appName: app.name });
+              }
+              accountCursor = page.nextCursor;
+              if (accountCursor && cursors.has(accountCursor)) throw threadError('Account pagination did not advance. Try refreshing connections.');
+              cursors.add(accountCursor);
+            } while (accountCursor);
+          }
+          return named({ items, nextCursor: apps.nextCursor ?? null, legacy: true });
+        }
+      }
+      if (['identifyComposioAccount', 'disconnectComposioAccount'].includes(input.action)) {
+        try { return await directory.request(input.action === 'identifyComposioAccount' ? '/composio/identity' : '/composio/disconnect',
+          { toolkit: input.toolkit, accountId: input.accountId }); }
+        catch (error) { if (error.status === 404) throw threadError('Update Bees Server to manage connected accounts.', 424); throw error; }
+      }
       if (input.action === 'composioApps') {
         const query = new URLSearchParams({ search: input.search ?? '' });
         if (input.cursor) query.set('cursor', input.cursor);
@@ -42,7 +90,7 @@ export class ThreadIntegrations {
       if (input.action === 'composioAccounts') {
         const query = new URLSearchParams({ toolkit: input.toolkit ?? '' });
         if (input.cursor) query.set('cursor', input.cursor);
-        return directory.request('/composio/accounts?' + query);
+        return named(await directory.request('/composio/accounts?' + query), input.toolkit);
       }
       if (!rows(store, id).some(server => server.catalogId === 'composio' && server.enabled)) throw threadError('Enable app access for this team first');
       if (input.action === 'setComposioAccounts') {
@@ -53,6 +101,7 @@ export class ThreadIntegrations {
           ? { ...server, accountSelections: { ...server.accountSelections, [input.toolkit]: input.accounts.map(({ id, label }) => ({ id, label })) } } : server));
         return this.snapshot(store, id);
       }
+      if (input.alias && Object.entries(accountNames(store)).some(([key, value]) => key.startsWith(input.toolkit + ':') && value.toLowerCase() === String(input.alias).trim().toLowerCase())) throw threadError('Another connection for this app already has that name. Choose a distinct name.');
       return directory.request('/composio/link', { toolkit: input.toolkit, ...(input.alias ? { alias: input.alias } : {}) });
     }
     if (input.action === 'setBrowser') {
@@ -237,11 +286,12 @@ export class ThreadIntegrations {
       const selections=server.catalogId==='composio'?Object.entries(server.accountSelections??{}):[];
       const instances=[{server,selection:selections.length?{excludedToolkits:selections.map(([toolkit])=>toolkit)}:{}}];
       for(const [toolkit,accounts] of selections)for(const account of accounts){
+        const displayName=accountLabel(store,toolkit,account);
         const suffix=createHash('sha256').update(toolkit+'\0'+account.id).digest('hex').slice(0,12);
         const label=account.label.replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,10)||toolkit.slice(0,10);
         const serverName=`composio_${label}_${suffix}`;
         instances.push({server:{...server,serverName},selection:{toolkit,accountId:account.id}});
-        accountTools.push({serverName,toolkit,accountId:account.id,label:account.label});
+        accountTools.push({serverName,toolkit,accountId:account.id,label:displayName});
       }
       for(const instance of instances){
         const fiber = agentCtx.plugin(mcpClient, await this.config(store, scope, instance.server, cwd, browserId, directory, instance.selection));

@@ -304,7 +304,7 @@ export class ThreadClient {
       if(input.action==='probeSharedFolder')return this.sharedFolders.probe(doc,input.purpose,input.targetClientId);
       return this.sharedFolders.view(doc);
     }
-    if(['integrations','saveIntegration','toggleIntegration','removeIntegration','setBrowser','openBrowser','connectGoogle','composioApps','composioAccounts','connectComposioApp','setComposioAccounts'].includes(input.action)){
+    if(['integrations','saveIntegration','toggleIntegration','removeIntegration','setBrowser','openBrowser','connectGoogle','composioApps','composioAccounts','composioConnections','identifyComposioAccount','renameComposioAccount','disconnectComposioAccount','connectComposioApp','setComposioAccounts'].includes(input.action)){
       const doc=this.store.get(id);
       if(doc.kind==='team'){
         if(doc.shared){await this.authority(id);const role=this.roster.participants.find(p=>p.thread_id===id&&p.user_id===this.directory.user?.id)?.role;if(!['owner','editor'].includes(role))throw threadError('Team editor access required',403);}
