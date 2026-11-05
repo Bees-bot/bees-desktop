@@ -37,6 +37,9 @@ test('release collects the installers and update packages from all four build jo
     ['ubuntu-22.04/appimage/Bees Client.AppImage', 'amd64.AppImage'],
     ['ubuntu-22.04/deb/Bees Client.deb', 'amd64.deb'],
     ['windows-2025/nsis/Bees Client-setup.exe', 'x64-setup.exe'],
+    ...['darwin_arm64', 'darwin_x64', 'linux_x64', 'win32_x64'].map(platform => [
+      `support/Bees_runtime_0.3.1_${platform}.tar.gz`, `runtime_0.3.1_${platform}.tar.gz`
+    ]),
   ];
   for (const [source] of artifacts) {
     const path = join(out, 'ci', source);
@@ -49,9 +52,10 @@ test('release collects the installers and update packages from all four build jo
     version=0.3.1
     ${collect[0]}
   `, 'release-test', out]);
-  assert.deepEqual(readdirSync(out).sort(), ['ci', ...artifacts.map(([, target]) => `Bees_0.3.1_${target}`)].sort());
+  const destination = target => target.startsWith('runtime_') ? `Bees_${target}` : `Bees_0.3.1_${target}`;
+  assert.deepEqual(readdirSync(out).sort(), ['ci', ...artifacts.map(([, target]) => destination(target))].sort());
   for (const [source, target] of artifacts) {
-    assert.equal(readFileSync(join(out, `Bees_0.3.1_${target}`), 'utf8'), source);
+    assert.equal(readFileSync(join(out, destination(target)), 'utf8'), source);
   }
 });
 
@@ -100,6 +104,7 @@ test('release uploads have friendly labels without changing filenames', () => {
     ['Bees_0.9.0_x64-setup.exe', 'Windows (Intel/AMD 64-bit) - installer (.exe)'],
     ['Bees_0.9.0_amd64.AppImage', 'Linux (Intel/AMD 64-bit) - standalone app (.AppImage)'],
     ['Bees_0.9.0_amd64.deb', 'Linux (Intel/AMD 64-bit) - DEB installer (.deb)'],
+    ['Bees_runtime_0.9.0_darwin_arm64.tar.gz', 'Downloaded by Bees - document, voice and memory support'],
     ['bees-update.json', 'Automatic update only - manifest (.json)'],
     ['SHA256SUMS', 'SHA-256 checksums (not an installer)'],
   ];
