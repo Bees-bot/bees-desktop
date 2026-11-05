@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync,symlinkSync,mkdirSync,rmSync,readFileSync } from 'node:fs';
+import { mkdtempSync,symlinkSync,mkdirSync,rmSync,readFileSync,writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -94,6 +94,17 @@ test('run inputs preserve legacy names, resolve clashes, and retain team folders
     assert.equal(read('inputs/notes_.txt'),'sanitized');assert.equal(read('inputs/folder/nested.txt'),'nested');
     assert.equal(read('inputs/'+clash+'-folder'),'legacy');assert.equal(read('team-inputs/shared/team.txt'),'team');
   }finally{store.close();rmSync(root,{recursive:true,force:true});}
+});
+
+test('generated results exclude shared folder markers and probe files', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'bees-output-controls-')), store = new ThreadStore(root);
+  try {
+    const thread = store.create('Results'), run = { id: randomUUID(), workflow: [] };
+    const directory = join(root, 'runs', thread.id, run.id, 'outputs'); mkdirSync(directory, { recursive: true });
+    for (const name of ['.bees-shared.json', '.bees-probe-client', '.bees-ack-client', 'report.txt']) writeFileSync(join(directory, name), 'content');
+    await new ThreadRunner({}).execute({ thread, run, signal: new AbortController().signal, store });
+    assert.deepEqual(store.get(thread.id).artifacts.map(file => file.name), ['report.txt']);
+  } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
 test('parallel helpers queue human decisions without replacing another pending approval',async()=>{

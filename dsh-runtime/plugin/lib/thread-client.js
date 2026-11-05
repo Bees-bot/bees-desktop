@@ -13,6 +13,7 @@ import { recordChatReply } from './thread-session.js';
 import { normalizeThreadLayout } from './thread-layout.js';
 import { authConfig, serverOrigin } from './thread-auth.js';
 import { saveReviewDecision } from './thread-review-tool.js';
+import { ThreadSharedFolders } from './thread-shared-folders.js';
 
 export class DirectoryConnection {
   constructor(root,clientId){this.path=join(root,'directory.json');this.clientId=clientId;this.stop=new AbortController();if(existsSync(this.path))Object.assign(this,JSON.parse(readFileSync(this.path,'utf8')));this.url??=process.env.BEES_ACCOUNT_API_URL??'https://app.bees.bot';}
@@ -58,6 +59,7 @@ export class ThreadClient {
     for(const row of this.store.list())if(row.kind!=='team'&&!row.teamId)this.store.preference(`team:${row.id}`,this.store.preference('defaultTeam'));
     this.memory=options.memory?.(this.store);
     this.roster={threads:[],participants:[],clients:[],invitations:[]};
+    if(options.folders){this.sharedFolders=new ThreadSharedFolders(this,options.folders);for(const row of this.store.list())this.sharedFolders.initialize(this.store.get(row.id));}
   }
   async start(){this.memory?.start();this.identity=await peerCertificate(this.store.root);this.peer=await new ThreadPeer(this.directory,this.identity,(grant,input)=>this.receive(grant,input)).start();if(process.env.BEES_THREAD_SESSION&&!this.directory.token)await this.directory.resume(process.env.BEES_THREAD_SESSION,this.identity.cert,this.peer.endpoints);delete process.env.BEES_THREAD_SESSION;this.timer=setInterval(()=>{void this.refresh().then(()=>this.replicate()).catch(e=>{this.connectionError=e.message;});void this.scheduled();},5000);this.timer.unref();if(this.directory.token)await this.refresh().catch(e=>{this.connectionError=e.message;});return this;}
   // callers share one refresh that starts after the one in flight, so it still sees what they just changed
@@ -140,8 +142,15 @@ export class ThreadClient {
     const invite=await this.directory.request(`/threads/${id}/invitations`,{email:input.email,role:input.role??'editor',title:this.store.get(id).title});await this.refresh();return {...invite,url:this.directory.url+'/app?invitation='+invite.id};
   }
   async receive(grant,input){
-    if(!input||!['conversation','snapshot','object','command','checkpoint'].includes(input.kind))throw threadError('Invalid peer operation');
+    if(!input||!['conversation','snapshot','object','command','checkpoint','shared-folder-probe'].includes(input.kind))throw threadError('Invalid peer operation');
     const id=grant.thread_id;
+    if(input.kind==='shared-folder-probe'){
+      if(!this.sharedFolders)throw threadError('Shared folders are unavailable on this client');
+      const doc=this.store.get(id);
+      if(doc.staged||doc.epoch!==Number(grant.epoch)||this.store.preference(`frozen:${id}`))throw threadError('Shared folder access changed',409);
+      if(input.cleanup===true)return this.sharedFolders.cleanup(doc,input.purpose,input.probeId,grant.source_client_id);
+      return this.sharedFolders.acknowledge(doc,input.purpose,input.probeId,grant.source_client_id);
+    }
     if(input.kind==='conversation'){
       const doc=this.store.document(id);
       if(doc.epoch!==Number(grant.epoch)||doc.ownerClientId!==this.store.clientId)throw threadError('Thread ownership changed; refresh the conversation',409);
@@ -199,6 +208,7 @@ export class ThreadClient {
     const existing=this.store.list().find(t=>t.kind==='team'&&t.organizationId===organization.id)
       ??this.roster.threads.find(t=>t.kind==='team'&&t.organization_id===organization.id);
     const team=existing??this.store.create('Default',this.directory.user?.id??'local',DEFAULT_WORKFLOW,undefined,'team',{organizationId:organization.id});
+    if(!existing)this.sharedFolders?.initialize(team);
     this.store.preference(key,team.id);return team.id;
   }
   async command(input){
@@ -206,7 +216,8 @@ export class ThreadClient {
       const name=text(input.name,180),organizationId=input.organizationId===undefined?undefined:validId(input.organizationId);
       if(organizationId&&!this.organizations().some(org=>org.id===organizationId&&org.local)){const {organizations}=await this.directory.request('/organizations');if(!organizations.some(o=>o.id===organizationId))throw threadError('Organization membership required',403);}
       const doc=this.store.create(name,this.directory.user?.id??'local',DEFAULT_WORKFLOW,undefined,'team',{organizationId});
-      this.options.notify?.();return doc;
+      const initialized=this.sharedFolders?.initialize(doc)??doc;
+      this.options.notify?.();return initialized;
     }
     if(input.action==='create'){
       const team=this.store.get(input.teamId??this.store.preference('defaultTeam'));
@@ -218,6 +229,7 @@ export class ThreadClient {
       if(input.draft!==undefined&&typeof input.draft!=='boolean')throw threadError('Invalid thread draft');
       if(input.draft&&input.title===undefined){const empty=this.store.list().find(row=>row.teamId===team.id&&row.ownerClientId===this.store.clientId&&row.draft&&!row.draftTouched&&row.processId===template.id&&canonical(this.store.document(row.id).workflow)===canonical(template.workflow)&&!row.staged&&!this.store.preference(`frozen:${row.id}`));if(empty)return this.store.document(empty.id);}
       const doc=this.store.create(input.title??(input.draft?'Draft thread':'New thread'),this.directory.user?.id??'local',template.workflow,team.id,'thread',{processId:input.templateId||input.draft?template.id:undefined,draft:input.draft});
+      this.sharedFolders?.initialize(doc);
       if(input.draft&&input.title!==undefined)this.store.mutate(doc.id,randomUUID(),d=>{d.titleManuallySet=true;d.draftTouched=true;});
       try{if(team.shared)await this.registerThread(doc.id);}catch(e){this.store.db.prepare('DELETE FROM threads WHERE id=?').run(doc.id);throw e;}
       this.options.notify?.();return this.store.document(doc.id);
@@ -277,6 +289,21 @@ export class ThreadClient {
     if(input.action==='verifyEmail'){const r=await fetch(this.directory.url+'/api/auth/send-verification-email',{method:'POST',headers:{'content-type':'application/json',origin:this.directory.url},body:JSON.stringify({email:this.directory.user.email,callbackURL:this.directory.url+'/app'}),signal:AbortSignal.timeout(20000)});if(!r.ok)throw threadError('Could not send verification email');return {ok:true};}
     if(input.action==='acceptInvitation'){const result=await this.directory.request('/invitations/'+validId(input.invitationId)+'/accept',{});await this.refresh();return result;}
     const id=validId(input.threadId);
+    if(['sharedFolders','setSharedFolder','probeSharedFolder'].includes(input.action)){
+      if(!this.sharedFolders)throw threadError('Shared folders are unavailable on this client');
+      let doc;
+      const local=this.store.list().find(row=>row.id===id);
+      if(local&&input.action==='sharedFolders')doc=this.sharedFolders.initialize(this.store.get(id));
+      else if(local?.ownerClientId===this.store.clientId){doc=await this.fence(id);doc=this.sharedFolders.initialize(doc);}
+      else doc=await this.sync(id);
+      if(input.action==='setSharedFolder'){
+        if(input.initialize!==undefined&&typeof input.initialize!=='boolean')throw threadError('Invalid folder setup');
+        if(input.initialize)await this.fence(id);
+        return this.sharedFolders.set(doc,input.purpose,input.directory,input.initialize===true);
+      }
+      if(input.action==='probeSharedFolder')return this.sharedFolders.probe(doc,input.purpose,input.targetClientId);
+      return this.sharedFolders.view(doc);
+    }
     if(['integrations','saveIntegration','toggleIntegration','removeIntegration','setBrowser','openBrowser','connectGoogle','composioApps','composioAccounts','connectComposioApp','setComposioAccounts'].includes(input.action)){
       const doc=this.store.get(id);
       if(doc.kind==='team'){
@@ -502,6 +529,7 @@ export class ThreadClient {
             this.store.db.exec('BEGIN IMMEDIATE');
             try{target=this.store.create(s.prompt.slice(0,80),doc.ownerUserId,doc.workflow,doc.id).id;this.store.preference(key,target);this.store.db.exec('COMMIT');}catch(e){this.store.db.exec('ROLLBACK');throw e;}
           }
+          this.sharedFolders?.initialize(this.store.get(target));
           if(doc.shared)await this.registerThread(target);
         }
         if(this.jobs.has(target))continue;

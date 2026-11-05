@@ -2,7 +2,10 @@
 
 Notable changes, newest first. Dates are release dates.
 
-## Unreleased
+## 0.3.3
+
+- Recognize shared input and output folders across teammates' different local paths, preserve old markers when mappings change, and check external synchronization in both directions.
+- Keep shared-folder markers and temporary synchronization checks out of new file uploads and generated results. Automatic external-folder file delivery and WebRTC remain planned.
 
 - Reduce desktop installer size by downloading LibreOffice, Sherpa/ONNX voice libraries, and `uv` in the background after first launch. Python and Hindsight install afterward while Bees remains usable.
 
