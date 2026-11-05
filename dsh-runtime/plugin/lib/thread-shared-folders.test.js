@@ -48,7 +48,7 @@ test('mapping validates folder identity, keeps prior markers, persists locally, 
   try {
     const doc = client.store.get(client.store.preference('defaultTeam')), old = location(client, doc).directory;
     const target = join(f.root, 'Google Drive'), wrong = join(f.root, 'Other'); mkdirSync(target); mkdirSync(wrong);
-    await assert.rejects(client.command({ action: 'setSharedFolder', threadId: doc.id, purpose: 'input', directory: target }), /ENOENT/);
+    await assert.rejects(client.command({ action: 'setSharedFolder', threadId: doc.id, purpose: 'input', directory: target }), /no Bees marker/);
     assert.equal(location(client, doc).directory, old);
     await client.command({ action: 'setSharedFolder', threadId: doc.id, purpose: 'input', directory: target, initialize: true });
     assert(existsSync(join(old, SHARED_FOLDER_MARKER)));
