@@ -29,7 +29,10 @@ export class ClientProfiles {
     const response=await fetch(signed.url+'/api/me',{headers:{authorization:'Bearer '+signed.session},signal:AbortSignal.timeout(20000)});const user=response.ok&&(await response.json().catch(()=>({}))).user;if(!user)throw response.status===401?threadError('Sign in again',401):threadError("Bees can't be reached right now.",502);
     const key=this.key(signed.url,user.id);
     const slot=this.state.accounts[key]??(!this.active.directory.user&&!Object.values(this.state.accounts).includes(this.state.active)&&!this.active.organizations().some(org=>org.local)?this.state.active:key);
-    const client=await this.open(slot);client.directory.url=signed.url;await client.directory.resume(signed.session,client.identity.cert,client.peer.endpoints);await client.refresh();
+    const client=await this.open(slot),prior=this.active.store.preference('model'),own=client.store.preference('model');
+    // the Default AI is global, so an account with no default or an automatic one takes it, unless it's a Bees Credits id
+    if(!process.env.BEES_HOSTED_CLIENT&&client!==this.active&&prior&&typeof prior==='string'&&!prior.startsWith('bees-credits/')&&(own==null||own===client.store.preference('automaticCreditModel')))await client.command({action:'model',model:prior});
+    client.directory.url=signed.url;await client.directory.resume(signed.session,client.identity.cert,client.peer.endpoints);await client.refresh();
     this.state.accounts[key]=slot;this.state.active=slot;this.active=client;this.save();return user;
   }
   async logout(accountId){
@@ -117,6 +120,11 @@ export class ClientProfiles {
       return result.user;
     }
     if(input.action==='resumeSession'){const user=await this.active.directory.resume(input.session,this.active.identity.cert,this.active.peer.endpoints);await this.active.refresh();return user;}
+    // the Default AI is global like AI connections, but an account keeps its own Bees Credits pick
+    if(input.action==='model'&&input.reasoningEffort===undefined&&!process.env.BEES_HOSTED_CLIENT&&input.model&&!String(input.model).startsWith('bees-credits/')){
+      for(const client of this.clients.values()){const own=client.store.preference('model');if(client===this.active||!String(own).startsWith('bees-credits/')||own===client.store.preference('automaticCreditModel'))await client.command(input);}
+      return {ok:true};
+    }
     if(input.action==='login')return this.login(input);if(input.action==='logout')return this.logout(input.accountId);return this.active.command(input);
   }
   async close(){this.pendingLogin?.close();await Promise.all([...this.clients.values()].map(c=>c.close()));}
