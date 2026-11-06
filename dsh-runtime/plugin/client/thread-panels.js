@@ -15,7 +15,7 @@ export const TEAM_SETTINGS = [
 ];
 export const GLOBAL_SETTINGS = [
   ['ai', 'AI connections'], ['credits', 'Credits & billing'], ['appearance', 'Appearance'], ['instructions', 'System instructions'],
-  ['storage', 'Root folder'], ['phone', 'Use on your phone'],
+  ['storage', 'Root folder'], ['phone', 'Use on your phone'], ['updates', 'Check for updates'],
 ];
 
 const linked=text=>text.split(/(https:\/\/\S*[^\s.])/).map((part,i)=>i%2?h('a',{key:i,href:part,onClick:e=>{e.preventDefault();void openExternal(part);}},part):part);
