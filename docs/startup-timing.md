@@ -86,3 +86,20 @@ in Cargo and **3.8 seconds total** for preparation plus build. These measurement
 used the real development command with a runner that substitutes `cargo build`
 for `cargo run`, stopping before Bees opens or starts saved work. Fresh checkouts
 still need dependency downloads and initial compilation.
+
+## UI and conversation priority
+
+Account clients now open their local databases without awaiting directory,
+organization, credit, or replication requests. The first snapshot includes the
+last saved directory roster. The browser paints that snapshot and the selected
+conversation cache, then signals startup: optional support/Python setup begins
+in the background, the selected conversation syncs, and the remaining clients
+start their periodic sync and schedules. A 15-second fallback starts background
+work for headless clients without a browser.
+
+Switching threads shows an in-memory conversation immediately, or reads the
+account-local SQLite cache before requesting fresh data. A small status icon
+indicates the background read; cached views remain read-only until refreshed.
+Directory access checks run independently of organization and billing updates.
+Remote previews cache conversation text only, and a successful directory refresh
+removes previews for threads whose access has ended.

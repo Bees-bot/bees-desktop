@@ -9,7 +9,7 @@ import { authConfig, desktopSignIn, serverOrigin } from './thread-auth.js';
 export class ClientProfiles {
   constructor(root,options={}){this.root=root;this.options=options;this.clients=new Map();mkdirSync(root,{recursive:true,mode:0o700});this.path=join(root,'accounts.json');this.state=existsSync(this.path)?JSON.parse(readFileSync(this.path,'utf8')):{anonymous:'personal',active:'personal',accounts:{},onboarding:null};}
   save(){if(this.active){this.state.servers??={};this.state.servers[this.active.directory.url]=this.state.active;}const temporary=this.path+'.tmp';writeFileSync(temporary,JSON.stringify(this.state),{mode:0o600});renameSync(temporary,this.path);}
-  async open(slot){if(!/^[a-zA-Z0-9-]+$/.test(slot))throw threadError('Invalid client profile');if(!this.clients.has(slot))this.clients.set(slot,await new ThreadClient(join(this.root,slot),this.options).start());return this.clients.get(slot);}
+  async open(slot){if(!/^[a-zA-Z0-9-]+$/.test(slot))throw threadError('Invalid client profile');if(!this.clients.has(slot))this.clients.set(slot,await new ThreadClient(join(this.root,slot),this.options).start());const client=this.clients.get(slot);if(this.backgroundStarted)client.startBackground();return client;}
   savedDirectory(slot){if(!/^[a-zA-Z0-9-]+$/.test(slot))throw threadError('Invalid client profile');const path=join(this.root,slot,'directory.json');return this.clients.get(slot)?.directory??(existsSync(path)?JSON.parse(readFileSync(path,'utf8')):{});}
   accounts(){return Object.entries(this.state.accounts).flatMap(([id,slot])=>{const directory=this.savedDirectory(slot);return directory.token&&directory.user&&(!this.configuredServer||directory.url===this.configuredServer)?[{id,user:directory.user,url:directory.url,active:slot===this.state.active}]:[];}).sort((a,b)=>(a.user.email??'').localeCompare(b.user.email??''));}
   async snapshot(){return {...await this.active.snapshot(),onboarding:this.state.onboarding===undefined?'existing':this.state.onboarding,localActive:this.state.active===this.state.anonymous,localOrganizations:this.clients.get(this.state.anonymous)?.organizations().filter(org=>org.local)??[],folders:this.options.folders?.snapshot(this.active.store,this.active.organizations()),accounts:this.accounts().map(account=>{const client=this.clients.get(this.state.accounts[account.id]);return {...account,organizations:client?.organizations()??[],organizationError:client?.organizationError??null};})};}
@@ -49,6 +49,12 @@ export class ClientProfiles {
     return this.open(account?this.state.accounts[account.id]:process.env.BEES_HOSTED_CLIENT?this.state.active:this.state.anonymous);
   }
   async command(input){
+    if(input.action==='startup'||input.action==='read'&&input.startup===true){
+      this.options.prepareBackground?.();
+      try{return input.threadId?await this.active.command({...input,action:'read'}):{ok:true};}
+      finally{this.backgroundStarted=true;for(const client of this.clients.values())client.startBackground();}
+    }
+
     if(input.action==='createLocalOrganization'){
       if(process.env.BEES_HOSTED_CLIENT)throw threadError('Open Bees Desktop to create a local organization');
       if(this.savedDirectory(this.state.anonymous).user||Object.values(this.state.accounts).includes(this.state.anonymous)){this.state.anonymous='personal-'+randomUUID();this.save();}

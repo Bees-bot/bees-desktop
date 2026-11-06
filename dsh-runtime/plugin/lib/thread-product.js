@@ -38,11 +38,13 @@ export async function applyThreadProduct(ctx,config){
   const models=async store=>{const rows=[];for(const provider of ctx.llm.listProviders().filter(p=>!isAccountAIProvider(p.id)))for(const model of await ctx.llm.listModels(provider.id).catch(()=>[]))rows.push({id:provider.id+'/'+model.id,name:model.name??model.id});return [...rows,...credits.models(store)];};
   folders=new ThreadFolders(join(root,'folders.json'),{privateRoot:root,defaultRoot:process.env.BEES_HOSTED_CLIENT?join(root,'files'):join(process.env.BEES_HOST_HOME||homedir(),'Bees'),hosted:!!process.env.BEES_HOSTED_CLIENT});
   const localMemory=new LocalMemory(ctx.settings,{get:()=>({memoryModel:typeof config.memoryModel?.get==='function'?config.memoryModel.get():config.memoryModel??''}),update:patch=>ctx.settings.update('bees',patch)},join(root,'memory'),ctx.credentials);
-  if (localMemory.downloadSupport) localMemory.retryAt = Infinity;
+  localMemory.retryAt = Infinity;
+  let backgroundPrepared=false;
+  const prepareBackground=()=>{if(backgroundPrepared)return;backgroundPrepared=true;localMemory.retryAt=0;localMemory.ensure();};
   const memory=store=>{const service=new ThreadMemory(store,ctx.credentials);service.local=localMemory;return service;};
   const agentPresets=async()=>(await ctx.agentPresets.list()).filter(preset=>!preset.broken).map(({id,name})=>({id,name}));
   const runner=new ThreadRunner(ctx,integrations,models,folders,credits);
-  const profiles=await new ClientProfiles(join(root,'client-v3'),{models,credits,integrations,folders,memory,agentPresets,recoverActivity:(store,thread)=>recoverThreadActivity(ctx,store,thread),execute:options=>runner.execute(options),pending:id=>runner.pending.get(id),answer:(id,input)=>runner.answer(id,input)}).start();
+  const profiles=await new ClientProfiles(join(root,'client-v3'),{deferBackground:true,prepareBackground,models,credits,integrations,folders,memory,agentPresets,recoverActivity:(store,thread)=>recoverThreadActivity(ctx,store,thread),execute:options=>runner.execute(options),pending:id=>runner.pending.get(id),answer:(id,input)=>runner.answer(id,input)}).start();
   const client=()=>profiles.active;
   ctx.effect(()=>async()=>{await profiles.close();await localMemory.close();},'Bees Client shutdown');
   ctx.effect(()=>()=>integrations.close(),'Bees integrations shutdown');
@@ -87,10 +89,9 @@ export async function applyThreadProduct(ctx,config){
     return profiles.command(input);
   }));
   register('/bees-api/thread-file',async(req,res)=>{try{const q=new URL(req.url,'http://client').searchParams;const fileClient=q.has('settingsAccountId')?await profiles.settingsClient(q.get('settingsAccountId')||null):client();const doc=fileClient.store.document(q.get('thread'));const {artifact,bytes}=fileClient.store.object(doc,q.get('artifact'));res.writeHead(200,{'content-type':'application/octet-stream','content-length':bytes.length,'x-content-type-options':'nosniff','content-disposition':`attachment; filename*=UTF-8''${encodeURIComponent(artifact.name)}`});res.end(bytes);}catch(e){reply(res,e.status??400,{error:e.message});}});
-  // Let the UI become available before optional downloads and Python setup begin.
-  if (localMemory.downloadSupport) {
-    const timer = setTimeout(() => { localMemory.retryAt = 0; localMemory.ensure(); }, 1000);
-    ctx.effect(() => () => clearTimeout(timer), 'Bees support setup');
-  }
+  // Headless clients also prepare themselves when no browser sends the painted-UI signal.
+  const timer=setTimeout(()=>{if(!backgroundPrepared)void profiles.command({action:'startup'}).catch(()=>{});},15000);
+  timer.unref();
+  ctx.effect(()=>()=>clearTimeout(timer),'Bees background startup');
   return profiles;
 }

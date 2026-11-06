@@ -140,7 +140,7 @@ const nodes=node=>!React.isValidElement(node)?[]:[node,...React.Children.toArray
 function appHarness({snapshot,selected=null,thread=null,team=null,settingsSnapshot=snapshot,settingsTeam=null,settingsAccountId,hosted=true},run){
   if(hosted&&snapshot&&!Object.hasOwn(snapshot,'user'))snapshot.user={id:'test-user',emailVerified:true};
   const previousWindow=globalThis.window,previousFrame=globalThis.requestAnimationFrame;
-  globalThis.window={};globalThis.requestAnimationFrame=()=>{};
+  globalThis.window={};globalThis.requestAnimationFrame=callback=>{callback();return 0;};
   const states=[snapshot,selected,thread],refs=[],effects=[];let index=0,refIndex=0;
   states[10]=settingsAccountId;states[13]=settingsSnapshot;states[14]=settingsTeam;states[18]=team;
   configureRuntime(name=>({react:{...React,useState:initial=>{
@@ -303,6 +303,44 @@ test('web onboarding cannot be bypassed by saved chats or pending invitations',(
   });
 });
 
+test('thread switches paint cached conversations, deduplicate reads and ignore late responses',async t=>{
+  const previous=globalThis.fetch;t.after(()=>{globalThis.fetch=previous;});
+  const team={id:'team',title:'Research',ownerClientId:'local'};
+  const docs=['first','second'].map(id=>({id,teamId:team.id,title:id,ownerClientId:'local',messages:[{id:id+'-message',text:'Saved '+id}],runs:[],artifacts:[]}));
+  const snapshot={clientId:'local',teams:[team],defaultTeamId:team.id,threads:docs,organizations:[],directory:{threads:[],participants:[],clients:[],invitations:[]}};
+  const pending=[];
+  globalThis.fetch=async(_url,options)=>{
+    if(!options?.body)return {ok:true,json:async()=>snapshot};
+    const input=JSON.parse(options.body);assert.equal(input.action,'read');
+    if(input.threadId===team.id)return {ok:true,json:async()=>team};
+    const doc=docs.find(doc=>doc.id===input.threadId);
+    if(input.cached)return {ok:true,json:async()=>({...doc,cached:true})};
+    return new Promise(resolve=>pending.push({id:input.threadId,finish:text=>resolve({ok:true,json:async()=>({...doc,messages:[{id:doc.id+'-message',text}]})})}));
+  };
+  await appHarness({snapshot,selected:'first'},async(render,_panel,effects)=>{
+    const flush=async()=>{for(let i=0;i<4;i++)await new Promise(setImmediate);};
+    const select=id=>render().find(node=>node.type==='button'&&node.props.className==='bc-thread'&&node.props.title===id).props.onClick();
+    const conversation=()=>render().find(node=>node.type===ThreadWorkspace).props.renderWidget('conversation').props;
+    const selectedEffects=id=>{render();effects.filter(effect=>effect.deps?.length===1&&(effect.deps[0]===id||effect.deps[0]===snapshot)).forEach(effect=>effect.fn());};
+    selectedEffects('first');await flush();
+    assert.equal(conversation().thread.messages[0].text,'Saved first');assert.equal(conversation().canWrite,false);
+    assert(render().some(node=>node.props['aria-label']==='Syncing conversation'));
+    assert.equal(pending.length,1,'Selection and snapshot effects share one read');
+    pending.shift().finish('Current first');await flush();
+    assert.equal(conversation().thread.messages[0].text,'Current first');
+    select('second');selectedEffects('second');await flush();
+    assert.equal(conversation().thread.messages[0].text,'Saved second');
+    const second=pending.shift();
+    select('first');assert.equal(conversation().thread.messages[0].text,'Current first','A visited conversation appears during the selection itself');
+    selectedEffects('first');await flush();const first=pending.shift();
+    second.finish('Late second');await flush();assert.equal(conversation().thread.id,'first');
+    first.finish('Newest first');await flush();
+    assert.equal(conversation().thread.messages[0].text,'Newest first');
+    assert(!render().some(node=>node.props['aria-label']==='Syncing conversation'));
+    assert.match(threadCss,/@media\(prefers-reduced-motion:reduce\)\{\.bc-sync-indicator\{animation:none\}\}/);
+  });
+});
+
 test('a thread without a local copy retries after a failed first read and clears its error on recovery',async t=>{
   const previous=globalThis.fetch;t.after(()=>{globalThis.fetch=previous;});
   const authority={id:'remote-thread',title:'Desktop research',kind:'thread',team_id:'team',owner_client_id:'desktop'};
@@ -310,7 +348,8 @@ test('a thread without a local copy retries after a failed first read and clears
   let online=false,requests=0;
   const failure="The owner's Bees Client can't be reached right now.";
   globalThis.fetch=async(_url,options)=>{
-    const input=JSON.parse(options.body);assert.equal(input.action,'read');
+    if(!options?.body)return {ok:true,json:async()=>snapshot};
+    const input=JSON.parse(options.body);assert(['read','startup'].includes(input.action));if(input.cached)return {ok:true,json:async()=>null};
     if(input.threadId==='team')return {ok:true,json:async()=>snapshot.teams[0]};
     assert.equal(input.threadId,authority.id);requests++;
     return {ok:online,status:online?200:408,json:async()=>online?{id:authority.id,title:'Desktop research',messages:[],runs:[],artifacts:[]}:{error:failure}};
@@ -318,11 +357,11 @@ test('a thread without a local copy retries after a failed first read and clears
   await appHarness({snapshot,selected:authority.id},async(render,_renderPanel,effects)=>{
     render();
     const refreshReads=()=>effects.filter(effect=>effect.deps?.length===1&&effect.deps[0]===snapshot).forEach(effect=>effect.fn());
-    refreshReads();await new Promise(setImmediate);
+    refreshReads();for(let i=0;i<6;i++)await new Promise(setImmediate);
     let tree=render();assert.equal(requests,1);
     assert(tree.some(node=>node.props.role==='alert'&&node.props.children[0]===failure));
     assert(tree.some(node=>node.props.children==='Desktop research'));
-    online=true;refreshReads();await new Promise(setImmediate);
+    online=true;refreshReads();for(let i=0;i<6;i++)await new Promise(setImmediate);
     tree=render();assert.equal(requests,2,'Refresh must retry even when the first read left thread null');
     assert(!tree.some(node=>node.props.role==='alert'));
     assert(tree.some(node=>node.type==='h2'&&node.props.children==='Desktop research'));
@@ -638,7 +677,7 @@ for(const source of ['settings','menu'])test(`${source} team creation uses its o
   const requests=[],elements=[];
   globalThis.HTMLDialogElement={prototype:{closedBy:true}};
   globalThis.document={querySelector:()=>null,createElement:tag=>{
-    const element={tag,listeners:{},append(){},setAttribute(){},addEventListener(name,fn){this.listeners[name]=fn;},remove(){}};elements.push(element);return element;
+    const element={tag,listeners:{},append(){},showModal(){},focus(){},select(){},setAttribute(){},addEventListener(name,fn){this.listeners[name]=fn;},remove(){}};elements.push(element);return element;
   },body:{append:dialog=>queueMicrotask(()=>{elements.find(element=>element.tag==='input').value='Research';dialog.returnValue='ok';dialog.listeners.close();})}};
   const org={id:'studio',name:'Studio',local:true},localSnapshot={teams:[{id:'work-team',title:'Work',organizationId:'work'}],threads:[],organizations:[org,{id:'work',name:'Work'}]};
   const snapshot={...localSnapshot,settings:{selectedOrganizationId:'work'},localOrganizations:[org],accounts:[{id:'alice',active:true,user:{email:'alice@example.com'},organizations:[]}]};
