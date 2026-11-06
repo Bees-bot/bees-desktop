@@ -76,6 +76,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   // an offline team can't take a new goal, so only land on one the user picked
   const held=id=>data?.directory?.threads.find(t=>t.id===id),usable=t=>!held(t.id)?.offline,orphan=id=>held(id)?.gone&&!held(id).transfer_client_id&&held(id).owner_user_id===data?.user?.id;
   const currentTeamId=teams.find(t=>t.id===teamId)?.id??visibleTeams.find(t=>t.id===data?.defaultTeamId&&usable(t))?.id??visibleTeams.find(usable)?.id??visibleTeams[0]?.id;
+  const syncError=data?.threads?.find(row=>row.id===selected)?.syncError||teamRows.find(row=>row.id===currentTeamId)?.syncError;
   const configuring=dialog==='settings'||dialog==='team';
   const configAccountId=settingsAccountId===undefined?(data?.accounts?.find(account=>account.active)?.id??null):settingsAccountId;
   const configOrganizationId=settingsOrganizationId===undefined?selectedOrganizationId:settingsOrganizationId;
@@ -401,6 +402,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
           h('span',{className:'bc-layout-toolbar',ref:setLayoutToolbar})):null),
       (error||readError||teamReadError)&&!modalOpen?h('div',{className:'bc-error',role:'alert'},error||readError||teamReadError,h('button',{className:'bc-icon','aria-label':'Dismiss error',onClick:()=>{setError('');setReadError('');setTeamReadError('');}},icon('close'))):null,
       notice&&!modalOpen?h('div',{className:'bc-notice',role:'status'},notice):null,
+      syncError&&!modalOpen?h('div',{className:'bc-notice',role:'status'},syncError):null,
       data?.transferError&&!modalOpen?h('div',{className:'bc-notice',role:'status'},data.transferError):null,
       !modalOpen?(roster.transferRequests??[]).filter(r=>!r.approved&&roster.threads.some(t=>t.id===r.thread_id&&t.owner_user_id===data?.user?.id)).map(r=>h('div',{className:'bc-notice',key:r.thread_id},
         `${r.user_name||'A team member'} requests ${roster.threads.find(t=>t.id===r.thread_id)?.title||'a thread'} on ${r.client_name}. `,

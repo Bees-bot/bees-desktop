@@ -329,6 +329,22 @@ test('a thread without a local copy retries after a failed first read and clears
   });
 });
 
+test('sharing failures appear only for the selected team or thread and clear on recovery',()=>{
+  const warning='Sharing is unavailable for "Default". Finish organization setup or check your organization access.';
+  for(const scope of ['team','thread','other']){
+    const team={id:'team',title:'Default',...(scope==='team'?{syncError:warning}:{})};
+    const thread={id:'thread',title:'Saved work',teamId:team.id,ownerClientId:'desktop',messages:[],runs:[],artifacts:[],...(scope==='thread'?{syncError:warning}:{})};
+    const snapshot={clientId:'desktop',teams:[team,{id:'other',title:'Other team',syncError:warning}],defaultTeamId:team.id,threads:[thread],organizations:[]};
+    appHarness({snapshot,selected:thread.id,thread,team},render=>{
+      let tree=render();
+      assert.equal(tree.some(node=>node.props.role==='status'&&node.props.children===warning),scope!=='other');
+      assert(!tree.some(node=>node.props.children==='Showing the copy saved here. '));
+      delete team.syncError;delete thread.syncError;
+      tree=render();assert(!tree.some(node=>node.props.role==='status'&&node.props.children===warning));
+    });
+  }
+});
+
 test('remote conversations show Transfer here, remain read-only, and gate files and settings',()=>{
   const authority={id:'remote-thread',title:'Research',kind:'thread',team_id:'team',owner_client_id:'desktop',owner_user_id:'alice',run_status:'running'};
   const team={id:'team',title:'Customer work'},thread={id:authority.id,title:authority.title,teamId:team.id,ownerClientId:'desktop',ownerUserId:'alice',metadataOnly:true,messages:[{id:'message',text:'Conversation text'}],runs:[],artifacts:[]};
