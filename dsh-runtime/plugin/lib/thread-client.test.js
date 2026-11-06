@@ -7,6 +7,91 @@ import {randomUUID} from 'node:crypto';
 import {ThreadClient} from './thread-client.js';
 import {DEFAULT_WORKFLOW,CHAT_WORKFLOW,WORKFLOW_TEMPLATES,processName} from './thread-workflow.js';
 
+test('refresh skips an unavailable organization without blocking healthy threads and resumes registration after setup',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'bees-incomplete-org-')),client=new ThreadClient(root);
+ try{
+  const organizationId=randomUUID(),team=client.store.create('Org6 Default','alice',DEFAULT_WORKFLOW,undefined,'team',{organizationId});
+  const local=client.store.create('Org6 work','alice',DEFAULT_WORKFLOW,team.id);
+  const healthy=client.store.create('Existing work','alice'),pending=client.store.create('New work','alice');
+  client.store.message(healthy.id,randomUUID(),'Saved conversation','alice');
+  const threads=[client.store.get(client.store.preference('defaultTeam')),client.store.get(healthy.id)].map(doc=>{
+   client.store.mutate(doc.id,randomUUID(),d=>{d.shared=true;});
+   return {id:doc.id,title:doc.title,kind:doc.kind,owner_client_id:client.store.clientId,epoch:1,run_status:'idle'};
+  });
+  let organizations=[],listed=true;const registrations=[];
+  client.directory.token='client-token';client.directory.user={id:'alice'};client.peer={endpoints:[]};
+  client.directory.request=async(path,body)=>{
+   if(path==='/heartbeat')return {};
+   if(path==='/')return {capabilities:{transferRequests:true},threads:structuredClone(threads),participants:[],clients:[]};
+   if(path==='/organizations'){if(!listed)throw Object.assign(Error('Organization list offline'),{status:503});return {organizations};}
+   if(path==='/threads'){
+    assert(!body.organizationId||organizations.some(org=>org.id===body.organizationId));
+    const authority={id:body.id,title:body.title,kind:body.kind,team_id:body.teamId,organization_id:body.organizationId,owner_client_id:client.store.clientId,epoch:1,run_status:'idle'};
+    registrations.push(body.id);threads.push(authority);return authority;
+   }
+   throw Error('Unexpected request '+path);
+  };
+  const read=()=>client.command({action:'read',threadId:healthy.id});
+  assert.equal((await read()).unavailable,undefined);
+  assert.equal((await read()).messages[0].text,'Saved conversation');
+  assert.deepEqual(registrations,[pending.id]);
+  assert.equal(client.store.get(team.id).shared,false);assert.deepEqual(client.store.get(local.id),{...local,staged:false});
+  let snapshot=await client.snapshot();
+  assert.match(snapshot.teams.find(row=>row.id===team.id).syncError,/Finish organization setup/);
+  assert.match(snapshot.threads.find(row=>row.id===local.id).syncError,/Finish organization setup/);
+  assert.equal(snapshot.threads.find(row=>row.id===healthy.id).syncError,undefined);
+  assert.equal(snapshot.connectionError,null);
+  organizations=[{id:organizationId,name:'Org6',role:'owner'}];
+  client.store.preference('organizations',organizations);listed=false;
+  await client.refresh();assert.deepEqual(registrations,[pending.id],'A stale organization list must not authorize automatic registration');
+  assert.match((await client.snapshot()).teams.find(row=>row.id===team.id).syncError,/could not be checked/);
+  listed=true;await client.refresh();
+  assert.equal(client.store.get(team.id).shared,true);assert.equal(client.store.get(local.id).shared,true);
+  await client.refresh();
+  snapshot=await client.snapshot();assert.equal(snapshot.teams.find(row=>row.id===team.id).syncError,undefined);
+  assert.equal(snapshot.threads.find(row=>row.id===local.id).syncError,undefined);
+ }finally{client.store.close();await rm(root,{recursive:true,force:true});}
+});
+
+test('registration and metadata failures stay on the affected documents while other work stays usable',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'bees-isolated-sync-')),client=new ThreadClient(root);
+ try{
+  const rejected=client.store.create('Cannot share','alice'),healthy=client.store.create('Healthy work','alice'),outdated=client.store.create('Renamed work','alice');
+  const threads=[client.store.get(client.store.preference('defaultTeam')),healthy,outdated].map(doc=>{
+   client.store.mutate(doc.id,randomUUID(),d=>{d.shared=true;});
+   return {id:doc.id,title:doc.id===outdated.id?'Old name':doc.title,kind:doc.kind,owner_client_id:client.store.clientId,epoch:1,run_status:'idle'};
+  });
+  let failing=true,updated=false;
+  client.directory.token='client-token';client.directory.user={id:'alice'};client.peer={endpoints:[]};
+  client.directory.request=async(path,body)=>{
+   if(path==='/heartbeat')return {};
+   if(path==='/')return {capabilities:{transferRequests:true},threads:structuredClone(threads),participants:[],clients:[]};
+   if(path==='/organizations')return {organizations:[]};
+   if(path==='/threads'){
+    if(failing)throw Object.assign(Error('Complete organization setup before creating shared work'),{status:403});
+    const authority={id:body.id,title:body.title,kind:body.kind,owner_client_id:client.store.clientId,epoch:1,run_status:'idle'};threads.push(authority);return authority;
+   }
+   if(path===`/threads/${outdated.id}/metadata`){
+    if(failing)throw Object.assign(Error('Only the owning client may update metadata'),{status:403});
+    Object.assign(threads.find(row=>row.id===outdated.id),{title:body.title,run_status:body.status});updated=true;return {};
+   }
+   throw Error('Unexpected request '+path);
+  };
+  assert.equal((await client.command({action:'read',threadId:healthy.id})).unavailable,undefined);
+  assert.equal((await client.command({action:'read',threadId:outdated.id})).unavailable,undefined);
+  let snapshot=await client.snapshot();
+  assert.match(snapshot.threads.find(row=>row.id===rejected.id).syncError,/Cannot share.*Complete organization setup/);
+  assert.match(snapshot.threads.find(row=>row.id===outdated.id).syncError,/Renamed work.*update metadata/);
+  assert.equal(snapshot.threads.find(row=>row.id===healthy.id).syncError,undefined);
+  failing=false;await client.refresh();assert(updated);assert.equal(client.store.get(rejected.id).shared,true);
+  snapshot=await client.snapshot();assert(snapshot.threads.every(row=>!row.syncError));
+  threads.splice(threads.findIndex(row=>row.id===healthy.id),1);
+  assert.equal((await client.command({action:'read',threadId:healthy.id})).unavailable,'You no longer have access to this thread.');
+  assert.equal(client.store.preference(`frozen:${healthy.id}`),true);
+  await assert.rejects(client.fence(healthy.id),/being transferred/);
+ }finally{client.store.close();await rm(root,{recursive:true,force:true});}
+});
+
 test('opening a remote thread loads conversation text without files, execution state, MCP settings or a stored replica',async()=>{
  const root=await mkdtemp(join(tmpdir(),'bees-conversation-preview-')),client=new ThreadClient(root),owner=new ThreadClient(join(root,'owner'));
  try{
@@ -23,6 +108,8 @@ test('opening a remote thread loads conversation text without files, execution s
   assert.equal(client.store.list().some(row=>row.id===original.id),false);assert.equal(client.store.preference(`integrations:${original.id}`),null);
   await client.replicate();assert.deepEqual(calls,['conversation']);
   await assert.rejects(client.command({action:'run',threadId:original.id,operationId:randomUUID(),text:'Run remotely'}),/Transfer/);
+  client.peer.send=async()=>{throw Object.assign(Error('Client authentication required'),{status:403});};
+  assert.equal((await client.command({action:'read',threadId:original.id})).unavailable,'Client authentication required');
   const own=client.store.create('Local work','alice');client.store.message(own.id,randomUUID(),'Available offline','alice');
   client.refresh=async()=>{throw Object.assign(Error('Server offline'),{status:503});};
   assert.equal((await client.command({action:'read',threadId:own.id})).messages[0].text,'Available offline');
@@ -49,6 +136,8 @@ test('a first read preserves sync failures, recovers when the owner returns, and
   const synced=await read();assert.equal(synced.title,'Desktop research');assert.equal(synced.messages[0].text,'Saved on desktop');assert.equal(synced.unavailable,undefined);
   client.roster.clients[1].last_seen_at=new Date(Date.now()-60000).toISOString();
   const cached=await read();assert.equal(cached.messages[0].text,'Saved on desktop');assert.match(cached.unavailable,/can't be reached/);
+  client.refresh=async()=>{throw Object.assign(Error('Organization access denied'),{status:403});};
+  assert.equal((await read()).unavailable,'Organization access denied','An unrelated 403 must not be labeled as revoked thread access');
   client.store.drop(doc.id);
   for(const status of [401,403,502]){
    const failure=Object.assign(Error('Sync failure '+status),{status});client.refresh=async()=>{throw failure;};

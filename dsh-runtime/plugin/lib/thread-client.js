@@ -72,15 +72,23 @@ export class ThreadClient {
     for(const authority of this.roster.threads){const local=this.store.list().find(t=>t.id===authority.id);if(local?.ownerClientId===this.store.clientId&&authority.owner_client_id!==this.store.clientId){this.store.preference(`frozen:${authority.id}`,true);this.jobs.get(authority.id)?.abort();}if(local?.staged&&authority.owner_client_id===this.store.clientId){const doc=this.store.document(local.id);this.options.integrations?.activateTransfer(this.store,local.id);this.store.activateTransfer(local.id,authority,checkpointDigest(doc));this.store.preference(`frozen:${local.id}`,false);}}
     await this.command({action:'organizations'}).catch(error=>{this.organizationError=error.message;});
     await this.options.credits?.sync(this);
+    this.syncErrors={};
     if(this.roster.capabilities?.transferRequests){
       for(const row of this.store.list().filter(t=>t.ownerClientId===this.store.clientId&&!t.staged)){
         const doc=this.store.document(row.id),team=this.store.teamFor(row.id);
         const remote=this.roster.threads.find(t=>t.id===row.id);
         if(remote&&remote.owner_client_id!==this.store.clientId)continue;
-        if(this.organizations().some(org=>org.local&&org.id===(team?.organizationId??doc.organizationId)))continue;
-        if(!doc.shared)await this.registerThread(row.id);
-        const status=doc.runs.some(r=>r.status==='running')?'running':doc.runs.some(r=>r.status==='waiting')?'waiting':'idle';
-        if(remote&&(remote.title!==doc.title||remote.run_status!==status)){await this.directory.request(`/threads/${row.id}/metadata`,{title:doc.title,status});remote.title=doc.title;remote.run_status=status;}
+        const organizationId=team?.organizationId??doc.organizationId,organization=this.organizations().find(org=>org.id===organizationId);
+        if(organization?.local)continue;
+        if(!doc.shared&&organizationId&&(!organization||this.organizationError)){
+          this.syncErrors[row.id]=`Sharing is unavailable for "${doc.title}". ${this.organizationError?'The organization list could not be checked. Try again shortly.':'Finish organization setup or check your organization access.'}`;
+          continue;
+        }
+        try{
+          if(!doc.shared)await this.registerThread(row.id);
+          const status=doc.runs.some(r=>r.status==='running')?'running':doc.runs.some(r=>r.status==='waiting')?'waiting':'idle';
+          if(remote&&(remote.title!==doc.title||remote.run_status!==status)){await this.directory.request(`/threads/${row.id}/metadata`,{title:doc.title,status});remote.title=doc.title;remote.run_status=status;}
+        }catch(error){this.syncErrors[row.id]=`Could not sync "${doc.title}": ${error.message}`;}
       }
       void this.fulfillTransfers();
     }
@@ -107,7 +115,7 @@ export class ThreadClient {
     }catch(error){this.transferError=error.message;}
     finally{this.handlingTransfers=false;}
   }
-  async authority(id){await this.refresh();const t=this.roster.threads.find(t=>t.id===id);if(!t)throw threadError('Thread access is unavailable',403);return t;}
+  async authority(id){await this.refresh();const t=this.roster.threads.find(t=>t.id===id);if(!t)throw threadError('You no longer have access to this thread.',403);return t;}
   async fence(id){const doc=this.store.get(id);this.store.writable(doc);if(doc.shared){const t=await this.authority(id);if(t.owner_client_id!==this.store.clientId||Number(t.epoch)!==doc.epoch)throw threadError('This client no longer owns the thread',409);}return doc;}
   async snapshot(){
     // Older versions saved empty Chat/Goal drafts before the first message.
@@ -120,7 +128,8 @@ export class ThreadClient {
       return doc.messages.length||doc.runs.length||doc.artifacts.length||doc.folders?.length||doc.instructions||doc.memory?.length||doc.schedule||this.store.preference(`integrations:${row.id}`)!==null||this.store.preference(`browser:${row.id}`)!==null;
     }).map(row=>{
       const remote=this.roster.capabilities?.transferRequests&&this.roster.threads.find(t=>t.id===row.id&&t.owner_client_id!==this.store.clientId);
-      return remote?{id:row.id,kind:remote.kind,teamId:remote.team_id,organizationId:remote.organization_id,title:remote.title||row.title,ownerClientId:remote.owner_client_id,ownerUserId:remote.owner_user_id,shared:true,staged:row.staged,runs:[]}:row;
+      const view=remote?{id:row.id,kind:remote.kind,teamId:remote.team_id,organizationId:remote.organization_id,title:remote.title||row.title,ownerClientId:remote.owner_client_id,ownerUserId:remote.owner_user_id,shared:true,staged:row.staged,runs:[]}:row;
+      return this.syncErrors?.[row.id]?{...view,syncError:this.syncErrors[row.id]}:view;
     });
     return {product:'Bees Client',clientId:this.store.clientId,user:this.directory.user??null,signedIn:!!this.directory.token&&!this.directory.authRequired,organizations:this.organizations(),organizationError:this.organizationError??null,serverUrl:this.directory.url,connectionError:this.connectionError??null,transferError:this.transferError??null,threads:rows.filter(t=>t.kind!=='team'),teams:rows.filter(t=>t.kind==='team'&&(!t.shared||!this.directory.token||this.connectionError||this.roster.threads.some(row=>row.id===t.id))),defaultTeamId:this.store.preference('defaultTeam'),directory:{...this.roster,threads:this.roster.threads.map(t=>({...t,offline:this.offline(t.owner_client_id)}))},models:await this.options.models?.(this.store)??[],credits:this.options.credits?.view(this.store),agentPresets:await this.options.agentPresets?.()??[],defaultModel:this.store.preference('model'),settings:this.store.preference('settings')??{}};}
   async registerThread(id,input={}){
@@ -331,7 +340,7 @@ export class ThreadClient {
           const view={id,title:authority.title||'Remote thread',kind:authority.kind,teamId:authority.team_id,organizationId:authority.organization_id,ownerClientId:authority.owner_client_id,ownerUserId:authority.owner_user_id,shared:true,metadataOnly:true,status:authority.run_status,messages:[],runs:[],artifacts:[]};
           if(authority.kind==='team')return view;
           try{const result=await this.peer.send(id,authority.owner_client_id,{kind:'conversation'});if(!Array.isArray(result.messages)||result.messages.length>10001)throw threadError('Invalid conversation');return {...view,messages:result.messages.map(({id,authorId,kind,text,createdAt})=>({id,authorId,kind,text,createdAt}))};}
-          catch(error){return {...view,unavailable:error.status===403?'You no longer have access to this thread.':'The source machine is unavailable. Conversation text will load when it reconnects.'};}
+          catch(error){return {...view,unavailable:error.status===403?error.message:'The source machine is unavailable. Conversation text will load when it reconnects.'};}
         }
       }
       let doc;
@@ -341,7 +350,7 @@ export class ThreadClient {
         const connectionMessage=desktopOwned?'This thread is active in your desktop client. To transfer it to the web client, open Bees Desktop and select this thread. Finish or stop any active work, then go to Settings → Transfer, choose Bees Cloud, and click Offer transfer. Return to the web client and click Accept transfer. Keep both clients open until the transfer finishes.':"The owner's Bees Client can't be reached right now.";
         // A failed first sync has no cached copy; preserve the connection or access error.
         try{doc=this.store.get(id);}catch{if(desktopOwned&&(!e.status||e.status===408))throw threadError(connectionMessage,e.status??408);throw e;}
-        if(doc.ownerClientId!==this.store.clientId||doc.shared)doc.unavailable=e.status===403?'You no longer have access to this thread.':e.status===502?"Bees can't be reached right now.":!e.status||e.status===408?connectionMessage:e.message;
+        if(doc.ownerClientId!==this.store.clientId||doc.shared)doc.unavailable=e.status===502?"Bees can't be reached right now.":!e.status||e.status===408?connectionMessage:e.message;
       }
       await this.options.recoverActivity?.(this.store,doc);
       return {...this.store.get(id),teamId:doc.teamId??this.store.preference(`team:${id}`),integrationSnapshot:!!this.store.preference(`integrationSnapshot:${id}`),...(doc.unavailable?{unavailable:doc.unavailable}:{}),frozen:doc.ownerClientId===this.store.clientId&&!!this.store.preference(`frozen:${id}`)};
