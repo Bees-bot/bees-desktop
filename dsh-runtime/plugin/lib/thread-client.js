@@ -58,18 +58,39 @@ export class ThreadClient {
     if(!this.store.preference('defaultTeam'))this.store.preference('defaultTeam',this.store.create('Default',this.directory.user?.id??'local',DEFAULT_WORKFLOW,undefined,'team').id);
     for(const row of this.store.list())if(row.kind!=='team'&&!row.teamId)this.store.preference(`team:${row.id}`,this.store.preference('defaultTeam'));
     this.memory=options.memory?.(this.store);
-    this.roster={threads:[],participants:[],clients:[],invitations:[]};
+    this.roster=this.directory.token&&this.store.preference('directoryRoster')||{threads:[],participants:[],clients:[],invitations:[]};
     if(options.folders){this.sharedFolders=new ThreadSharedFolders(this,options.folders);for(const row of this.store.list())this.sharedFolders.initialize(this.store.get(row.id));}
   }
-  async start(){this.memory?.start();this.identity=await peerCertificate(this.store.root);this.peer=await new ThreadPeer(this.directory,this.identity,(grant,input)=>this.receive(grant,input)).start();if(process.env.BEES_THREAD_SESSION&&!this.directory.token)await this.directory.resume(process.env.BEES_THREAD_SESSION,this.identity.cert,this.peer.endpoints);delete process.env.BEES_THREAD_SESSION;this.timer=setInterval(()=>{void this.refresh().then(()=>this.replicate()).catch(e=>{this.connectionError=e.message;});void this.scheduled();},5000);this.timer.unref();if(this.directory.token)await this.refresh().catch(e=>{this.connectionError=e.message;});return this;}
+  async start(){
+    this.identity=await peerCertificate(this.store.root);
+    this.peer=await new ThreadPeer(this.directory,this.identity,(grant,input)=>this.receive(grant,input)).start();
+    if(process.env.BEES_THREAD_SESSION&&!this.directory.token)await this.directory.resume(process.env.BEES_THREAD_SESSION,this.identity.cert,this.peer.endpoints);
+    delete process.env.BEES_THREAD_SESSION;
+    if(!this.options.deferBackground)this.startBackground();
+    return this;
+  }
+  startBackground(){
+    if(this.timer||this.closing)return;
+    this.memory?.start();
+    const tick=()=>{void this.refresh().then(()=>this.replicate()).catch(e=>{this.connectionError=e.message;});void this.scheduled();};
+    this.timer=setInterval(tick,5000);this.timer.unref();
+    void this.refresh().then(()=>this.replicate()).catch(e=>{this.connectionError=e.message;});
+  }
   // callers share one refresh that starts after the one in flight, so it still sees what they just changed
-  refresh(){return this.queued??=Promise.resolve(this.running).catch(()=>{}).then(()=>{this.queued=null;return this.running=this.pull();});}
-  async pull(){if(!this.directory.token||this.closing)return;const heartbeat=await this.directory.request('/heartbeat',{endpoints:this.peer.endpoints});if(heartbeat.user)this.directory.user=heartbeat.user;
+  refresh({directoryOnly=false}={}){if(directoryOnly)return this.directoryQueued??=Promise.resolve(this.directoryPending).catch(()=>{}).then(()=>{this.directoryQueued=null;return this.directoryPending=this.pullDirectory();});return this.queued??=Promise.resolve(this.running).catch(()=>{}).then(()=>{this.queued=null;return this.running=this.pull();});}
+  async pullDirectory(){if(!this.directory.token||this.closing)return;const heartbeat=await this.directory.request('/heartbeat',{endpoints:this.peer.endpoints});if(heartbeat.user)this.directory.user=heartbeat.user;
     // a thread shared while the roster was in flight is missing from it, so only judge threads shared before the fetch
-    const sharedBefore=new Set(this.store.list().filter(t=>t.shared).map(t=>t.id));this.roster=await this.directory.request('/');if(this.closing)return;this.connectionError=null;
+    const sharedBefore=new Set(this.store.list().filter(t=>t.shared).map(t=>t.id)),previous=this.roster;this.roster=await this.directory.request('/');if(this.closing)return;this.connectionError=null;
     // a copy of someone else's thread that left the roster was deleted or taken from us, so it goes too
     for(const local of this.store.list())if(sharedBefore.has(local.id)&&!this.roster.threads.some(t=>t.id===local.id)){this.jobs.get(local.id)?.abort();if(local.ownerClientId!==this.store.clientId&&!local.staged)this.store.drop(local.id);else this.store.preference(`frozen:${local.id}`,true);}
     for(const authority of this.roster.threads){const local=this.store.list().find(t=>t.id===authority.id);if(local?.ownerClientId===this.store.clientId&&authority.owner_client_id!==this.store.clientId){this.store.preference(`frozen:${authority.id}`,true);this.jobs.get(authority.id)?.abort();}if(local?.staged&&authority.owner_client_id===this.store.clientId){const doc=this.store.document(local.id);this.options.integrations?.activateTransfer(this.store,local.id);this.store.activateTransfer(local.id,authority,checkpointDigest(doc));this.store.preference(`frozen:${local.id}`,false);}}
+    for(const row of previous.threads)if(!this.roster.threads.some(t=>t.id===row.id))this.store.preference(`conversation:${row.id}`,null);
+    this.store.preference('directoryRoster',this.roster);
+    this.options.notify?.();
+  }
+  async pull(){
+    if(!this.directory.token||this.closing)return;
+    await this.refresh({directoryOnly:true});if(this.closing)return;
     await this.command({action:'organizations'}).catch(error=>{this.organizationError=error.message;});
     await this.options.credits?.sync(this);
     this.syncErrors={};
@@ -115,7 +136,7 @@ export class ThreadClient {
     }catch(error){this.transferError=error.message;}
     finally{this.handlingTransfers=false;}
   }
-  async authority(id){await this.refresh();const t=this.roster.threads.find(t=>t.id===id);if(!t)throw threadError('You no longer have access to this thread.',403);return t;}
+  async authority(id,options){await this.refresh(options);const t=this.roster.threads.find(t=>t.id===id);if(!t)throw threadError('You no longer have access to this thread.',403);return t;}
   async fence(id){const doc=this.store.get(id);this.store.writable(doc);if(doc.shared){const t=await this.authority(id);if(t.owner_client_id!==this.store.clientId||Number(t.epoch)!==doc.epoch)throw threadError('This client no longer owns the thread',409);}return doc;}
   async snapshot(){
     // Older versions saved empty Chat/Goal drafts before the first message.
@@ -132,6 +153,17 @@ export class ThreadClient {
       return this.syncErrors?.[row.id]?{...view,syncError:this.syncErrors[row.id]}:view;
     });
     return {product:'Bees Client',clientId:this.store.clientId,user:this.directory.user??null,signedIn:!!this.directory.token&&!this.directory.authRequired,organizations:this.organizations(),organizationError:this.organizationError??null,serverUrl:this.directory.url,connectionError:this.connectionError??null,transferError:this.transferError??null,threads:rows.filter(t=>t.kind!=='team'),teams:rows.filter(t=>t.kind==='team'&&(!t.shared||!this.directory.token||this.connectionError||this.roster.threads.some(row=>row.id===t.id))),defaultTeamId:this.store.preference('defaultTeam'),directory:{...this.roster,threads:this.roster.threads.map(t=>({...t,offline:this.offline(t.owner_client_id)}))},models:await this.options.models?.(this.store)??[],credits:this.options.credits?.view(this.store),agentPresets:await this.options.agentPresets?.()??[],defaultModel:this.store.preference('model'),settings:this.store.preference('settings')??{}};}
+  cachedRead(id){
+    const authority=this.roster.threads.find(t=>t.id===id);
+    if(this.roster.capabilities?.transferRequests&&authority&&authority.owner_client_id!==this.store.clientId){
+      const preview=this.store.preference(`conversation:${id}`);
+      return preview?{...preview,cached:true}:null;
+    }
+    const local=this.store.list().find(t=>t.id===id&&!t.staged);
+    if(!local)return null;
+    const doc=this.store.get(id);
+    return {...doc,teamId:doc.teamId??this.store.preference(`team:${id}`),integrationSnapshot:!!this.store.preference(`integrationSnapshot:${id}`),frozen:!!this.store.preference(`frozen:${id}`),cached:true};
+  }
   async registerThread(id,input={}){
     this.registrations??=new Map();
     if(this.registrations.has(id))return this.registrations.get(id);
@@ -198,7 +230,7 @@ export class ThreadClient {
   }
   // both stamps are server time, so a wrong laptop clock can't make an online owner look offline, and a revoked one has none
   offline(c){const seen=x=>Date.parse(this.roster.clients?.find(r=>r.id===x)?.last_seen_at);return c!==this.store.clientId&&!(seen(this.store.clientId)-seen(c)<=30000);}
-  async sync(id){return this.syncAuthority(await this.authority(id));}
+  async sync(id,options){return this.syncAuthority(await this.authority(id,options));}
   async syncAuthority(authority){const id=authority.id;if(authority.owner_client_id===this.store.clientId)return this.store.document(id);
     if(authority.team_id){const team=this.roster.threads.find(t=>t.id===authority.team_id);if(team)await this.syncAuthority(team);}
     const local=this.store.list().find(t=>t.id===id);if(local?.staged&&authority.transfer_client_id===this.store.clientId&&checkpointDigest(this.store.document(id))===authority.transfer_digest)return this.store.document(id);
@@ -331,20 +363,22 @@ export class ThreadClient {
       if(!this.memory)throw threadError('Memory is unavailable on this client');
       return this.memory.command(input.action,input);
     }
+    if(input.action==='read'&&input.cached===true)return this.cachedRead(id);
     if(input.action==='read'){
-      if(this.directory.token&&this.roster.capabilities?.transferRequests){
-        let authority;
-        try{authority=await this.authority(id);}
+      let authority;
+      const privateLocal=this.store.list().some(t=>t.id===id&&t.ownerClientId===this.store.clientId&&!t.shared&&!t.staged);
+      if(this.directory.token&&!privateLocal){
+        try{authority=await this.authority(id,{directoryOnly:true});}
         catch(error){if(!this.store.list().some(t=>t.id===id&&t.ownerClientId===this.store.clientId&&!t.staged))throw error;}
-        if(authority&&authority.owner_client_id!==this.store.clientId){
+        if(this.roster.capabilities?.transferRequests&&authority&&authority.owner_client_id!==this.store.clientId){
           const view={id,title:authority.title||'Remote thread',kind:authority.kind,teamId:authority.team_id,organizationId:authority.organization_id,ownerClientId:authority.owner_client_id,ownerUserId:authority.owner_user_id,shared:true,metadataOnly:true,status:authority.run_status,messages:[],runs:[],artifacts:[]};
           if(authority.kind==='team')return view;
-          try{const result=await this.peer.send(id,authority.owner_client_id,{kind:'conversation'});if(!Array.isArray(result.messages)||result.messages.length>10001)throw threadError('Invalid conversation');return {...view,messages:result.messages.map(({id,authorId,kind,text,createdAt})=>({id,authorId,kind,text,createdAt}))};}
-          catch(error){return {...view,unavailable:error.status===403?error.message:'The source machine is unavailable. Conversation text will load when it reconnects.'};}
+          try{const result=await this.peer.send(id,authority.owner_client_id,{kind:'conversation'});if(!Array.isArray(result.messages)||result.messages.length>10001)throw threadError('Invalid conversation');const conversation={...view,messages:result.messages.map(({id,authorId,kind,text,createdAt})=>({id,authorId,kind,text,createdAt}))};this.store.preference(`conversation:${id}`,conversation);return conversation;}
+          catch(error){if(error.status===403)this.store.preference(`conversation:${id}`,null);return {...view,messages:error.status===403?[]:this.store.preference(`conversation:${id}`)?.messages??[],unavailable:error.status===403?error.message:'The source machine is unavailable. Conversation text will load when it reconnects.'};}
         }
       }
       let doc;
-      try{doc=await this.sync(id);}catch(e){
+      try{doc=privateLocal?this.store.get(id):authority?await this.syncAuthority(authority):await this.sync(id,{directoryOnly:true});}catch(e){
         const authority=this.roster.threads.find(t=>t.id===id),owner=this.roster.clients.find(c=>c.id===authority?.owner_client_id);
         const desktopOwned=process.env.BEES_HOSTED_CLIENT&&authority?.kind==='thread'&&authority.owner_client_id!==this.store.clientId&&authority.owner_user_id===this.directory.user?.id&&owner&&owner.name!=='Bees Cloud';
         const connectionMessage=desktopOwned?'This thread is active in your desktop client. To transfer it to the web client, open Bees Desktop and select this thread. Finish or stop any active work, then go to Settings → Transfer, choose Bees Cloud, and click Offer transfer. Return to the web client and click Accept transfer. Keep both clients open until the transfer finishes.':"The owner's Bees Client can't be reached right now.";
@@ -554,6 +588,6 @@ export class ThreadClient {
       if(this.store.document(row.id).runs.some(waiting))this.store.mutate(row.id,randomUUID(),doc=>{for(const run of doc.runs)if(waiting(run))run.recoveringReview=true;});
     }
     for(const abort of this.jobs.values())abort.abort();
-    await Promise.allSettled([...this.finishing]);this.options.credits?.close(this);await this.memory?.close();await this.peer?.close();this.store.close();
+    await Promise.allSettled([...this.finishing,this.running,this.queued,this.directoryPending,this.directoryQueued]);this.options.credits?.close(this);await this.memory?.close();await this.peer?.close();this.store.close();
   }
 }

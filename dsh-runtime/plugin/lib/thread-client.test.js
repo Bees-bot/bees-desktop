@@ -7,6 +7,46 @@ import {randomUUID} from 'node:crypto';
 import {ThreadClient} from './thread-client.js';
 import {DEFAULT_WORKFLOW,CHAT_WORKFLOW,WORKFLOW_TEMPLATES,processName} from './thread-workflow.js';
 
+test('cached conversations and roster survive restart without network work and revoked previews are removed',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'bees-cached-startup-'));let client=new ThreadClient(root);
+ try{
+  const own=client.store.create('Saved work','alice');client.store.message(own.id,randomUUID(),'Saved locally','alice');
+  const remoteId=randomUUID(),authority={id:remoteId,kind:'thread',title:'Remote work',owner_client_id:randomUUID(),owner_user_id:'alice',epoch:1};
+  client.directory.token='client-token';client.directory.user={id:'alice'};client.directory.save();
+  client.store.preference('directoryRoster',{capabilities:{transferRequests:true},threads:[authority],participants:[],clients:[],invitations:[]});
+  client.store.preference(`conversation:${remoteId}`,{id:remoteId,title:'Remote work',metadataOnly:true,messages:[{id:randomUUID(),text:'Saved preview'}],runs:[],artifacts:[]});
+  client.store.close();client=new ThreadClient(root);
+  client.directory.request=()=>assert.fail('Cache reads must not contact Bees');
+  assert.equal((await client.snapshot()).directory.threads[0].id,remoteId);
+  const local=await client.command({action:'read',threadId:own.id,cached:true});
+  assert.equal(local.messages[0].text,'Saved locally');assert.equal(local.cached,true);
+  const preview=await client.command({action:'read',threadId:remoteId,cached:true});
+  assert.equal(preview.messages[0].text,'Saved preview');assert.equal(preview.metadataOnly,true);assert.equal(preview.cached,true);
+  client.peer={endpoints:[]};client.directory.request=async path=>path==='/heartbeat'?{}:{threads:[],participants:[],clients:[],invitations:[]};
+  await client.refresh({directoryOnly:true});
+  assert.equal(await client.command({action:'read',threadId:remoteId,cached:true}),null);
+  assert.equal(client.store.preference(`conversation:${remoteId}`),null);
+ }finally{client.store.close();await rm(root,{recursive:true,force:true});}
+});
+
+test('selected conversation reads bypass slow organization and billing sync',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'bees-priority-read-')),client=new ThreadClient(root);let finish,background;
+ try{
+  const doc=client.store.create('Selected work','alice');client.store.message(doc.id,randomUUID(),'Open me first','alice');
+  client.store.mutate(doc.id,randomUUID(),doc=>{doc.shared=true;});
+  client.directory.token='client-token';client.peer={endpoints:[]};
+  const authority={id:doc.id,kind:'thread',owner_client_id:client.store.clientId,epoch:1};
+  client.directory.request=async path=>{
+   if(path==='/heartbeat')return {};
+   if(path==='/')return {threads:[authority],participants:[],clients:[],invitations:[]};
+   assert.equal(path,'/organizations');return new Promise(resolve=>{finish=()=>resolve({organizations:[]});});
+  };
+  background=client.refresh();while(!finish)await new Promise(setImmediate);
+  const selected=await client.command({action:'read',threadId:doc.id});
+  assert.equal(selected.messages[0].text,'Open me first');
+ }finally{finish?.();await background;client.store.close();await rm(root,{recursive:true,force:true});}
+});
+
 test('refresh skips an unavailable organization without blocking healthy threads and resumes registration after setup',async()=>{
  const root=await mkdtemp(join(tmpdir(),'bees-incomplete-org-')),client=new ThreadClient(root);
  try{
@@ -34,6 +74,7 @@ test('refresh skips an unavailable organization without blocking healthy threads
   const read=()=>client.command({action:'read',threadId:healthy.id});
   assert.equal((await read()).unavailable,undefined);
   assert.equal((await read()).messages[0].text,'Saved conversation');
+  await client.refresh();
   assert.deepEqual(registrations,[pending.id]);
   assert.equal(client.store.get(team.id).shared,false);assert.deepEqual(client.store.get(local.id),{...local,staged:false});
   let snapshot=await client.snapshot();
@@ -79,6 +120,7 @@ test('registration and metadata failures stay on the affected documents while ot
   };
   assert.equal((await client.command({action:'read',threadId:healthy.id})).unavailable,undefined);
   assert.equal((await client.command({action:'read',threadId:outdated.id})).unavailable,undefined);
+  await client.refresh();
   let snapshot=await client.snapshot();
   assert.match(snapshot.threads.find(row=>row.id===rejected.id).syncError,/Cannot share.*Complete organization setup/);
   assert.match(snapshot.threads.find(row=>row.id===outdated.id).syncError,/Renamed work.*update metadata/);

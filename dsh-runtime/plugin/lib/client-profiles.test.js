@@ -7,6 +7,20 @@ import { join } from 'node:path';
 import { ClientProfiles } from './client-profiles.js';
 import { ThreadFolders } from './thread-folders.js';
 
+test('painted UI starts dependencies, then syncs its selected conversation before other accounts',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'bees-startup-order-')),events=[];
+  const profiles=new ClientProfiles(root,{prepareBackground:()=>{events.push('dependencies');return new Promise(()=>{});}});
+  let finish;
+  const active={command:input=>{assert.equal(input.action,'read');assert.equal(input.threadId,'selected');events.push('selected');return new Promise(resolve=>{finish=resolve;});},startBackground:()=>events.push('active background')};
+  profiles.active=active;profiles.clients.set('active',active);profiles.clients.set('other',{startBackground:()=>events.push('other background')});
+  try{
+    const loading=profiles.command({action:'read',threadId:'selected',startup:true});
+    assert.deepEqual(events,['dependencies','selected']);
+    finish({id:'selected'});assert.deepEqual(await loading,{id:'selected'});
+    assert.deepEqual(events,['dependencies','selected','active background','other background']);
+  }finally{await rm(root,{recursive:true,force:true});}
+});
+
 test('multiple local orgs keep the built-in org, teams, folders and settings across switches and restart without a server',async()=>{
   const root=await mkdtemp(join(tmpdir(),'bees-local-orgs-')),original=globalThis.fetch;
   const folders=new ThreadFolders(join(root,'folders.json'),{defaultRoot:join(root,'work'),privateRoot:join(root,'profiles')});

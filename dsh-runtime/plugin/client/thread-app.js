@@ -68,6 +68,8 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const workspaces=useRef(new Map()),switchingOrganization=useRef(false);
   const preference=useAppearance(preferences,data?.settings);
   const [readError,setReadError]=useState(''),[teamReadError,setTeamReadError]=useState('');
+  const conversations=useRef(new Map()),reads=useRef(new Map()),startup=useRef(false);
+  const [syncing,setSyncing]=useState(null);
   const teamRows=data?.teams??[],teamIds=new Set(teamRows.map(t=>t.id));
   const selectedOrganizationId=organizationId===undefined?(data?.settings?.selectedOrganizationId??null):organizationId;
   const allTeams=[...teamRows,...(data?.directory?.threads??[]).filter(t=>t.kind==='team'&&!teamIds.has(t.id)).map(t=>({id:t.id,organizationId:t.organization_id,title:t.title||'Shared team',ownerClientId:t.owner_client_id,shared:true}))];
@@ -90,12 +92,35 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   const theme=THEME_PRESETS.find(t=>t.id===preference.themePreset)??THEME_PRESETS.find(t=>t.id==='corporate');
   const refresh=async()=>{const epoch=profileEpoch.current;const next=await api();if(epoch===profileEpoch.current)setData(next);return next;};
   const openOrganizationSetup=accountId=>openExternal(new URL('/onboarding',data?.accounts?.find(account=>account.id===accountId)?.url??data?.serverUrl??'https://app.bees.bot').href);
-  const read=async id=>{const epoch=profileEpoch.current;try{const value=await command('read',id);if(epoch===profileEpoch.current&&selectedRef.current===id){setThread(value);setReadError('');}return value;}catch(e){if(epoch===profileEpoch.current&&selectedRef.current===id)setReadError(e.message);throw e;}};
-  const readTeam=async id=>{const epoch=profileEpoch.current;try{const value=await command('read',id);if(epoch===profileEpoch.current&&teamRef.current===id){setTeam(value);setTeamReadError('');}return value;}catch(e){if(epoch===profileEpoch.current&&teamRef.current===id)setTeamReadError(e.message);throw e;}};
+  const read=id=>{
+    const epoch=profileEpoch.current,selection=selectionEpoch.current,key=`${epoch}:${selection}:${id}`;
+    if(reads.current.has(key))return reads.current.get(key);
+    const current=()=>epoch===profileEpoch.current&&selection===selectionEpoch.current&&selectedRef.current===id;
+    const pending=(async()=>{
+      if(current())setSyncing(id);
+      try{
+        if(!conversations.current.has(id)){
+          const cached=await command('read',id,{cached:true});
+          if(cached&&current()){conversations.current.set(id,cached);setThread(cached);}
+        }
+        // Give the cached conversation a frame before starting network work.
+        if(!startup.current)await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+        if(epoch!==profileEpoch.current)return;
+        const initial=!startup.current;startup.current=true;
+        const value=await command('read',id,initial?{startup:true}:{});
+        if(initial&&epoch===profileEpoch.current)void refresh().catch(()=>{});
+        if(current()){conversations.current.set(id,value);setThread(value);setReadError('');}
+        return value;
+      }catch(e){if(current()){setReadError(e.message);if(e.status===401||e.status===403){conversations.current.delete(id);setThread(null);}}throw e;}
+      finally{reads.current.delete(key);if(current())setSyncing(null);}
+    })();
+    reads.current.set(key,pending);return pending;
+  };
+  const readTeam=async id=>{const epoch=profileEpoch.current;try{const value=await command('read',id,startup.current?{}:{cached:true});if(epoch===profileEpoch.current&&teamRef.current===id){setTeam(value);setTeamReadError('');}return value;}catch(e){if(epoch===profileEpoch.current&&teamRef.current===id)setTeamReadError(e.message);throw e;}};
   const perform=async fn=>{setBusy(true);setError('');setNotice('');try{return await fn();}catch(e){setError(e.message);}finally{setBusy(false);}};
   const act=(action,values={})=>perform(async()=>{const id=selected;const result=await command(action,id,values);await refresh();if(id)await read(id);return result;});
   const saveTitle=()=>{const trimmed=titleDraft.trim();setRenamingTitle(false);if(trimmed&&trimmed!==thread?.title)void act('configure',{title:trimmed});};
-  const select=(id,keepDialog=false)=>{selectionEpoch.current++;if(id!==selected){setThread(null);setError(e=>e===offline?e:'');}setRenamingTitle(false);const row=data?.threads.find(t=>t.id===id)??data?.directory?.threads.find(t=>t.id===id);const parent=row?.teamId??row?.team_id;if(parent&&allTeams.some(t=>t.id===parent))setTeamId(parent);selectedRef.current=id;setSelected(id);setComposing(false);setNewTemplate('goals');setSuggestion(null);setNavigation({id:'conversation'});if(!keepDialog)setDialog(null);setInviteLink('');setNotice('');};
+  const select=(id,keepDialog=false)=>{selectionEpoch.current++;if(id!==selected){const cached=conversations.current.get(id);setThread(cached?{...cached,cached:true}:null);setError(e=>e===offline?e:'');}setRenamingTitle(false);const row=data?.threads.find(t=>t.id===id)??data?.directory?.threads.find(t=>t.id===id);const parent=row?.teamId??row?.team_id;if(parent&&allTeams.some(t=>t.id===parent))setTeamId(parent);selectedRef.current=id;setSelected(id);setComposing(false);setNewTemplate('goals');setSuggestion(null);setNavigation({id:'conversation'});if(!keepDialog)setDialog(null);setInviteLink('');setNotice('');};
   const navigate=next=>{setNavigation({id:next});setDialog(null);};
   const closeDialog=()=>{const returnTo=loginReturn.current;loginReturn.current=null;setDialog(returnTo?'team':null);setError('');setNotice('');};
   const openSettings=section=>{setThreadSection(section);setInviteLink('');setNotice('');navigate('settings');};
@@ -114,7 +139,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     const blockDrop=event=>{if(!event.dataTransfer?.types?.includes('Files'))return;if(event.type==='dragover'&&!event.defaultPrevented)event.dataTransfer.dropEffect='none';event.preventDefault();};
     document.addEventListener('dragover',blockDrop);document.addEventListener('drop',blockDrop);
     // a call that failed while the server was down left its error up after the connection came back
-    let alive=true;const tick=()=>{if(!alive||switchingOrganization.current)return;const epoch=profileEpoch.current;void refresh().then(next=>{if(alive&&epoch===profileEpoch.current&&!next?.connectionError)setError(e=>e===offline?'':e);}).catch(e=>{if(!alive||epoch!==profileEpoch.current)return;setError(e.message);setData(previous=>hosted&&e.status===401?{user:null}:previous?{...previous,connectionError:e.message}:previous);if(hosted&&e.status===401){profileEpoch.current++;workspaces.current.clear();setDialog(null);}});};
+    let alive=true;const tick=()=>{if(!alive||switchingOrganization.current)return;const epoch=profileEpoch.current;void refresh().then(next=>{if(alive&&epoch===profileEpoch.current&&!next?.connectionError)setError(e=>e===offline?'':e);}).catch(e=>{if(!alive||epoch!==profileEpoch.current)return;setError(e.message);setData(previous=>hosted&&e.status===401?{user:null}:previous?{...previous,connectionError:e.message}:previous);if(hosted&&e.status===401){profileEpoch.current++;workspaces.current.clear();conversations.current.clear();reads.current.clear();setDialog(null);}});};
     tick();const timer=setInterval(tick,5000);
     return()=>{alive=false;clearInterval(timer);document.removeEventListener('pointerdown',dismissMenus,true);document.removeEventListener('toggle',revealMenu,true);document.removeEventListener('dragover',blockDrop);document.removeEventListener('drop',blockDrop);style.remove();document.title=previousTitle;};
   },[]);
@@ -124,6 +149,16 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     const found=!!id&&(data.threads.some(t=>t.id===id)||!!data.directory?.threads.some(t=>t.id===id&&t.kind!=='team'));
     if(!found&&data.connectionError)return;restored.current=true;if(found&&!selectedRef.current)select(id);},[data]);
   useEffect(()=>{if(restored.current)try{selected?localStorage.setItem('bees:open-thread',selected):localStorage.removeItem('bees:open-thread');}catch{}},[selected]);
+  useEffect(()=>{
+    if(!data||!restored.current||startup.current)return;
+    let alive=true;
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+      if(!alive||startup.current)return;
+      if(selectedRef.current)void read(selectedRef.current).catch(()=>{});
+      else{startup.current=true;void command('startup').then(()=>refresh()).catch(()=>{});}
+    }));
+    return()=>{alive=false;};
+  },[!!data]);
   useEffect(()=>{setPreview(null);setThread(previous=>previous?.id===selected?previous:null);setReadError('');if(selected)void read(selected).catch(()=>{});},[selected]);
   // Retry even before the first copy arrives; close threads removed from the directory.
   useEffect(()=>{if(selected)void read(selected).catch(()=>{if(selectedRef.current===selected&&data&&!data.connectionError&&!data.threads.some(t=>t.id===selected)&&!data.directory?.threads.some(t=>t.id===selected)){select(null);setNotice('That thread was deleted, or you no longer have access to it.');}});},[data]);
@@ -151,7 +186,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     const epoch=profileEpoch.current;
     const updating=refresh().catch(e=>{
       if(epoch!==profileEpoch.current)return;
-      if(hosted&&e.status===401){profileEpoch.current++;workspaces.current.clear();setData({user:null});}
+      if(hosted&&e.status===401){profileEpoch.current++;workspaces.current.clear();conversations.current.clear();reads.current.clear();setData({user:null});}
       else setData(previous=>previous?{...previous,connectionError:e.message}:previous);
       setError(e.message);
     });
@@ -161,7 +196,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
     if(preferences){if(preferences.getSnapshot().status!=='ready')throw Error('Settings are still loading');for(const [key,value] of Object.entries(values))await preferences.set(key,value);}
     else {await command('preferences',null,{values});await refresh();}
   });
-  const clearAccount=(keepWorkspaces=false)=>{if(!keepWorkspaces)workspaces.current.clear();profileEpoch.current++;settingsEpoch.current++;setSettingsAccountId(undefined);setSettingsOrganizationId(undefined);setSettingsTeamId(null);setSettingsTeam(null);setSettingsData(null);select(null);setOrganizationId(undefined);setTeamId(null);setTeam(null);setCollapsed({});setThread(null);setPreview(null);setSuggestion(null);setData(null);};
+  const clearAccount=(keepWorkspaces=false)=>{if(!keepWorkspaces)workspaces.current.clear();conversations.current.clear();reads.current.clear();setSyncing(null);profileEpoch.current++;settingsEpoch.current++;setSettingsAccountId(undefined);setSettingsOrganizationId(undefined);setSettingsTeamId(null);setSettingsTeam(null);setSettingsData(null);select(null);setOrganizationId(undefined);setTeamId(null);setTeam(null);setCollapsed({});setThread(null);setPreview(null);setSuggestion(null);setData(null);};
   const create=(templateId='goals',id=currentTeamId)=>perform(async()=>{
     select(null);setComposing(true);setTeamId(id);setNewTemplate(templateId);setCollapsed(values=>({...values,[id]:false}));
     const epoch=selectionEpoch.current,profile=profileEpoch.current;
@@ -224,7 +259,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
   // the 5 second roster tick is too slow to watch a reply come in
   useEffect(()=>{if(!active||!selected)return;const timer=setInterval(()=>void read(selected).catch(()=>{}),1500);return()=>clearInterval(timer);},[active,selected]);
   const canEdit=!selected||!!thread&&(own||participants.some(p=>p.user_id===data?.user?.id&&p.role!=='viewer'));
-  const canWrite=canEdit&&!thread?.metadataOnly&&!thread?.frozen&&!thread?.unavailable;
+  const canWrite=canEdit&&!thread?.cached&&!thread?.metadataOnly&&!thread?.frozen&&!thread?.unavailable;
   const canConfigure=manage&&canWrite;
   const teamParticipants=roster.participants.filter(p=>p.thread_id===currentTeamId);
   const teamRole=teamParticipants.find(p=>p.user_id===data?.user?.id)?.role;
@@ -395,6 +430,7 @@ export function ThreadApp({ctx,preferences,modelSettings,brandMark}) {
             h('input',{className:'bc-thread-title-input',value:titleDraft,autoFocus:true,'aria-label':'Thread title',maxLength:180,onChange:e=>setTitleDraft(e.target.value),onKeyDown:e=>{if(e.key==='Escape'){e.stopPropagation();setRenamingTitle(false);}},onBlur:saveTitle}))
           :h('div',{className:'bc-thread-title-row'},
             h('h2',{onDoubleClick:canWrite&&selected&&thread?()=>{setTitleDraft(thread?.title||'');setRenamingTitle(true);}:undefined,title:canWrite&&selected&&thread?'Double-click to rename':undefined},thread?.title??authority?.title??(selected?'Loading thread…':'New thread')),
+            syncing===selected&&selected?h('span',{className:'bc-sync-indicator',role:'status','aria-label':'Syncing conversation',title:'Syncing conversation'},'↻'):null,
             canWrite&&selected&&thread?h('button',{type:'button',className:'bc-icon bc-rename-button','aria-label':'Rename thread',title:'Rename thread',onClick:()=>{setTitleDraft(thread?.title||'');setRenamingTitle(true);}},icon('edit')):null),
           h('p',null,thread?.draft?'Draft · Add your prompt, files, and settings before starting.':selected?(thread?.metadataOnly?`${ownerUser?.name||ownerUser?.email||'Owner'} · `:'')+(owner?.name??(own?'This machine':'Shared work'))+(thread?.metadataOnly?` · ${authority?.run_status||'idle'} · Read-only conversation`:''):'Choose a team to get started.')),
         selected?h('div',{className:'bc-actions'},
