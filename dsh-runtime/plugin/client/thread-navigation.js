@@ -30,7 +30,8 @@ export function TeamSection({team,expanded,onToggle,onOpen,menu,children}){
     expanded?h('div',{className:'bc-team-threads'},children):null);
 }
 
-export function BeesNavigation({brandMark,icon,localOrganizations=[],accounts=[],localActive=!accounts.some(account=>account.active),organizationId,theme,busy,onOrganization,onGlobal,onTheme,onAccount}){
+export function BeesNavigation({brandMark,icon,localOrganizations=[],accounts=[],localActive=!accounts.some(account=>account.active),organizationId,theme,updates,busy,onOrganization,onGlobal,onTheme,onAccount}){
+  const updateTitle=updates?.currentVersion?`You are on version ${updates.currentVersion}, new version ${updates.version} available, click to update`:`New version ${updates?.version} available, click to update`;
   const localSelected=localActive&&!organizationId;
   const label=text=>h('span',{className:'bc-rail-label'},text);
   const orgRows=[...!hosted?localOrganizations.map(org=>({account:{id:null,active:localActive},org,title:`${org.name} (Local)`})):[],...accounts.flatMap(account=>(account.organizations??[]).map(org=>({account,org,title:`${org.name} (${account.user.email})` })))]
@@ -49,6 +50,7 @@ export function BeesNavigation({brandMark,icon,localOrganizations=[],accounts=[]
       accounts.filter(account=>account.organizationError).map(account=>h('p',{key:account.id,className:'bc-rail-label bc-org-error',role:'status',title:account.organizationError},`Org list unavailable (${account.user.email}). Showing saved orgs.`))),
     h('div',{className:'bc-spacer'}),
     h('div',{className:'bc-rail-bottom'},
+      !hosted&&updates?.enabled&&updates.version?h('button',{className:'bc-rail-action bc-update-available','aria-label':updateTitle,title:updateTitle,onClick:()=>onGlobal('updates')},h('svg',{width:20,height:20,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:1.7,strokeLinecap:'round',strokeLinejoin:'round','aria-hidden':true},h('path',{d:'M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5'})),label('Update available')):null,
       h('button',{className:'bc-rail-action','aria-label':`Switch to ${theme.dark?'light':'dark'} theme`,title:`Switch to ${theme.dark?'light':'dark'} theme`,onClick:onTheme},icon(theme.dark?'sun':'moon'),label(theme.dark?'Light mode':'Dark mode')),
       h('button',{className:'bc-rail-action','aria-label':'Settings',title:'Settings',onClick:()=>onGlobal('ai')},icon('settings'),label('Settings')),
       h('button',{className:'bc-rail-action','aria-label':'Account settings','aria-description':accounts.length>1?`${accounts.length} signed-in accounts`:undefined,title:'Account settings',onClick:onAccount},h('span',{className:'bc-account-icon'},icon('accounts'),accounts.length>1?h('small',{className:'bc-account-count'},accounts.length):null),label('Accounts'))));

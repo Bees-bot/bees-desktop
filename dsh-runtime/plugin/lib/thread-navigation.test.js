@@ -8,6 +8,7 @@ import {SettingsPage,SettingsNav,ThreadDetails,SentInvitations} from '../client/
 import {TeamProcesses} from '../client/thread-processes.js';
 import {OrganizationAppearance,OrganizationIcon,readOrganizationImage} from '../client/thread-organization-appearance.js';
 import {ThreadApp,ThreadConversation} from '../client/thread-app.js';
+import {UpdateSettings} from '../client/thread-updates.js';
 import {FirstStart} from '../client/thread-credits.js';
 import {threadCss} from '../client/thread-style.js';
 import {ThreadWorkspace} from '../client/thread-layout.js';
@@ -991,5 +992,35 @@ test('organization Members is separate from General and refreshes invitations af
     assert(!content.some(node=>node.props['aria-label']==='Invite colleague by email'||node.type===SentInvitations||['Remove','Cancel invitation'].includes(node.props.children)));
     content=renderPanel({...panel,props:{...panel.props,local:true}});
     assert(!content.some(node=>node.type==='form'||node.props.children==='Current members'));
+  });
+});
+
+test('desktop updates live in Global settings and the rail opens that page without a header banner',async()=>{
+  const snapshot={clientId:'local',teams:[],threads:[],organizations:[],settings:{}};
+  await appHarness({snapshot,hosted:false},async render=>{
+    globalThis.window.__TAURI__={core:{invoke:async()=> '0.4.0'}};
+    let tree=render();
+    assert(!tree.some(node=>node.type===UpdateSettings));
+    await tree.find(node=>node.type===BeesNavigation).props.updates.check();
+    tree=render();
+    const rail=tree.find(node=>node.type===BeesNavigation);
+    const updateButton=nodes(BeesNavigation(rail.props)).find(node=>node.props.className==='bc-rail-action bc-update-available');
+    updateButton.props.onClick();
+    tree=render();
+    const page=tree.find(node=>node.type===SettingsPage);
+    assert.equal(page.props.selected,'updates');
+    assert(page.props.groups.find(group=>group.title==='Global').items.some(([id,label])=>id==='updates'&&label==='Check for updates'));
+    const panel=tree.find(node=>node.type===UpdateSettings);
+    assert.equal(panel.props.updates.version,'0.4.0');
+    assert.equal(tree.find(node=>node.props.className==='bc-main').props.children[0].type,React.Fragment,'Settings occupies the top without an update banner');
+    panel.props.onClose();
+    tree=render();
+    assert(!tree.some(node=>node.type===SettingsPage));
+    assert.equal(tree.find(node=>node.type===BeesNavigation).props.updates.version,'0.4.0');
+  });
+  appHarness({snapshot,hosted:true},render=>{
+    render().find(node=>node.type===BeesNavigation).props.onGlobal('ai');
+    const page=render().find(node=>node.type===SettingsPage);
+    assert(!page.props.groups.find(group=>group.title==='Global').items.some(([id])=>id==='updates'));
   });
 });

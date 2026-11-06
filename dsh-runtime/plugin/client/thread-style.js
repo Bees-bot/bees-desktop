@@ -1,4 +1,6 @@
 export const threadCss=`
+.bc-update-available>svg{color:var(--accent);animation:bc-update-pulse 1.5s ease-in-out infinite}
+@keyframes bc-update-pulse{50%{opacity:.35}}
 .bc-sync-indicator{display:inline-block;opacity:.6;animation:bc-sync-spin 1s linear infinite}
 @keyframes bc-sync-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.bc-sync-indicator{animation:none}}
