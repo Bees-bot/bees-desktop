@@ -125,3 +125,32 @@ test('parallel helpers queue human decisions without replacing another pending a
   const stopped=Promise.all([assert.rejects(active,/Work stopped/),assert.rejects(queued,/Work stopped/)]);
   signal.abort();await stopped;assert.equal(run.pending,undefined);assert.equal(runner.pending.size,0);
 });
+
+
+test('workspace-root deliverables appear as outputs without collecting input folders or hidden files', async () => {
+  const root=mkdtempSync(join(tmpdir(),'bees-root-output-')),store=new ThreadStore(root);
+  try {
+    const thread=store.create('Root result'),run={id:randomUUID(),workflow:[]};
+    const cwd=join(root,'runs',thread.id,run.id);
+    for(const folder of ['outputs','scratch'])mkdirSync(join(cwd,folder),{recursive:true});
+    writeFileSync(join(cwd,'counter-2026-11-06-06-04.txt'),'first\nsecond\nthird\nfourth\nfifth\n');
+    writeFileSync(join(cwd,'outputs','counter-2026-11-06-06-04.txt'),'separate output');
+    writeFileSync(join(cwd,'scratch','scratch.txt'),'not a deliverable');
+    writeFileSync(join(cwd,'.env'),'SECRET=value');
+    writeFileSync(join(cwd,'.bees-shared.json'),'{}');
+    writeFileSync(join(cwd,'.runtime-state'),'private');
+    symlinkSync(join(cwd,'scratch','scratch.txt'),join(cwd,'linked.txt'));
+    store.attach(thread.id,randomUUID(),'input.txt',Buffer.from('input'),'local');
+    const runner=new ThreadRunner({});
+    const execute=()=>runner.execute({thread:store.document(thread.id),run,signal:new AbortController().signal,store});
+    await execute();
+    const outputs=store.document(thread.id).artifacts.filter(file=>file.authorId==='bees');
+    assert.deepEqual(outputs.map(file=>file.path),[
+      'results/'+run.id+'/counter-2026-11-06-06-04.txt',
+      'results/'+run.id+'/workspace/counter-2026-11-06-06-04.txt'
+    ]);
+    assert.equal(store.object(store.document(thread.id),outputs[1].id).bytes.toString(),'first\nsecond\nthird\nfourth\nfifth\n');
+    await execute();
+    assert.equal(store.document(thread.id).artifacts.filter(file=>file.authorId==='bees').length,2);
+  } finally {store.close();rmSync(root,{recursive:true,force:true});}
+});
